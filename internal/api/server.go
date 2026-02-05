@@ -1,0 +1,314 @@
+package api
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
+	"log/slog"
+	"net"
+	"net/http"
+	"strings"
+	"time"
+
+	"secret/internal/auth"
+	"secret/internal/config"
+	"secret/internal/ratelimit"
+	"secret/internal/secrets"
+	"secret/internal/storage"
+)
+
+type Server struct {
+	cfg     config.Config
+	secrets storage.SecretsStore
+	auth    *auth.Authenticator
+
+	publicCreateLimiter *ratelimit.Limiter
+	claimLimiter        *ratelimit.Limiter
+	apiLimiter          *ratelimit.Limiter
+
+	generateID func() (string, error)
+
+	mux *http.ServeMux
+}
+
+func NewServer(cfg config.Config, secretsStore storage.SecretsStore, authn *auth.Authenticator) *Server {
+	mux := http.NewServeMux()
+
+	s := &Server{
+		cfg:     cfg,
+		secrets: secretsStore,
+		auth:    authn,
+		// Conservative single-instance rate limits. Tune as needed.
+		publicCreateLimiter: ratelimit.New(0.2, 4), // ~12/min burst 4 per IP
+		claimLimiter:        ratelimit.New(1.0, 10),
+		apiLimiter:          ratelimit.New(2.0, 20),
+		generateID:          secrets.GenerateID,
+		mux:                 mux,
+	}
+
+	mux.HandleFunc("GET /healthz", s.handleHealthz)
+	mux.HandleFunc("GET /", s.handleIndex)
+	mux.HandleFunc("GET /s/{id}", s.handleSecretPage)
+	mux.HandleFunc("GET /robots.txt", s.handleRobotsTxt)
+
+	// Anonymous/public endpoint for the web UI (no API key).
+	mux.HandleFunc("POST /api/v1/public/secrets", s.handleCreatePublicSecret)
+
+	// API-key authenticated endpoints for automation.
+	mux.HandleFunc("POST /api/v1/secrets", s.handleCreateAuthedSecret)
+	mux.HandleFunc("POST /api/v1/secrets/{id}/burn", s.handleBurnAuthedSecret)
+
+	// Claim endpoint (no API key; possession of the URL fragment + optional passphrase should be enough).
+	mux.HandleFunc("POST /api/v1/secrets/{id}/claim", s.handleClaimSecret)
+
+	return s
+}
+
+func (s *Server) Handler() http.Handler {
+	return withMiddleware(s.mux)
+}
+
+func (s *Server) handleHealthz(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, http.StatusOK, map[string]any{
+		"ok":   true,
+		"time": time.Now().UTC().Format(time.RFC3339Nano),
+	})
+}
+
+func (s *Server) handleCreatePublicSecret(w http.ResponseWriter, r *http.Request) {
+	if !s.publicCreateLimiter.Allow(clientIP(r)) {
+		writeError(w, http.StatusTooManyRequests, "rate limited")
+		return
+	}
+
+	s.handleCreateSecret(w, r, false)
+}
+
+func (s *Server) handleCreateAuthedSecret(w http.ResponseWriter, r *http.Request) {
+	apiKey, ok := s.requireAPIKey(w, r)
+	if !ok {
+		return
+	}
+	_ = apiKey
+
+	if !s.apiLimiter.Allow("apikey:" + apiKey.Prefix) {
+		writeError(w, http.StatusTooManyRequests, "rate limited")
+		return
+	}
+
+	s.handleCreateSecret(w, r, true)
+}
+
+func (s *Server) handleCreateSecret(w http.ResponseWriter, r *http.Request, authed bool) {
+	if r.Method != http.MethodPost {
+		methodNotAllowed(w, r)
+		return
+	}
+	if !isJSONContentType(r) {
+		badRequest(w, "content-type must be application/json")
+		return
+	}
+
+	r.Body = http.MaxBytesReader(w, r.Body, secrets.MaxEnvelopeBytes+16*1024)
+	dec := json.NewDecoder(r.Body)
+	dec.DisallowUnknownFields()
+
+	var req CreateSecretRequest
+	if err := dec.Decode(&req); err != nil {
+		badRequest(w, mapDecodeError(err))
+		return
+	}
+	if err := dec.Decode(&struct{}{}); err != io.EOF {
+		badRequest(w, "invalid json")
+		return
+	}
+
+	if err := secrets.ValidateEnvelope(req.Envelope); err != nil {
+		badRequest(w, "invalid envelope")
+		return
+	}
+	if err := secrets.ValidateClaimHash(req.ClaimHash); err != nil {
+		badRequest(w, "invalid claim_hash")
+		return
+	}
+
+	var ttl time.Duration
+	var err error
+	if authed {
+		ttl, err = secrets.NormalizeAuthedTTL(req.TTLSeconds)
+	} else {
+		ttl, err = secrets.NormalizePublicTTL(req.TTLSeconds)
+	}
+	if err != nil {
+		badRequest(w, "invalid ttl_seconds")
+		return
+	}
+
+	expiresAt := time.Now().UTC().Add(ttl)
+
+	// Generate a random ID server-side to prevent predictable IDs.
+	id, err := s.generateID()
+	if err != nil {
+		slog.Error("id generation error", "err", err)
+		internalServerError(w)
+		return
+	}
+
+	sec := storage.Secret{
+		ID:        id,
+		ClaimHash: req.ClaimHash,
+		Envelope:  req.Envelope,
+		ExpiresAt: expiresAt,
+	}
+
+	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+	defer cancel()
+
+	if err := s.secrets.Create(ctx, sec); err != nil {
+		slog.Error("create secret error", "err", err)
+		internalServerError(w)
+		return
+	}
+
+	shareURL := fmt.Sprintf("%s/s/%s", s.cfg.PublicBaseURL, id)
+	writeJSON(w, http.StatusCreated, CreateSecretResponse{
+		ID:        id,
+		ShareURL:  shareURL,
+		ExpiresAt: expiresAt,
+	})
+}
+
+func (s *Server) handleClaimSecret(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		methodNotAllowed(w, r)
+		return
+	}
+	if !s.claimLimiter.Allow(clientIP(r)) {
+		writeError(w, http.StatusTooManyRequests, "rate limited")
+		return
+	}
+	if !isJSONContentType(r) {
+		badRequest(w, "content-type must be application/json")
+		return
+	}
+
+	id := r.PathValue("id")
+	if id == "" {
+		notFound(w)
+		return
+	}
+
+	r.Body = http.MaxBytesReader(w, r.Body, 8*1024)
+	dec := json.NewDecoder(r.Body)
+	dec.DisallowUnknownFields()
+
+	var req ClaimSecretRequest
+	if err := dec.Decode(&req); err != nil {
+		badRequest(w, mapDecodeError(err))
+		return
+	}
+	if err := dec.Decode(&struct{}{}); err != io.EOF {
+		badRequest(w, "invalid json")
+		return
+	}
+	if strings.TrimSpace(req.Claim) == "" {
+		badRequest(w, "claim is required")
+		return
+	}
+
+	claimHash, err := secrets.HashClaimToken(req.Claim)
+	if err != nil {
+		// Treat invalid claims as not found to avoid secret existence leaks.
+		notFound(w)
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+	defer cancel()
+
+	sec, err := s.secrets.ClaimAndDelete(ctx, id, claimHash, time.Now().UTC())
+	if errors.Is(err, storage.ErrNotFound) {
+		notFound(w)
+		return
+	}
+	if err != nil {
+		slog.Error("claim secret error", "err", err)
+		internalServerError(w)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, ClaimSecretResponse{
+		Envelope:  sec.Envelope,
+		ExpiresAt: sec.ExpiresAt,
+	})
+}
+
+func (s *Server) handleBurnAuthedSecret(w http.ResponseWriter, r *http.Request) {
+	apiKey, ok := s.requireAPIKey(w, r)
+	if !ok {
+		return
+	}
+	_ = apiKey
+
+	if r.Method != http.MethodPost {
+		methodNotAllowed(w, r)
+		return
+	}
+
+	id := r.PathValue("id")
+	if id == "" {
+		notFound(w)
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+	defer cancel()
+
+	deleted, err := s.secrets.Burn(ctx, id)
+	if err != nil {
+		slog.Error("burn secret error", "err", err)
+		internalServerError(w)
+		return
+	}
+	if !deleted {
+		notFound(w)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
+}
+
+func (s *Server) requireAPIKey(w http.ResponseWriter, r *http.Request) (storage.APIKey, bool) {
+	raw := strings.TrimSpace(r.Header.Get("X-API-Key"))
+	if raw == "" {
+		authz := strings.TrimSpace(r.Header.Get("Authorization"))
+		if strings.HasPrefix(strings.ToLower(authz), "bearer ") {
+			raw = strings.TrimSpace(authz[len("bearer "):])
+		}
+	}
+	if raw == "" {
+		unauthorized(w)
+		return storage.APIKey{}, false
+	}
+
+	ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
+	defer cancel()
+
+	k, err := s.auth.Authenticate(ctx, raw)
+	if err != nil {
+		unauthorized(w)
+		return storage.APIKey{}, false
+	}
+	return k, true
+}
+
+func clientIP(r *http.Request) string {
+	// For v1 we intentionally avoid trusting X-Forwarded-For without explicit configuration.
+	host, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		return r.RemoteAddr
+	}
+	return host
+}

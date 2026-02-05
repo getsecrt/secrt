@@ -1,0 +1,40 @@
+# golangci-lint configuration
+# https://golangci-lint.run/usage/configuration/
+
+run:
+  timeout: 5m
+  modules-download-mode: readonly
+
+linters:
+  enable:
+    # Default linters
+    - errcheck
+    - gosimple
+    - govet
+    - ineffassign
+    - staticcheck
+    - unused
+    # Formatting
+    - gofmt
+    - goimports
+    # Bugs
+    - bodyclose
+    - noctx
+    - sqlclosecheck
+    # Style
+    - misspell
+    - errorlint
+    - copyloopvar
+
+linters-settings:
+  gofmt:
+    simplify: true
+  goimports:
+    local-prefixes: secret
+  misspell:
+    locale: US
+  errorlint:
+    errorf: true
+    asserts: true
+    comparison: true
+

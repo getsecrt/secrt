@@ -1,0 +1,13 @@
+.DS_Store
+.env
+
+# Go build artifacts
+/bin/
+/dist/
+*.test
+*.out
+
+# Coverage
+coverage.out
+coverage.html
+
