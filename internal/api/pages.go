@@ -15,10 +15,10 @@ func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>secret.fullspec.ca</title>
+    <title>secrt.ca</title>
   </head>
   <body>
-    <h1>secret.fullspec.ca</h1>
+    <h1>secrt.ca</h1>
     <p>Backend is running. Frontend UI is not implemented yet.</p>
     <h2>Endpoints</h2>
     <ul>

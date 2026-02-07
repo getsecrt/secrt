@@ -1,4 +1,4 @@
-# secret.fullspec.ca (One-time Secret Sharing) — Agent Notes
+# secrt.ca (One-time Secret Sharing) — Agent Notes
 
 This repo is a small, security-sensitive service for one-time secret sharing (similar to onetimesecret.com). v1.0 backend will be implemented in **Go**.
 
@@ -60,6 +60,39 @@ Static analysis:
 
 Vuln scanning:
 - Run `govulncheck` before releases.
+
+## Git Commits
+
+Git commits should be done 'atomically' when possible: One commit per logical change to the codebase. This makes it easy to trace back and figure out what change may have broken something or affected some aspect of the application.
+
+Use the "Conventional Commits" style:
+
+type: subject
+
+Types:
+
+- feat: new feature
+- fix: bug fix
+- test: edits to tests
+- refactor: improvements to code quality
+- docs: documentation
+- style: style/whitespace/formatting
+- perf: improved performance
+- chore: configuration, dependencies, updates
+- ci: CD/CD pipeline changes
+- build: build system changes
+- revert: revert a prior commit
+
+Subject:
+
+- Concise description (< 52 characters)
+- Start with lowercase letter (except when using a proper noun or term that's normally capitalized)
+- NO period at end
+
+When non-trivial, add a few lines in the body in bullet point explaining the key changes made, and when non-obvious, what the rationale was.
+
+Important: When planning big new features or preparing to make large refactors, commit any uncommitted files, _especially_ if they are likely to be touched in the impending changes. That way if everything goes wrong, it's relatively easy to revert the changes.
+
 
 ## Dependency policy
 

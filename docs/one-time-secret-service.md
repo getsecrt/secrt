@@ -1,4 +1,4 @@
-# One-time Secret Sharing Service (secret.fullspec.ca)
+# One-time Secret Sharing Service (secrt.ca)
 
 Date: 2026-02-04  
 Goal: a self-hosted, “view once then delete” service for sharing text secrets (passwords, recovery codes, small notes) safely over the internet, with an optional out-of-band PIN and an authenticated API for automation.
@@ -59,7 +59,7 @@ You cannot design this well without being explicit about attackers and what “s
 
 ### 2.1 System components
 
-- **Frontend**: static HTML/JS served from `secret.fullspec.ca` (no third-party scripts).
+- **Frontend**: static HTML/JS served from `secrt.ca` (no third-party scripts).
 - **Backend API**: small service that accepts ciphertext, enforces TTL, serves ciphertext once, and deletes records.
 - **Storage**: Redis or Postgres.
   - Redis (with TTL) is common and fast for one-time semantics.
@@ -91,7 +91,7 @@ You cannot design this well without being explicit about attackers and what “s
 6. Client uploads to server:
    - `secret_id`, `ciphertext`, `nonce`, `kdf_salt`, `kdf_params`, `expires_at`, and `claim_hash = H(k_claim)` (hash only).
 7. Client outputs a shareable URL:
-   - `https://secret.fullspec.ca/s/<secret_id>#<k_url>`
+   - `https://secrt.ca/s/<secret_id>#<k_url>`
 8. If PIN is used: user shares **URL** and **PIN via separate channel**.
 
 #### View (one-time retrieval)

@@ -1,4 +1,4 @@
-# secret.fullspec.ca
+# secrt.ca
 
 One-time secret sharing service (v1.0 planned backend: Go).
 

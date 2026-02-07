@@ -2,7 +2,7 @@
 
 Status: Draft v1 (normative for client interoperability once accepted)
 
-This document defines the client-side envelope format and crypto workflow used by `secret.fullspec.ca`.
+This document defines the client-side envelope format and crypto workflow used by `secrt.ca`.
 
 The server must treat `envelope` as opaque JSON and store/return it exactly once. The server must not need decryption keys.
 
@@ -48,7 +48,7 @@ Constants:
 - `PASS_KEY_LEN = 32` bytes
 - `HKDF_LEN = 32` bytes
 - `GCM_NONCE_LEN = 12` bytes
-- `AAD = "secret.fullspec.ca/envelope/v1"` (ASCII bytes)
+- `AAD = "secrt.ca/envelope/v1"` (ASCII bytes)
 - `HKDF_INFO_ENC = "secret:v1:enc"` (ASCII bytes)
 - `HKDF_INFO_CLAIM = "secret:v1:claim"` (ASCII bytes)
 

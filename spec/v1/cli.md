@@ -2,7 +2,7 @@
 
 Status: Draft v1 (normative for CLI interoperability once accepted)
 
-This document defines a v1-compatible CLI for `secret.fullspec.ca`.
+This document defines a v1-compatible CLI for `secrt.ca`.
 
 The CLI is a client of:
 
@@ -26,18 +26,18 @@ A conforming CLI:
 
 ## Command Surface (v1)
 
-Reference binary name in examples: `secretctl`.
+Reference binary name in examples: `secrt`.
 
 Required commands:
 
-- `secretctl secret create`
-- `secretctl secret claim <share-url>`
+- `secrt secret create`
+- `secrt secret claim <share-url>`
 
 Optional command:
 
-- `secretctl secret burn <id-or-share-url>` (API-key authenticated)
+- `secrt secret burn <id-or-share-url>` (API-key authenticated)
 
-The existing operational `apikey` commands are implementation-specific and out of scope for this client-interoperability spec.
+Operational/admin API-key management commands are implementation-specific and out of scope for this client-interoperability spec.
 
 ## Global Options
 
@@ -97,7 +97,7 @@ Creates a one-time secret by encrypting locally, then uploading ciphertext envel
 Usage:
 
 ```bash
-secretctl secret create [--ttl <ttl>] [--api-key <key>] [--base-url <url>] [--json]
+secrt secret create [--ttl <ttl>] [--api-key <key>] [--base-url <url>] [--json]
                          [--text <value> | --file <path>]
                          [--passphrase-prompt | --passphrase-env <name> | --passphrase-file <path>]
 ```
@@ -134,7 +134,7 @@ Claims and decrypts a secret once.
 Usage:
 
 ```bash
-secretctl secret claim <share-url> [--base-url <url>] [--json]
+secrt secret claim <share-url> [--base-url <url>] [--json]
                         [--passphrase-prompt | --passphrase-env <name> | --passphrase-file <path>]
 ```
 
@@ -158,7 +158,7 @@ Deletes a secret without claiming it.
 Usage:
 
 ```bash
-secretctl secret burn <id-or-share-url> --api-key <key> [--base-url <url>] [--json]
+secrt secret burn <id-or-share-url> --api-key <key> [--base-url <url>] [--json]
 ```
 
 Behavior:

@@ -61,7 +61,7 @@ Response (`201`):
 ```json
 {
   "id": "…",
-  "share_url": "https://secret.fullspec.ca/s/…",
+  "share_url": "https://secrt.ca/s/…",
   "expires_at": "2026-02-04T00:00:00Z"
 }
 ```
