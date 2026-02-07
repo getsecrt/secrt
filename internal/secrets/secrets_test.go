@@ -41,23 +41,47 @@ func TestNormalizePublicTTL(t *testing.T) {
 		t.Fatalf("expected %v, got %v", DefaultTTL, got)
 	}
 
-	ttl := int64((48 * time.Hour).Seconds())
+	ttl := int64((2 * time.Hour).Seconds())
 	got, err = NormalizePublicTTL(&ttl)
 	if err != nil {
 		t.Fatalf("expected nil error, got %v", err)
 	}
-	if got != 48*time.Hour {
-		t.Fatalf("expected %v, got %v", 48*time.Hour, got)
+	if got != 2*time.Hour {
+		t.Fatalf("expected %v, got %v", 2*time.Hour, got)
 	}
 
-	bad := int64((2 * time.Hour).Seconds())
-	if _, err := NormalizePublicTTL(&bad); err == nil {
-		t.Fatalf("expected error for invalid ttl")
+	max := int64(MaxTTL.Seconds())
+	if got, err := NormalizePublicTTL(&max); err != nil || got != MaxTTL {
+		t.Fatalf("expected MaxTTL ok, got %v err=%v", got, err)
 	}
 
 	zero := int64(0)
 	if _, err := NormalizePublicTTL(&zero); err == nil {
 		t.Fatalf("expected error for zero ttl")
+	}
+
+	over := MaxTTLSeconds + 1
+	if _, err := NormalizePublicTTL(&over); err == nil {
+		t.Fatalf("expected error for ttl over max")
+	}
+
+	neg := int64(-1)
+	if _, err := NormalizePublicTTL(&neg); err == nil {
+		t.Fatalf("expected error for negative ttl")
+	}
+}
+
+func TestTTLV1SpecValues(t *testing.T) {
+	t.Parallel()
+
+	if DefaultTTL != 24*time.Hour {
+		t.Fatalf("DefaultTTL must match spec v1: got %v want %v", DefaultTTL, 24*time.Hour)
+	}
+	if MaxTTL != 365*24*time.Hour {
+		t.Fatalf("MaxTTL must match spec v1: got %v want %v", MaxTTL, 365*24*time.Hour)
+	}
+	if MaxTTLSeconds != 31536000 {
+		t.Fatalf("MaxTTLSeconds must match spec v1: got %d want %d", MaxTTLSeconds, 31536000)
 	}
 }
 
@@ -72,12 +96,12 @@ func TestNormalizeAuthedTTL(t *testing.T) {
 		t.Fatalf("expected %v, got %v", DefaultTTL, got)
 	}
 
-	short := int64((1 * time.Minute).Seconds())
-	if _, err := NormalizeAuthedTTL(&short); err == nil {
-		t.Fatalf("expected error for short ttl")
+	oneSecond := int64(1)
+	if got, err := NormalizeAuthedTTL(&oneSecond); err != nil || got != 1*time.Second {
+		t.Fatalf("expected 1s ttl ok, got %v err=%v", got, err)
 	}
 
-	long := int64((60 * 24 * time.Hour).Seconds())
+	long := MaxTTLSeconds + 1
 	if _, err := NormalizeAuthedTTL(&long); err == nil {
 		t.Fatalf("expected error for long ttl")
 	}
@@ -87,14 +111,9 @@ func TestNormalizeAuthedTTL(t *testing.T) {
 		t.Fatalf("expected error for negative ttl")
 	}
 
-	min := int64(MinTTL.Seconds())
-	if got, err := NormalizeAuthedTTL(&min); err != nil || got != MinTTL {
-		t.Fatalf("expected MinTTL ok, got %v err=%v", got, err)
-	}
-
-	max := int64(MaxTTLAuthed.Seconds())
-	if got, err := NormalizeAuthedTTL(&max); err != nil || got != MaxTTLAuthed {
-		t.Fatalf("expected MaxTTLAuthed ok, got %v err=%v", got, err)
+	max := int64(MaxTTL.Seconds())
+	if got, err := NormalizeAuthedTTL(&max); err != nil || got != MaxTTL {
+		t.Fatalf("expected MaxTTL ok, got %v err=%v", got, err)
 	}
 }
 

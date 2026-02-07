@@ -11,23 +11,13 @@ import (
 	"time"
 )
 
-// PublicTTLChoices are the allowed TTLs for anonymous/public secret creation.
-// Keeping this set small reduces abuse and keeps UX simple.
-var PublicTTLChoices = []time.Duration{
-	10 * time.Minute,
-	1 * time.Hour,
-	8 * time.Hour,
-	24 * time.Hour,
-	48 * time.Hour,
-	7 * 24 * time.Hour,
-	30 * 24 * time.Hour,
-}
-
 const (
-	DefaultTTL      = 48 * time.Hour
-	MinTTL          = 10 * time.Minute
-	MaxTTLAuthed    = 30 * 24 * time.Hour
-	MaxTTLAnonymous = 30 * 24 * time.Hour
+	// DefaultTTL is applied when ttl_seconds is omitted from create requests.
+	DefaultTTL = 24 * time.Hour
+	// MaxTTL is the longest allowed secret lifetime (1 year).
+	MaxTTL = 365 * 24 * time.Hour
+	// MaxTTLSeconds mirrors MaxTTL in seconds for input validation.
+	MaxTTLSeconds = int64(MaxTTL / time.Second)
 
 	// MaxEnvelopeBytes limits how large the ciphertext envelope can be.
 	// This is a safety valve to reduce DoS risk.
@@ -49,33 +39,29 @@ func GenerateID() (string, error) {
 	return base64.RawURLEncoding.EncodeToString(b[:]), nil
 }
 
-// NormalizePublicTTL enforces the allowlist for anonymous/public secret creation.
+// NormalizePublicTTL enforces API TTL bounds for anonymous/public secret creation.
 func NormalizePublicTTL(ttlSeconds *int64) (time.Duration, error) {
-	if ttlSeconds == nil {
-		return DefaultTTL, nil
-	}
-	if *ttlSeconds <= 0 {
-		return 0, ErrInvalidTTL
-	}
-	d := time.Duration(*ttlSeconds) * time.Second
-	for _, allowed := range PublicTTLChoices {
-		if d == allowed {
-			return d, nil
-		}
-	}
-	return 0, ErrInvalidTTL
+	return normalizeTTL(ttlSeconds)
 }
 
-// NormalizeAuthedTTL enforces min/max bounds for API-key authenticated callers.
+// NormalizeAuthedTTL enforces API TTL bounds for authenticated callers.
 func NormalizeAuthedTTL(ttlSeconds *int64) (time.Duration, error) {
+	return normalizeTTL(ttlSeconds)
+}
+
+func normalizeTTL(ttlSeconds *int64) (time.Duration, error) {
 	if ttlSeconds == nil {
 		return DefaultTTL, nil
 	}
 	if *ttlSeconds <= 0 {
 		return 0, ErrInvalidTTL
 	}
+	if *ttlSeconds > MaxTTLSeconds {
+		return 0, ErrInvalidTTL
+	}
 	d := time.Duration(*ttlSeconds) * time.Second
-	if d < MinTTL || d > MaxTTLAuthed {
+	// Defensive overflow guard.
+	if d <= 0 || d > MaxTTL {
 		return 0, ErrInvalidTTL
 	}
 	return d, nil

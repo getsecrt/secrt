@@ -185,7 +185,7 @@ func TestCreateSecret_ValidationAndRateLimit(t *testing.T) {
 
 		claimToken, _ := randomB64(32)
 		claimHash, _ := secrets.HashClaimToken(claimToken)
-		ttl := int64((2 * time.Hour).Seconds())
+		ttl := int64((366 * 24 * time.Hour).Seconds())
 
 		reqBody, _ := json.Marshal(CreateSecretRequest{
 			Envelope:   json.RawMessage(`{"ciphertext":"abc"}`),
