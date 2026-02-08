@@ -231,12 +231,12 @@ func printHelp(deps Deps) {
   %s %s %s
 
 %s
-  %s    Encrypt and upload a secret
-  %s     Retrieve and decrypt a secret
-  %s      Destroy a secret (requires API key)
-  %s   Show version
-  %s      Show this help
-  %s  Output shell completion script
+  %s       Encrypt and upload a secret
+  %s        Retrieve and decrypt a secret
+  %s         Destroy a secret (requires API key)
+  %s      Show version
+  %s         Show this help
+  %s   Output shell completion script
 
 %s
   %s %s     Server URL (default: https://secrt.ca)
