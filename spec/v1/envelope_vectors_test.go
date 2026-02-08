@@ -137,10 +137,10 @@ func TestEnvelopeVectors(t *testing.T) {
 					base64.RawURLEncoding.EncodeToString(ikm), vec.IKM)
 			}
 
-			// Step 2: Derive enc_key and claim_token
+			// Step 2: Derive enc_key (from ikm + hkdf.salt) and claim_token (from url_key alone)
 			hkdfSalt := b64decode(t, vec.Envelope.HKDF.Salt)
 			encKey := deriveHKDF(t, ikm, hkdfSalt, hkdfInfoEnc, 32)
-			claimToken := deriveHKDF(t, ikm, hkdfSalt, hkdfInfoClaim, 32)
+			claimToken := deriveHKDF(t, urlKey, nil, hkdfInfoClaim, 32)
 
 			expectedEncKey := b64decode(t, vec.EncKey)
 			if !bytesEqual(encKey, expectedEncKey) {

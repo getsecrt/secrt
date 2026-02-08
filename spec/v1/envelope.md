@@ -148,6 +148,20 @@ The shared link format is:
 - The fragment MUST NOT include passphrase/PIN.
 - Passphrase/PIN, when used, MUST be shared via a separate channel.
 
+## Claim Token Derivation
+
+The claim token is derived from `url_key` alone, independent of passphrase and envelope contents:
+
+`claim_token_bytes = HKDF-SHA-256(url_key, nil, "secret:v1:claim", 32)`
+
+This separation ensures:
+
+- **Claim authorization = link possession.** Anyone with the share URL can claim (consume) the secret.
+- **Decryption = passphrase knowledge.** Only someone with the passphrase (when used) can decrypt the claimed envelope.
+- **No circular dependency.** The claim token can be computed before the envelope is retrieved, since it does not depend on `hkdf.salt` (which is inside the envelope).
+
+The claim hash sent during create is: `claim_hash = base64url(SHA-256(claim_token_bytes))`.
+
 ## Create Flow (Normative)
 
 Inputs:
@@ -167,21 +181,22 @@ Steps:
    - No passphrase: `ikm = url_key`.
    - With passphrase: `ikm = SHA-256(url_key || pass_key)`.
 4. Generate random `hkdf.salt` (32 bytes).
-5. Derive keys:
+5. Derive encryption key:
    - `enc_key = HKDF-SHA-256(ikm, hkdf.salt, "secret:v1:enc", 32)`
-   - `claim_token_bytes = HKDF-SHA-256(ikm, hkdf.salt, "secret:v1:claim", 32)`
-6. Generate random `nonce` (12 bytes).
-7. Encrypt:
+6. Derive claim token (from `url_key` alone, not `ikm`):
+   - `claim_token_bytes = HKDF-SHA-256(url_key, nil, "secret:v1:claim", 32)`
+7. Generate random `nonce` (12 bytes).
+8. Encrypt:
    - `ciphertext = AES-256-GCM-Seal(enc_key, nonce, plaintext, AAD)`
    - `ciphertext` is encoded as a single byte string that includes GCM tag (`ciphertext||tag`).
-8. Build envelope JSON with fields above.
+9. Build envelope JSON with fields above.
    - Optional: include `hint` metadata for UX (`type`, `mime`, `filename`), if available.
-9. Compute `claim_hash` for create API:
-   - `claim_hash = base64url( SHA-256(claim_token_bytes) )`
-10. Send API create request:
+10. Compute `claim_hash` for create API:
+    - `claim_hash = base64url( SHA-256(claim_token_bytes) )`
+11. Send API create request:
     - `envelope` (JSON object from step 8)
-    - `claim_hash` (step 9)
-11. Share:
+    - `claim_hash` (step 10)
+12. Share:
     - URL with fragment `#v1.<base64url(url_key)>`
     - passphrase separately if used
 
@@ -189,25 +204,27 @@ Steps:
 
 Inputs:
 
-- `envelope` from claim API response
 - URL fragment `#v1.<url_key_b64>`
 - Optional passphrase
 
 Steps:
 
-1. Parse and validate envelope fields.
-2. Decode `url_key_b64` from fragment and enforce 32 bytes.
-3. Recompute `ikm` using the same `kdf` rules as create flow.
-4. Derive:
-   - `enc_key = HKDF-SHA-256(ikm, hkdf.salt, "secret:v1:enc", 32)`
-   - `claim_token_bytes = HKDF-SHA-256(ikm, hkdf.salt, "secret:v1:claim", 32)`
-5. Claim API call:
+1. Decode `url_key_b64` from fragment and enforce 32 bytes.
+2. Derive claim token (from `url_key` alone):
+   - `claim_token_bytes = HKDF-SHA-256(url_key, nil, "secret:v1:claim", 32)`
+3. Claim API call:
    - `POST /api/v1/secrets/{id}/claim`
    - Body: `{ "claim": base64url(claim_token_bytes) }`
-6. On `200`, decrypt:
+4. On `200`, parse and validate envelope fields from response.
+5. Recompute `ikm` using the `kdf` params from the envelope:
+   - No passphrase (`kdf.name == "none"`): `ikm = url_key`.
+   - With passphrase (`kdf.name == "PBKDF2-SHA256"`): compute `pass_key`, then `ikm = SHA-256(url_key || pass_key)`.
+6. Derive encryption key:
+   - `enc_key = HKDF-SHA-256(ikm, hkdf.salt, "secret:v1:enc", 32)`
+7. Decrypt:
    - `plaintext = AES-256-GCM-Open(enc_key, nonce, ciphertext, AAD)`
-7. If decryption fails, treat as invalid link/passphrase or tampering.
-8. Optional UX behavior:
+8. If decryption fails, treat as invalid link/passphrase or tampering.
+9. Optional UX behavior:
    - If `hint` is present, clients MAY use it to choose display/download defaults.
    - If `hint.mime` is missing and bytes are downloaded as a file, use `application/octet-stream`.
 

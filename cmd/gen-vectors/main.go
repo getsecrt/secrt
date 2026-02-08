@@ -153,9 +153,9 @@ func generateVector(input vectorInput) vector {
 		}
 	}
 
-	// Step 2: Derive enc_key and claim_token
+	// Step 2: Derive enc_key (from ikm + hkdf.salt) and claim_token (from url_key alone)
 	encKey := deriveHKDF(ikm, input.hkdfSalt, hkdfInfoEnc, 32)
-	claimToken := deriveHKDF(ikm, input.hkdfSalt, hkdfInfoClaim, 32)
+	claimToken := deriveHKDF(input.urlKey, nil, hkdfInfoClaim, 32)
 
 	// Step 3: Compute claim_hash = base64url(SHA-256(claim_token_bytes))
 	claimHashRaw := sha256.Sum256(claimToken)
