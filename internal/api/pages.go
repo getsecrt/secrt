@@ -39,7 +39,7 @@ func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
           </span>
           <span class="text-sm font-medium text-zinc-300">Backend is running</span>
         </div>
-        <p class="text-sm text-zinc-500 leading-relaxed">The browser UI is under development. Use the <a href="https://github.com/jdlien/secret" class="text-emerald-400/80 hover:text-emerald-400 underline decoration-zinc-700 hover:decoration-emerald-400/40 transition-colors">CLI</a> or API to create and claim secrets.</p>
+        <p class="text-sm text-zinc-500 leading-relaxed">The browser UI is under development. Use the <a href="https://github.com/jdlien/secrt" class="text-emerald-400/80 hover:text-emerald-400 underline decoration-zinc-700 hover:decoration-emerald-400/40 transition-colors">CLI</a> or API to create and claim secrets.</p>
       </div>
 
       <div class="rounded-xl bg-zinc-900/60 border border-zinc-800 p-5">
