@@ -51,6 +51,12 @@ make run
 
 Health check: `GET /healthz`
 
+## Security
+
+- Zero-knowledge architecture: the server stores ciphertext only and never sees decryption keys.
+- HSTS preload: `secrt.ca` has been submitted to the [HSTS preload list](https://hstspreload.org/?domain=secrt.ca), ensuring browsers never attempt a plaintext HTTP connection.
+- Production credentials are managed via systemd `EnvironmentFile=` with root-only permissions — see `docs/credentials-and-deployment.md`.
+
 ## API keys (for automation)
 
 API-key endpoints require `API_KEY_PEPPER` to be set.
