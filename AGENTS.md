@@ -13,24 +13,50 @@ Toolchain:
 - **Minimize dependencies** (runtime + crypto): prefer Go stdlib on the server; in the browser prefer WebCrypto; avoid "roll-your-own crypto".
 - **Production credentials must never be in plaintext `.env` files.** Use systemd `EnvironmentFile=` with root-owned, `0600`-permission files. Never commit credentials to git. See `docs/credentials-and-deployment.md` for the full policy and setup guide.
 
+## Specifications (normative)
+
+The `spec/v1/` directory contains the normative v1 specs. **Read these before making changes to crypto, API, or CLI behavior:**
+
+- `spec/v1/envelope.md` — client-side crypto workflow (AES-256-GCM, HKDF, PBKDF2, envelope JSON shape)
+- `spec/v1/api.md` — HTTP API contract (endpoints, auth, error semantics, policy tiers)
+- `spec/v1/server.md` — server runtime behavior (middleware, storage, atomic claim, reaper, rate limits)
+- `spec/v1/cli.md` — CLI UX contract (commands, flags, TTL grammar, output discipline, completions)
+
+**Test vectors are mandatory:**
+
+- `spec/v1/envelope.vectors.json` — crypto interop vectors; both CLI and browser implementations MUST pass these
+- `spec/v1/cli.vectors.json` — TTL parsing vectors
+- `spec/v1/envelope_vectors_test.go` — verification test proving vectors are self-consistent
+- `cmd/gen-vectors/` — regenerate vectors if the envelope spec changes
+
+When spec and code disagree, fix code to match spec (or update spec first with rationale, then update code in the same changeset per server.md §16).
+
 ## Go project conventions (suggested structure)
 
 Keep packages small and testable. Prefer an explicit dependency graph.
 
 ```
 cmd/secret-server/         # main package (wiring only)
+cmd/secrt/                 # CLI client (create/claim/burn)
+cmd/secretctl/             # admin CLI (API key management)
+cmd/gen-vectors/           # test vector generator
 internal/
   api/                     # HTTP handlers + request/response types
-  storage/                 # persistence interface + implementations (sqlite/postgres/redis)
+  storage/                 # persistence interface + implementations (postgres)
   secrets/                 # envelope validation, TTL rules, claim token checks
   auth/                    # API key auth + scopes + rate limit keys
   config/                  # env parsing, defaults
+spec/v1/                   # normative specs + test vectors
 web/                       # static frontend (minimal JS)
 docs/                      # design + security notes
 ```
 
 ## Testing expectations
 
+- **TDD-first for behavior changes:** when fixing bugs or adding features, write tests that capture the expected behavior **before** implementing the code change.
+- **Bug fixes:** add a regression test that fails against current behavior, then implement the fix and verify the test passes.
+- **New features:** add/extend contract tests first (unit + handler/integration as appropriate), then implement until tests pass.
+- If a test cannot be written first (for example, missing harness or external constraint), document why in notes/PR and add the test in the same change set as soon as feasible.
 - Prefer **table-driven tests**, `t.Parallel()` when safe, and `httptest` for HTTP handlers.
 - Avoid flakiness: inject clocks/time where needed; keep tests deterministic.
 - Add targeted tests for:
