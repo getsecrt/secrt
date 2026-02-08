@@ -59,4 +59,8 @@ func TestStore_ClosedDB_ReturnsErrors(t *testing.T) {
 	if _, err := store.RevokeByPrefix(ctx, "pfx"); err == nil || !strings.Contains(err.Error(), "revoke api key") {
 		t.Fatalf("expected revoke api key error, got %v", err)
 	}
+
+	if _, err := store.GetUsage(ctx, "owner"); err == nil || !strings.Contains(err.Error(), "get usage") {
+		t.Fatalf("expected get usage error, got %v", err)
+	}
 }
