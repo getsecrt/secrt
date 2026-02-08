@@ -2,6 +2,9 @@
 .env
 
 # Go build artifacts
+/secrt
+/secrt-server
+/secretctl
 /bin/
 /dist/
 *.test
