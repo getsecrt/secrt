@@ -7,9 +7,14 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"strings"
 	"time"
 )
+
+// randReader is the source of randomness for ID generation.
+// Defaults to crypto/rand.Reader; overridable in tests.
+var randReader io.Reader = rand.Reader
 
 const (
 	// DefaultTTL is applied when ttl_seconds is omitted from create requests.
@@ -33,7 +38,7 @@ var (
 // The ID is not a decryption key; it exists to locate a stored envelope.
 func GenerateID() (string, error) {
 	var b [32]byte
-	if _, err := rand.Read(b[:]); err != nil {
+	if _, err := randReader.Read(b[:]); err != nil {
 		return "", fmt.Errorf("generate id: %w", err)
 	}
 	return base64.RawURLEncoding.EncodeToString(b[:]), nil
@@ -50,18 +55,22 @@ func NormalizeAuthedTTL(ttlSeconds *int64) (time.Duration, error) {
 }
 
 func normalizeTTL(ttlSeconds *int64) (time.Duration, error) {
+	return normalizeTTLWithMax(ttlSeconds, MaxTTLSeconds, MaxTTL)
+}
+
+func normalizeTTLWithMax(ttlSeconds *int64, maxSeconds int64, maxDuration time.Duration) (time.Duration, error) {
 	if ttlSeconds == nil {
 		return DefaultTTL, nil
 	}
 	if *ttlSeconds <= 0 {
 		return 0, ErrInvalidTTL
 	}
-	if *ttlSeconds > MaxTTLSeconds {
+	if *ttlSeconds > maxSeconds {
 		return 0, ErrInvalidTTL
 	}
 	d := time.Duration(*ttlSeconds) * time.Second
 	// Defensive overflow guard.
-	if d <= 0 || d > MaxTTL {
+	if d <= 0 || d > maxDuration {
 		return 0, ErrInvalidTTL
 	}
 	return d, nil

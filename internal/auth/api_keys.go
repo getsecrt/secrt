@@ -9,10 +9,15 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"io"
 	"strings"
 
 	"secret/internal/storage"
 )
+
+// randReader is the source of randomness for API key generation.
+// Defaults to crypto/rand.Reader; overridable in tests.
+var randReader io.Reader = rand.Reader
 
 const (
 	// API keys are formatted as: sk_<prefix>.<secret>
@@ -102,14 +107,14 @@ func (a *Authenticator) Authenticate(ctx context.Context, rawKey string) (storag
 // GenerateAPIKey creates a new API key string and its stored hash.
 func GenerateAPIKey(pepper string) (apiKey string, prefix string, hash string, err error) {
 	prefixBytes := make([]byte, 6)
-	if _, err := rand.Read(prefixBytes); err != nil {
+	if _, err := randReader.Read(prefixBytes); err != nil {
 		return "", "", "", fmt.Errorf("generate api key prefix: %w", err)
 	}
 	// base64url without padding; 6 bytes -> 8 chars.
 	prefix = base64.RawURLEncoding.EncodeToString(prefixBytes)
 
 	secretBytes := make([]byte, apiKeySecretSize)
-	if _, err := rand.Read(secretBytes); err != nil {
+	if _, err := randReader.Read(secretBytes); err != nil {
 		return "", "", "", fmt.Errorf("generate api key secret: %w", err)
 	}
 	secret := base64.RawURLEncoding.EncodeToString(secretBytes)
