@@ -141,16 +141,21 @@ func TestBinaryPayload_NearMaxSize(t *testing.T) {
 	t.Parallel()
 
 	srv := newTestServer()
+	maxEnvelope := srv.cfg.PublicMaxEnvelopeBytes
+	if maxEnvelope <= 0 {
+		maxEnvelope = secrets.DefaultPublicMaxEnvelopeBytes
+	}
 
-	// ~45KB raw binary -> ~60KB after base64 (well within 64KB limit).
-	raw := make([]byte, 45*1024)
+	// Use ~75% of limit to stay well within bounds after base64 expansion.
+	rawSize := int(maxEnvelope * 3 / 5)
+	raw := make([]byte, rawSize)
 	for i := range raw {
 		raw[i] = byte(i % 256)
 	}
 	b64 := base64.StdEncoding.EncodeToString(raw)
 
 	envelope := json.RawMessage(`{"ct":"` + b64 + `"}`)
-	if len(envelope) > secrets.MaxEnvelopeBytes {
+	if int64(len(envelope)) > maxEnvelope {
 		t.Skipf("envelope too large for test: %d bytes", len(envelope))
 	}
 
@@ -161,7 +166,14 @@ func TestBinaryPayload_NearMaxSize(t *testing.T) {
 func TestBinaryPayload_ExceedsMaxSize(t *testing.T) {
 	t.Parallel()
 
-	srv := newTestServer()
+	// Use a small limit to keep the test fast.
+	secStore := newMemSecretsStore()
+	keyStore := newMemAPIKeyStore()
+	authn := auth.NewAuthenticator("pepper", keyStore)
+	srv := NewServer(config.Config{
+		PublicBaseURL:          "https://example.com",
+		PublicMaxEnvelopeBytes: 64 * 1024, // 64 KB for this test
+	}, secStore, authn)
 
 	// ~50KB raw binary -> ~67KB after base64 (exceeds 64KB).
 	raw := make([]byte, 50*1024)
@@ -171,7 +183,7 @@ func TestBinaryPayload_ExceedsMaxSize(t *testing.T) {
 	b64 := base64.StdEncoding.EncodeToString(raw)
 
 	envelope := json.RawMessage(`{"ct":"` + b64 + `"}`)
-	if len(envelope) <= secrets.MaxEnvelopeBytes {
+	if int64(len(envelope)) <= 64*1024 {
 		t.Skipf("envelope not large enough: %d bytes", len(envelope))
 	}
 

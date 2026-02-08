@@ -10,7 +10,8 @@ Toolchain:
 - **Zero-knowledge by default**: the server stores/serves **ciphertext only** and must not require access to decryption keys.
 - **Never log secrets**: no request bodies, no decrypted plaintext, no passphrases/PINs, no URL fragments. Assume logs are retained and searchable.
 - **Atomic “claim+delete”**: the read path must return the ciphertext at most once, and delete it in the same atomic operation/transaction.
-- **Minimize dependencies** (runtime + crypto): prefer Go stdlib on the server; in the browser prefer WebCrypto; avoid “roll-your-own crypto”.
+- **Minimize dependencies** (runtime + crypto): prefer Go stdlib on the server; in the browser prefer WebCrypto; avoid "roll-your-own crypto".
+- **Production credentials must never be in plaintext `.env` files.** Use systemd `EnvironmentFile=` with root-owned, `0600`-permission files. Never commit credentials to git. See `docs/credentials-and-deployment.md` for the full policy and setup guide.
 
 ## Go project conventions (suggested structure)
 

@@ -24,9 +24,10 @@ const (
 	// MaxTTLSeconds mirrors MaxTTL in seconds for input validation.
 	MaxTTLSeconds = int64(MaxTTL / time.Second)
 
-	// MaxEnvelopeBytes limits how large the ciphertext envelope can be.
-	// This is a safety valve to reduce DoS risk.
-	MaxEnvelopeBytes = 64 * 1024
+	// DefaultPublicMaxEnvelopeBytes is the default max envelope size for public/anonymous users.
+	DefaultPublicMaxEnvelopeBytes = 256 * 1024
+	// DefaultAuthedMaxEnvelopeBytes is the default max envelope size for authenticated users.
+	DefaultAuthedMaxEnvelopeBytes = 1024 * 1024
 )
 
 var (
@@ -76,14 +77,20 @@ func normalizeTTLWithMax(ttlSeconds *int64, maxSeconds int64, maxDuration time.D
 	return d, nil
 }
 
+// ErrEnvelopeTooLarge is returned when the envelope exceeds the configured
+// maximum size. It is distinct from ErrInvalidEnvelope so callers can
+// provide a more specific error message that includes the limit.
+var ErrEnvelopeTooLarge = errors.New("envelope too large")
+
 // ValidateEnvelope performs lightweight validation on the stored ciphertext envelope.
 // The service treats the envelope as opaque, but it must be valid JSON.
-func ValidateEnvelope(raw json.RawMessage) error {
+// maxBytes controls the maximum allowed envelope size (configurable per tier).
+func ValidateEnvelope(raw json.RawMessage, maxBytes int64) error {
 	if len(raw) == 0 {
 		return ErrInvalidEnvelope
 	}
-	if len(raw) > MaxEnvelopeBytes {
-		return ErrInvalidEnvelope
+	if int64(len(raw)) > maxBytes {
+		return ErrEnvelopeTooLarge
 	}
 	if !json.Valid(raw) {
 		return ErrInvalidEnvelope
@@ -93,6 +100,18 @@ func ValidateEnvelope(raw json.RawMessage) error {
 		return ErrInvalidEnvelope
 	}
 	return nil
+}
+
+// FormatBytes returns a human-readable byte size string (e.g. "256 KB", "1 MB").
+func FormatBytes(b int64) string {
+	switch {
+	case b >= 1024*1024 && b%(1024*1024) == 0:
+		return fmt.Sprintf("%d MB", b/(1024*1024))
+	case b >= 1024 && b%1024 == 0:
+		return fmt.Sprintf("%d KB", b/1024)
+	default:
+		return fmt.Sprintf("%d bytes", b)
+	}
 }
 
 // HashClaimToken returns base64url(sha256(claim_bytes)).

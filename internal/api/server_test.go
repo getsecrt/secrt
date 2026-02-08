@@ -65,10 +65,14 @@ func (m *memSecretsStore) ClaimAndDelete(_ context.Context, id string, claimHash
 	return s, nil
 }
 
-func (m *memSecretsStore) Burn(_ context.Context, id string) (bool, error) {
+func (m *memSecretsStore) Burn(_ context.Context, id string, ownerKey string) (bool, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	if _, ok := m.secrets[id]; !ok {
+	sec, ok := m.secrets[id]
+	if !ok {
+		return false, nil
+	}
+	if sec.OwnerKey != ownerKey {
 		return false, nil
 	}
 	delete(m.secrets, id)

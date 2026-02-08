@@ -213,7 +213,7 @@ Clients MUST fail closed for:
 - `kdf.iterations < 300000` when PBKDF2 is used
 - AEAD authentication failure during decrypt
 
-Servers SHOULD reject envelopes over service size limits; see `MaxEnvelopeBytes` in `/Users/jdlien/code/secret/internal/secrets/secrets.go`.
+Servers SHOULD reject envelopes over service size limits. Default limits are 256 KB (public) and 1 MB (authenticated), configurable per instance via `PUBLIC_MAX_ENVELOPE_BYTES` and `AUTHED_MAX_ENVELOPE_BYTES`.
 
 ## Interoperability Test Vectors
 

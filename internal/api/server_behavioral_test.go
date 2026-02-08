@@ -400,7 +400,7 @@ func TestMemStore_ConcurrentMixedOps(t *testing.T) {
 		go func() {
 			defer wg.Done()
 			id := string(rune('a'+i%26)) + "-create"
-			_, _ = store.Burn(context.Background(), id)
+			_, _ = store.Burn(context.Background(), id, "")
 		}()
 	}
 	wg.Wait()
@@ -518,10 +518,13 @@ func TestCreateSecret_OversizeBodyRejected(t *testing.T) {
 	secStore := newMemSecretsStore()
 	keyStore := newMemAPIKeyStore()
 	authn := auth.NewAuthenticator("pepper", keyStore)
-	srv := NewServer(config.Config{PublicBaseURL: "https://example.com"}, secStore, authn)
+	srv := NewServer(config.Config{
+		PublicBaseURL:          "https://example.com",
+		PublicMaxEnvelopeBytes: 256 * 1024,
+	}, secStore, authn)
 
-	// Build a body larger than MaxBytesReader allows (MaxEnvelopeBytes + 16KB).
-	bigPayload := strings.Repeat("x", secrets.MaxEnvelopeBytes+20*1024)
+	// Build a body larger than MaxBytesReader allows (PublicMaxEnvelopeBytes + 16KB).
+	bigPayload := strings.Repeat("x", 256*1024+20*1024)
 	body := `{"envelope":{"ct":"` + bigPayload + `"},"claim_hash":"aaa"}`
 
 	rec := httptest.NewRecorder()

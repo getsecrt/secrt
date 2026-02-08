@@ -25,6 +25,10 @@ type Config struct {
 	DBSSLRootCert string
 	APIKeyPepper  string
 
+	// Per-tier envelope size limits (bytes).
+	PublicMaxEnvelopeBytes int64
+	AuthedMaxEnvelopeBytes int64
+
 	// Per-owner storage quotas.
 	PublicMaxSecrets    int64
 	PublicMaxTotalBytes int64
@@ -67,10 +71,12 @@ func Load() (Config, error) {
 		return Config{}, errors.New("API_KEY_PEPPER is required in production")
 	}
 
+	cfg.PublicMaxEnvelopeBytes = getenvInt64Default("PUBLIC_MAX_ENVELOPE_BYTES", 256*1024)  // 256 KB
+	cfg.AuthedMaxEnvelopeBytes = getenvInt64Default("AUTHED_MAX_ENVELOPE_BYTES", 1024*1024) // 1 MB
 	cfg.PublicMaxSecrets = getenvInt64Default("PUBLIC_MAX_SECRETS", 10)
-	cfg.PublicMaxTotalBytes = getenvInt64Default("PUBLIC_MAX_TOTAL_BYTES", 640*1024) // 640 KB
+	cfg.PublicMaxTotalBytes = getenvInt64Default("PUBLIC_MAX_TOTAL_BYTES", 2*1024*1024) // 2 MB
 	cfg.AuthedMaxSecrets = getenvInt64Default("AUTHED_MAX_SECRETS", 1000)
-	cfg.AuthedMaxTotalBytes = getenvInt64Default("AUTHED_MAX_TOTAL_BYTES", 64*1024*1024) // 64 MB
+	cfg.AuthedMaxTotalBytes = getenvInt64Default("AUTHED_MAX_TOTAL_BYTES", 20*1024*1024) // 20 MB
 
 	return cfg, nil
 }

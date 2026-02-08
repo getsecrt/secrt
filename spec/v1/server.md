@@ -12,6 +12,7 @@ Source-of-truth code paths:
 - `/Users/jdlien/code/secret/internal/secrets/secrets.go`
 - `/Users/jdlien/code/secret/internal/storage/postgres/postgres.go`
 - `/Users/jdlien/code/secret/internal/database/migrations/001_initial.sql`
+- `/Users/jdlien/code/secret/internal/database/migrations/002_add_owner_key.sql`
 
 ## 1. Scope
 
@@ -63,10 +64,13 @@ Connection pool settings:
 
 Primary tables:
 
-- `secrets(id, claim_hash, envelope, expires_at, created_at)`
+- `secrets(id, claim_hash, envelope, expires_at, created_at, owner_key)`
 - `api_keys(id, key_prefix, key_hash, scopes, created_at, revoked_at)`
 
-`secrets_expires_at_idx` exists for expiry-related queries.
+Indexes:
+
+- `secrets_expires_at_idx` for expiry-related queries
+- `secrets_owner_key_idx` for owner-scoped usage queries
 
 ## 4. Middleware and Request Processing
 
@@ -140,8 +144,24 @@ Notes:
 
 - Missing or invalid keys return `401 unauthorized`.
 - If `API_KEY_PEPPER` is unset, API-key auth cannot succeed.
+- API key `scopes` are stored but not currently enforced by runtime handlers.
 
-## 7. Rate Limiting
+## 7. Ownership and Quota Model
+
+The server tracks an internal `owner_key` for each secret:
+
+- Public create: owner key is derived from client IP (`clientIP(r)`).
+- Authenticated create: owner key is `apikey:<prefix>`.
+
+This owner key drives policy only:
+
+- per-owner active-secret quota checks
+- per-owner active-byte quota checks
+- owner-scoped burn authorization for authenticated secrets
+
+Ownership metadata does not affect claim/decrypt semantics. Claim remains bearer-by-token.
+
+## 8. Rate Limiting
 
 Limiter implementation is an in-memory token bucket keyed by string.
 
@@ -150,23 +170,32 @@ Configured limits:
 - Public create: `0.2 rps`, burst `4` (about 12/min, burst 4) keyed by client IP.
 - Claim: `1.0 rps`, burst `10` keyed by client IP.
 - Authenticated create: `2.0 rps`, burst `20` keyed by API key prefix.
+- Burn: no dedicated limiter in v1 (API key auth + owner checks apply).
 
 Important runtime property:
 
 - This is per-process, not distributed. Multi-instance deployments need a shared/global limiter for strict global limits.
 
-## 8. Input Validation and Limits
+## 9. Input Validation and Limits
 
 Create request (`POST /api/v1/public/secrets`, `POST /api/v1/secrets`):
 
 - Requires `Content-Type: application/json`
-- Max body size: `MaxEnvelopeBytes + 16KiB` (currently `64KiB + 16KiB`)
+- Max body size: per-tier envelope limit + 16KiB overhead
+  - Public: `PUBLIC_MAX_ENVELOPE_BYTES + 16KiB` (default `256KiB + 16KiB`)
+  - Authenticated: `AUTHED_MAX_ENVELOPE_BYTES + 16KiB` (default `1MiB + 16KiB`)
 - JSON unknown fields rejected
 - Must contain valid `envelope` object JSON
+- Envelope size checked against per-tier limit -> `400` with human-readable limit in message
 - Must contain valid `claim_hash` (`base64url(sha256(...))` format)
 - `ttl_seconds` rules:
   - default: 24h when omitted
   - accepted: any positive integer seconds up to 31536000 (1 year)
+- per-owner quota checks:
+  - secret count limit -> `429` (`"secret limit exceeded (max N active secrets)"`)
+  - active stored bytes limit -> `413` (`"storage quota exceeded (limit <size>)"`)
+
+All size and quota limits are configurable per server instance via environment variables. See the Policy Tiers section of the API spec.
 
 Claim request (`POST /api/v1/secrets/{id}/claim`):
 
@@ -176,7 +205,7 @@ Claim request (`POST /api/v1/secrets/{id}/claim`):
 - Requires non-empty `claim`
 - Invalid claim token encoding/length is treated as `404` to reduce existence leaks
 
-## 9. TTL and Expiry Semantics
+## 10. TTL and Expiry Semantics
 
 TTL is enforced in two layers:
 
@@ -187,7 +216,7 @@ TTL is enforced in two layers:
 
 This means expired secrets are not claimable even if cleanup has not run yet.
 
-## 10. Atomic One-Time Claim
+## 11. Atomic One-Time Claim
 
 One-time semantics are implemented in a single SQL statement:
 
@@ -199,9 +228,25 @@ Properties:
 - Wrong claim token, expired secret, or already-claimed secret all resolve to not found behavior.
 - API returns `404` for all those cases.
 
-## 11. Background Expired-Secret Reaper
+## 12. Owner-Scoped Burn
 
-A best-effort cleanup goroutine runs every 30 minutes:
+Burn authorization uses authenticated owner keys.
+
+- Handler authenticates API key, computes owner key `apikey:<prefix>`, and passes that to storage.
+- Storage delete condition includes both `id` and `owner_key`.
+
+Postgres query shape:
+
+- `DELETE FROM secrets WHERE id=$1 AND owner_key=$2`
+
+Properties:
+
+- API keys can only burn secrets they created.
+- Missing ID and wrong owner are indistinguishable to clients (`404`).
+
+## 13. Background Expired-Secret Reaper
+
+A best-effort cleanup goroutine runs every 5 minutes:
 
 - Calls `DeleteExpired(nowUTC)` with a 10s context timeout.
 - Deletes rows where `expires_at <= now`.
@@ -211,18 +256,19 @@ Important:
 - Reaper is not required for correctness of one-time claim behavior.
 - Reaper failures are currently ignored (best-effort housekeeping).
 
-## 12. Error Mapping (Current)
+## 14. Error Mapping (Current)
 
 Common responses:
 
 - `400` invalid JSON / field/type/validation issues
 - `401` missing or invalid API key
-- `404` secret not found, expired, already claimed, wrong/invalid claim token
+- `404` secret not found, expired, already claimed, wrong/invalid claim token, or burn not owned
 - `405` wrong method
+- `413` storage quota exceeded
 - `429` rate limited
 - `500` unexpected server or storage errors
 
-## 13. Logging and Secret-Safety Notes
+## 15. Logging and Secret-Safety Notes
 
 Current server logging records metadata (method/path/status/bytes/duration/request_id), not request bodies.
 
@@ -230,6 +276,6 @@ Operational requirement remains:
 
 - Do not add plaintext, passphrases, claim tokens, or envelope payloads to logs.
 
-## 14. Alignment Rule
+## 16. Alignment Rule
 
 When this server spec is changed, implementation and tests must be updated in the same change set.

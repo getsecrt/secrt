@@ -83,17 +83,25 @@ func TestLoad_Defaults(t *testing.T) {
 		t.Fatalf("APIKeyPepper: expected empty in dev, got %q", cfg.APIKeyPepper)
 	}
 
+	// Envelope size defaults.
+	if cfg.PublicMaxEnvelopeBytes != 256*1024 {
+		t.Fatalf("PublicMaxEnvelopeBytes: got %d", cfg.PublicMaxEnvelopeBytes)
+	}
+	if cfg.AuthedMaxEnvelopeBytes != 1024*1024 {
+		t.Fatalf("AuthedMaxEnvelopeBytes: got %d", cfg.AuthedMaxEnvelopeBytes)
+	}
+
 	// Quota defaults.
 	if cfg.PublicMaxSecrets != 10 {
 		t.Fatalf("PublicMaxSecrets: got %d", cfg.PublicMaxSecrets)
 	}
-	if cfg.PublicMaxTotalBytes != 640*1024 {
+	if cfg.PublicMaxTotalBytes != 2*1024*1024 {
 		t.Fatalf("PublicMaxTotalBytes: got %d", cfg.PublicMaxTotalBytes)
 	}
 	if cfg.AuthedMaxSecrets != 1000 {
 		t.Fatalf("AuthedMaxSecrets: got %d", cfg.AuthedMaxSecrets)
 	}
-	if cfg.AuthedMaxTotalBytes != 64*1024*1024 {
+	if cfg.AuthedMaxTotalBytes != 20*1024*1024 {
 		t.Fatalf("AuthedMaxTotalBytes: got %d", cfg.AuthedMaxTotalBytes)
 	}
 }
@@ -170,10 +178,13 @@ func TestLoad_TrimsDatabaseURL(t *testing.T) {
 
 func TestLoad_QuotaOverrides(t *testing.T) {
 	unsetEnv(t, "DB_PORT", "PUBLIC_BASE_URL", "ENV", "API_KEY_PEPPER",
+		"PUBLIC_MAX_ENVELOPE_BYTES", "AUTHED_MAX_ENVELOPE_BYTES",
 		"PUBLIC_MAX_SECRETS", "PUBLIC_MAX_TOTAL_BYTES",
 		"AUTHED_MAX_SECRETS", "AUTHED_MAX_TOTAL_BYTES")
 	t.Setenv("DB_PORT", "5432")
 	t.Setenv("PUBLIC_BASE_URL", "https://example.com")
+	t.Setenv("PUBLIC_MAX_ENVELOPE_BYTES", "131072")
+	t.Setenv("AUTHED_MAX_ENVELOPE_BYTES", "2097152")
 	t.Setenv("PUBLIC_MAX_SECRETS", "50")
 	t.Setenv("PUBLIC_MAX_TOTAL_BYTES", "1048576")
 	t.Setenv("AUTHED_MAX_SECRETS", "5000")
@@ -182,6 +193,12 @@ func TestLoad_QuotaOverrides(t *testing.T) {
 	cfg, err := Load()
 	if err != nil {
 		t.Fatalf("Load: %v", err)
+	}
+	if cfg.PublicMaxEnvelopeBytes != 131072 {
+		t.Fatalf("PublicMaxEnvelopeBytes: got %d", cfg.PublicMaxEnvelopeBytes)
+	}
+	if cfg.AuthedMaxEnvelopeBytes != 2097152 {
+		t.Fatalf("AuthedMaxEnvelopeBytes: got %d", cfg.AuthedMaxEnvelopeBytes)
 	}
 	if cfg.PublicMaxSecrets != 50 {
 		t.Fatalf("PublicMaxSecrets: got %d", cfg.PublicMaxSecrets)

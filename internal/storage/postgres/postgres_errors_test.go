@@ -40,7 +40,7 @@ func TestStore_ClosedDB_ReturnsErrors(t *testing.T) {
 		t.Fatalf("expected claim error, got %v", err)
 	}
 
-	if _, err := store.Burn(ctx, "id"); err == nil || !strings.Contains(err.Error(), "burn secret") {
+	if _, err := store.Burn(ctx, "id", "apikey:test"); err == nil || !strings.Contains(err.Error(), "burn secret") {
 		t.Fatalf("expected burn error, got %v", err)
 	}
 

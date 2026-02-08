@@ -250,7 +250,9 @@ func (e errSecretsStore) Create(context.Context, storage.Secret) error { return 
 func (e errSecretsStore) ClaimAndDelete(context.Context, string, string, time.Time) (storage.Secret, error) {
 	return storage.Secret{}, e.err
 }
-func (e errSecretsStore) Burn(context.Context, string) (bool, error) { return false, e.err }
+func (e errSecretsStore) Burn(context.Context, string, string) (bool, error) {
+	return false, e.err
+}
 func (e errSecretsStore) DeleteExpired(context.Context, time.Time) (int64, error) {
 	return 0, e.err
 }
@@ -412,11 +414,23 @@ func TestBurnSecret(t *testing.T) {
 	}
 	_ = keyStore.Insert(context.Background(), storage.APIKey{Prefix: prefix, Hash: hash})
 
+	otherAPIKey, otherPrefix, otherHash, err := auth.GenerateAPIKey(pepper)
+	if err != nil {
+		t.Fatalf("GenerateAPIKey(other): %v", err)
+	}
+	_ = keyStore.Insert(context.Background(), storage.APIKey{Prefix: otherPrefix, Hash: otherHash})
+
 	authn := auth.NewAuthenticator(pepper, keyStore)
 	srv := NewServer(config.Config{PublicBaseURL: "https://example.com"}, secStore, authn)
 
 	// Seed a secret so burn can delete it.
-	secStore.secrets["id1"] = storage.Secret{ID: "id1", ClaimHash: "x", Envelope: json.RawMessage(`{"c":"x"}`), ExpiresAt: time.Now().Add(1 * time.Hour)}
+	secStore.secrets["id1"] = storage.Secret{
+		ID:        "id1",
+		ClaimHash: "x",
+		Envelope:  json.RawMessage(`{"c":"x"}`),
+		ExpiresAt: time.Now().Add(1 * time.Hour),
+		OwnerKey:  "apikey:" + prefix,
+	}
 
 	t.Run("unauthorized", func(t *testing.T) {
 		rec := httptest.NewRecorder()
@@ -446,6 +460,25 @@ func TestBurnSecret(t *testing.T) {
 		srv.handleBurnAuthedSecret(rec2, req2)
 		if rec2.Code != http.StatusNotFound {
 			t.Fatalf("expected 404, got %d body=%s", rec2.Code, rec2.Body.String())
+		}
+	})
+
+	t.Run("wrong owner cannot burn", func(t *testing.T) {
+		secStore.secrets["id2"] = storage.Secret{
+			ID:        "id2",
+			ClaimHash: "x",
+			Envelope:  json.RawMessage(`{"c":"x"}`),
+			ExpiresAt: time.Now().Add(1 * time.Hour),
+			OwnerKey:  "apikey:" + prefix,
+		}
+
+		rec := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodPost, "/api/v1/secrets/id2/burn", nil)
+		req.SetPathValue("id", "id2")
+		req.Header.Set("X-API-Key", otherAPIKey)
+		srv.handleBurnAuthedSecret(rec, req)
+		if rec.Code != http.StatusNotFound {
+			t.Fatalf("expected 404, got %d body=%s", rec.Code, rec.Body.String())
 		}
 	})
 }

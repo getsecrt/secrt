@@ -87,8 +87,8 @@ RETURNING envelope, expires_at, created_at`,
 	}, nil
 }
 
-func (s *Store) Burn(ctx context.Context, id string) (bool, error) {
-	res, err := s.db.ExecContext(ctx, `DELETE FROM secrets WHERE id=$1`, id)
+func (s *Store) Burn(ctx context.Context, id string, ownerKey string) (bool, error) {
+	res, err := s.db.ExecContext(ctx, `DELETE FROM secrets WHERE id=$1 AND owner_key=$2`, id, ownerKey)
 	if err != nil {
 		return false, fmt.Errorf("burn secret: %w", err)
 	}

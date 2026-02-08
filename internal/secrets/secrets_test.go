@@ -121,23 +121,24 @@ func TestNormalizeAuthedTTL(t *testing.T) {
 func TestValidateEnvelope(t *testing.T) {
 	t.Parallel()
 
-	if err := ValidateEnvelope(nil); err == nil {
+	maxBytes := int64(DefaultPublicMaxEnvelopeBytes)
+	if err := ValidateEnvelope(nil, maxBytes); err == nil {
 		t.Fatalf("expected error for nil envelope")
 	}
-	if err := ValidateEnvelope([]byte("not-json")); err == nil {
+	if err := ValidateEnvelope([]byte("not-json"), maxBytes); err == nil {
 		t.Fatalf("expected error for invalid json")
 	}
-	if err := ValidateEnvelope([]byte("[]")); err == nil {
+	if err := ValidateEnvelope([]byte("[]"), maxBytes); err == nil {
 		t.Fatalf("expected error for non-object json")
 	}
-	if err := ValidateEnvelope([]byte(`{"a":1}`)); err != nil {
+	if err := ValidateEnvelope([]byte(`{"a":1}`), maxBytes); err != nil {
 		t.Fatalf("expected nil error, got %v", err)
 	}
 
 	// Valid JSON object but too large should be rejected.
-	oversize := map[string]string{"x": strings.Repeat("y", MaxEnvelopeBytes)}
+	oversize := map[string]string{"x": strings.Repeat("y", int(maxBytes))}
 	raw, _ := json.Marshal(oversize)
-	if err := ValidateEnvelope(raw); err == nil {
+	if err := ValidateEnvelope(raw, maxBytes); err == nil {
 		t.Fatalf("expected error for oversize envelope")
 	}
 }
@@ -240,19 +241,49 @@ func TestNormalizeTTLWithMax_OverflowGuard(t *testing.T) {
 func TestValidateEnvelope_BoundarySize(t *testing.T) {
 	t.Parallel()
 
-	// Exactly MaxEnvelopeBytes should pass.
-	pad := MaxEnvelopeBytes - len(`{"x":""}`)
+	maxBytes := int64(DefaultPublicMaxEnvelopeBytes)
+
+	// Exactly maxBytes should pass.
+	pad := int(maxBytes) - len(`{"x":""}`)
 	exact := `{"x":"` + strings.Repeat("a", pad) + `"}`
-	if len(exact) != MaxEnvelopeBytes {
-		t.Fatalf("setup: len=%d want %d", len(exact), MaxEnvelopeBytes)
+	if int64(len(exact)) != maxBytes {
+		t.Fatalf("setup: len=%d want %d", len(exact), maxBytes)
 	}
-	if err := ValidateEnvelope(json.RawMessage(exact)); err != nil {
+	if err := ValidateEnvelope(json.RawMessage(exact), maxBytes); err != nil {
 		t.Fatalf("exactly max should pass: %v", err)
 	}
 
-	// MaxEnvelopeBytes + 1 should fail.
+	// maxBytes + 1 should fail with ErrEnvelopeTooLarge.
 	over := `{"x":"` + strings.Repeat("a", pad+1) + `"}`
-	if err := ValidateEnvelope(json.RawMessage(over)); err == nil {
+	err := ValidateEnvelope(json.RawMessage(over), maxBytes)
+	if err == nil {
 		t.Fatal("expected error for max+1")
+	}
+	if !errors.Is(err, ErrEnvelopeTooLarge) {
+		t.Fatalf("expected ErrEnvelopeTooLarge, got %v", err)
+	}
+}
+
+func TestFormatBytes(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		input int64
+		want  string
+	}{
+		{0, "0 bytes"},
+		{512, "512 bytes"},
+		{1024, "1 KB"},
+		{256 * 1024, "256 KB"},
+		{1024 * 1024, "1 MB"},
+		{20 * 1024 * 1024, "20 MB"},
+		{1536, "1536 bytes"}, // not evenly divisible by KB
+	}
+
+	for _, tt := range tests {
+		got := FormatBytes(tt.input)
+		if got != tt.want {
+			t.Errorf("FormatBytes(%d) = %q, want %q", tt.input, got, tt.want)
+		}
 	}
 }

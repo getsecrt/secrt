@@ -200,8 +200,10 @@ func TestStore_SecretLifecycle(t *testing.T) {
 		t.Fatalf("expected not found after delete, got %v", err)
 	}
 
+	owner := "apikey:test-prefix"
+
 	// Burn non-existent should report false.
-	deleted, err := store.Burn(ctx, "missing")
+	deleted, err := store.Burn(ctx, "missing", owner)
 	if err != nil {
 		t.Fatalf("Burn missing: %v", err)
 	}
@@ -215,11 +217,20 @@ func TestStore_SecretLifecycle(t *testing.T) {
 		ClaimHash: "claimhash2",
 		Envelope:  json.RawMessage(`{"ciphertext":"def"}`),
 		ExpiresAt: expiresAt,
+		OwnerKey:  owner,
 	}
 	if err := store.Create(ctx, sec2); err != nil {
 		t.Fatalf("Create sec2: %v", err)
 	}
-	deleted, err = store.Burn(ctx, "id2")
+	deleted, err = store.Burn(ctx, "id2", "apikey:other-prefix")
+	if err != nil {
+		t.Fatalf("Burn wrong owner: %v", err)
+	}
+	if deleted {
+		t.Fatalf("expected deleted=false for wrong owner")
+	}
+
+	deleted, err = store.Burn(ctx, "id2", owner)
 	if err != nil {
 		t.Fatalf("Burn: %v", err)
 	}

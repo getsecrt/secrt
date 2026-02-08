@@ -110,7 +110,17 @@ func (s *Server) handleCreateSecret(w http.ResponseWriter, r *http.Request, auth
 		return
 	}
 
-	r.Body = http.MaxBytesReader(w, r.Body, secrets.MaxEnvelopeBytes+16*1024)
+	var maxEnvelopeBytes int64
+	if authed {
+		maxEnvelopeBytes = s.cfg.AuthedMaxEnvelopeBytes
+	} else {
+		maxEnvelopeBytes = s.cfg.PublicMaxEnvelopeBytes
+	}
+	if maxEnvelopeBytes <= 0 {
+		maxEnvelopeBytes = secrets.DefaultAuthedMaxEnvelopeBytes
+	}
+
+	r.Body = http.MaxBytesReader(w, r.Body, maxEnvelopeBytes+16*1024)
 	dec := json.NewDecoder(r.Body)
 	dec.DisallowUnknownFields()
 
@@ -124,7 +134,11 @@ func (s *Server) handleCreateSecret(w http.ResponseWriter, r *http.Request, auth
 		return
 	}
 
-	if err := secrets.ValidateEnvelope(req.Envelope); err != nil {
+	if err := secrets.ValidateEnvelope(req.Envelope, maxEnvelopeBytes); err != nil {
+		if errors.Is(err, secrets.ErrEnvelopeTooLarge) {
+			badRequest(w, fmt.Sprintf("envelope exceeds maximum size (%s)", secrets.FormatBytes(maxEnvelopeBytes)))
+			return
+		}
 		badRequest(w, "invalid envelope")
 		return
 	}
@@ -175,11 +189,11 @@ func (s *Server) handleCreateSecret(w http.ResponseWriter, r *http.Request, auth
 			return
 		}
 		if maxSecrets > 0 && usage.SecretCount >= maxSecrets {
-			writeError(w, http.StatusTooManyRequests, "secret limit exceeded")
+			writeError(w, http.StatusTooManyRequests, fmt.Sprintf("secret limit exceeded (max %d active secrets)", maxSecrets))
 			return
 		}
 		if maxBytes > 0 && usage.TotalBytes+int64(len(req.Envelope)) > maxBytes {
-			writeError(w, http.StatusRequestEntityTooLarge, "storage quota exceeded")
+			writeError(w, http.StatusRequestEntityTooLarge, fmt.Sprintf("storage quota exceeded (limit %s)", secrets.FormatBytes(maxBytes)))
 			return
 		}
 	}
@@ -276,7 +290,6 @@ func (s *Server) handleBurnAuthedSecret(w http.ResponseWriter, r *http.Request) 
 	if !ok {
 		return
 	}
-	_ = apiKey
 
 	if r.Method != http.MethodPost {
 		methodNotAllowed(w, r)
@@ -292,7 +305,8 @@ func (s *Server) handleBurnAuthedSecret(w http.ResponseWriter, r *http.Request) 
 	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
 	defer cancel()
 
-	deleted, err := s.secrets.Burn(ctx, id)
+	ownerKey := "apikey:" + apiKey.Prefix
+	deleted, err := s.secrets.Burn(ctx, id, ownerKey)
 	if err != nil {
 		slog.Error("burn secret error", "err", err)
 		internalServerError(w)

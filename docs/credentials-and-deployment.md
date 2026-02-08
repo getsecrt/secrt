@@ -1,0 +1,164 @@
+# Credentials & Deployment Security
+
+## Policy
+
+This project handles secrets on behalf of users. Our own operational credentials must be managed accordingly.
+
+### Rules
+
+1. **Never commit credentials to git.** No `.env` files, no API keys, no peppers, no database passwords — not even in "example" values that look real. `.env.example` may contain placeholder keys with empty values only.
+
+2. **`.env` files are for local development only.** The server auto-loads `.env` when `ENV != production` as a convenience. In production, credentials must come from a controlled source (see below).
+
+3. **Production credentials must be restricted at the filesystem level.** Credential files must be owned by root with mode `0600` (readable only by root). The application process must not have direct read access to the credential file after startup.
+
+4. **`API_KEY_PEPPER` is mandatory in production.** The server enforces this: it refuses to start when `ENV=production` and `API_KEY_PEPPER` is empty.
+
+5. **Database passwords must not be empty in production.** Use strong, randomly generated passwords for `DB_PASSWORD` or embed credentials in `DATABASE_URL`.
+
+6. **Rotate credentials when compromised.** If a pepper, database password, or API key is leaked, rotate it immediately. Pepper rotation invalidates all existing API keys (by design — they can be re-issued).
+
+### Sensitive environment variables
+
+| Variable | Contains | Notes |
+|---|---|---|
+| `API_KEY_PEPPER` | HMAC pepper for API key hashing | Rotation invalidates all API keys |
+| `DB_PASSWORD` | Database credential | |
+| `DATABASE_URL` | Full connection string (may embed password) | Prefer this over individual `DB_*` vars in production |
+| `DB_SSLROOTCERT` | Path to CA certificate | Not a secret itself, but its absence weakens TLS |
+
+## Recommended Production Setup (Single Server)
+
+For a single Linux server (e.g. a DigitalOcean droplet), the simplest secure approach uses **systemd `EnvironmentFile=`** with restricted file permissions.
+
+### 1. Create the credential file
+
+```bash
+sudo mkdir -p /etc/secret-server
+sudo touch /etc/secret-server/env
+sudo chmod 600 /etc/secret-server/env
+sudo chown root:root /etc/secret-server/env
+```
+
+Edit with `sudo`:
+
+```bash
+sudo editor /etc/secret-server/env
+```
+
+Contents (example — use real values):
+
+```
+ENV=production
+LISTEN_ADDR=127.0.0.1:8080
+PUBLIC_BASE_URL=https://secrt.ca
+LOG_LEVEL=info
+DATABASE_URL=postgres://secret_app:STRONG_PASSWORD@127.0.0.1:5432/secret?sslmode=disable
+API_KEY_PEPPER=generated-random-pepper-value
+```
+
+Generate a pepper:
+
+```bash
+openssl rand -base64 32
+```
+
+### 2. Create a systemd service unit
+
+Place at `/etc/systemd/system/secret-server.service`:
+
+```ini
+[Unit]
+Description=secrt.ca one-time secret server
+After=network.target postgresql.service
+Requires=postgresql.service
+
+[Service]
+Type=simple
+ExecStart=/opt/secret-server/secret-server
+EnvironmentFile=/etc/secret-server/env
+Restart=on-failure
+RestartSec=5
+
+# Security hardening
+User=secret-server
+Group=secret-server
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ReadOnlyPaths=/
+ReadWritePaths=/tmp
+
+# The service process cannot read the EnvironmentFile after startup.
+# systemd injects the variables before dropping privileges.
+
+[Install]
+WantedBy=multi-user.target
+```
+
+### 3. Create the service user
+
+```bash
+sudo useradd --system --no-create-home --shell /usr/sbin/nologin secret-server
+```
+
+### 4. Deploy the binary
+
+```bash
+sudo mkdir -p /opt/secret-server
+sudo cp secret-server /opt/secret-server/
+sudo chmod 755 /opt/secret-server/secret-server
+```
+
+### 5. Enable and start
+
+```bash
+sudo systemctl daemon-reload
+sudo systemctl enable secret-server
+sudo systemctl start secret-server
+sudo journalctl -u secret-server -f
+```
+
+### 6. Reverse proxy (nginx)
+
+The server listens on `127.0.0.1:8080`. Put nginx or Caddy in front for TLS termination:
+
+```nginx
+server {
+    listen 443 ssl http2;
+    server_name secrt.ca;
+
+    ssl_certificate     /etc/letsencrypt/live/secrt.ca/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/secrt.ca/privkey.pem;
+
+    location / {
+        proxy_pass http://127.0.0.1:8080;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+}
+```
+
+## Why Not Other Approaches?
+
+| Approach | Verdict | Reason |
+|---|---|---|
+| `.env` in production | **No** | Readable by app user, often in repo directory, easy to accidentally commit |
+| systemd `EnvironmentFile=` | **Yes — recommended** | Zero cost, zero dependencies, root-only file, vars injected before privilege drop |
+| Docker secrets | Fine | Good if already using Docker/Swarm; adds container overhead |
+| HashiCorp Vault | Overkill | Requires running another service; justified at scale, not for a single server |
+| SOPS + age | Optional upgrade | Encrypts secrets at rest, can version encrypted files in git; good addition on top of systemd approach |
+| Cloud secret managers (AWS SSM, DO App Platform) | Fine | Platform-specific; good if already on that platform |
+
+## Upgrade Path: SOPS + age
+
+If you later want secrets encrypted at rest (e.g., to safely store an encrypted copy in a private repo for disaster recovery):
+
+1. Install [SOPS](https://github.com/getsops/sops) and [age](https://github.com/FiloSottile/age)
+2. Generate an age key: `age-keygen -o key.txt`
+3. Encrypt: `sops --encrypt --age <public-key> env.plain > env.enc`
+4. Decrypt at deploy: `sops --decrypt env.enc > /etc/secret-server/env`
+5. Store `env.enc` in the repo; never store `env.plain` or `key.txt`
