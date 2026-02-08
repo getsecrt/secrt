@@ -23,6 +23,10 @@ pub fn resolve_passphrase(args: &ParsedArgs, deps: &mut Deps) -> Result<String, 
         );
     }
     if count == 0 {
+        // Fall back to config file passphrase if set
+        if !args.passphrase_default.is_empty() {
+            return Ok(args.passphrase_default.clone());
+        }
         return Ok(String::new());
     }
 
@@ -138,6 +142,12 @@ mod tests {
                 } else {
                     Ok(r.remove(0))
                 }
+            }),
+            make_api: Box::new(|base_url: &str, api_key: &str| {
+                Box::new(crate::client::ApiClient {
+                    base_url: base_url.to_string(),
+                    api_key: api_key.to_string(),
+                })
             }),
         }
     }
@@ -304,6 +314,17 @@ mod tests {
         let err = resolve_passphrase_for_create(&pa, &mut deps);
         assert!(err.is_err());
         assert!(err.unwrap_err().contains("must not be empty"));
+    }
+
+    #[test]
+    fn create_multiple_flags_error() {
+        let mut deps = default_deps();
+        let mut pa = ParsedArgs::default();
+        pa.passphrase_prompt = true;
+        pa.passphrase_env = "MY_VAR".into();
+        let err = resolve_passphrase_for_create(&pa, &mut deps);
+        assert!(err.is_err());
+        assert!(err.unwrap_err().contains("at most one"));
     }
 
     // --- write_error tests ---

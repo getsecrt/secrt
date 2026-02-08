@@ -1,7 +1,6 @@
 use std::io::Write;
 
 use crate::cli::{parse_flags, print_burn_help, resolve_globals, CliError, Deps};
-use crate::client::ApiClient;
 use crate::envelope;
 use crate::passphrase::write_error;
 
@@ -62,10 +61,7 @@ pub fn run_burn(args: &[String], deps: &mut Deps) -> i32 {
         }
     }
 
-    let client = ApiClient {
-        base_url,
-        api_key: pa.api_key.clone(),
-    };
+    let client = (deps.make_api)(&base_url, &pa.api_key);
 
     if let Err(e) = client.burn(&secret_id) {
         write_error(&mut deps.stderr, pa.json, &format!("burn failed: {}", e));

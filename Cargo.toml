@@ -12,6 +12,13 @@ serde_json = "1"
 base64 = "0.22"
 is-terminal = "0.4"
 rpassword = "7"
+toml = "0.8"
+dirs = "6"
+keyring = { version = "3", optional = true, features = ["apple-native", "linux-native", "windows-native"] }
+
+[features]
+default = []
+keychain = ["keyring"]
 
 [dev-dependencies]
 serde = { version = "1", features = ["derive"] }

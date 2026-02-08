@@ -71,3 +71,14 @@ pub fn parse_ttl(s: &str) -> Result<i64, EnvelopeError> {
 
     Ok(result)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn single_char_invalid() {
+        let err = parse_ttl("x");
+        assert!(matches!(err, Err(EnvelopeError::InvalidTtl(_))));
+    }
+}

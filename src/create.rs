@@ -2,7 +2,7 @@ use std::fs;
 use std::io::{Read, Write};
 
 use crate::cli::{parse_flags, print_create_help, resolve_globals, CliError, Deps, ParsedArgs};
-use crate::client::{ApiClient, CreateRequest};
+use crate::client::CreateRequest;
 use crate::envelope::{self, format_share_link, SealParams};
 use crate::passphrase::{resolve_passphrase_for_create, write_error};
 
@@ -73,10 +73,7 @@ pub fn run_create(args: &[String], deps: &mut Deps) -> i32 {
     };
 
     // Upload to server
-    let client = ApiClient {
-        base_url: pa.base_url.clone(),
-        api_key: pa.api_key.clone(),
-    };
+    let client = (deps.make_api)(&pa.base_url, &pa.api_key);
 
     let resp = match client.create(CreateRequest {
         envelope: result.envelope,

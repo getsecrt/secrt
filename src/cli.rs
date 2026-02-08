@@ -2,6 +2,7 @@ use std::io::{self, Read, Write};
 
 use crate::burn::run_burn;
 use crate::claim::run_claim;
+use crate::client::SecretApi;
 use crate::color::color_func;
 use crate::completion::{BASH_COMPLETION, FISH_COMPLETION, ZSH_COMPLETION};
 use crate::create::run_create;
@@ -12,6 +13,7 @@ const VERSION: &str = "dev";
 pub type GetenvFn = Box<dyn Fn(&str) -> Option<String>>;
 pub type RandBytesFn = Box<dyn Fn(&mut [u8]) -> Result<(), crate::envelope::EnvelopeError>>;
 pub type ReadPassFn = Box<dyn Fn(&str, &mut dyn Write) -> io::Result<String>>;
+pub type MakeApiFn = Box<dyn Fn(&str, &str) -> Box<dyn SecretApi>>;
 
 /// Injectable dependencies for testing.
 pub struct Deps {
@@ -23,6 +25,7 @@ pub struct Deps {
     pub getenv: GetenvFn,
     pub rand_bytes: RandBytesFn,
     pub read_pass: ReadPassFn,
+    pub make_api: MakeApiFn,
 }
 
 /// Parsed global and command-specific flags.
@@ -45,6 +48,9 @@ pub struct ParsedArgs {
     pub passphrase_prompt: bool,
     pub passphrase_env: String,
     pub passphrase_file: String,
+
+    // Populated from config file (not from CLI flags)
+    pub passphrase_default: String,
 }
 
 #[derive(Debug)]
@@ -217,11 +223,19 @@ pub fn parse_flags(args: &[String]) -> Result<ParsedArgs, CliError> {
     Ok(pa)
 }
 
-/// Fill in defaults from env vars.
-pub fn resolve_globals(pa: &mut ParsedArgs, deps: &Deps) {
+/// Fill in defaults: CLI flag > env var > config file > built-in default.
+pub fn resolve_globals(pa: &mut ParsedArgs, deps: &mut Deps) {
+    let config = crate::config::load_config(&mut deps.stderr);
+    resolve_globals_with_config(pa, deps, &config);
+}
+
+/// Inner function that accepts an explicit Config (used by tests).
+pub fn resolve_globals_with_config(pa: &mut ParsedArgs, deps: &Deps, config: &crate::config::Config) {
     if pa.base_url.is_empty() {
         if let Some(env) = (deps.getenv)("SECRET_BASE_URL") {
             pa.base_url = env;
+        } else if let Some(ref url) = config.base_url {
+            pa.base_url = url.clone();
         } else {
             pa.base_url = DEFAULT_BASE_URL.into();
         }
@@ -229,6 +243,17 @@ pub fn resolve_globals(pa: &mut ParsedArgs, deps: &Deps) {
     if pa.api_key.is_empty() {
         if let Some(env) = (deps.getenv)("SECRET_API_KEY") {
             pa.api_key = env;
+        } else if let Some(val) = crate::keychain::get_secret("api_key") {
+            pa.api_key = val;
+        } else if let Some(ref key) = config.api_key {
+            pa.api_key = key.clone();
+        }
+    }
+    if pa.passphrase_default.is_empty() {
+        if let Some(val) = crate::keychain::get_secret("passphrase") {
+            pa.passphrase_default = val;
+        } else if let Some(ref pass) = config.passphrase {
+            pa.passphrase_default = pass.clone();
         }
     }
 }
@@ -271,7 +296,11 @@ pub fn print_help(deps: &mut Deps) {
   {}        Show version\n\n\
 {}\n\
   echo \"pw123\" | {} {}\n\
-  {} https://secrt.ca/s/abc#v1.key\n",
+  {} https://secrt.ca/s/abc#v1.key\n\n\
+{}\n\
+  Settings are loaded from {}.\n\
+  Supported keys: api_key, base_url, passphrase.\n\
+  Precedence: CLI flag > env var > config file > default.\n",
         c("36", "secrt"),
         c("1", "USAGE"),
         c("36", "secrt"),
@@ -296,6 +325,8 @@ pub fn print_help(deps: &mut Deps) {
         c("36", "secrt"),
         c("36", "create"),
         c("36", "secrt claim"),
+        c("1", "CONFIG"),
+        c("2", "~/.config/secrt/config.toml"),
     );
 }
 
@@ -593,14 +624,21 @@ mod tests {
             read_pass: Box::new(|_prompt: &str, _w: &mut dyn Write| {
                 Err(io::Error::new(io::ErrorKind::Other, "no pass"))
             }),
+            make_api: Box::new(|base_url: &str, api_key: &str| {
+                Box::new(crate::client::ApiClient {
+                    base_url: base_url.to_string(),
+                    api_key: api_key.to_string(),
+                })
+            }),
         }
     }
 
     #[test]
     fn globals_default_base_url() {
         let deps = make_deps_for_globals(std::collections::HashMap::new());
+        let config = crate::config::Config::default();
         let mut pa = ParsedArgs::default();
-        resolve_globals(&mut pa, &deps);
+        resolve_globals_with_config(&mut pa, &deps, &config);
         assert_eq!(pa.base_url, "https://secrt.ca");
     }
 
@@ -609,8 +647,9 @@ mod tests {
         let mut env = std::collections::HashMap::new();
         env.insert("SECRET_BASE_URL".into(), "https://test.example.com".into());
         let deps = make_deps_for_globals(env);
+        let config = crate::config::Config::default();
         let mut pa = ParsedArgs::default();
-        resolve_globals(&mut pa, &deps);
+        resolve_globals_with_config(&mut pa, &deps, &config);
         assert_eq!(pa.base_url, "https://test.example.com");
     }
 
@@ -619,9 +658,10 @@ mod tests {
         let mut env = std::collections::HashMap::new();
         env.insert("SECRET_BASE_URL".into(), "https://env.example.com".into());
         let deps = make_deps_for_globals(env);
+        let config = crate::config::Config::default();
         let mut pa = ParsedArgs::default();
         pa.base_url = "https://flag.example.com".into();
-        resolve_globals(&mut pa, &deps);
+        resolve_globals_with_config(&mut pa, &deps, &config);
         assert_eq!(pa.base_url, "https://flag.example.com");
     }
 
@@ -630,16 +670,69 @@ mod tests {
         let mut env = std::collections::HashMap::new();
         env.insert("SECRET_API_KEY".into(), "sk_from_env".into());
         let deps = make_deps_for_globals(env);
+        let config = crate::config::Config::default();
         let mut pa = ParsedArgs::default();
-        resolve_globals(&mut pa, &deps);
+        resolve_globals_with_config(&mut pa, &deps, &config);
         assert_eq!(pa.api_key, "sk_from_env");
     }
 
     #[test]
     fn globals_no_env_api_key() {
         let deps = make_deps_for_globals(std::collections::HashMap::new());
+        let config = crate::config::Config::default();
         let mut pa = ParsedArgs::default();
-        resolve_globals(&mut pa, &deps);
+        resolve_globals_with_config(&mut pa, &deps, &config);
         assert!(pa.api_key.is_empty());
+    }
+
+    #[test]
+    fn globals_config_base_url() {
+        let deps = make_deps_for_globals(std::collections::HashMap::new());
+        let config = crate::config::Config {
+            base_url: Some("https://config.example.com".into()),
+            ..Default::default()
+        };
+        let mut pa = ParsedArgs::default();
+        resolve_globals_with_config(&mut pa, &deps, &config);
+        assert_eq!(pa.base_url, "https://config.example.com");
+    }
+
+    #[test]
+    fn globals_config_api_key() {
+        let deps = make_deps_for_globals(std::collections::HashMap::new());
+        let config = crate::config::Config {
+            api_key: Some("sk_from_config".into()),
+            ..Default::default()
+        };
+        let mut pa = ParsedArgs::default();
+        resolve_globals_with_config(&mut pa, &deps, &config);
+        assert_eq!(pa.api_key, "sk_from_config");
+    }
+
+    #[test]
+    fn globals_env_overrides_config() {
+        let mut env = std::collections::HashMap::new();
+        env.insert("SECRET_API_KEY".into(), "sk_from_env".into());
+        let deps = make_deps_for_globals(env);
+        let config = crate::config::Config {
+            api_key: Some("sk_from_config".into()),
+            ..Default::default()
+        };
+        let mut pa = ParsedArgs::default();
+        resolve_globals_with_config(&mut pa, &deps, &config);
+        assert_eq!(pa.api_key, "sk_from_env");
+    }
+
+    #[test]
+    fn globals_flag_overrides_config() {
+        let deps = make_deps_for_globals(std::collections::HashMap::new());
+        let config = crate::config::Config {
+            base_url: Some("https://config.example.com".into()),
+            ..Default::default()
+        };
+        let mut pa = ParsedArgs::default();
+        pa.base_url = "https://flag.example.com".into();
+        resolve_globals_with_config(&mut pa, &deps, &config);
+        assert_eq!(pa.base_url, "https://flag.example.com");
     }
 }

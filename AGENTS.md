@@ -50,3 +50,51 @@ make test     # cargo test
 make check    # clippy + fmt check
 make size     # show release binary size
 ```
+
+
+
+## Project Task Tracking
+
+For complex multi-step tasks that cannot be completed in a single step, use `.taskmaster/tasks/tasks.json` (compatible with [taskmaster-ai ](https://github.com/eyaltoledano/claude-task-master)) to plan and track progress:
+
+### Directory Structure
+```
+.taskmaster/
+├── tasks/
+│   └── tasks.json    # Active tasks
+├── docs/
+│   └── prd.txt       # Project requirements (optional)
+└── archive.json      # Completed tasks (optional)
+```
+
+### Schema
+```json
+{
+  "master": {
+    "tasks": [
+      {
+        "id": 1,
+        "title": "Brief task title",
+        "description": "What needs to be done",
+        "status": "pending|in-progress|done|review|deferred|cancelled",
+        "priority": "high|medium|low",
+        "dependencies": [],
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "Subtask title",
+            "description": "Subtask details",
+            "status": "pending"
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+
+### Guidelines
+- Create when a project has 5+ distinct steps
+- Query with: `jq '.master.tasks[] | select(.status=="pending")' .taskmaster/tasks/tasks.json`
+- Archive completed tasks periodically to keep `.taskmaster/tasks/tasks.json` lightweight and focused on incomplete tasks.
+- Init new project: `mkdir -p .taskmaster/tasks .taskmaster/docs`

@@ -5,6 +5,7 @@ use std::io::{self, Cursor, Write};
 use std::sync::{Arc, Mutex};
 
 use secrt::cli::Deps;
+use secrt::client::{ApiClient, ClaimResponse, CreateRequest, CreateResponse, SecretApi};
 use secrt::envelope::EnvelopeError;
 
 /// A shared buffer that implements Write for capturing output.
@@ -33,6 +34,68 @@ impl Write for SharedBuf {
     }
 }
 
+/// Canned responses for MockApi.
+#[derive(Clone)]
+pub struct MockApiResponses {
+    pub create: Option<Result<CreateResponse, String>>,
+    pub claim: Option<Result<ClaimResponse, String>>,
+    pub burn: Option<Result<(), String>>,
+}
+
+impl Default for MockApiResponses {
+    fn default() -> Self {
+        MockApiResponses {
+            create: None,
+            claim: None,
+            burn: None,
+        }
+    }
+}
+
+/// A mock API client for testing.
+pub struct MockApi {
+    responses: MockApiResponses,
+}
+
+impl MockApi {
+    pub fn new(responses: MockApiResponses) -> Self {
+        MockApi { responses }
+    }
+}
+
+impl SecretApi for MockApi {
+    fn create(&self, _req: CreateRequest) -> Result<CreateResponse, String> {
+        match &self.responses.create {
+            Some(Ok(r)) => Ok(CreateResponse {
+                id: r.id.clone(),
+                share_url: r.share_url.clone(),
+                expires_at: r.expires_at.clone(),
+            }),
+            Some(Err(e)) => Err(e.clone()),
+            None => Err("mock: create not configured".into()),
+        }
+    }
+
+    fn claim(&self, _secret_id: &str, _claim_token: &[u8]) -> Result<ClaimResponse, String> {
+        match &self.responses.claim {
+            Some(Ok(r)) => Ok(ClaimResponse {
+                envelope: r.envelope.clone(),
+                expires_at: r.expires_at.clone(),
+            }),
+            Some(Err(e)) => Err(e.clone()),
+            None => Err("mock: claim not configured".into()),
+        }
+    }
+
+    fn burn(&self, _secret_id: &str) -> Result<(), String> {
+        match &self.responses.burn {
+            Some(Ok(())) => Ok(()),
+            Some(Err(e)) => Err(e.clone()),
+            None => Err("mock: burn not configured".into()),
+        }
+    }
+}
+
 /// Build test Deps with configurable options.
 pub struct TestDepsBuilder {
     stdin_data: Vec<u8>,
@@ -41,6 +104,7 @@ pub struct TestDepsBuilder {
     env: HashMap<String, String>,
     read_pass_responses: Vec<String>,
     read_pass_error: Option<String>,
+    mock_responses: Option<MockApiResponses>,
 }
 
 impl TestDepsBuilder {
@@ -52,6 +116,7 @@ impl TestDepsBuilder {
             env: HashMap::new(),
             read_pass_responses: Vec::new(),
             read_pass_error: None,
+            mock_responses: None,
         }
     }
 
@@ -83,6 +148,27 @@ impl TestDepsBuilder {
 
     pub fn read_pass_error(mut self, msg: &str) -> Self {
         self.read_pass_error = Some(msg.to_string());
+        self
+    }
+
+    pub fn mock_create(mut self, resp: Result<CreateResponse, String>) -> Self {
+        self.mock_responses
+            .get_or_insert_with(MockApiResponses::default)
+            .create = Some(resp);
+        self
+    }
+
+    pub fn mock_claim(mut self, resp: Result<ClaimResponse, String>) -> Self {
+        self.mock_responses
+            .get_or_insert_with(MockApiResponses::default)
+            .claim = Some(resp);
+        self
+    }
+
+    pub fn mock_burn(mut self, resp: Result<(), String>) -> Self {
+        self.mock_responses
+            .get_or_insert_with(MockApiResponses::default)
+            .burn = Some(resp);
         self
     }
 
@@ -123,6 +209,18 @@ impl TestDepsBuilder {
                     Ok(responses.remove(0))
                 }
             }),
+            make_api: if let Some(mock_responses) = self.mock_responses {
+                Box::new(move |_base_url: &str, _api_key: &str| {
+                    Box::new(MockApi::new(mock_responses.clone())) as Box<dyn SecretApi>
+                })
+            } else {
+                Box::new(|base_url: &str, api_key: &str| {
+                    Box::new(ApiClient {
+                        base_url: base_url.to_string(),
+                        api_key: api_key.to_string(),
+                    }) as Box<dyn SecretApi>
+                })
+            },
         };
 
         (deps, stdout, stderr)

@@ -1,0 +1,48 @@
+{
+  "master": {
+    "tasks": [
+      {
+        "id": 1,
+        "title": "Add TOML config file support",
+        "status": "done",
+        "priority": "high",
+        "dependencies": [],
+        "subtasks": [
+          { "id": 1, "title": "Add toml + dirs crate dependencies", "status": "done" },
+          { "id": 2, "title": "Create config module (src/config.rs)", "status": "done" },
+          { "id": 3, "title": "Add file permission checks", "status": "done" },
+          { "id": 4, "title": "Integrate config into CLI resolution", "status": "done" },
+          { "id": 5, "title": "Auto-set 0600 permissions on config creation", "status": "deferred" },
+          { "id": 6, "title": "Add tests for config loading and precedence", "status": "done" },
+          { "id": 7, "title": "Update help text to mention config file", "status": "done" }
+        ]
+      },
+      {
+        "id": 2,
+        "title": "Add optional OS keychain support",
+        "status": "done",
+        "priority": "medium",
+        "dependencies": [1],
+        "subtasks": [
+          { "id": 1, "title": "Add keyring dependency with feature flag", "status": "done" },
+          { "id": 2, "title": "Implement keychain get/set helpers", "status": "done" },
+          { "id": 3, "title": "Integrate keychain into CLI resolution", "status": "done" },
+          { "id": 4, "title": "Add tests for keychain integration", "status": "deferred", "description": "Keychain tests require OS interaction; covered by stub/compile tests for now." }
+        ]
+      },
+      {
+        "id": 3,
+        "title": "Measure binary size impact",
+        "status": "done",
+        "priority": "high",
+        "dependencies": [],
+        "subtasks": [
+          { "id": 1, "title": "Record baseline release binary size", "description": "1,334,496 bytes", "status": "done" },
+          { "id": 2, "title": "Measure size after config file support", "description": "1,450,976 bytes (+116,480 / +8.7%)", "status": "done" },
+          { "id": 3, "title": "Measure size after keychain support", "description": "1,452,208 bytes (+1,232 / +0.08% over config-only)", "status": "done" },
+          { "id": 4, "title": "Report size comparison", "status": "done" }
+        ]
+      }
+    ]
+  }
+}

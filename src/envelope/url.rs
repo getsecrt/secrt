@@ -171,6 +171,15 @@ mod tests {
     }
 
     #[test]
+    fn parse_url_no_path_after_host() {
+        let key_b64 = make_key_b64();
+        let url = format!("https://example.com#v1.{}", key_b64);
+        let err = parse_share_url(&url);
+        // No /s/<id> path → error
+        assert!(matches!(err, Err(EnvelopeError::InvalidFragment(_))));
+    }
+
+    #[test]
     fn parse_empty_id_in_path() {
         let key_b64 = make_key_b64();
         let url = format!("https://secrt.ca/s/#v1.{}", key_b64);

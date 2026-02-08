@@ -4,6 +4,8 @@ pub mod cli;
 pub mod client;
 pub mod color;
 pub mod completion;
+pub mod config;
 pub mod create;
+pub mod keychain;
 pub mod envelope;
 pub mod passphrase;

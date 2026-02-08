@@ -2,6 +2,7 @@ use std::io::{self, Write};
 use std::os::fd::AsRawFd;
 
 use secrt::cli;
+use secrt::client::ApiClient;
 use secrt::envelope;
 
 fn main() {
@@ -17,6 +18,12 @@ fn main() {
             let rng = SystemRandom::new();
             rng.fill(buf)
                 .map_err(|_| envelope::EnvelopeError::RngError("SystemRandom failed".into()))
+        }),
+        make_api: Box::new(|base_url: &str, api_key: &str| {
+            Box::new(ApiClient {
+                base_url: base_url.to_string(),
+                api_key: api_key.to_string(),
+            })
         }),
         read_pass: Box::new(|prompt: &str, w: &mut dyn Write| {
             w.write_all(prompt.as_bytes())?;

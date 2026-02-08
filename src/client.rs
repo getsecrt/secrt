@@ -13,7 +13,7 @@ pub struct CreateRequest {
 }
 
 /// API response from creating a secret.
-#[derive(Deserialize)]
+#[derive(Clone, Deserialize)]
 pub struct CreateResponse {
     pub id: String,
     pub share_url: String,
@@ -27,10 +27,17 @@ struct ClaimRequest {
 }
 
 /// API response from claiming a secret.
-#[derive(Deserialize)]
+#[derive(Clone, Deserialize)]
 pub struct ClaimResponse {
     pub envelope: serde_json::Value,
     pub expires_at: String,
+}
+
+/// Trait abstracting the API for testing.
+pub trait SecretApi {
+    fn create(&self, req: CreateRequest) -> Result<CreateResponse, String>;
+    fn claim(&self, secret_id: &str, claim_token: &[u8]) -> Result<ClaimResponse, String>;
+    fn burn(&self, secret_id: &str) -> Result<(), String>;
 }
 
 /// HTTP API client for secrt.
@@ -54,8 +61,30 @@ impl ApiClient {
         )
     }
 
-    /// Upload an encrypted envelope and return the server response.
-    pub fn create(&self, req: CreateRequest) -> Result<CreateResponse, String> {
+    fn handle_ureq_error(&self, err: ureq::Error) -> String {
+        match err {
+            ureq::Error::StatusCode(status) => {
+                format!("server error ({})", status)
+            }
+            other => format!("HTTP request failed: {}", other),
+        }
+    }
+
+    fn read_api_error_from_response(&self, resp: ureq::http::Response<ureq::Body>) -> String {
+        let status = resp.status().as_u16();
+        if let Ok(body_str) = resp.into_body().read_to_string() {
+            if let Ok(err_resp) = serde_json::from_str::<ApiErrorResponse>(&body_str) {
+                if !err_resp.error.is_empty() {
+                    return format!("server error ({}): {}", status, err_resp.error);
+                }
+            }
+        }
+        format!("server error ({})", status)
+    }
+}
+
+impl SecretApi for ApiClient {
+    fn create(&self, req: CreateRequest) -> Result<CreateResponse, String> {
         let endpoint = if self.api_key.is_empty() {
             format!("{}/api/v1/public/secrets", self.base_url)
         } else {
@@ -91,8 +120,7 @@ impl ApiClient {
         Ok(result)
     }
 
-    /// Send a claim token and return the envelope.
-    pub fn claim(&self, secret_id: &str, claim_token: &[u8]) -> Result<ClaimResponse, String> {
+    fn claim(&self, secret_id: &str, claim_token: &[u8]) -> Result<ClaimResponse, String> {
         let req = ClaimRequest {
             claim: b64_encode(claim_token),
         };
@@ -121,8 +149,7 @@ impl ApiClient {
         Ok(result)
     }
 
-    /// Delete a secret without claiming it.
-    pub fn burn(&self, secret_id: &str) -> Result<(), String> {
+    fn burn(&self, secret_id: &str) -> Result<(), String> {
         let endpoint = format!("{}/api/v1/secrets/{}/burn", self.base_url, secret_id);
 
         let mut request = self
@@ -143,26 +170,5 @@ impl ApiClient {
         }
 
         Ok(())
-    }
-
-    fn handle_ureq_error(&self, err: ureq::Error) -> String {
-        match err {
-            ureq::Error::StatusCode(status) => {
-                format!("server error ({})", status)
-            }
-            other => format!("HTTP request failed: {}", other),
-        }
-    }
-
-    fn read_api_error_from_response(&self, resp: ureq::http::Response<ureq::Body>) -> String {
-        let status = resp.status().as_u16();
-        if let Ok(body_str) = resp.into_body().read_to_string() {
-            if let Ok(err_resp) = serde_json::from_str::<ApiErrorResponse>(&body_str) {
-                if !err_resp.error.is_empty() {
-                    return format!("server error ({}): {}", status, err_resp.error);
-                }
-            }
-        }
-        format!("server error ({})", status)
     }
 }

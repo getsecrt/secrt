@@ -17,6 +17,12 @@ make release
 # Binary at target/release/secrt
 ```
 
+To include OS keychain support (macOS Keychain, Linux keyutils, Windows Credential Manager):
+
+```sh
+cargo build --release --features keychain
+```
+
 ### Shell completions
 
 ```sh
@@ -145,6 +151,57 @@ secrt burn https://secrt.ca/s/abc123#v1.key... --api-key sk_prefix.secret
 |---|---|
 | `SECRET_BASE_URL` | Override the default server URL |
 | `SECRET_API_KEY` | API key (alternative to `--api-key`) |
+
+## Configuration
+
+Settings can be persisted in a TOML config file so you don't need to pass flags or set environment variables for every invocation.
+
+### Config file
+
+**Location:** `~/.config/secrt/config.toml` (or `$XDG_CONFIG_HOME/secrt/config.toml`)
+
+```toml
+# API key for authenticated access (create, burn)
+api_key = "sk_live_abc123"
+
+# Custom server URL (default: https://secrt.ca)
+base_url = "https://my-secrt-server.example.com"
+
+# Default passphrase for encryption
+passphrase = "my-default-passphrase"
+```
+
+**Important:** The config file may contain secrets. Set restrictive permissions:
+
+```sh
+mkdir -p ~/.config/secrt
+chmod 700 ~/.config/secrt
+touch ~/.config/secrt/config.toml
+chmod 600 ~/.config/secrt/config.toml
+```
+
+If the file is group- or world-readable, secrt will warn and **skip loading secrets** (api_key, passphrase) from it. Non-sensitive settings like base_url will still be loaded.
+
+### OS keychain
+
+When built with the `keychain` feature, secrt can read `api_key` and `passphrase` from your OS credential store (macOS Keychain, Linux keyutils, Windows Credential Manager).
+
+```sh
+# Install with keychain support
+cargo install --path . --features keychain
+```
+
+This uses native OS APIs — no extra daemons or services required.
+
+### Precedence
+
+Settings are resolved in this order (first match wins):
+
+1. **CLI flag** (`--api-key`, `--base-url`, `--passphrase-*`)
+2. **Environment variable** (`SECRET_API_KEY`, `SECRET_BASE_URL`)
+3. **OS keychain** (if built with `keychain` feature)
+4. **Config file** (`~/.config/secrt/config.toml`)
+5. **Built-in default**
 
 ## Cryptography
 
