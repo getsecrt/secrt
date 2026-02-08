@@ -3,8 +3,6 @@
 BIN_DIR := bin
 APP := secrt-server
 CTL := secretctl
-CLI := secrt
-VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 
 # Tailwind CSS
 TAILWIND_VERSION := v4.1.4
@@ -34,14 +32,12 @@ build:
 	mkdir -p $(BIN_DIR)
 	go build -o $(BIN_DIR)/$(APP) ./cmd/secrt-server
 	go build -o $(BIN_DIR)/$(CTL) ./cmd/secretctl
-	go build -ldflags="-X main.version=$(VERSION)" -o $(BIN_DIR)/$(CLI) ./cmd/secrt
 
 # Build for production (stripped, smaller)
 build-prod: css-prod
 	mkdir -p $(BIN_DIR)
 	go build -ldflags="-s -w" -o $(BIN_DIR)/$(APP) ./cmd/secrt-server
 	go build -ldflags="-s -w" -o $(BIN_DIR)/$(CTL) ./cmd/secretctl
-	go build -ldflags="-s -w -X main.version=$(VERSION)" -o $(BIN_DIR)/$(CLI) ./cmd/secrt
 
 # Run the application
 run:

@@ -37,7 +37,6 @@ Keep packages small and testable. Prefer an explicit dependency graph.
 
 ```
 cmd/secrt-server/          # main package (wiring only)
-cmd/secrt/                 # CLI client (create/claim/burn)
 cmd/secretctl/             # admin CLI (API key management)
 cmd/gen-vectors/           # test vector generator
 internal/
@@ -50,6 +49,8 @@ spec/v1/                   # normative specs + test vectors
 web/                       # static frontend (minimal JS)
 docs/                      # design + security notes
 ```
+
+> The CLI client lives in a separate repo: [getsecrt/secrt-rs](https://github.com/getsecrt/secrt-rs) (Rust).
 
 ## Testing expectations
 
