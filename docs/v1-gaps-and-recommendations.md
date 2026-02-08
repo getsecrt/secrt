@@ -125,9 +125,19 @@ Can be deferred to v1.1. Use `promhttp` from the Prometheus Go client.
 
 **Status:** Not mentioned
 
-**Why it matters:** Tab completion significantly improves CLI UX. If using Cobra (common Go CLI framework), completions are nearly free.
+**Why it matters:** Tab completion significantly improves CLI UX.
 
-**Recommendation:** Add `secrt completion {bash,zsh,fish,powershell}` command. Cobra generates these automatically.
+**Recommendation:** Hand-roll completion scripts rather than adding a CLI framework dependency like Cobra. Shell completion scripts are just structured text with well-documented formats — tedious for humans to write by hand, but trivial for AI coding assistants (Claude Code, Codex, etc.) to generate in seconds.
+
+Generate scripts for:
+- **Bash** — `_secrt` function with `complete -F`
+- **Zsh** — `_secrt` compdef with `_arguments`
+- **Fish** — `complete -c secrt` commands
+- **PowerShell** — `Register-ArgumentCompleter` block
+
+Store in `completions/` directory. Users install with one line in their shell config.
+
+This approach keeps the dependency count minimal (important for a security-focused tool) while still providing the UX benefit.
 
 ---
 
