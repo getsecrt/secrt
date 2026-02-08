@@ -63,9 +63,75 @@ Environment variable fallbacks are RECOMMENDED:
 
 Configuration precedence (RECOMMENDED):
 
-1. Explicit CLI flag
+1. Explicit CLI flag (highest priority)
 2. Environment variable
-3. Built-in default
+3. OS keychain (optional; see Configuration below)
+4. Configuration file (see Configuration below)
+5. Built-in default (lowest priority)
+
+## Configuration
+
+Implementations MAY support persistent configuration via a config file and/or OS keychain to reduce repetitive flag usage and avoid credentials appearing in shell history or process lists.
+
+### Config File
+
+Location: `$XDG_CONFIG_HOME/secrt/config.toml`, falling back to `~/.config/secrt/config.toml` if `XDG_CONFIG_HOME` is unset. TOML format is RECOMMENDED for cross-language compatibility.
+
+Supported keys:
+
+| Key | Type | Description |
+|---|---|---|
+| `api_key` | string | API key for authenticated endpoints |
+| `base_url` | string | Base service URL |
+| `passphrase` | string | Default passphrase for encryption/decryption |
+
+Example:
+
+```toml
+api_key = "sk_live_abc123"
+base_url = "https://my-server.example.com"
+passphrase = "my-default-passphrase"
+```
+
+#### File Permission Requirements
+
+On Unix systems, the config file MUST be checked for safe permissions before loading secrets:
+
+- If the file is group-readable or world-readable (i.e., mode bits `0o077` are set), implementations MUST warn to stderr and MUST NOT load secret-bearing fields (`api_key`, `passphrase`) from the file.
+- Non-secret fields (`base_url`) MAY still be loaded from a file with open permissions.
+- The recommended file mode is `0600` (owner read/write only).
+- Implementations SHOULD suggest a fix in the warning message (e.g., `chmod 600 <path>`).
+
+If the config file does not exist, no error is produced and all values fall through to built-in defaults.
+
+If the config file contains invalid TOML, implementations SHOULD warn to stderr and continue with defaults.
+
+### OS Keychain (Optional)
+
+Implementations MAY support reading credentials from the operating system's native credential store:
+
+- **macOS:** Keychain (Security.framework)
+- **Linux:** kernel keyutils or Secret Service (D-Bus)
+- **Windows:** Credential Manager
+
+Keychain support is OPTIONAL and MAY be gated behind a build-time feature flag (e.g., `--features keychain` in Rust, build tags in Go).
+
+Supported credential keys:
+
+| Key | Description |
+|---|---|
+| `api_key` | API key for authenticated endpoints |
+| `passphrase` | Default passphrase for encryption/decryption |
+
+Service name for keychain entries: `secrt`.
+
+Keychain errors (missing credential, unavailable keychain) MUST be handled gracefully by falling through to the next tier in the precedence chain (config file, then built-in default). Keychain failures MUST NOT produce user-visible errors unless the user explicitly requested keychain storage.
+
+### Passphrase from Configuration
+
+When a passphrase is provided via config file or keychain (and no explicit `--passphrase-*` flag is set), the passphrase SHOULD be used silently without prompting for confirmation — it is a pre-configured default, not interactive input.
+
+Explicit passphrase flags (`--passphrase-prompt`, `--passphrase-env`, `--passphrase-file`) always take precedence over a configured passphrase.
 
 ## Output Discipline
 
@@ -239,12 +305,12 @@ Behavior:
 - Unknown shell names MUST produce a clear error listing supported shells.
 - Users install completions via shell-standard mechanisms (e.g., `secrt completion bash > /etc/bash_completion.d/secrt`).
 
-Implementation note: given the small command surface, completion scripts SHOULD be embedded as Go string constants (no external dependencies). Template substitution MAY be used if the binary name is configurable.
+Implementation note: given the small command surface, completion scripts SHOULD be embedded as string constants (no external dependencies). Template substitution MAY be used if the binary name is configurable.
 
 ## HTTP Client Behavior
 
 - Default request timeout: 30 seconds. Implementations MAY allow override via `--timeout` in a future version.
-- The CLI SHOULD respect standard proxy environment variables (`HTTP_PROXY`, `HTTPS_PROXY`, `NO_PROXY`) via Go's default `net/http` transport.
+- The CLI SHOULD respect standard proxy environment variables (`HTTP_PROXY`, `HTTPS_PROXY`, `NO_PROXY`) via the runtime's default HTTP transport.
 - TLS certificate verification MUST NOT be skippable. No `--insecure` flag — this is a security-sensitive tool.
 
 ## Interoperability Requirements
