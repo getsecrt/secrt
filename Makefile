@@ -1,10 +1,33 @@
-.PHONY: build build-prod run test test-cover test-race clean deps fmt fmt-check lint golangci-lint govulncheck vet tools check
+.PHONY: build build-prod run test test-cover test-race clean deps fmt fmt-check lint golangci-lint govulncheck vet tools check css css-watch css-prod tailwind-cli
 
 BIN_DIR := bin
 APP := secrt-server
 CTL := secretctl
 CLI := secrt
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
+
+# Tailwind CSS
+TAILWIND_VERSION := v4.1.4
+TAILWIND_BIN := $(BIN_DIR)/tailwindcss
+CSS_INPUT := web/static/css/input.css
+CSS_OUTPUT := web/static/css/output.css
+
+# Detect OS/arch for Tailwind binary download
+UNAME_S := $(shell uname -s)
+UNAME_M := $(shell uname -m)
+ifeq ($(UNAME_S),Linux)
+	ifeq ($(UNAME_M),x86_64)
+		TAILWIND_PLATFORM := linux-x64
+	else ifeq ($(UNAME_M),aarch64)
+		TAILWIND_PLATFORM := linux-arm64
+	endif
+else ifeq ($(UNAME_S),Darwin)
+	ifeq ($(UNAME_M),x86_64)
+		TAILWIND_PLATFORM := macos-x64
+	else ifeq ($(UNAME_M),arm64)
+		TAILWIND_PLATFORM := macos-arm64
+	endif
+endif
 
 # Build the application (with debug symbols)
 build:
@@ -14,7 +37,7 @@ build:
 	go build -ldflags="-X main.version=$(VERSION)" -o $(BIN_DIR)/$(CLI) ./cmd/secrt
 
 # Build for production (stripped, smaller)
-build-prod:
+build-prod: css-prod
 	mkdir -p $(BIN_DIR)
 	go build -ldflags="-s -w" -o $(BIN_DIR)/$(APP) ./cmd/secrt-server
 	go build -ldflags="-s -w" -o $(BIN_DIR)/$(CTL) ./cmd/secretctl
@@ -80,8 +103,30 @@ check: lint test test-race govulncheck
 clean:
 	rm -rf $(BIN_DIR)
 	rm -f coverage.out coverage.html
+	rm -f $(CSS_OUTPUT)
 
 # Install dependencies
 deps:
 	go mod download
 	go mod verify
+
+# Download Tailwind CLI binary
+tailwind-cli:
+	@if [ ! -f $(TAILWIND_BIN) ]; then \
+		echo "Downloading Tailwind CSS CLI $(TAILWIND_VERSION) for $(TAILWIND_PLATFORM)..."; \
+		mkdir -p $(BIN_DIR); \
+		curl -sL https://github.com/tailwindlabs/tailwindcss/releases/download/$(TAILWIND_VERSION)/tailwindcss-$(TAILWIND_PLATFORM) -o $(TAILWIND_BIN); \
+		chmod +x $(TAILWIND_BIN); \
+	fi
+
+# Build CSS (development)
+css: tailwind-cli
+	$(TAILWIND_BIN) -i $(CSS_INPUT) -o $(CSS_OUTPUT)
+
+# Build CSS (production, minified)
+css-prod: tailwind-cli
+	$(TAILWIND_BIN) -i $(CSS_INPUT) -o $(CSS_OUTPUT) --minify
+
+# Watch CSS for development
+css-watch: tailwind-cli
+	$(TAILWIND_BIN) -i $(CSS_INPUT) -o $(CSS_OUTPUT) --watch

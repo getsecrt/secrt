@@ -16,7 +16,7 @@ func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>secrt.ca</title>
-    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="/static/css/output.css" />
   </head>
   <body class="bg-zinc-950 text-zinc-100 min-h-screen flex items-center justify-center antialiased">
     <div class="max-w-lg w-full mx-auto px-6 py-16">
@@ -91,7 +91,7 @@ func (s *Server) handleSecretPage(w http.ResponseWriter, r *http.Request) {
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>secrt.ca &middot; Secret %s</title>
-    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="/static/css/output.css" />
   </head>
   <body class="bg-zinc-950 text-zinc-100 min-h-screen flex items-center justify-center antialiased">
     <div class="max-w-lg w-full mx-auto px-6 py-16">

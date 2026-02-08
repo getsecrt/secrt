@@ -17,6 +17,7 @@ import (
 	"secrt/internal/ratelimit"
 	"secrt/internal/secrets"
 	"secrt/internal/storage"
+	"secrt/web"
 )
 
 type Server struct {
@@ -52,6 +53,7 @@ func NewServer(cfg config.Config, secretsStore storage.SecretsStore, authn *auth
 	mux.HandleFunc("GET /", s.handleIndex)
 	mux.HandleFunc("GET /s/{id}", s.handleSecretPage)
 	mux.HandleFunc("GET /robots.txt", s.handleRobotsTxt)
+	mux.Handle("GET /static/", http.StripPrefix("/static/", http.FileServer(web.StaticFS())))
 
 	// Anonymous/public endpoint for the web UI (no API key).
 	mux.HandleFunc("POST /api/v1/public/secrets", s.handleCreatePublicSecret)
