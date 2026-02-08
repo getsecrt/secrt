@@ -64,7 +64,7 @@ func TestCreateSecret_ValidationAndRateLimit(t *testing.T) {
 		req := httptest.NewRequest(http.MethodGet, "/api/v1/public/secrets", nil)
 		req.Header.Set("Content-Type", "application/json")
 
-		srv.handleCreateSecret(rec, req, false)
+		srv.handleCreateSecret(rec, req, false, "test")
 		if rec.Code != http.StatusMethodNotAllowed {
 			t.Fatalf("status: got %d body=%s", rec.Code, rec.Body.String())
 		}
@@ -83,7 +83,7 @@ func TestCreateSecret_ValidationAndRateLimit(t *testing.T) {
 		req := httptest.NewRequest(http.MethodPost, "/api/v1/public/secrets", bytes.NewBufferString(`{}`))
 		req.Header.Set("Content-Type", "text/plain")
 
-		srv.handleCreateSecret(rec, req, false)
+		srv.handleCreateSecret(rec, req, false, "test")
 		if rec.Code != http.StatusBadRequest {
 			t.Fatalf("status: got %d body=%s", rec.Code, rec.Body.String())
 		}
@@ -102,7 +102,7 @@ func TestCreateSecret_ValidationAndRateLimit(t *testing.T) {
 		req := httptest.NewRequest(http.MethodPost, "/api/v1/public/secrets", bytes.NewBufferString("{"))
 		req.Header.Set("Content-Type", "application/json")
 
-		srv.handleCreateSecret(rec, req, false)
+		srv.handleCreateSecret(rec, req, false, "test")
 		if rec.Code != http.StatusBadRequest {
 			t.Fatalf("status: got %d body=%s", rec.Code, rec.Body.String())
 		}
@@ -125,7 +125,7 @@ func TestCreateSecret_ValidationAndRateLimit(t *testing.T) {
 		req := httptest.NewRequest(http.MethodPost, "/api/v1/public/secrets", bytes.NewBufferString(body))
 		req.Header.Set("Content-Type", "application/json")
 
-		srv.handleCreateSecret(rec, req, false)
+		srv.handleCreateSecret(rec, req, false, "test")
 		if rec.Code != http.StatusBadRequest {
 			t.Fatalf("status: got %d body=%s", rec.Code, rec.Body.String())
 		}
@@ -148,7 +148,7 @@ func TestCreateSecret_ValidationAndRateLimit(t *testing.T) {
 		req := httptest.NewRequest(http.MethodPost, "/api/v1/public/secrets", bytes.NewBufferString(body))
 		req.Header.Set("Content-Type", "application/json")
 
-		srv.handleCreateSecret(rec, req, false)
+		srv.handleCreateSecret(rec, req, false, "test")
 		if rec.Code != http.StatusBadRequest {
 			t.Fatalf("status: got %d body=%s", rec.Code, rec.Body.String())
 		}
@@ -168,7 +168,7 @@ func TestCreateSecret_ValidationAndRateLimit(t *testing.T) {
 		req := httptest.NewRequest(http.MethodPost, "/api/v1/public/secrets", bytes.NewBufferString(body))
 		req.Header.Set("Content-Type", "application/json")
 
-		srv.handleCreateSecret(rec, req, false)
+		srv.handleCreateSecret(rec, req, false, "test")
 		if rec.Code != http.StatusBadRequest {
 			t.Fatalf("status: got %d body=%s", rec.Code, rec.Body.String())
 		}
@@ -197,7 +197,7 @@ func TestCreateSecret_ValidationAndRateLimit(t *testing.T) {
 		req := httptest.NewRequest(http.MethodPost, "/api/v1/public/secrets", bytes.NewReader(reqBody))
 		req.Header.Set("Content-Type", "application/json")
 
-		srv.handleCreateSecret(rec, req, false)
+		srv.handleCreateSecret(rec, req, false, "test")
 		if rec.Code != http.StatusBadRequest {
 			t.Fatalf("status: got %d body=%s", rec.Code, rec.Body.String())
 		}
@@ -254,6 +254,9 @@ func (e errSecretsStore) Burn(context.Context, string) (bool, error) { return fa
 func (e errSecretsStore) DeleteExpired(context.Context, time.Time) (int64, error) {
 	return 0, e.err
 }
+func (e errSecretsStore) GetUsage(context.Context, string) (storage.StorageUsage, error) {
+	return storage.StorageUsage{}, e.err
+}
 
 func TestCreateSecret_InternalErrors(t *testing.T) {
 	t.Parallel()
@@ -273,7 +276,7 @@ func TestCreateSecret_InternalErrors(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/public/secrets", bytes.NewReader(reqBody))
 	req.Header.Set("Content-Type", "application/json")
 
-	srv.handleCreateSecret(rec, req, false)
+	srv.handleCreateSecret(rec, req, false, "test")
 	if rec.Code != http.StatusInternalServerError {
 		t.Fatalf("expected 500, got %d body=%s", rec.Code, rec.Body.String())
 	}
@@ -297,7 +300,7 @@ func TestCreateSecret_IDGenerationError(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/public/secrets", bytes.NewReader(reqBody))
 	req.Header.Set("Content-Type", "application/json")
 
-	srv.handleCreateSecret(rec, req, false)
+	srv.handleCreateSecret(rec, req, false, "test")
 	if rec.Code != http.StatusInternalServerError {
 		t.Fatalf("expected 500, got %d body=%s", rec.Code, rec.Body.String())
 	}

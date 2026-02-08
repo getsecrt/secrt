@@ -65,21 +65,7 @@ func main() {
 	authn := auth.NewAuthenticator(cfg.APIKeyPepper, store)
 	srv := api.NewServer(cfg, store, authn)
 
-	// Best-effort cleanup loop for expired secrets.
-	go func() {
-		t := time.NewTicker(30 * time.Minute)
-		defer t.Stop()
-		for {
-			select {
-			case <-ctx.Done():
-				return
-			case <-t.C:
-				cctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-				_, _ = store.DeleteExpired(cctx, time.Now().UTC())
-				cancel()
-			}
-		}
-	}()
+	go runExpiryReaper(ctx, slog.Default(), store, expiryReaperInterval, time.Now)
 
 	httpServer := &http.Server{
 		Addr:              cfg.ListenAddr,

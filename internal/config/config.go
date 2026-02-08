@@ -15,15 +15,21 @@ type Config struct {
 	PublicBaseURL string
 	LogLevel      string
 
-	DatabaseURL    string
-	DBHost         string
-	DBPort         int
-	DBName         string
-	DBUser         string
-	DBPassword     string
-	DBSSLMode      string
-	DBSSLRootCert  string
-	APIKeyPepper   string
+	DatabaseURL   string
+	DBHost        string
+	DBPort        int
+	DBName        string
+	DBUser        string
+	DBPassword    string
+	DBSSLMode     string
+	DBSSLRootCert string
+	APIKeyPepper  string
+
+	// Per-owner storage quotas.
+	PublicMaxSecrets    int64
+	PublicMaxTotalBytes int64
+	AuthedMaxSecrets    int64
+	AuthedMaxTotalBytes int64
 }
 
 func Load() (Config, error) {
@@ -60,6 +66,11 @@ func Load() (Config, error) {
 	if cfg.Env == "production" && cfg.APIKeyPepper == "" {
 		return Config{}, errors.New("API_KEY_PEPPER is required in production")
 	}
+
+	cfg.PublicMaxSecrets = getenvInt64Default("PUBLIC_MAX_SECRETS", 10)
+	cfg.PublicMaxTotalBytes = getenvInt64Default("PUBLIC_MAX_TOTAL_BYTES", 640*1024) // 640 KB
+	cfg.AuthedMaxSecrets = getenvInt64Default("AUTHED_MAX_SECRETS", 1000)
+	cfg.AuthedMaxTotalBytes = getenvInt64Default("AUTHED_MAX_TOTAL_BYTES", 64*1024*1024) // 64 MB
 
 	return cfg, nil
 }
@@ -110,3 +121,14 @@ func getenvDefault(key, def string) string {
 	return def
 }
 
+func getenvInt64Default(key string, def int64) int64 {
+	v, ok := os.LookupEnv(key)
+	if !ok {
+		return def
+	}
+	n, err := strconv.ParseInt(strings.TrimSpace(v), 10, 64)
+	if err != nil {
+		return def
+	}
+	return n
+}

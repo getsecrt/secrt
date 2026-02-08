@@ -83,7 +83,7 @@ func (s *Server) handleCreatePublicSecret(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	s.handleCreateSecret(w, r, false)
+	s.handleCreateSecret(w, r, false, clientIP(r))
 }
 
 func (s *Server) handleCreateAuthedSecret(w http.ResponseWriter, r *http.Request) {
@@ -91,17 +91,16 @@ func (s *Server) handleCreateAuthedSecret(w http.ResponseWriter, r *http.Request
 	if !ok {
 		return
 	}
-	_ = apiKey
 
 	if !s.apiLimiter.Allow("apikey:" + apiKey.Prefix) {
 		writeError(w, http.StatusTooManyRequests, "rate limited")
 		return
 	}
 
-	s.handleCreateSecret(w, r, true)
+	s.handleCreateSecret(w, r, true, "apikey:"+apiKey.Prefix)
 }
 
-func (s *Server) handleCreateSecret(w http.ResponseWriter, r *http.Request, authed bool) {
+func (s *Server) handleCreateSecret(w http.ResponseWriter, r *http.Request, authed bool, ownerKey string) {
 	if r.Method != http.MethodPost {
 		methodNotAllowed(w, r)
 		return
@@ -156,15 +155,42 @@ func (s *Server) handleCreateSecret(w http.ResponseWriter, r *http.Request, auth
 		return
 	}
 
+	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+	defer cancel()
+
+	// Enforce per-owner storage quotas.
+	var maxSecrets, maxBytes int64
+	if authed {
+		maxSecrets = s.cfg.AuthedMaxSecrets
+		maxBytes = s.cfg.AuthedMaxTotalBytes
+	} else {
+		maxSecrets = s.cfg.PublicMaxSecrets
+		maxBytes = s.cfg.PublicMaxTotalBytes
+	}
+	if maxSecrets > 0 || maxBytes > 0 {
+		usage, err := s.secrets.GetUsage(ctx, ownerKey)
+		if err != nil {
+			slog.Error("get usage error", "err", err)
+			internalServerError(w)
+			return
+		}
+		if maxSecrets > 0 && usage.SecretCount >= maxSecrets {
+			writeError(w, http.StatusTooManyRequests, "secret limit exceeded")
+			return
+		}
+		if maxBytes > 0 && usage.TotalBytes+int64(len(req.Envelope)) > maxBytes {
+			writeError(w, http.StatusRequestEntityTooLarge, "storage quota exceeded")
+			return
+		}
+	}
+
 	sec := storage.Secret{
 		ID:        id,
 		ClaimHash: req.ClaimHash,
 		Envelope:  req.Envelope,
 		ExpiresAt: expiresAt,
+		OwnerKey:  ownerKey,
 	}
-
-	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
-	defer cancel()
 
 	if err := s.secrets.Create(ctx, sec); err != nil {
 		slog.Error("create secret error", "err", err)

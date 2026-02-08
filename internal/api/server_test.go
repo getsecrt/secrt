@@ -34,6 +34,19 @@ func (m *memSecretsStore) Create(_ context.Context, s storage.Secret) error {
 	return nil
 }
 
+func (m *memSecretsStore) GetUsage(_ context.Context, ownerKey string) (storage.StorageUsage, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	var u storage.StorageUsage
+	for _, s := range m.secrets {
+		if s.OwnerKey == ownerKey {
+			u.SecretCount++
+			u.TotalBytes += int64(len(s.Envelope))
+		}
+	}
+	return u, nil
+}
+
 func (m *memSecretsStore) ClaimAndDelete(_ context.Context, id string, claimHash string, now time.Time) (storage.Secret, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -133,9 +146,9 @@ func TestPublicCreateAndClaimFlow(t *testing.T) {
 
 	ttl := int64((1 * time.Hour).Seconds())
 	createReq := CreateSecretRequest{
-		Envelope:    json.RawMessage(`{"ciphertext":"abc"}`),
-		ClaimHash:   claimHash,
-		TTLSeconds:  &ttl,
+		Envelope:   json.RawMessage(`{"ciphertext":"abc"}`),
+		ClaimHash:  claimHash,
+		TTLSeconds: &ttl,
 	}
 
 	body, _ := json.Marshal(createReq)

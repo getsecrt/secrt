@@ -37,4 +37,3 @@ type ClaimSecretResponse struct {
 	Envelope  json.RawMessage `json:"envelope"`
 	ExpiresAt time.Time       `json:"expires_at"`
 }
-

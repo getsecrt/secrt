@@ -21,17 +21,33 @@ func New(db *sql.DB) *Store {
 
 func (s *Store) Create(ctx context.Context, sec storage.Secret) error {
 	_, err := s.db.ExecContext(ctx, `
-INSERT INTO secrets (id, claim_hash, envelope, expires_at)
-VALUES ($1, $2, $3::jsonb, $4)`,
+INSERT INTO secrets (id, claim_hash, envelope, expires_at, owner_key)
+VALUES ($1, $2, $3::jsonb, $4, $5)`,
 		sec.ID,
 		sec.ClaimHash,
 		string(sec.Envelope),
 		sec.ExpiresAt,
+		sec.OwnerKey,
 	)
 	if err != nil {
 		return fmt.Errorf("insert secret: %w", err)
 	}
 	return nil
+}
+
+func (s *Store) GetUsage(ctx context.Context, ownerKey string) (storage.StorageUsage, error) {
+	var u storage.StorageUsage
+	err := s.db.QueryRowContext(ctx, `
+SELECT COUNT(*), COALESCE(SUM(LENGTH(envelope::text)), 0)
+FROM secrets
+WHERE owner_key = $1
+  AND expires_at > now()`,
+		ownerKey,
+	).Scan(&u.SecretCount, &u.TotalBytes)
+	if err != nil {
+		return storage.StorageUsage{}, fmt.Errorf("get usage: %w", err)
+	}
+	return u, nil
 }
 
 func (s *Store) ClaimAndDelete(ctx context.Context, id string, claimHash string, now time.Time) (storage.Secret, error) {
