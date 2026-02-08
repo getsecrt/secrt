@@ -1,0 +1,424 @@
+openapi: 3.1.0
+info:
+  title: secrt.ca API
+  version: "1.0"
+  description: |
+    One-time secret sharing API. The server stores **ciphertext envelopes only**;
+    decryption keys must never be sent to or stored on the server.
+
+    ## Authentication
+
+    Authenticated endpoints accept API keys via either header:
+
+    - `X-API-Key: sk_<prefix>.<secret>`
+    - `Authorization: Bearer sk_<prefix>.<secret>`
+
+    ## Policy Tiers
+
+    | Limit                  | Public (anonymous)    | Authenticated (API key) |
+    |------------------------|-----------------------|-------------------------|
+    | Max envelope size      | 256 KB (configurable) | 1 MB (configurable)     |
+    | Max active secrets     | 10 (configurable)     | 1000 (configurable)     |
+    | Max active total bytes | 2 MB (configurable)   | 20 MB (configurable)    |
+
+  contact:
+    name: secrt.ca
+    url: https://secrt.ca
+  license:
+    name: MIT
+
+servers:
+  - url: https://secrt.ca
+    description: Production
+  - url: http://localhost:8080
+    description: Local development
+
+paths:
+  /healthz:
+    get:
+      operationId: healthCheck
+      summary: Health check
+      tags: [health]
+      responses:
+        "200":
+          description: Service is healthy
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthResponse"
+
+  /api/v1/public/secrets:
+    post:
+      operationId: createPublicSecret
+      summary: Create a secret (anonymous)
+      description: |
+        Store a client-encrypted envelope for one-time retrieval.
+        No API key required. Subject to public rate limits and quota tier.
+
+        Ownership is tracked server-side by client IP for quota enforcement.
+      tags: [secrets]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateSecretRequest"
+            example:
+              envelope:
+                ct: "base64-encoded-ciphertext"
+                nonce: "base64-encoded-nonce"
+                kdf:
+                  alg: "PBKDF2"
+                  iterations: 600000
+              claim_hash: "dGhpcyBpcyBhIGJhc2U2NHVybCBoYXNo"
+              ttl_seconds: 86400
+      responses:
+        "201":
+          description: Secret created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CreateSecretResponse"
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/X-Request-Id"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "413":
+          $ref: "#/components/responses/StorageQuotaExceeded"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /api/v1/secrets:
+    post:
+      operationId: createAuthedSecret
+      summary: Create a secret (authenticated)
+      description: |
+        Store a client-encrypted envelope for one-time retrieval.
+        Requires API key. Subject to authenticated rate limits and quota tier.
+
+        Ownership is bound to the authenticated API key prefix.
+      tags: [secrets]
+      security:
+        - apiKey: []
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateSecretRequest"
+      responses:
+        "201":
+          description: Secret created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CreateSecretResponse"
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/X-Request-Id"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "413":
+          $ref: "#/components/responses/StorageQuotaExceeded"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /api/v1/secrets/{id}/claim:
+    post:
+      operationId: claimSecret
+      summary: Claim a secret (one-time retrieval)
+      description: |
+        Atomically returns the envelope and deletes the secret.
+        The claim token is hashed server-side and compared to the stored claim hash.
+
+        No API key required; possession of the claim token is sufficient.
+
+        Returns 404 for expired, already-claimed, unknown, or wrong-token secrets
+        to avoid leaking secret existence.
+      tags: [secrets]
+      parameters:
+        - $ref: "#/components/parameters/secretId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ClaimSecretRequest"
+            example:
+              claim: "dGhpcyBpcyBhIGNsYWltIHRva2Vu"
+      responses:
+        "200":
+          description: Secret claimed and deleted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ClaimSecretResponse"
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/X-Request-Id"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /api/v1/secrets/{id}/burn:
+    post:
+      operationId: burnSecret
+      summary: Burn a secret (delete without claiming)
+      description: |
+        Deletes a secret without returning its envelope. Requires API key.
+
+        The API key must own the secret (`owner_key == "apikey:<prefix>"`).
+        Returns 404 for unknown secrets or secrets not owned by the caller.
+      tags: [secrets]
+      security:
+        - apiKey: []
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/secretId"
+      responses:
+        "200":
+          description: Secret burned
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BurnResponse"
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/X-Request-Id"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+components:
+  securitySchemes:
+    apiKey:
+      type: apiKey
+      in: header
+      name: X-API-Key
+      description: "API key in format: sk_<prefix>.<secret>"
+    bearerAuth:
+      type: http
+      scheme: bearer
+      description: "API key as Bearer token: sk_<prefix>.<secret>"
+
+  parameters:
+    secretId:
+      name: id
+      in: path
+      required: true
+      description: URL-safe base64-encoded secret identifier (server-generated)
+      schema:
+        type: string
+
+  headers:
+    X-Request-Id:
+      description: Unique request identifier for tracing (auto-generated if not provided by client)
+      schema:
+        type: string
+
+  schemas:
+    CreateSecretRequest:
+      type: object
+      required:
+        - envelope
+        - claim_hash
+      additionalProperties: false
+      properties:
+        envelope:
+          type: object
+          description: |
+            Opaque JSON object produced by the client containing ciphertext,
+            nonce, KDF params, and optional advisory metadata (e.g. `hint.mime`,
+            `hint.filename`). The server stores and returns this unchanged.
+
+            Max size depends on policy tier (256 KB public, 1 MB authenticated by default).
+        claim_hash:
+          type: string
+          description: |
+            Server-stored verifier for one-time claim authorization.
+            Format: `base64url(sha256(claim_token_bytes))`.
+            The raw claim token bytes must be at least 16 bytes.
+        ttl_seconds:
+          type: integer
+          format: int64
+          minimum: 1
+          maximum: 31536000
+          description: |
+            Secret lifetime in seconds. Default: 86400 (24 hours).
+            Maximum: 31536000 (1 year). Omit to use the default.
+
+    CreateSecretResponse:
+      type: object
+      properties:
+        id:
+          type: string
+          description: URL-safe base64-encoded secret identifier
+        share_url:
+          type: string
+          format: uri
+          description: Full URL for sharing (e.g. `https://secrt.ca/s/<id>`)
+        expires_at:
+          type: string
+          format: date-time
+          description: Expiration timestamp (RFC 3339, UTC)
+
+    ClaimSecretRequest:
+      type: object
+      required:
+        - claim
+      additionalProperties: false
+      properties:
+        claim:
+          type: string
+          description: |
+            Base64url-encoded claim token bytes. The server hashes this
+            (`sha256`) and compares against the stored `claim_hash`.
+
+    ClaimSecretResponse:
+      type: object
+      properties:
+        envelope:
+          type: object
+          description: The original opaque envelope stored at creation time
+        expires_at:
+          type: string
+          format: date-time
+          description: Original expiration timestamp (RFC 3339, UTC)
+
+    BurnResponse:
+      type: object
+      properties:
+        ok:
+          type: boolean
+          description: Always `true` on success
+
+    HealthResponse:
+      type: object
+      properties:
+        ok:
+          type: boolean
+        time:
+          type: string
+          format: date-time
+          description: Server time (RFC 3339 with nanoseconds, UTC)
+
+    ErrorResponse:
+      type: object
+      properties:
+        error:
+          type: string
+          description: Human-readable error message
+
+  responses:
+    BadRequest:
+      description: Invalid request (malformed JSON, missing fields, invalid envelope, etc.)
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+          examples:
+            invalidJson:
+              value:
+                error: "invalid json"
+            invalidEnvelope:
+              value:
+                error: "invalid envelope"
+            envelopeTooLarge:
+              value:
+                error: "envelope exceeds maximum size (256 KB)"
+            invalidClaimHash:
+              value:
+                error: "invalid claim_hash"
+            invalidTTL:
+              value:
+                error: "invalid ttl_seconds"
+      headers:
+        X-Request-Id:
+          $ref: "#/components/headers/X-Request-Id"
+
+    Unauthorized:
+      description: Missing or invalid API key
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+          example:
+            error: "unauthorized"
+      headers:
+        X-Request-Id:
+          $ref: "#/components/headers/X-Request-Id"
+
+    NotFound:
+      description: Secret not found, expired, already claimed, wrong claim token, or not owned by caller
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+          example:
+            error: "not found"
+      headers:
+        X-Request-Id:
+          $ref: "#/components/headers/X-Request-Id"
+
+    RateLimited:
+      description: Request rate limited or active-secret count quota exceeded
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+          examples:
+            rateLimited:
+              value:
+                error: "rate limited"
+            secretLimitExceeded:
+              value:
+                error: "secret limit exceeded (max 10 active secrets)"
+      headers:
+        X-Request-Id:
+          $ref: "#/components/headers/X-Request-Id"
+
+    StorageQuotaExceeded:
+      description: Total storage quota exceeded for the owner
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+          example:
+            error: "storage quota exceeded (limit 2 MB)"
+      headers:
+        X-Request-Id:
+          $ref: "#/components/headers/X-Request-Id"
+
+    InternalError:
+      description: Internal server error
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+          example:
+            error: "internal server error"
+      headers:
+        X-Request-Id:
+          $ref: "#/components/headers/X-Request-Id"
+
+tags:
+  - name: health
+    description: Health check endpoint
+  - name: secrets
+    description: One-time secret creation, claim, and burn operations
