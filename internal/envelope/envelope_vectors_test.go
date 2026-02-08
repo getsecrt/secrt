@@ -1,4 +1,4 @@
-// Package v1_test verifies the envelope test vectors are self-consistent.
+// Package envelope_test verifies the envelope test vectors are self-consistent.
 //
 // For each vector it:
 //  1. Re-derives IKM, enc_key, and claim_token from the inputs.
@@ -6,7 +6,7 @@
 //  3. Decrypts the ciphertext and verifies it matches the expected plaintext.
 //
 // This ensures any implementation that passes these vectors is interoperable.
-package v1_test
+package envelope_test
 
 import (
 	"crypto/aes"
@@ -87,7 +87,7 @@ func deriveHKDF(t *testing.T, ikm, salt []byte, info string, length int) []byte 
 func TestEnvelopeVectors(t *testing.T) {
 	t.Parallel()
 
-	data, err := os.ReadFile("envelope.vectors.json")
+	data, err := os.ReadFile("../../spec/v1/envelope.vectors.json")
 	if err != nil {
 		t.Fatalf("read vectors: %v", err)
 	}
