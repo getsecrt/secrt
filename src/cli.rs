@@ -239,11 +239,12 @@ fn print_usage(deps: &mut Deps) {
     let c = color_func((deps.is_stdout_tty)());
     let _ = write!(
         deps.stderr,
-        "{} — one-time secret sharing\n\n  {}                    {}\n  {}               {}\n\nRun '{}' for full usage.\n",
+        "{} — one-time secret sharing\n\n  {}            {}\n  {} {}       {}\n\nRun '{}' for full usage.\n",
         c("36", "secrt"),
         c("36", "secrt create"),
         c("2", "share a secret (interactive)"),
-        c("36", "secrt claim <url>"),
+        c("36", "secrt claim"),
+        c("33", "<url>"),
         c("2", "retrieve a secret"),
         c("36", "secrt help")
     );
