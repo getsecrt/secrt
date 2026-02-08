@@ -6,8 +6,8 @@ This document defines a v1-compatible CLI for `secrt.ca`.
 
 The CLI is a client of:
 
-- `/Users/jdlien/code/secret/spec/v1/api.md` (HTTP API contract)
-- `/Users/jdlien/code/secret/spec/v1/envelope.md` (client-side crypto + envelope format)
+- `spec/v1/api.md` (HTTP API contract)
+- `spec/v1/envelope.md` (client-side crypto + envelope format)
 
 The API contract remains canonical on the wire. CLI ergonomics are defined here.
 
@@ -19,7 +19,7 @@ The keywords MUST, MUST NOT, SHOULD, SHOULD NOT, and MAY are used as defined in 
 
 A conforming CLI:
 
-- MUST encrypt/decrypt locally using `/Users/jdlien/code/secret/spec/v1/envelope.md`.
+- MUST encrypt/decrypt locally using `spec/v1/envelope.md`.
 - MUST NOT send plaintext, URL fragment keys, passphrases, or decrypted plaintext to the server.
 - MUST NOT log plaintext, passphrases, claim tokens, or URL fragments to stderr/stdout logs.
 - SHOULD avoid unsafe input methods that leak to shell history.
@@ -143,7 +143,7 @@ Behavior:
    - Exactly one source MUST be selected.
    - When reading from stdin with a TTY attached, the CLI SHOULD print a prompt to stderr (e.g., `"Enter secret (Ctrl+D to finish):"`) so the user knows input is expected.
    - Empty input MUST be rejected.
-2. CLI performs envelope creation per `/Users/jdlien/code/secret/spec/v1/envelope.md`.
+2. CLI performs envelope creation per `spec/v1/envelope.md`.
 3. CLI computes `claim_hash = base64url(sha256(claim_token_bytes))`.
 4. CLI sends create request:
    - Anonymous: `POST /api/v1/public/secrets`
@@ -181,7 +181,7 @@ secrt claim <share-url> [--base-url <url>] [--json]
 Behavior:
 
 1. Parse `<id>` from `/s/<id>` and parse fragment `#v1.<url_key_b64>`.
-2. Derive `claim_token_bytes` and `enc_key` per `/Users/jdlien/code/secret/spec/v1/envelope.md`.
+2. Derive `claim_token_bytes` and `enc_key` per `spec/v1/envelope.md`.
 3. Send `POST /api/v1/secrets/{id}/claim` with `{ "claim": base64url(claim_token_bytes) }`.
 4. On `200`, decrypt locally and print plaintext.
 5. On `404`, return a generic failure message (not found / expired / already claimed / invalid claim) and non-zero exit.
@@ -251,6 +251,6 @@ Implementation note: given the small command surface, completion scripts SHOULD 
 
 To be considered v1-compatible, a CLI implementation MUST:
 
-- Pass envelope test vectors once available (`/Users/jdlien/code/secret/spec/v1/envelope.vectors.json`).
+- Pass envelope test vectors once available (`spec/v1/envelope.vectors.json`).
 - Map TTL values exactly as specified in this document.
-- Produce API payloads that satisfy `/Users/jdlien/code/secret/spec/v1/api.md`.
+- Produce API payloads that satisfy `spec/v1/api.md`.

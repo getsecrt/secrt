@@ -36,7 +36,7 @@ When spec and code disagree, fix code to match spec (or update spec first with r
 Keep packages small and testable. Prefer an explicit dependency graph.
 
 ```
-cmd/secret-server/         # main package (wiring only)
+cmd/secrt-server/          # main package (wiring only)
 cmd/secrt/                 # CLI client (create/claim/burn)
 cmd/secretctl/             # admin CLI (API key management)
 cmd/gen-vectors/           # test vector generator

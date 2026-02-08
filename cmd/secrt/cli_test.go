@@ -11,7 +11,7 @@ import (
 	"strings"
 	"testing"
 
-	"secret/internal/envelope"
+	"secrt/internal/envelope"
 )
 
 // testDeps returns a Deps with captured stdout/stderr and sensible defaults.

@@ -12,7 +12,7 @@ import (
 	"io"
 	"strings"
 
-	"secret/internal/storage"
+	"secrt/internal/storage"
 )
 
 // randReader is the source of randomness for API key generation.

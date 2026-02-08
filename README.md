@@ -4,11 +4,11 @@ One-time secret sharing service (v1.0 planned backend: Go).
 
 ## Specs
 
-- v1 spec index: `/Users/jdlien/code/secret/spec/v1/README.md`
-- API: `/Users/jdlien/code/secret/spec/v1/api.md`
-- Envelope format and client crypto contract: `/Users/jdlien/code/secret/spec/v1/envelope.md`
-- Server runtime behavior: `/Users/jdlien/code/secret/spec/v1/server.md`
-- CLI command contract: `/Users/jdlien/code/secret/spec/v1/cli.md`
+- v1 spec index: `spec/v1/README.md`
+- API: `spec/v1/api.md`
+- Envelope format and client crypto contract: `spec/v1/envelope.md`
+- Server runtime behavior: `spec/v1/server.md`
+- CLI command contract: `spec/v1/cli.md`
 
 ## Dev setup
 

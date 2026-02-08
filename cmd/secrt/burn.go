@@ -7,7 +7,7 @@ import (
 	"net/url"
 	"strings"
 
-	"secret/internal/envelope"
+	"secrt/internal/envelope"
 )
 
 func runBurn(args []string, deps Deps) int {

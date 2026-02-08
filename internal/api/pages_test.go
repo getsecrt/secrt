@@ -6,8 +6,8 @@ import (
 	"strings"
 	"testing"
 
-	"secret/internal/auth"
-	"secret/internal/config"
+	"secrt/internal/auth"
+	"secrt/internal/config"
 )
 
 func TestPages_IndexAndSecretAndRobots(t *testing.T) {

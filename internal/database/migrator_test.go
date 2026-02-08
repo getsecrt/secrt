@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"secret/internal/config"
+	"secrt/internal/config"
 )
 
 func loadDotEnvForTests(t *testing.T) {

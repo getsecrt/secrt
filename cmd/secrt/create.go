@@ -7,7 +7,7 @@ import (
 	"io"
 	"os"
 
-	"secret/internal/envelope"
+	"secrt/internal/envelope"
 )
 
 func runCreate(args []string, deps Deps) int {

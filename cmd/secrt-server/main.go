@@ -11,11 +11,11 @@ import (
 	"syscall"
 	"time"
 
-	"secret/internal/api"
-	"secret/internal/auth"
-	"secret/internal/config"
-	"secret/internal/database"
-	"secret/internal/storage/postgres"
+	"secrt/internal/api"
+	"secrt/internal/auth"
+	"secrt/internal/config"
+	"secrt/internal/database"
+	"secrt/internal/storage/postgres"
 )
 
 func main() {

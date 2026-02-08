@@ -34,16 +34,16 @@ For a single Linux server (e.g. a DigitalOcean droplet), the simplest secure app
 ### 1. Create the credential file
 
 ```bash
-sudo mkdir -p /etc/secret-server
-sudo touch /etc/secret-server/env
-sudo chmod 600 /etc/secret-server/env
-sudo chown root:root /etc/secret-server/env
+sudo mkdir -p /etc/secrt-server
+sudo touch /etc/secrt-server/env
+sudo chmod 600 /etc/secrt-server/env
+sudo chown root:root /etc/secrt-server/env
 ```
 
 Edit with `sudo`:
 
 ```bash
-sudo editor /etc/secret-server/env
+sudo editor /etc/secrt-server/env
 ```
 
 Contents (example — use real values):
@@ -65,7 +65,7 @@ openssl rand -base64 32
 
 ### 2. Create a systemd service unit
 
-Place at `/etc/systemd/system/secret-server.service`:
+Place at `/etc/systemd/system/secrt-server.service`:
 
 ```ini
 [Unit]
@@ -75,14 +75,14 @@ Requires=postgresql.service
 
 [Service]
 Type=simple
-ExecStart=/opt/secret-server/secret-server
-EnvironmentFile=/etc/secret-server/env
+ExecStart=/opt/secrt-server/secrt-server
+EnvironmentFile=/etc/secrt-server/env
 Restart=on-failure
 RestartSec=5
 
 # Security hardening
-User=secret-server
-Group=secret-server
+User=secrt-server
+Group=secrt-server
 NoNewPrivileges=true
 ProtectSystem=strict
 ProtectHome=true
@@ -100,24 +100,24 @@ WantedBy=multi-user.target
 ### 3. Create the service user
 
 ```bash
-sudo useradd --system --no-create-home --shell /usr/sbin/nologin secret-server
+sudo useradd --system --no-create-home --shell /usr/sbin/nologin secrt-server
 ```
 
 ### 4. Deploy the binary
 
 ```bash
-sudo mkdir -p /opt/secret-server
-sudo cp secret-server /opt/secret-server/
-sudo chmod 755 /opt/secret-server/secret-server
+sudo mkdir -p /opt/secrt-server
+sudo cp secrt-server /opt/secrt-server/
+sudo chmod 755 /opt/secrt-server/secrt-server
 ```
 
 ### 5. Enable and start
 
 ```bash
 sudo systemctl daemon-reload
-sudo systemctl enable secret-server
-sudo systemctl start secret-server
-sudo journalctl -u secret-server -f
+sudo systemctl enable secrt-server
+sudo systemctl start secrt-server
+sudo journalctl -u secrt-server -f
 ```
 
 ### 6. Reverse proxy (nginx)
@@ -160,5 +160,5 @@ If you later want secrets encrypted at rest (e.g., to safely store an encrypted 
 1. Install [SOPS](https://github.com/getsops/sops) and [age](https://github.com/FiloSottile/age)
 2. Generate an age key: `age-keygen -o key.txt`
 3. Encrypt: `sops --encrypt --age <public-key> env.plain > env.enc`
-4. Decrypt at deploy: `sops --decrypt env.enc > /etc/secret-server/env`
+4. Decrypt at deploy: `sops --decrypt env.enc > /etc/secrt-server/env`
 5. Store `env.enc` in the repo; never store `env.plain` or `key.txt`

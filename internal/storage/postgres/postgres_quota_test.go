@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"secret/internal/storage"
+	"secrt/internal/storage"
 )
 
 func TestStore_GetUsage_EmptyOwner(t *testing.T) {

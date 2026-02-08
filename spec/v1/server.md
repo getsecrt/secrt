@@ -6,13 +6,13 @@ This document describes how the v1 server behaves at runtime. Unlike the API spe
 
 Source-of-truth code paths:
 
-- `/Users/jdlien/code/secret/cmd/secret-server/main.go`
-- `/Users/jdlien/code/secret/internal/api/server.go`
-- `/Users/jdlien/code/secret/internal/api/middleware.go`
-- `/Users/jdlien/code/secret/internal/secrets/secrets.go`
-- `/Users/jdlien/code/secret/internal/storage/postgres/postgres.go`
-- `/Users/jdlien/code/secret/internal/database/migrations/001_initial.sql`
-- `/Users/jdlien/code/secret/internal/database/migrations/002_add_owner_key.sql`
+- `cmd/secrt-server/main.go`
+- `internal/api/server.go`
+- `internal/api/middleware.go`
+- `internal/secrets/secrets.go`
+- `internal/storage/postgres/postgres.go`
+- `internal/database/migrations/001_initial.sql`
+- `internal/database/migrations/002_add_owner_key.sql`
 
 ## 1. Scope
 
@@ -25,11 +25,11 @@ This spec is for server runtime behavior only:
 
 It is not the client crypto format spec. See:
 
-- `/Users/jdlien/code/secret/spec/v1/envelope.md`
+- `spec/v1/envelope.md`
 
 It is also not the CLI UX/argument spec. See:
 
-- `/Users/jdlien/code/secret/spec/v1/cli.md`
+- `spec/v1/cli.md`
 
 ## 2. Startup and Shutdown
 

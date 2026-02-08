@@ -230,7 +230,7 @@ Steps:
 
 ## API Mapping
 
-This spec maps to `/Users/jdlien/code/secret/spec/v1/api.md`:
+This spec maps to `spec/v1/api.md`:
 
 - Create request:
   - `claim_hash = base64url(sha256(claim_token_bytes))`
@@ -258,7 +258,7 @@ Servers SHOULD reject envelopes over service size limits. Default limits are 256
 
 ## Interoperability Test Vectors
 
-Before freezing v1, add machine-readable vectors (recommended path: `/Users/jdlien/code/secret/spec/v1/envelope.vectors.json`) that include:
+Before freezing v1, add machine-readable vectors (recommended path: `spec/v1/envelope.vectors.json`) that include:
 
 - URL key bytes
 - passphrase (if any)

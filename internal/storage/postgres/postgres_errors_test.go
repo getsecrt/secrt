@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"secret/internal/storage"
+	"secrt/internal/storage"
 )
 
 func TestStore_ClosedDB_ReturnsErrors(t *testing.T) {

@@ -8,9 +8,9 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"secret/internal/auth"
-	"secret/internal/config"
-	"secret/internal/secrets"
+	"secrt/internal/auth"
+	"secrt/internal/config"
+	"secrt/internal/secrets"
 )
 
 // ── Helpers ─────────────────────────────────────────────────────────────

@@ -15,9 +15,9 @@ import (
 	"testing"
 	"time"
 
-	"secret/internal/config"
-	"secret/internal/database"
-	"secret/internal/storage"
+	"secrt/internal/config"
+	"secrt/internal/database"
+	"secrt/internal/storage"
 )
 
 func loadDotEnvForTests(t *testing.T) {

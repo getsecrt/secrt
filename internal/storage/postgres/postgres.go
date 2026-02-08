@@ -8,7 +8,7 @@ import (
 	"fmt"
 	"time"
 
-	"secret/internal/storage"
+	"secrt/internal/storage"
 )
 
 type Store struct {

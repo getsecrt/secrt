@@ -12,11 +12,11 @@ import (
 	"strings"
 	"time"
 
-	"secret/internal/auth"
-	"secret/internal/config"
-	"secret/internal/ratelimit"
-	"secret/internal/secrets"
-	"secret/internal/storage"
+	"secrt/internal/auth"
+	"secrt/internal/config"
+	"secrt/internal/ratelimit"
+	"secrt/internal/secrets"
+	"secrt/internal/storage"
 )
 
 type Server struct {

@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"net/url"
 
-	"secret/internal/envelope"
+	"secrt/internal/envelope"
 )
 
 func runClaim(args []string, deps Deps) int {

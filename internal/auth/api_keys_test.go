@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"secret/internal/storage"
+	"secrt/internal/storage"
 )
 
 type countingReader struct {

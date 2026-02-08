@@ -12,10 +12,10 @@ import (
 	"testing"
 	"time"
 
-	"secret/internal/auth"
-	"secret/internal/config"
-	"secret/internal/secrets"
-	"secret/internal/storage"
+	"secrt/internal/auth"
+	"secrt/internal/config"
+	"secrt/internal/secrets"
+	"secrt/internal/storage"
 )
 
 // ── End-to-end lifecycle flows ──────────────────────────────────────────

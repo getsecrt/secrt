@@ -7,11 +7,11 @@ import (
 	"strings"
 	"time"
 
-	"secret/internal/auth"
-	"secret/internal/config"
-	"secret/internal/database"
-	"secret/internal/storage"
-	"secret/internal/storage/postgres"
+	"secrt/internal/auth"
+	"secrt/internal/config"
+	"secrt/internal/database"
+	"secrt/internal/storage"
+	"secrt/internal/storage/postgres"
 )
 
 func main() {

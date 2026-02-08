@@ -6,7 +6,7 @@ The service stores **ciphertext envelopes only**. Decryption keys must never be 
 
 Server-side runtime behavior (atomic claim semantics, reaper cadence, middleware, timeouts) is specified in:
 
-- `/Users/jdlien/code/secret/spec/v1/server.md`
+- `spec/v1/server.md`
 
 ## Content types
 
@@ -18,7 +18,7 @@ Server-side runtime behavior (atomic claim semantics, reaper cadence, middleware
 - Default: **24 hours** (`86400` seconds) when `ttl_seconds` is omitted.
 - API clients MAY set any positive integer `ttl_seconds` up to **1 year** (`31536000` seconds).
 - Frontend UI MAY present opinionated presets, but API validation should not be restricted to those preset values.
-- The wire contract is integer seconds only; CLI input parsing rules (e.g., `5m`, `2h`, `2d`, `1w`) are defined in `/Users/jdlien/code/secret/spec/v1/cli.md`.
+- The wire contract is integer seconds only; CLI input parsing rules (e.g., `5m`, `2h`, `2d`, `1w`) are defined in `spec/v1/cli.md`.
 
 ## Envelope
 
@@ -28,7 +28,7 @@ Clients MAY include optional advisory metadata inside the envelope (for example 
 
 Normative envelope format and crypto workflow are defined in:
 
-- `/Users/jdlien/code/secret/spec/v1/envelope.md`
+- `spec/v1/envelope.md`
 
 ## Claim tokens
 
