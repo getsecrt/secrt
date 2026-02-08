@@ -159,3 +159,56 @@ func TestMigrator_Migrate_ClosedDB(t *testing.T) {
 		t.Fatalf("expected migrate error on closed db")
 	}
 }
+
+func TestMigrator_getMigrationFiles(t *testing.T) {
+	t.Parallel()
+
+	m := &Migrator{db: nil}
+	files, err := m.getMigrationFiles()
+	if err != nil {
+		t.Fatalf("getMigrationFiles: %v", err)
+	}
+	if len(files) == 0 {
+		t.Fatal("expected at least one migration file")
+	}
+	for _, f := range files {
+		if !strings.HasSuffix(f, ".sql") {
+			t.Fatalf("non-SQL file: %s", f)
+		}
+	}
+	for i := 1; i < len(files); i++ {
+		if files[i] < files[i-1] {
+			t.Fatalf("files not sorted: %s before %s", files[i-1], files[i])
+		}
+	}
+}
+
+func TestMigrator_Migrate_HappyPath(t *testing.T) {
+	baseURL := testDatabaseURL(t)
+	baseConn := openPostgresOrSkip(t, baseURL)
+
+	schema := createTestSchema(t, baseConn)
+	schemaURL := withSearchPath(baseURL, schema)
+	conn := openPostgresOrSkip(t, schemaURL)
+
+	m := NewMigrator(conn)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	applied, err := m.Migrate(ctx)
+	if err != nil {
+		t.Fatalf("first migrate: %v", err)
+	}
+	if len(applied) == 0 {
+		t.Fatal("expected migrations to be applied")
+	}
+
+	applied2, err := m.Migrate(ctx)
+	if err != nil {
+		t.Fatalf("second migrate: %v", err)
+	}
+	if len(applied2) != 0 {
+		t.Fatalf("expected no new migrations, got %d", len(applied2))
+	}
+}

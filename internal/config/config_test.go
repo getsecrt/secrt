@@ -82,6 +82,20 @@ func TestLoad_Defaults(t *testing.T) {
 	if cfg.APIKeyPepper != "" {
 		t.Fatalf("APIKeyPepper: expected empty in dev, got %q", cfg.APIKeyPepper)
 	}
+
+	// Quota defaults.
+	if cfg.PublicMaxSecrets != 10 {
+		t.Fatalf("PublicMaxSecrets: got %d", cfg.PublicMaxSecrets)
+	}
+	if cfg.PublicMaxTotalBytes != 640*1024 {
+		t.Fatalf("PublicMaxTotalBytes: got %d", cfg.PublicMaxTotalBytes)
+	}
+	if cfg.AuthedMaxSecrets != 1000 {
+		t.Fatalf("AuthedMaxSecrets: got %d", cfg.AuthedMaxSecrets)
+	}
+	if cfg.AuthedMaxTotalBytes != 64*1024*1024 {
+		t.Fatalf("AuthedMaxTotalBytes: got %d", cfg.AuthedMaxTotalBytes)
+	}
 }
 
 func TestLoad_ValidationErrors(t *testing.T) {
@@ -154,6 +168,50 @@ func TestLoad_TrimsDatabaseURL(t *testing.T) {
 	}
 }
 
+func TestLoad_QuotaOverrides(t *testing.T) {
+	unsetEnv(t, "DB_PORT", "PUBLIC_BASE_URL", "ENV", "API_KEY_PEPPER",
+		"PUBLIC_MAX_SECRETS", "PUBLIC_MAX_TOTAL_BYTES",
+		"AUTHED_MAX_SECRETS", "AUTHED_MAX_TOTAL_BYTES")
+	t.Setenv("DB_PORT", "5432")
+	t.Setenv("PUBLIC_BASE_URL", "https://example.com")
+	t.Setenv("PUBLIC_MAX_SECRETS", "50")
+	t.Setenv("PUBLIC_MAX_TOTAL_BYTES", "1048576")
+	t.Setenv("AUTHED_MAX_SECRETS", "5000")
+	t.Setenv("AUTHED_MAX_TOTAL_BYTES", "134217728")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if cfg.PublicMaxSecrets != 50 {
+		t.Fatalf("PublicMaxSecrets: got %d", cfg.PublicMaxSecrets)
+	}
+	if cfg.PublicMaxTotalBytes != 1048576 {
+		t.Fatalf("PublicMaxTotalBytes: got %d", cfg.PublicMaxTotalBytes)
+	}
+	if cfg.AuthedMaxSecrets != 5000 {
+		t.Fatalf("AuthedMaxSecrets: got %d", cfg.AuthedMaxSecrets)
+	}
+	if cfg.AuthedMaxTotalBytes != 134217728 {
+		t.Fatalf("AuthedMaxTotalBytes: got %d", cfg.AuthedMaxTotalBytes)
+	}
+}
+
+func TestLoad_QuotaInvalidFallsBackToDefault(t *testing.T) {
+	unsetEnv(t, "DB_PORT", "PUBLIC_BASE_URL", "ENV", "API_KEY_PEPPER", "PUBLIC_MAX_SECRETS")
+	t.Setenv("DB_PORT", "5432")
+	t.Setenv("PUBLIC_BASE_URL", "https://example.com")
+	t.Setenv("PUBLIC_MAX_SECRETS", "not-a-number")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if cfg.PublicMaxSecrets != 10 {
+		t.Fatalf("PublicMaxSecrets: got %d, expected default 10", cfg.PublicMaxSecrets)
+	}
+}
+
 func TestConfig_PostgresURL(t *testing.T) {
 	t.Run("uses DatabaseURL when set", func(t *testing.T) {
 		cfg := Config{DatabaseURL: "postgres://example.com/db"}
@@ -220,4 +278,3 @@ func TestConfig_PostgresURL(t *testing.T) {
 		}
 	})
 }
-

@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -194,5 +195,64 @@ func TestValidateClaimHash(t *testing.T) {
 	shortHash := base64.RawURLEncoding.EncodeToString([]byte("tiny"))
 	if err := ValidateClaimHash(shortHash); err == nil {
 		t.Fatalf("expected error for short hash")
+	}
+}
+
+type failReader struct{ err error }
+
+func (f *failReader) Read([]byte) (int, error) { return 0, f.err }
+
+func TestGenerateID_RandReadError(t *testing.T) {
+	// Not parallel: mutates package-level randReader.
+	old := randReader
+	randReader = &failReader{err: errors.New("entropy exhausted")}
+	defer func() { randReader = old }()
+
+	_, err := GenerateID()
+	if err == nil {
+		t.Fatal("expected error when rand reader fails")
+	}
+	if !strings.Contains(err.Error(), "generate id") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestNormalizeTTLWithMax_OverflowGuard(t *testing.T) {
+	t.Parallel()
+
+	// Use a maxSeconds large enough to pass the range check but whose
+	// time.Duration conversion overflows (wraps negative).
+	hugeSeconds := int64(1<<62) / int64(time.Second)
+	hugeDuration := time.Duration(hugeSeconds+1) * time.Second
+
+	// Ensure the setup actually causes overflow (sanity check).
+	if hugeDuration > 0 {
+		t.Skip("no overflow on this platform")
+	}
+
+	ttl := hugeSeconds
+	_, err := normalizeTTLWithMax(&ttl, hugeSeconds, MaxTTL)
+	if err == nil {
+		t.Fatal("expected error for overflow")
+	}
+}
+
+func TestValidateEnvelope_BoundarySize(t *testing.T) {
+	t.Parallel()
+
+	// Exactly MaxEnvelopeBytes should pass.
+	pad := MaxEnvelopeBytes - len(`{"x":""}`)
+	exact := `{"x":"` + strings.Repeat("a", pad) + `"}`
+	if len(exact) != MaxEnvelopeBytes {
+		t.Fatalf("setup: len=%d want %d", len(exact), MaxEnvelopeBytes)
+	}
+	if err := ValidateEnvelope(json.RawMessage(exact)); err != nil {
+		t.Fatalf("exactly max should pass: %v", err)
+	}
+
+	// MaxEnvelopeBytes + 1 should fail.
+	over := `{"x":"` + strings.Repeat("a", pad+1) + `"}`
+	if err := ValidateEnvelope(json.RawMessage(over)); err == nil {
+		t.Fatal("expected error for max+1")
 	}
 }

@@ -10,6 +10,23 @@ import (
 	"secret/internal/storage"
 )
 
+type countingReader struct {
+	callCount int
+	failAt    int
+	err       error
+}
+
+func (c *countingReader) Read(p []byte) (int, error) {
+	c.callCount++
+	if c.callCount == c.failAt {
+		return 0, c.err
+	}
+	for i := range p {
+		p[i] = byte(c.callCount)
+	}
+	return len(p), nil
+}
+
 type fakeAPIKeyStore struct {
 	key storage.APIKey
 	err error
@@ -234,5 +251,35 @@ func TestSecureEqualsHex(t *testing.T) {
 	}
 	if secureEqualsHex("00", "01") {
 		t.Fatalf("expected false for different bytes")
+	}
+}
+
+func TestGenerateAPIKey_FirstRandReadError(t *testing.T) {
+	// Not parallel: mutates package-level randReader.
+	old := randReader
+	randReader = &countingReader{failAt: 1, err: errors.New("no entropy")}
+	defer func() { randReader = old }()
+
+	_, _, _, err := GenerateAPIKey("pepper")
+	if err == nil {
+		t.Fatal("expected error on first rand.Read")
+	}
+	if !strings.Contains(err.Error(), "prefix") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestGenerateAPIKey_SecondRandReadError(t *testing.T) {
+	// Not parallel: mutates package-level randReader.
+	old := randReader
+	randReader = &countingReader{failAt: 2, err: errors.New("no entropy")}
+	defer func() { randReader = old }()
+
+	_, _, _, err := GenerateAPIKey("pepper")
+	if err == nil {
+		t.Fatal("expected error on second rand.Read")
+	}
+	if !strings.Contains(err.Error(), "secret") {
+		t.Fatalf("unexpected error: %v", err)
 	}
 }
