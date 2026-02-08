@@ -1,0 +1,46 @@
+mod burn;
+mod claim;
+mod cli;
+mod client;
+mod color;
+mod completion;
+mod create;
+mod envelope;
+mod passphrase;
+
+use std::io::{self, Write};
+use std::os::fd::AsRawFd;
+
+fn main() {
+    let mut deps = cli::Deps {
+        stdin: Box::new(io::stdin()),
+        stdout: Box::new(io::stdout()),
+        stderr: Box::new(io::stderr()),
+        is_tty: Box::new(|| is_terminal::is_terminal(io::stdin())),
+        is_stdout_tty: Box::new(|| is_terminal::is_terminal(io::stdout())),
+        getenv: Box::new(|key: &str| std::env::var(key).ok()),
+        rand_bytes: Box::new(|buf: &mut [u8]| {
+            use ring::rand::{SecureRandom, SystemRandom};
+            let rng = SystemRandom::new();
+            rng.fill(buf)
+                .map_err(|_| envelope::EnvelopeError::RngError("SystemRandom failed".into()))
+        }),
+        read_pass: Box::new(|prompt: &str, w: &mut dyn Write| {
+            w.write_all(prompt.as_bytes())?;
+            w.flush()?;
+            let pass = rpassword::read_password_from_bufread(&mut io::BufReader::new(
+                std::fs::File::open("/dev/tty").unwrap_or_else(|_| {
+                    // Fallback: use stdin fd directly
+                    use std::os::fd::FromRawFd;
+                    unsafe { std::fs::File::from_raw_fd(io::stdin().as_raw_fd()) }
+                }),
+            ))?;
+            let _ = w.write_all(b"\n");
+            Ok(pass)
+        }),
+    };
+
+    let args: Vec<String> = std::env::args().collect();
+    let code = cli::run(&args, &mut deps);
+    std::process::exit(code);
+}
