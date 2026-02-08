@@ -2,7 +2,7 @@
 
 One-time secret sharing service (v1.0 planned backend: Go).
 
-> **Note:** This repo will move to [github.com/getsecrt](https://github.com/getsecrt) once the project reaches v1.0.
+> **Repo:** [github.com/getsecrt/secrt](https://github.com/getsecrt/secrt)
 
 ## Specs
 
