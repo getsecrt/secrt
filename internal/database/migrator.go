@@ -130,4 +130,3 @@ func (m *Migrator) applyMigration(ctx context.Context, filename, sqlText string)
 	}
 	return nil
 }
-

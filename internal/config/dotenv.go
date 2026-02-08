@@ -66,4 +66,3 @@ func LoadDotEnv(path string) error {
 	}
 	return nil
 }
-

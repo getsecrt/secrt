@@ -122,4 +122,3 @@ func usage() {
 	fmt.Fprintln(os.Stderr, "  secretctl apikey create [scopes]")
 	fmt.Fprintln(os.Stderr, "  secretctl apikey revoke <prefix>")
 }
-

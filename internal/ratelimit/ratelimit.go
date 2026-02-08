@@ -63,4 +63,3 @@ func (l *Limiter) Allow(key string) bool {
 	b.tokens -= 1
 	return true
 }
-

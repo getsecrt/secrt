@@ -41,4 +41,3 @@ func (c *Connection) Close() error {
 	}
 	return c.db.Close()
 }
-

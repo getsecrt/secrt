@@ -19,4 +19,3 @@ type APIKeysStore interface {
 	Insert(ctx context.Context, key APIKey) error
 	RevokeByPrefix(ctx context.Context, prefix string) (bool, error)
 }
-
