@@ -3,18 +3,22 @@
 BIN_DIR := bin
 APP := secret-server
 CTL := secretctl
+CLI := secrt
+VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 
 # Build the application (with debug symbols)
 build:
 	mkdir -p $(BIN_DIR)
 	go build -o $(BIN_DIR)/$(APP) ./cmd/secret-server
 	go build -o $(BIN_DIR)/$(CTL) ./cmd/secretctl
+	go build -ldflags="-X main.version=$(VERSION)" -o $(BIN_DIR)/$(CLI) ./cmd/secrt
 
 # Build for production (stripped, smaller)
 build-prod:
 	mkdir -p $(BIN_DIR)
 	go build -ldflags="-s -w" -o $(BIN_DIR)/$(APP) ./cmd/secret-server
 	go build -ldflags="-s -w" -o $(BIN_DIR)/$(CTL) ./cmd/secretctl
+	go build -ldflags="-s -w -X main.version=$(VERSION)" -o $(BIN_DIR)/$(CLI) ./cmd/secrt
 
 # Run the application
 run:
