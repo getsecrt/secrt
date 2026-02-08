@@ -1,3 +1,11 @@
+// Go reference implementation of the secrt CLI.
+//
+// The primary/recommended CLI is the Rust version at
+// github.com/getsecrt/secrt-rs, which produces smaller binaries
+// and faster crypto operations. This Go implementation is maintained
+// at feature parity and is useful for contributors already working
+// in the Go server codebase. Both implementations conform to
+// spec/v1/cli.md and pass the shared test vectors.
 package main
 
 import (
@@ -219,8 +227,17 @@ func resolveGlobals(pa *parsedArgs, deps Deps) {
 
 func printUsage(deps Deps) {
 	c := colorFunc(deps.IsStdoutTTY())
-	fmt.Fprintf(deps.Stderr, "%s — one-time secret sharing\n\nRun '%s' for usage.\n",
-		c("36", "secrt"), c("36", "secrt help"))
+	fmt.Fprintf(deps.Stderr, `%s — one-time secret sharing
+
+  %s            %s
+  %s %s       %s
+
+Run '%s' for full usage.
+`,
+		c("36", "secrt"),
+		c("36", "secrt create"), c("2", "share a secret (interactive)"),
+		c("36", "secrt claim"), c("33", "<url>"), c("2", "retrieve a secret"),
+		c("36", "secrt help"))
 }
 
 func printHelp(deps Deps) {
