@@ -78,6 +78,18 @@ Constants:
 }
 ```
 
+Clients MAY include optional advisory metadata for UX:
+
+```json
+{
+  "hint": {
+    "type": "file",
+    "mime": "text/plain",
+    "filename": "credentials.txt"
+  }
+}
+```
+
 If a passphrase is used, `kdf` MUST be:
 
 ```json
@@ -112,6 +124,14 @@ For `kdf.name == "PBKDF2-SHA256"`:
 For `kdf.name == "none"`:
 
 - `kdf` MUST NOT include `salt`, `iterations`, or `length`.
+
+For optional `hint` metadata:
+
+- `hint` is optional and MAY be omitted entirely.
+- `hint` fields are optional and MUST NOT affect key derivation, claim token derivation, or AEAD inputs.
+- `hint` is advisory only and MUST NOT be used for authorization or other security decisions.
+- Clients SHOULD sanitize `hint.filename` and `hint.mime` before display/use.
+- If `hint.mime` is absent for file download UX, clients SHOULD default to `application/octet-stream`.
 
 Unknown fields:
 
@@ -155,6 +175,7 @@ Steps:
    - `ciphertext = AES-256-GCM-Seal(enc_key, nonce, plaintext, AAD)`
    - `ciphertext` is encoded as a single byte string that includes GCM tag (`ciphertext||tag`).
 8. Build envelope JSON with fields above.
+   - Optional: include `hint` metadata for UX (`type`, `mime`, `filename`), if available.
 9. Compute `claim_hash` for create API:
    - `claim_hash = base64url( SHA-256(claim_token_bytes) )`
 10. Send API create request:
@@ -186,6 +207,9 @@ Steps:
 6. On `200`, decrypt:
    - `plaintext = AES-256-GCM-Open(enc_key, nonce, ciphertext, AAD)`
 7. If decryption fails, treat as invalid link/passphrase or tampering.
+8. Optional UX behavior:
+   - If `hint` is present, clients MAY use it to choose display/download defaults.
+   - If `hint.mime` is missing and bytes are downloaded as a file, use `application/octet-stream`.
 
 ## API Mapping
 
@@ -227,5 +251,6 @@ Before freezing v1, add machine-readable vectors (recommended path: `/Users/jdli
 - plaintext
 - expected envelope
 - expected claim token and claim hash
+- optional hint metadata (when present)
 
 Both CLI and browser implementations MUST pass these vectors.

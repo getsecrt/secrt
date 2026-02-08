@@ -63,7 +63,7 @@ This document captures gaps, open questions, and recommendations identified duri
 
 **Current state:** The CLI spec mentions `--file <path>` as an input option, but doesn't specify:
 - Are binary files supported, or text only?
-- What's the effective size limit? (Envelope max is 64KB, but ciphertext overhead reduces usable plaintext size)
+- What's the effective size limit? (Envelope limits are tiered and ciphertext overhead reduces usable plaintext size)
 - How should `claim` output binary content without corrupting the terminal?
 
 **Options:**
@@ -88,11 +88,35 @@ Precedence: CLI flag > environment variable > config file > built-in default.
 
 Can be deferred to v1.1.
 
+### 7. Optional Envelope Metadata Hints (`hint.mime`, `hint.filename`)
+
+**Status:** Mentioned in v2 ideas, not formalized in v1 envelope spec
+
+**Why it matters:** Zero-knowledge file sharing works without MIME metadata, but download UX is better when clients can preserve content type and optional filename.
+
+**Recommendation:** Add an explicitly optional advisory `hint` object in `spec/v1/envelope.md`, for example:
+
+```json
+{
+  "hint": {
+    "type": "file",
+    "mime": "application/pdf",
+    "filename": "incident-report.pdf"
+  }
+}
+```
+
+Rules:
+- `hint` MUST be optional and never required for decryption.
+- `hint` MUST NOT affect key derivation, claim tokens, or cryptographic checks.
+- Server stores/returns `hint` opaquely; do not trust it for authorization/security decisions.
+- If `hint.mime` is absent, clients should default file downloads to `application/octet-stream`.
+
 ---
 
 ## Lower Priority (Operational Polish)
 
-### 7. Distributed Rate Limiting
+### 8. Distributed Rate Limiting
 
 **Status:** Acknowledged as limitation in `server.md`
 
@@ -105,7 +129,7 @@ Can be deferred to v1.1.
 
 **Recommendation:** Document the limitation clearly. Defer implementation until there's actual multi-instance deployment need.
 
-### 8. Metrics and Observability
+### 9. Metrics and Observability
 
 **Status:** Not specified
 
@@ -121,7 +145,7 @@ Can be deferred to v1.1.
 
 Can be deferred to v1.1. Use `promhttp` from the Prometheus Go client.
 
-### 9. Shell Completions
+### 10. Shell Completions
 
 **Status:** Not mentioned
 
@@ -182,18 +206,19 @@ This approach keeps the dependency count minimal (important for a security-focus
 **Before v1 launch:**
 1. Test vectors (critical for interoperability)
 2. Clarify text-only scope in CLI spec
+3. Define optional envelope `hint` metadata for file UX
 
 **v1.0 polish (can ship without):**
-3. OpenAPI spec
-4. JSON Schema
-5. Shell completions
+4. OpenAPI spec
+5. JSON Schema
+6. Shell completions
 
 **v1.1 roadmap:**
-6. Web UI
-7. Prometheus metrics
-8. CLI config file
-9. Binary file support (if demand exists)
+7. Web UI
+8. Prometheus metrics
+9. CLI config file
+10. Binary file support (if demand exists)
 
 **Defer until needed:**
-10. Distributed rate limiting
-11. Captcha/proof-of-work
+11. Distributed rate limiting
+12. Captcha/proof-of-work

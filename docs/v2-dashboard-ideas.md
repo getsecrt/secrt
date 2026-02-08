@@ -78,7 +78,14 @@ If we want to show "file vs text" or filenames, the client can include an option
 }
 ```
 
-Server stores this opaquely with the envelope and displays it if present. Client-provided, unverified, purely for UX.
+Server stores this opaquely with the envelope and displays it if present.
+
+Guidelines:
+- `hint` is optional and should not be required for decrypt/download flows.
+- Treat all hint values as client-provided and unverified (UX only).
+- Keep labels neutral in UI (for example, "client-provided filename").
+- If `hint.mime` is missing, use `application/octet-stream` for file download.
+- If `hint.filename` is missing, generate a safe default filename.
 
 ---
 
