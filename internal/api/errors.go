@@ -42,6 +42,11 @@ func internalServerError(w http.ResponseWriter) {
 	writeError(w, http.StatusInternalServerError, "internal server error")
 }
 
+func rateLimited(w http.ResponseWriter) {
+	w.Header().Set("Retry-After", "10")
+	writeError(w, http.StatusTooManyRequests, "rate limit exceeded; please try again in a few seconds")
+}
+
 func isJSONContentType(r *http.Request) bool {
 	ct := r.Header.Get("Content-Type")
 	// Accept common forms: application/json or application/json; charset=utf-8

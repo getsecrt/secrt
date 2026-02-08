@@ -41,8 +41,8 @@ func NewServer(cfg config.Config, secretsStore storage.SecretsStore, authn *auth
 		cfg:     cfg,
 		secrets: secretsStore,
 		auth:    authn,
-		// Conservative single-instance rate limits. Tune as needed.
-		publicCreateLimiter: ratelimit.New(0.2, 4), // ~12/min burst 4 per IP
+		// Single-instance rate limits per IP. Tune as needed.
+		publicCreateLimiter: ratelimit.New(0.5, 6), // ~30/min burst 6 per IP
 		claimLimiter:        ratelimit.New(1.0, 10),
 		apiLimiter:          ratelimit.New(2.0, 20),
 		generateID:          secrets.GenerateID,
@@ -81,7 +81,7 @@ func (s *Server) handleHealthz(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleCreatePublicSecret(w http.ResponseWriter, r *http.Request) {
 	if !s.publicCreateLimiter.Allow(clientIP(r)) {
-		writeError(w, http.StatusTooManyRequests, "rate limited")
+		rateLimited(w)
 		return
 	}
 
@@ -95,7 +95,7 @@ func (s *Server) handleCreateAuthedSecret(w http.ResponseWriter, r *http.Request
 	}
 
 	if !s.apiLimiter.Allow("apikey:" + apiKey.Prefix) {
-		writeError(w, http.StatusTooManyRequests, "rate limited")
+		rateLimited(w)
 		return
 	}
 
@@ -228,7 +228,7 @@ func (s *Server) handleClaimSecret(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !s.claimLimiter.Allow(clientIP(r)) {
-		writeError(w, http.StatusTooManyRequests, "rate limited")
+		rateLimited(w)
 		return
 	}
 	if !isJSONContentType(r) {
@@ -347,10 +347,21 @@ func (s *Server) requireAPIKey(w http.ResponseWriter, r *http.Request) (storage.
 }
 
 func clientIP(r *http.Request) string {
-	// For v1 we intentionally avoid trusting X-Forwarded-For without explicit configuration.
 	host, _, err := net.SplitHostPort(r.RemoteAddr)
 	if err != nil {
 		return r.RemoteAddr
 	}
+
+	// Trust proxy headers only from loopback (nginx/reverse proxy on same host).
+	if host == "127.0.0.1" || host == "::1" {
+		if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
+			// Leftmost IP is the original client.
+			if i := strings.IndexByte(xff, ','); i > 0 {
+				return strings.TrimSpace(xff[:i])
+			}
+			return strings.TrimSpace(xff)
+		}
+	}
+
 	return host
 }

@@ -219,7 +219,7 @@ func TestCreateSecret_ValidationAndRateLimit(t *testing.T) {
 			ClaimHash: claimHash,
 		})
 
-		for i := 0; i < 4; i++ {
+		for i := 0; i < 6; i++ {
 			rec := httptest.NewRecorder()
 			req := httptest.NewRequest(http.MethodPost, "/api/v1/public/secrets", bytes.NewReader(reqBody))
 			req.Header.Set("Content-Type", "application/json")
@@ -231,7 +231,7 @@ func TestCreateSecret_ValidationAndRateLimit(t *testing.T) {
 			}
 		}
 
-		// 5th request should exceed burst (4).
+		// 7th request should exceed burst (6).
 		rec := httptest.NewRecorder()
 		req := httptest.NewRequest(http.MethodPost, "/api/v1/public/secrets", bytes.NewReader(reqBody))
 		req.Header.Set("Content-Type", "application/json")
@@ -240,6 +240,15 @@ func TestCreateSecret_ValidationAndRateLimit(t *testing.T) {
 		srv.Handler().ServeHTTP(rec, req)
 		if rec.Code != http.StatusTooManyRequests {
 			t.Fatalf("expected 429, got %d body=%s", rec.Code, rec.Body.String())
+		}
+
+		if ra := rec.Header().Get("Retry-After"); ra != "10" {
+			t.Fatalf("expected Retry-After: 10, got %q", ra)
+		}
+
+		msg := decodeErrorResponse(t, rec.Body.String())
+		if msg != "rate limit exceeded; please try again in a few seconds" {
+			t.Fatalf("unexpected error message: %q", msg)
 		}
 	})
 }
@@ -678,15 +687,70 @@ func TestAuthedCreate_RateLimitedAndAuthFailures(t *testing.T) {
 func TestClientIP(t *testing.T) {
 	t.Parallel()
 
-	req := httptest.NewRequest(http.MethodGet, "/", nil)
-	req.RemoteAddr = "192.0.2.1:1234"
-	if got := clientIP(req); got != "192.0.2.1" {
-		t.Fatalf("got %q", got)
+	tests := []struct {
+		name       string
+		remoteAddr string
+		xff        string // X-Forwarded-For header value; empty = not set
+		want       string
+	}{
+		{
+			name:       "direct connection",
+			remoteAddr: "192.0.2.1:1234",
+			want:       "192.0.2.1",
+		},
+		{
+			name:       "unparseable RemoteAddr falls through",
+			remoteAddr: "weird",
+			want:       "weird",
+		},
+		{
+			name:       "loopback ipv4 with XFF single IP",
+			remoteAddr: "127.0.0.1:1234",
+			xff:        "203.0.113.5",
+			want:       "203.0.113.5",
+		},
+		{
+			name:       "loopback ipv6 with XFF single IP",
+			remoteAddr: "[::1]:1234",
+			xff:        "203.0.113.6",
+			want:       "203.0.113.6",
+		},
+		{
+			name:       "loopback with XFF chain returns leftmost",
+			remoteAddr: "127.0.0.1:9999",
+			xff:        "198.51.100.1, 10.0.0.1, 127.0.0.1",
+			want:       "198.51.100.1",
+		},
+		{
+			name:       "loopback with XFF whitespace trimmed",
+			remoteAddr: "127.0.0.1:80",
+			xff:        "  198.51.100.2 ",
+			want:       "198.51.100.2",
+		},
+		{
+			name:       "loopback without XFF returns loopback",
+			remoteAddr: "127.0.0.1:80",
+			want:       "127.0.0.1",
+		},
+		{
+			name:       "non-loopback ignores XFF",
+			remoteAddr: "10.0.0.1:1234",
+			xff:        "203.0.113.99",
+			want:       "10.0.0.1",
+		},
 	}
 
-	req2 := httptest.NewRequest(http.MethodGet, "/", nil)
-	req2.RemoteAddr = "weird"
-	if got := clientIP(req2); got != "weird" {
-		t.Fatalf("got %q", got)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			req := httptest.NewRequest(http.MethodGet, "/", nil)
+			req.RemoteAddr = tt.remoteAddr
+			if tt.xff != "" {
+				req.Header.Set("X-Forwarded-For", tt.xff)
+			}
+			if got := clientIP(req); got != tt.want {
+				t.Errorf("clientIP() = %q, want %q", got, tt.want)
+			}
+		})
 	}
 }
