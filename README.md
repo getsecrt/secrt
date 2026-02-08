@@ -14,25 +14,11 @@ One-time secret sharing service (v1.0 planned backend: Go).
 
 ## CLI
 
-Two CLI implementations exist, both implementing the same [v1 spec](spec/v1/cli.md):
+The CLI is implemented in Rust: [getsecrt/secrt-rs](https://github.com/getsecrt/secrt-rs)
 
-| Implementation | Repo | Status |
-| -------------- | ---- | ------ |
-| **Rust** (recommended) | [getsecrt/secrt-rs](https://github.com/getsecrt/secrt-rs) | Primary — install this one |
-| Go | `cmd/secrt/` (this repo) | Reference implementation, maintained at feature parity |
+It implements the [v1 CLI spec](spec/v1/cli.md) and passes all [test vectors](spec/v1/envelope.vectors.json).
 
-The Rust CLI is the recommended distribution for end users. The Go CLI remains maintained at feature parity and serves as a reference implementation — particularly useful for contributors already working in the Go server codebase.
-
-### Benchmarks (Rust vs Go)
-
-| Metric | Rust | Go | Delta |
-| ----------- | ------- | ------- | ---------------------- |
-| Binary size | 1.3 MB | 5.5 MB | Rust 4.2x smaller |
-| Startup | ~1.7 ms | ~3.3 ms | Rust 2x faster |
-| Encrypt | ~2.3 ms | ~4.1 ms | Rust 1.8x faster |
-| PBKDF2 | ~65.5 ms | 71.8 ms | Rust 1.1x faster |
-
-Both produce identical envelopes and pass the same [test vectors](spec/v1/envelope.vectors.json).
+> A Go CLI existed in this repo through `v0.1.0-go-cli` but has been removed in favor of the Rust implementation.
 
 ## Dev setup
 
