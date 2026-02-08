@@ -24,16 +24,16 @@ import (
 
 // Crypto constants from spec/v1/envelope.md.
 const (
-	URLKeyLen    = 32
-	PassKeyLen   = 32
-	HKDFLen      = 32
-	GCMNonceLen  = 12
-	HKDFSaltLen  = 32
-	KDFSaltLen   = 16
-	AAD          = "secrt.ca/envelope/v1"
-	HKDFInfoEnc  = "secret:v1:enc"
+	URLKeyLen     = 32
+	PassKeyLen    = 32
+	HKDFLen       = 32
+	GCMNonceLen   = 12
+	HKDFSaltLen   = 32
+	KDFSaltLen    = 16
+	AAD           = "secrt.ca/envelope/v1"
+	HKDFInfoEnc   = "secret:v1:enc"
 	HKDFInfoClaim = "secret:v1:claim"
-	Suite        = "v1-pbkdf2-hkdf-aes256gcm"
+	Suite         = "v1-pbkdf2-hkdf-aes256gcm"
 
 	DefaultPBKDF2Iterations = 600000
 	MinPBKDF2Iterations     = 300000
@@ -41,20 +41,20 @@ const (
 
 // Errors returned by envelope operations.
 var (
-	ErrEmptyPlaintext     = errors.New("plaintext must not be empty")
-	ErrInvalidEnvelope    = errors.New("invalid envelope")
-	ErrDecryptionFailed   = errors.New("decryption failed")
-	ErrInvalidFragment    = errors.New("invalid URL fragment")
-	ErrInvalidURLKey      = errors.New("url_key must be 32 bytes")
+	ErrEmptyPlaintext   = errors.New("plaintext must not be empty")
+	ErrInvalidEnvelope  = errors.New("invalid envelope")
+	ErrDecryptionFailed = errors.New("decryption failed")
+	ErrInvalidFragment  = errors.New("invalid URL fragment")
+	ErrInvalidURLKey    = errors.New("url_key must be 32 bytes")
 )
 
 // Envelope is the JSON structure stored on the server.
 type Envelope struct {
-	V     int              `json:"v"`
-	Suite string           `json:"suite"`
-	Enc   EncBlock         `json:"enc"`
-	KDF   json.RawMessage  `json:"kdf"`
-	HKDF  HKDFBlock        `json:"hkdf"`
+	V     int               `json:"v"`
+	Suite string            `json:"suite"`
+	Enc   EncBlock          `json:"enc"`
+	KDF   json.RawMessage   `json:"kdf"`
+	HKDF  HKDFBlock         `json:"hkdf"`
 	Hint  map[string]string `json:"hint,omitempty"`
 }
 
@@ -97,10 +97,10 @@ type kdfParsed struct {
 // SealParams holds inputs for creating an encrypted envelope.
 type SealParams struct {
 	Plaintext  []byte
-	Passphrase string // empty = no passphrase
-	Rand       io.Reader // nil = crypto/rand.Reader
+	Passphrase string            // empty = no passphrase
+	Rand       io.Reader         // nil = crypto/rand.Reader
 	Hint       map[string]string // optional hint metadata
-	Iterations int // PBKDF2 iterations; 0 = DefaultPBKDF2Iterations
+	Iterations int               // PBKDF2 iterations; 0 = DefaultPBKDF2Iterations
 }
 
 // SealResult holds outputs from creating an encrypted envelope.
@@ -291,7 +291,7 @@ func Open(p OpenParams) ([]byte, error) {
 	// Parse envelope
 	var env Envelope
 	if err := json.Unmarshal(p.Envelope, &env); err != nil {
-		return nil, fmt.Errorf("%w: %v", ErrInvalidEnvelope, err)
+		return nil, fmt.Errorf("%w: %w", ErrInvalidEnvelope, err)
 	}
 
 	if err := validateEnvelope(&env); err != nil {

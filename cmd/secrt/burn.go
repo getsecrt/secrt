@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/url"
 	"strings"
@@ -11,7 +12,7 @@ import (
 
 func runBurn(args []string, deps Deps) int {
 	pa, err := parseFlags(args, nil)
-	if err == errShowHelp {
+	if errors.Is(err, errShowHelp) {
 		printBurnHelp(deps)
 		return 0
 	}
@@ -64,7 +65,7 @@ func runBurn(args []string, deps Deps) int {
 
 	if pa.json {
 		enc := json.NewEncoder(deps.Stdout)
-		enc.Encode(map[string]bool{"ok": true})
+		_ = enc.Encode(map[string]bool{"ok": true})
 	} else {
 		fmt.Fprintln(deps.Stderr, "Secret burned.")
 	}

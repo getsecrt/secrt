@@ -20,9 +20,9 @@ func main() {
 		Getenv:      os.Getenv,
 		Rand:        rand.Reader,
 		ReadPass: func(prompt string, w io.Writer) (string, error) {
-			io.WriteString(w, prompt)
+			_, _ = io.WriteString(w, prompt)
 			b, err := term.ReadPassword(int(os.Stdin.Fd()))
-			io.WriteString(w, "\n")
+			_, _ = io.WriteString(w, "\n")
 			if err != nil {
 				return "", err
 			}

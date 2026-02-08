@@ -14,8 +14,8 @@ type Deps struct {
 	Stdout      io.Writer
 	Stderr      io.Writer
 	HTTPClient  HTTPDoer
-	IsTTY       func() bool       // stdin is a terminal
-	IsStdoutTTY func() bool       // stdout is a terminal (controls color)
+	IsTTY       func() bool // stdin is a terminal
+	IsStdoutTTY func() bool // stdout is a terminal (controls color)
 	Getenv      func(string) string
 	Rand        io.Reader
 	ReadPass    func(prompt string, w io.Writer) (string, error)
@@ -23,14 +23,13 @@ type Deps struct {
 
 // parsedArgs holds parsed global and command-specific flags.
 type parsedArgs struct {
-	command string
-	args    []string // positional args after flags
+	args []string // positional args after flags
 
 	// Global
-	baseURL        string
+	baseURL         string
 	baseURLFromFlag bool // true if --base-url was explicitly set
-	apiKey         string
-	json           bool
+	apiKey          string
+	json            bool
 
 	// Create
 	ttl  string

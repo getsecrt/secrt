@@ -278,7 +278,7 @@ func TestRun_Create_Stdin(t *testing.T) {
 		}
 
 		w.WriteHeader(http.StatusCreated)
-		json.NewEncoder(w).Encode(map[string]interface{}{
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
 			"id":         "test-id-123",
 			"share_url":  srvURL + "/s/test-id-123",
 			"expires_at": "2026-02-09T00:00:00Z",
@@ -313,7 +313,7 @@ func TestRun_Create_TTYPrompt(t *testing.T) {
 	var srvURL string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusCreated)
-		json.NewEncoder(w).Encode(map[string]interface{}{
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
 			"id":         "test-id",
 			"share_url":  srvURL + "/s/test-id",
 			"expires_at": "2026-02-09T00:00:00Z",
@@ -345,7 +345,7 @@ func TestRun_Create_TextFlag(t *testing.T) {
 	var srvURL string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusCreated)
-		json.NewEncoder(w).Encode(map[string]interface{}{
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
 			"id":         "test-id",
 			"share_url":  srvURL + "/s/test-id",
 			"expires_at": "2026-02-09T00:00:00Z",
@@ -373,13 +373,13 @@ func TestRun_Create_FileFlag(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer os.Remove(f.Name())
-	f.WriteString("file secret content")
+	_, _ = f.WriteString("file secret content")
 	f.Close()
 
 	var srvURL string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusCreated)
-		json.NewEncoder(w).Encode(map[string]interface{}{
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
 			"id":         "test-id",
 			"share_url":  srvURL + "/s/test-id",
 			"expires_at": "2026-02-09T00:00:00Z",
@@ -433,12 +433,12 @@ func TestRun_Create_TTL(t *testing.T) {
 		var req struct {
 			TTLSeconds *int64 `json:"ttl_seconds"`
 		}
-		json.NewDecoder(r.Body).Decode(&req)
+		_ = json.NewDecoder(r.Body).Decode(&req)
 		if req.TTLSeconds != nil {
 			gotTTL = *req.TTLSeconds
 		}
 		w.WriteHeader(http.StatusCreated)
-		json.NewEncoder(w).Encode(map[string]interface{}{
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
 			"id":         "test-id",
 			"share_url":  srvURL + "/s/test-id",
 			"expires_at": "2026-02-09T00:00:00Z",
@@ -481,7 +481,7 @@ func TestRun_Create_APIKey(t *testing.T) {
 		gotPath = r.URL.Path
 		gotAPIKey = r.Header.Get("X-API-Key")
 		w.WriteHeader(http.StatusCreated)
-		json.NewEncoder(w).Encode(map[string]interface{}{
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
 			"id":         "test-id",
 			"share_url":  srvURL + "/s/test-id",
 			"expires_at": "2026-02-09T00:00:00Z",
@@ -512,7 +512,7 @@ func TestRun_Create_APIKeyEnv(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		gotAPIKey = r.Header.Get("X-API-Key")
 		w.WriteHeader(http.StatusCreated)
-		json.NewEncoder(w).Encode(map[string]interface{}{
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
 			"id":         "test-id",
 			"share_url":  srvURL + "/s/test-id",
 			"expires_at": "2026-02-09T00:00:00Z",
@@ -544,7 +544,7 @@ func TestRun_Create_BaseURLEnv(t *testing.T) {
 	var srvURL string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusCreated)
-		json.NewEncoder(w).Encode(map[string]interface{}{
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
 			"id":         "test-id",
 			"share_url":  srvURL + "/s/test-id",
 			"expires_at": "2026-02-09T00:00:00Z",
@@ -575,7 +575,7 @@ func TestRun_Create_FlagOverridesEnv(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		gotAPIKey = r.Header.Get("X-API-Key")
 		w.WriteHeader(http.StatusCreated)
-		json.NewEncoder(w).Encode(map[string]interface{}{
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
 			"id":         "test-id",
 			"share_url":  srvURL + "/s/test-id",
 			"expires_at": "2026-02-09T00:00:00Z",
@@ -607,7 +607,7 @@ func TestRun_Create_JSON(t *testing.T) {
 	var srvURL string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusCreated)
-		json.NewEncoder(w).Encode(map[string]interface{}{
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
 			"id":         "test-id",
 			"share_url":  srvURL + "/s/test-id",
 			"expires_at": "2026-02-09T00:00:00Z",
@@ -657,7 +657,7 @@ func TestRun_Create_ServerError(t *testing.T) {
 
 			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				w.WriteHeader(tt.status)
-				json.NewEncoder(w).Encode(map[string]string{"error": "test error"})
+				_ = json.NewEncoder(w).Encode(map[string]string{"error": "test error"})
 			}))
 			defer srv.Close()
 
@@ -729,10 +729,10 @@ func TestRun_Create_Passphrase(t *testing.T) {
 				var req struct {
 					Envelope json.RawMessage `json:"envelope"`
 				}
-				json.NewDecoder(r.Body).Decode(&req)
+				_ = json.NewDecoder(r.Body).Decode(&req)
 				gotEnvelope = req.Envelope
 				w.WriteHeader(http.StatusCreated)
-				json.NewEncoder(w).Encode(map[string]interface{}{
+				_ = json.NewEncoder(w).Encode(map[string]interface{}{
 					"id":         "test-id",
 					"share_url":  srvURL + "/s/test-id",
 					"expires_at": "2026-02-09T00:00:00Z",
@@ -780,7 +780,7 @@ func TestRun_Create_PassphraseFile(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer os.Remove(f.Name())
-	f.WriteString("filepass\n")
+	_, _ = f.WriteString("filepass\n")
 	f.Close()
 
 	var gotEnvelope json.RawMessage
@@ -789,10 +789,10 @@ func TestRun_Create_PassphraseFile(t *testing.T) {
 		var req struct {
 			Envelope json.RawMessage `json:"envelope"`
 		}
-		json.NewDecoder(r.Body).Decode(&req)
+		_ = json.NewDecoder(r.Body).Decode(&req)
 		gotEnvelope = req.Envelope
 		w.WriteHeader(http.StatusCreated)
-		json.NewEncoder(w).Encode(map[string]interface{}{
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
 			"id":         "test-id",
 			"share_url":  srvURL + "/s/test-id",
 			"expires_at": "2026-02-09T00:00:00Z",
@@ -813,7 +813,7 @@ func TestRun_Create_PassphraseFile(t *testing.T) {
 			Name string `json:"name"`
 		} `json:"kdf"`
 	}
-	json.Unmarshal(gotEnvelope, &env)
+	_ = json.Unmarshal(gotEnvelope, &env)
 	if env.KDF.Name != "PBKDF2-SHA256" {
 		t.Errorf("expected PBKDF2-SHA256 kdf, got: %s", env.KDF.Name)
 	}
@@ -825,7 +825,7 @@ func TestRun_Create_OutputDiscipline(t *testing.T) {
 	var srvURL string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusCreated)
-		json.NewEncoder(w).Encode(map[string]interface{}{
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
 			"id":         "test-id",
 			"share_url":  srvURL + "/s/test-id",
 			"expires_at": "2026-02-09T00:00:00Z",
@@ -873,13 +873,13 @@ func TestRun_Claim_Success(t *testing.T) {
 		var req struct {
 			Claim string `json:"claim"`
 		}
-		json.NewDecoder(r.Body).Decode(&req)
+		_ = json.NewDecoder(r.Body).Decode(&req)
 		if req.Claim == "" {
 			t.Error("empty claim token")
 		}
 
 		w.WriteHeader(http.StatusOK)
-		json.NewEncoder(w).Encode(map[string]interface{}{
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
 			"envelope":   json.RawMessage(result.Envelope),
 			"expires_at": "2026-02-09T00:00:00Z",
 		})
@@ -893,7 +893,7 @@ func TestRun_Claim_Success(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("exit code: got %d, want 0; stderr: %s", code, stderr.String())
 	}
-	if string(stdout.Bytes()) != string(plaintext) {
+	if stdout.String() != string(plaintext) {
 		t.Errorf("plaintext: got %q, want %q", stdout.String(), plaintext)
 	}
 	if stderr.Len() != 0 {
@@ -915,7 +915,7 @@ func TestRun_Claim_WithPassphrase(t *testing.T) {
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
-		json.NewEncoder(w).Encode(map[string]interface{}{
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
 			"envelope":   json.RawMessage(result.Envelope),
 			"expires_at": "2026-02-09T00:00:00Z",
 		})
@@ -932,7 +932,7 @@ func TestRun_Claim_WithPassphrase(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("exit code: got %d, want 0", code)
 	}
-	if string(stdout.Bytes()) != string(plaintext) {
+	if stdout.String() != string(plaintext) {
 		t.Errorf("plaintext: got %q, want %q", stdout.String(), plaintext)
 	}
 }
@@ -950,7 +950,7 @@ func TestRun_Claim_WrongPassphrase(t *testing.T) {
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
-		json.NewEncoder(w).Encode(map[string]interface{}{
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
 			"envelope":   json.RawMessage(result.Envelope),
 			"expires_at": "2026-02-09T00:00:00Z",
 		})
@@ -1001,7 +1001,7 @@ func TestRun_Claim_404(t *testing.T) {
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusNotFound)
-		json.NewEncoder(w).Encode(map[string]string{"error": "not found"})
+		_ = json.NewEncoder(w).Encode(map[string]string{"error": "not found"})
 	}))
 	defer srv.Close()
 
@@ -1028,7 +1028,7 @@ func TestRun_Claim_JSON(t *testing.T) {
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
-		json.NewEncoder(w).Encode(map[string]interface{}{
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
 			"envelope":   json.RawMessage(result.Envelope),
 			"expires_at": "2026-02-09T00:00:00Z",
 		})
@@ -1079,7 +1079,7 @@ func TestRun_Burn_Success(t *testing.T) {
 			return
 		}
 		w.WriteHeader(http.StatusOK)
-		json.NewEncoder(w).Encode(map[string]bool{"ok": true})
+		_ = json.NewEncoder(w).Encode(map[string]bool{"ok": true})
 	}))
 	defer srv.Close()
 
@@ -1097,7 +1097,7 @@ func TestRun_Burn_ByURL(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		gotPath = r.URL.Path
 		w.WriteHeader(http.StatusOK)
-		json.NewEncoder(w).Encode(map[string]bool{"ok": true})
+		_ = json.NewEncoder(w).Encode(map[string]bool{"ok": true})
 	}))
 	defer srv.Close()
 
@@ -1131,7 +1131,7 @@ func TestRun_Burn_404(t *testing.T) {
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusNotFound)
-		json.NewEncoder(w).Encode(map[string]string{"error": "not found"})
+		_ = json.NewEncoder(w).Encode(map[string]string{"error": "not found"})
 	}))
 	defer srv.Close()
 
@@ -1150,7 +1150,7 @@ func TestRun_Burn_401(t *testing.T) {
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusUnauthorized)
-		json.NewEncoder(w).Encode(map[string]string{"error": "unauthorized"})
+		_ = json.NewEncoder(w).Encode(map[string]string{"error": "unauthorized"})
 	}))
 	defer srv.Close()
 
@@ -1169,7 +1169,7 @@ func TestRun_Burn_JSON(t *testing.T) {
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
-		json.NewEncoder(w).Encode(map[string]bool{"ok": true})
+		_ = json.NewEncoder(w).Encode(map[string]bool{"ok": true})
 	}))
 	defer srv.Close()
 
@@ -1220,11 +1220,11 @@ func TestRun_EndToEnd_CreateThenClaim(t *testing.T) {
 				Envelope  json.RawMessage `json:"envelope"`
 				ClaimHash string          `json:"claim_hash"`
 			}
-			json.NewDecoder(r.Body).Decode(&req)
+			_ = json.NewDecoder(r.Body).Decode(&req)
 			stored.Envelope = req.Envelope
 			stored.ClaimHash = req.ClaimHash
 			w.WriteHeader(http.StatusCreated)
-			json.NewEncoder(w).Encode(map[string]interface{}{
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{
 				"id":         "e2e-id",
 				"share_url":  srvURL + "/s/e2e-id",
 				"expires_at": "2026-02-09T00:00:00Z",
@@ -1233,12 +1233,12 @@ func TestRun_EndToEnd_CreateThenClaim(t *testing.T) {
 		case strings.HasSuffix(r.URL.Path, "/claim") && r.Method == http.MethodPost:
 			if claimed {
 				w.WriteHeader(http.StatusNotFound)
-				json.NewEncoder(w).Encode(map[string]string{"error": "already claimed"})
+				_ = json.NewEncoder(w).Encode(map[string]string{"error": "already claimed"})
 				return
 			}
 			claimed = true
 			w.WriteHeader(http.StatusOK)
-			json.NewEncoder(w).Encode(map[string]interface{}{
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{
 				"envelope":   stored.Envelope,
 				"expires_at": "2026-02-09T00:00:00Z",
 			})
@@ -1270,7 +1270,7 @@ func TestRun_EndToEnd_CreateThenClaim(t *testing.T) {
 	if claimCode != 0 {
 		t.Fatalf("claim exit code: %d; stderr: %s", claimCode, claimStderr.String())
 	}
-	if string(claimStdout.Bytes()) != originalPlaintext {
+	if claimStdout.String() != originalPlaintext {
 		t.Errorf("plaintext mismatch:\n  got:  %q\n  want: %q", claimStdout.String(), originalPlaintext)
 	}
 
@@ -1296,10 +1296,10 @@ func TestRun_EndToEnd_CreateClaimWithPassphrase(t *testing.T) {
 			var req struct {
 				Envelope json.RawMessage `json:"envelope"`
 			}
-			json.NewDecoder(r.Body).Decode(&req)
+			_ = json.NewDecoder(r.Body).Decode(&req)
 			stored.Envelope = req.Envelope
 			w.WriteHeader(http.StatusCreated)
-			json.NewEncoder(w).Encode(map[string]interface{}{
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{
 				"id":         "pass-id",
 				"share_url":  srvURL + "/s/pass-id",
 				"expires_at": "2026-02-09T00:00:00Z",
@@ -1308,7 +1308,7 @@ func TestRun_EndToEnd_CreateClaimWithPassphrase(t *testing.T) {
 		}
 		if strings.HasSuffix(r.URL.Path, "/claim") {
 			w.WriteHeader(http.StatusOK)
-			json.NewEncoder(w).Encode(map[string]interface{}{
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{
 				"envelope":   stored.Envelope,
 				"expires_at": "2026-02-09T00:00:00Z",
 			})
@@ -1342,7 +1342,7 @@ func TestRun_EndToEnd_CreateClaimWithPassphrase(t *testing.T) {
 	if claimCode != 0 {
 		t.Fatalf("claim exit code: %d", claimCode)
 	}
-	if string(claimStdout.Bytes()) != original {
+	if claimStdout.String() != original {
 		t.Errorf("plaintext: got %q, want %q", claimStdout.String(), original)
 	}
 }
@@ -1355,7 +1355,7 @@ func TestRun_Burn_APIKeyEnv(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		gotAPIKey = r.Header.Get("X-API-Key")
 		w.WriteHeader(http.StatusOK)
-		json.NewEncoder(w).Encode(map[string]bool{"ok": true})
+		_ = json.NewEncoder(w).Encode(map[string]bool{"ok": true})
 	}))
 	defer srv.Close()
 
@@ -1412,5 +1412,754 @@ func TestRun_Create_JSONError(t *testing.T) {
 	var errObj map[string]interface{}
 	if err := json.Unmarshal(stderr.Bytes(), &errObj); err != nil {
 		t.Errorf("expected JSON error on stderr, got: %s", stderr.String())
+	}
+}
+
+// --- Additional coverage tests ---
+
+func TestRun_Create_PassphraseMismatch(t *testing.T) {
+	t.Parallel()
+	callCount := 0
+	deps, _, stderr := testDeps()
+	deps.Stdin = strings.NewReader("secret")
+	deps.ReadPass = func(prompt string, w io.Writer) (string, error) {
+		callCount++
+		if callCount == 1 {
+			return "first", nil
+		}
+		return "second", nil
+	}
+	code := run([]string{"secrt", "create", "--passphrase-prompt", "--base-url", "http://localhost:1"}, deps)
+	if code != 2 {
+		t.Errorf("exit code: got %d, want 2", code)
+	}
+	if !strings.Contains(stderr.String(), "do not match") {
+		t.Errorf("expected mismatch error, got: %s", stderr.String())
+	}
+}
+
+func TestRun_Create_EmptyPassphrasePrompt(t *testing.T) {
+	t.Parallel()
+	deps, _, stderr := testDeps()
+	deps.Stdin = strings.NewReader("secret")
+	deps.ReadPass = func(prompt string, w io.Writer) (string, error) {
+		return "", nil
+	}
+	code := run([]string{"secrt", "create", "--passphrase-prompt", "--base-url", "http://localhost:1"}, deps)
+	if code != 2 {
+		t.Errorf("exit code: got %d, want 2", code)
+	}
+	if !strings.Contains(stderr.String(), "empty") {
+		t.Errorf("expected empty passphrase error, got: %s", stderr.String())
+	}
+}
+
+func TestRun_Create_PassphraseEnvEmpty(t *testing.T) {
+	t.Parallel()
+	deps, _, stderr := testDeps()
+	deps.Stdin = strings.NewReader("secret")
+	deps.Getenv = func(k string) string { return "" }
+	code := run([]string{"secrt", "create", "--passphrase-env", "MISSING_VAR", "--base-url", "http://localhost:1"}, deps)
+	if code != 2 {
+		t.Errorf("exit code: got %d, want 2", code)
+	}
+	if !strings.Contains(stderr.String(), "empty or not set") {
+		t.Errorf("expected env not set error, got: %s", stderr.String())
+	}
+}
+
+func TestRun_Create_MultiplePassphraseFlags(t *testing.T) {
+	t.Parallel()
+	deps, _, stderr := testDeps()
+	deps.Stdin = strings.NewReader("secret")
+	code := run([]string{"secrt", "create", "--passphrase-prompt", "--passphrase-env", "X", "--base-url", "http://localhost:1"}, deps)
+	if code != 2 {
+		t.Errorf("exit code: got %d, want 2", code)
+	}
+	if !strings.Contains(stderr.String(), "at most one") {
+		t.Errorf("expected conflict error, got: %s", stderr.String())
+	}
+}
+
+func TestRun_Claim_PassphraseEnv(t *testing.T) {
+	t.Parallel()
+
+	result, err := envelope.Seal(envelope.SealParams{
+		Plaintext:  []byte("env-pass-test"),
+		Passphrase: "envpassword",
+	})
+	if err != nil {
+		t.Fatalf("Seal: %v", err)
+	}
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
+			"envelope":   json.RawMessage(result.Envelope),
+			"expires_at": "2026-02-09T00:00:00Z",
+		})
+	}))
+	defer srv.Close()
+
+	shareLink := envelope.FormatShareLink(srv.URL+"/s/test-id", result.URLKey)
+
+	deps, stdout, _ := testDeps()
+	deps.Getenv = func(k string) string {
+		if k == "MY_PASS" {
+			return "envpassword"
+		}
+		return ""
+	}
+	code := run([]string{"secrt", "claim", shareLink, "--passphrase-env", "MY_PASS"}, deps)
+	if code != 0 {
+		t.Fatalf("exit code: got %d, want 0", code)
+	}
+	if stdout.String() != "env-pass-test" {
+		t.Errorf("plaintext: got %q", stdout.String())
+	}
+}
+
+func TestRun_Burn_Success_NoJSON(t *testing.T) {
+	t.Parallel()
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_ = json.NewEncoder(w).Encode(map[string]bool{"ok": true})
+	}))
+	defer srv.Close()
+
+	deps, _, stderr := testDeps()
+	code := run([]string{"secrt", "burn", "test-id", "--api-key", "sk_test.key", "--base-url", srv.URL}, deps)
+	if code != 0 {
+		t.Fatalf("exit code: got %d, want 0", code)
+	}
+	if !strings.Contains(stderr.String(), "burned") {
+		t.Errorf("expected burn confirmation, got: %s", stderr.String())
+	}
+}
+
+func TestRun_Create_TextEmpty(t *testing.T) {
+	t.Parallel()
+	deps, _, stderr := testDeps()
+	code := run([]string{"secrt", "create", "--text", ""}, deps)
+	if code != 2 {
+		t.Errorf("exit code: got %d, want 2", code)
+	}
+	_ = stderr
+}
+
+func TestRun_Create_UnknownFlag(t *testing.T) {
+	t.Parallel()
+	deps, _, stderr := testDeps()
+	code := run([]string{"secrt", "create", "--bogus"}, deps)
+	if code != 2 {
+		t.Errorf("exit code: got %d, want 2", code)
+	}
+	if !strings.Contains(stderr.String(), "unknown flag") {
+		t.Errorf("expected unknown flag error, got: %s", stderr.String())
+	}
+}
+
+func TestRun_Create_DefaultTTL(t *testing.T) {
+	t.Parallel()
+
+	var gotTTL *int64
+	var srvURL string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var req struct {
+			TTLSeconds *int64 `json:"ttl_seconds"`
+		}
+		_ = json.NewDecoder(r.Body).Decode(&req)
+		gotTTL = req.TTLSeconds
+		w.WriteHeader(http.StatusCreated)
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
+			"id":         "test-id",
+			"share_url":  srvURL + "/s/test-id",
+			"expires_at": "2026-02-09T00:00:00Z",
+		})
+	}))
+	defer srv.Close()
+	srvURL = srv.URL
+
+	deps, _, _ := testDeps()
+	deps.Stdin = strings.NewReader("secret")
+	code := run([]string{"secrt", "create", "--base-url", srv.URL}, deps)
+	if code != 0 {
+		t.Fatalf("exit code: got %d, want 0", code)
+	}
+	// Default TTL: ttl_seconds should be nil (omitted)
+	if gotTTL != nil {
+		t.Errorf("expected nil ttl_seconds (server default), got %d", *gotTTL)
+	}
+}
+
+func TestRun_Claim_EmptyPassphraseEnv(t *testing.T) {
+	t.Parallel()
+
+	// Need a server that returns a valid envelope so we reach passphrase resolution
+	result, err := envelope.Seal(envelope.SealParams{
+		Plaintext:  []byte("test"),
+		Passphrase: "pw",
+	})
+	if err != nil {
+		t.Fatalf("Seal: %v", err)
+	}
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
+			"envelope":   json.RawMessage(result.Envelope),
+			"expires_at": "2026-02-09T00:00:00Z",
+		})
+	}))
+	defer srv.Close()
+
+	shareLink := envelope.FormatShareLink(srv.URL+"/s/test-id", result.URLKey)
+
+	deps, _, stderr := testDeps()
+	deps.Getenv = func(k string) string { return "" }
+	code := run([]string{"secrt", "claim", shareLink, "--passphrase-env", "MISSING"}, deps)
+	if code != 1 {
+		t.Errorf("exit code: got %d, want 1", code)
+	}
+	if !strings.Contains(stderr.String(), "empty or not set") {
+		t.Errorf("expected env not set error, got: %s", stderr.String())
+	}
+}
+
+// --- Additional coverage tests ---
+
+func TestRun_Create_StdinTTYPrompt(t *testing.T) {
+	t.Parallel()
+
+	var srvURL string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusCreated)
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
+			"id":         "test-id",
+			"share_url":  srvURL + "/s/test-id",
+			"expires_at": "2026-02-09T00:00:00Z",
+		})
+	}))
+	defer srv.Close()
+	srvURL = srv.URL
+
+	deps, _, stderr := testDeps()
+	deps.Stdin = strings.NewReader("secret data")
+	deps.IsTTY = func() bool { return true } // TTY stdin → show prompt
+	code := run([]string{"secrt", "create", "--base-url", srv.URL}, deps)
+	if code != 0 {
+		t.Fatalf("exit code: got %d, want 0", code)
+	}
+	if !strings.Contains(stderr.String(), "Ctrl+D") {
+		t.Errorf("expected TTY prompt on stderr, got: %s", stderr.String())
+	}
+}
+
+func TestRun_Create_EmptyStdin(t *testing.T) {
+	t.Parallel()
+	deps, _, stderr := testDeps()
+	deps.Stdin = strings.NewReader("")
+	code := run([]string{"secrt", "create", "--base-url", "http://localhost:1"}, deps)
+	if code != 2 {
+		t.Errorf("exit code: got %d, want 2", code)
+	}
+	if !strings.Contains(stderr.String(), "empty") {
+		t.Errorf("expected empty input error, got: %s", stderr.String())
+	}
+}
+
+func TestRun_Create_FileNotExist(t *testing.T) {
+	t.Parallel()
+	deps, _, stderr := testDeps()
+	code := run([]string{"secrt", "create", "--file", "/nonexistent/file.txt", "--base-url", "http://localhost:1"}, deps)
+	if code != 2 {
+		t.Errorf("exit code: got %d, want 2", code)
+	}
+	if !strings.Contains(stderr.String(), "read file") {
+		t.Errorf("expected file read error, got: %s", stderr.String())
+	}
+}
+
+func TestRun_Create_EmptyFile(t *testing.T) {
+	t.Parallel()
+	tmp := t.TempDir()
+	emptyFile := tmp + "/empty.txt"
+	if err := os.WriteFile(emptyFile, []byte{}, 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	deps, _, stderr := testDeps()
+	code := run([]string{"secrt", "create", "--file", emptyFile, "--base-url", "http://localhost:1"}, deps)
+	if code != 2 {
+		t.Errorf("exit code: got %d, want 2", code)
+	}
+	if !strings.Contains(stderr.String(), "empty") {
+		t.Errorf("expected empty file error, got: %s", stderr.String())
+	}
+}
+
+func TestRun_Create_PassphraseFileEmpty(t *testing.T) {
+	t.Parallel()
+	tmp := t.TempDir()
+	passFile := tmp + "/empty.txt"
+	if err := os.WriteFile(passFile, []byte(""), 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	deps, _, stderr := testDeps()
+	deps.Stdin = strings.NewReader("secret")
+	code := run([]string{"secrt", "create", "--passphrase-file", passFile, "--base-url", "http://localhost:1"}, deps)
+	if code != 2 {
+		t.Errorf("exit code: got %d, want 2", code)
+	}
+	if !strings.Contains(stderr.String(), "empty") {
+		t.Errorf("expected empty passphrase error, got: %s", stderr.String())
+	}
+}
+
+func TestRun_Create_PassphraseFileNotExist(t *testing.T) {
+	t.Parallel()
+	deps, _, stderr := testDeps()
+	deps.Stdin = strings.NewReader("secret")
+	code := run([]string{"secrt", "create", "--passphrase-file", "/nonexistent/pass.txt", "--base-url", "http://localhost:1"}, deps)
+	if code != 2 {
+		t.Errorf("exit code: got %d, want 2", code)
+	}
+	if !strings.Contains(stderr.String(), "read passphrase file") {
+		t.Errorf("expected file read error, got: %s", stderr.String())
+	}
+}
+
+func TestRun_Create_PassphrasePromptNilReadPass(t *testing.T) {
+	t.Parallel()
+	deps, _, stderr := testDeps()
+	deps.Stdin = strings.NewReader("secret")
+	deps.ReadPass = nil
+	code := run([]string{"secrt", "create", "--passphrase-prompt", "--base-url", "http://localhost:1"}, deps)
+	if code != 2 {
+		t.Errorf("exit code: got %d, want 2", code)
+	}
+	if !strings.Contains(stderr.String(), "not available") {
+		t.Errorf("expected prompt not available error, got: %s", stderr.String())
+	}
+}
+
+func TestRun_Claim_PassphraseFile(t *testing.T) {
+	t.Parallel()
+
+	passphrase := "file-claim-pass"
+	result, err := envelope.Seal(envelope.SealParams{
+		Plaintext:  []byte("claim-file-test"),
+		Passphrase: passphrase,
+	})
+	if err != nil {
+		t.Fatalf("Seal: %v", err)
+	}
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
+			"envelope":   json.RawMessage(result.Envelope),
+			"expires_at": "2026-02-09T00:00:00Z",
+		})
+	}))
+	defer srv.Close()
+
+	tmp := t.TempDir()
+	passFile := tmp + "/pass.txt"
+	if err := os.WriteFile(passFile, []byte(passphrase+"\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	shareLink := envelope.FormatShareLink(srv.URL+"/s/test-id", result.URLKey)
+
+	deps, stdout, _ := testDeps()
+	code := run([]string{"secrt", "claim", shareLink, "--passphrase-file", passFile}, deps)
+	if code != 0 {
+		t.Fatalf("exit code: got %d, want 0", code)
+	}
+	if stdout.String() != "claim-file-test" {
+		t.Errorf("plaintext: got %q, want %q", stdout.String(), "claim-file-test")
+	}
+}
+
+func TestRun_Claim_PassphrasePrompt(t *testing.T) {
+	t.Parallel()
+
+	passphrase := "prompt-claim-pass"
+	result, err := envelope.Seal(envelope.SealParams{
+		Plaintext:  []byte("claim-prompt-test"),
+		Passphrase: passphrase,
+	})
+	if err != nil {
+		t.Fatalf("Seal: %v", err)
+	}
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
+			"envelope":   json.RawMessage(result.Envelope),
+			"expires_at": "2026-02-09T00:00:00Z",
+		})
+	}))
+	defer srv.Close()
+
+	shareLink := envelope.FormatShareLink(srv.URL+"/s/test-id", result.URLKey)
+
+	deps, stdout, _ := testDeps()
+	deps.ReadPass = func(prompt string, w io.Writer) (string, error) {
+		return passphrase, nil
+	}
+	code := run([]string{"secrt", "claim", shareLink, "--passphrase-prompt"}, deps)
+	if code != 0 {
+		t.Fatalf("exit code: got %d, want 0", code)
+	}
+	if stdout.String() != "claim-prompt-test" {
+		t.Errorf("plaintext: got %q, want %q", stdout.String(), "claim-prompt-test")
+	}
+}
+
+func TestRun_HelpUnknownSubcommand(t *testing.T) {
+	t.Parallel()
+	deps, _, stderr := testDeps()
+	code := run([]string{"secrt", "help", "unknown"}, deps)
+	if code != 2 {
+		t.Errorf("exit code: got %d, want 2", code)
+	}
+	if !strings.Contains(stderr.String(), "unknown") {
+		t.Errorf("expected unknown command error, got: %s", stderr.String())
+	}
+}
+
+func TestRun_Create_ServerErrorJSON(t *testing.T) {
+	t.Parallel()
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusTooManyRequests)
+		_ = json.NewEncoder(w).Encode(map[string]string{"error": "rate limit exceeded"})
+	}))
+	defer srv.Close()
+
+	deps, _, stderr := testDeps()
+	deps.Stdin = strings.NewReader("secret")
+	code := run([]string{"secrt", "create", "--base-url", srv.URL}, deps)
+	if code != 1 {
+		t.Errorf("exit code: got %d, want 1", code)
+	}
+	// readAPIError should parse the JSON error body
+	if !strings.Contains(stderr.String(), "rate limit exceeded") {
+		t.Errorf("expected parsed error message, got: %s", stderr.String())
+	}
+}
+
+func TestRun_Create_ServerErrorPlain(t *testing.T) {
+	t.Parallel()
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = w.Write([]byte("not json"))
+	}))
+	defer srv.Close()
+
+	deps, _, stderr := testDeps()
+	deps.Stdin = strings.NewReader("secret")
+	code := run([]string{"secrt", "create", "--base-url", srv.URL}, deps)
+	if code != 1 {
+		t.Errorf("exit code: got %d, want 1", code)
+	}
+	// readAPIError should fallback to generic message
+	if !strings.Contains(stderr.String(), "server error (500)") {
+		t.Errorf("expected generic server error, got: %s", stderr.String())
+	}
+}
+
+func TestRun_ParseFlags_MissingValues(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		args []string
+		want string
+	}{
+		{"base-url", []string{"--base-url"}, "--base-url requires a value"},
+		{"api-key", []string{"--api-key"}, "--api-key requires a value"},
+		{"ttl", []string{"--ttl"}, "--ttl requires a value"},
+		{"text", []string{"--text"}, "--text requires a value"},
+		{"file", []string{"--file"}, "--file requires a value"},
+		{"passphrase-env", []string{"--passphrase-env"}, "--passphrase-env requires a value"},
+		{"passphrase-file", []string{"--passphrase-file"}, "--passphrase-file requires a value"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			deps, _, stderr := testDeps()
+			code := run(append([]string{"secrt", "create"}, tt.args...), deps)
+			if code != 2 {
+				t.Errorf("exit code: got %d, want 2", code)
+			}
+			if !strings.Contains(stderr.String(), tt.want) {
+				t.Errorf("expected %q, got: %s", tt.want, stderr.String())
+			}
+		})
+	}
+}
+
+func TestRun_Burn_ServerErrorJSON(t *testing.T) {
+	t.Parallel()
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusForbidden)
+		_ = json.NewEncoder(w).Encode(map[string]string{"error": "insufficient scope"})
+	}))
+	defer srv.Close()
+
+	deps, _, stderr := testDeps()
+	code := run([]string{"secrt", "burn", "test-id", "--api-key", "sk_test", "--base-url", srv.URL}, deps)
+	if code != 1 {
+		t.Errorf("exit code: got %d, want 1", code)
+	}
+	if !strings.Contains(stderr.String(), "insufficient scope") {
+		t.Errorf("expected parsed error, got: %s", stderr.String())
+	}
+}
+
+func TestRun_Claim_ServerErrorJSON(t *testing.T) {
+	t.Parallel()
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusGone)
+		_ = json.NewEncoder(w).Encode(map[string]string{"error": "already claimed"})
+	}))
+	defer srv.Close()
+
+	urlKey := make([]byte, 32)
+	shareLink := envelope.FormatShareLink(srv.URL+"/s/test-id", urlKey)
+
+	deps, _, stderr := testDeps()
+	code := run([]string{"secrt", "claim", shareLink}, deps)
+	if code != 1 {
+		t.Errorf("exit code: got %d, want 1", code)
+	}
+	if !strings.Contains(stderr.String(), "already claimed") {
+		t.Errorf("expected parsed error, got: %s", stderr.String())
+	}
+}
+
+func TestRun_Create_FileAndTextConflict(t *testing.T) {
+	t.Parallel()
+	deps, _, stderr := testDeps()
+	tmp := t.TempDir()
+	f := tmp + "/f.txt"
+	if err := os.WriteFile(f, []byte("data"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	code := run([]string{"secrt", "create", "--text", "hello", "--file", f, "--base-url", "http://localhost:1"}, deps)
+	if code != 2 {
+		t.Errorf("exit code: got %d, want 2", code)
+	}
+	if !strings.Contains(stderr.String(), "exactly one input source") {
+		t.Errorf("expected conflict error, got: %s", stderr.String())
+	}
+}
+
+func TestRun_Burn_ByURL_BaseURLDerived(t *testing.T) {
+	t.Parallel()
+
+	var gotPath string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.Path
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	urlKey := make([]byte, 32)
+	shareLink := envelope.FormatShareLink(srv.URL+"/s/burn-test-id", urlKey)
+
+	deps, _, _ := testDeps()
+	code := run([]string{"secrt", "burn", shareLink, "--api-key", "sk_test"}, deps)
+	if code != 0 {
+		t.Fatalf("exit code: got %d, want 0", code)
+	}
+	if gotPath != "/api/v1/secrets/burn-test-id/burn" {
+		t.Errorf("expected burn path /api/v1/secrets/burn-test-id/burn, got: %s", gotPath)
+	}
+}
+
+func TestRun_Claim_PassphrasePromptNilReadPass(t *testing.T) {
+	t.Parallel()
+
+	result, err := envelope.Seal(envelope.SealParams{
+		Plaintext:  []byte("test"),
+		Passphrase: "pw",
+	})
+	if err != nil {
+		t.Fatalf("Seal: %v", err)
+	}
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
+			"envelope":   json.RawMessage(result.Envelope),
+			"expires_at": "2026-02-09T00:00:00Z",
+		})
+	}))
+	defer srv.Close()
+
+	shareLink := envelope.FormatShareLink(srv.URL+"/s/test-id", result.URLKey)
+
+	deps, _, stderr := testDeps()
+	deps.ReadPass = nil
+	code := run([]string{"secrt", "claim", shareLink, "--passphrase-prompt"}, deps)
+	if code != 1 {
+		t.Errorf("exit code: got %d, want 1", code)
+	}
+	if !strings.Contains(stderr.String(), "not available") {
+		t.Errorf("expected prompt not available, got: %s", stderr.String())
+	}
+}
+
+func TestRun_Claim_MultiplePassphraseFlags(t *testing.T) {
+	t.Parallel()
+
+	result, err := envelope.Seal(envelope.SealParams{
+		Plaintext:  []byte("test"),
+		Passphrase: "pw",
+	})
+	if err != nil {
+		t.Fatalf("Seal: %v", err)
+	}
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
+			"envelope":   json.RawMessage(result.Envelope),
+			"expires_at": "2026-02-09T00:00:00Z",
+		})
+	}))
+	defer srv.Close()
+
+	shareLink := envelope.FormatShareLink(srv.URL+"/s/test-id", result.URLKey)
+
+	deps, _, stderr := testDeps()
+	code := run([]string{"secrt", "claim", shareLink, "--passphrase-prompt", "--passphrase-env", "X"}, deps)
+	if code != 1 {
+		t.Errorf("exit code: got %d, want 1", code)
+	}
+	if !strings.Contains(stderr.String(), "at most one") {
+		t.Errorf("expected conflict error, got: %s", stderr.String())
+	}
+}
+
+func TestRun_Create_ReadPassError(t *testing.T) {
+	t.Parallel()
+	deps, _, stderr := testDeps()
+	deps.Stdin = strings.NewReader("secret")
+	deps.ReadPass = func(prompt string, w io.Writer) (string, error) {
+		return "", fmt.Errorf("terminal error")
+	}
+	code := run([]string{"secrt", "create", "--passphrase-prompt", "--base-url", "http://localhost:1"}, deps)
+	if code != 2 {
+		t.Errorf("exit code: got %d, want 2", code)
+	}
+	if !strings.Contains(stderr.String(), "terminal error") {
+		t.Errorf("expected terminal error, got: %s", stderr.String())
+	}
+}
+
+func TestRun_Create_ConfirmReadPassError(t *testing.T) {
+	t.Parallel()
+	callCount := 0
+	deps, _, stderr := testDeps()
+	deps.Stdin = strings.NewReader("secret")
+	deps.ReadPass = func(prompt string, w io.Writer) (string, error) {
+		callCount++
+		if callCount == 1 {
+			return "goodpass", nil
+		}
+		return "", fmt.Errorf("confirm error")
+	}
+	code := run([]string{"secrt", "create", "--passphrase-prompt", "--base-url", "http://localhost:1"}, deps)
+	if code != 2 {
+		t.Errorf("exit code: got %d, want 2", code)
+	}
+	if !strings.Contains(stderr.String(), "confirm error") {
+		t.Errorf("expected confirm error, got: %s", stderr.String())
+	}
+}
+
+func TestRun_Burn_HelpFlag(t *testing.T) {
+	t.Parallel()
+	deps, _, stderr := testDeps()
+	code := run([]string{"secrt", "burn", "--help"}, deps)
+	if code != 0 {
+		t.Errorf("exit code: got %d, want 0", code)
+	}
+	if !strings.Contains(stderr.String(), "Destroy") {
+		t.Errorf("expected burn help, got: %s", stderr.String())
+	}
+}
+
+func TestRun_Claim_HelpFlag(t *testing.T) {
+	t.Parallel()
+	deps, _, stderr := testDeps()
+	code := run([]string{"secrt", "claim", "--help"}, deps)
+	if code != 0 {
+		t.Errorf("exit code: got %d, want 0", code)
+	}
+	if !strings.Contains(stderr.String(), "Retrieve") {
+		t.Errorf("expected claim help, got: %s", stderr.String())
+	}
+}
+
+func TestRun_Burn_FlagParseError(t *testing.T) {
+	t.Parallel()
+	deps, _, stderr := testDeps()
+	code := run([]string{"secrt", "burn", "--unknown"}, deps)
+	if code != 2 {
+		t.Errorf("exit code: got %d, want 2", code)
+	}
+	if !strings.Contains(stderr.String(), "unknown flag") {
+		t.Errorf("expected unknown flag error, got: %s", stderr.String())
+	}
+}
+
+func TestRun_Claim_FlagParseError(t *testing.T) {
+	t.Parallel()
+	deps, _, stderr := testDeps()
+	code := run([]string{"secrt", "claim", "--unknown"}, deps)
+	if code != 2 {
+		t.Errorf("exit code: got %d, want 2", code)
+	}
+	if !strings.Contains(stderr.String(), "unknown flag") {
+		t.Errorf("expected unknown flag error, got: %s", stderr.String())
+	}
+}
+
+func TestRun_Claim_InvalidFragment(t *testing.T) {
+	t.Parallel()
+	deps, _, stderr := testDeps()
+	code := run([]string{"secrt", "claim", "https://secrt.ca/s/abc#v2.invalid"}, deps)
+	if code != 2 {
+		t.Errorf("exit code: got %d, want 2", code)
+	}
+	if !strings.Contains(stderr.String(), "invalid share URL") {
+		t.Errorf("expected invalid share URL error, got: %s", stderr.String())
+	}
+}
+
+func TestRun_Burn_InvalidURL(t *testing.T) {
+	t.Parallel()
+	deps, _, stderr := testDeps()
+	code := run([]string{"secrt", "burn", "https://secrt.ca/other/abc#v1.bad", "--api-key", "sk_test"}, deps)
+	if code != 2 {
+		t.Errorf("exit code: got %d, want 2", code)
+	}
+	if !strings.Contains(stderr.String(), "invalid URL") {
+		t.Errorf("expected invalid URL error, got: %s", stderr.String())
 	}
 }

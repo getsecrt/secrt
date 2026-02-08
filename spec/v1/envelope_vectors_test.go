@@ -33,21 +33,21 @@ type vectorsFile struct {
 }
 
 type testVector struct {
-	Description string    `json:"description"`
-	URLKey      string    `json:"url_key"`
-	Plaintext   string    `json:"plaintext"`
-	Passphrase  *string   `json:"passphrase"`
-	IKM         string    `json:"ikm"`
-	EncKey      string    `json:"enc_key"`
-	ClaimToken  string    `json:"claim_token"`
-	ClaimHash   string    `json:"claim_hash"`
-	Envelope    envelope  `json:"envelope"`
+	Description string   `json:"description"`
+	URLKey      string   `json:"url_key"`
+	Plaintext   string   `json:"plaintext"`
+	Passphrase  *string  `json:"passphrase"`
+	IKM         string   `json:"ikm"`
+	EncKey      string   `json:"enc_key"`
+	ClaimToken  string   `json:"claim_token"`
+	ClaimHash   string   `json:"claim_hash"`
+	Envelope    envelope `json:"envelope"`
 }
 
 type envelope struct {
-	Enc  encBlock    `json:"enc"`
-	KDF  kdfBlock    `json:"kdf"`
-	HKDF hkdfBlock   `json:"hkdf"`
+	Enc  encBlock  `json:"enc"`
+	KDF  kdfBlock  `json:"kdf"`
+	HKDF hkdfBlock `json:"hkdf"`
 }
 
 type encBlock struct {

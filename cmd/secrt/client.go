@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
@@ -58,7 +59,7 @@ func (c *APIClient) Create(req CreateRequest) (CreateResponse, error) {
 		endpoint = c.BaseURL + "/api/v1/secrets"
 	}
 
-	httpReq, err := http.NewRequest(http.MethodPost, endpoint, bytes.NewReader(body))
+	httpReq, err := http.NewRequestWithContext(context.Background(), http.MethodPost, endpoint, bytes.NewReader(body))
 	if err != nil {
 		return CreateResponse{}, fmt.Errorf("create request: %w", err)
 	}
@@ -95,7 +96,7 @@ func (c *APIClient) Claim(secretID string, claimToken []byte) (ClaimResponse, er
 	}
 
 	endpoint := c.BaseURL + "/api/v1/secrets/" + secretID + "/claim"
-	httpReq, err := http.NewRequest(http.MethodPost, endpoint, bytes.NewReader(body))
+	httpReq, err := http.NewRequestWithContext(context.Background(), http.MethodPost, endpoint, bytes.NewReader(body))
 	if err != nil {
 		return ClaimResponse{}, fmt.Errorf("create request: %w", err)
 	}
@@ -121,7 +122,7 @@ func (c *APIClient) Claim(secretID string, claimToken []byte) (ClaimResponse, er
 // Burn deletes a secret without claiming it.
 func (c *APIClient) Burn(secretID string) error {
 	endpoint := c.BaseURL + "/api/v1/secrets/" + secretID + "/burn"
-	httpReq, err := http.NewRequest(http.MethodPost, endpoint, nil)
+	httpReq, err := http.NewRequestWithContext(context.Background(), http.MethodPost, endpoint, nil)
 	if err != nil {
 		return fmt.Errorf("create request: %w", err)
 	}

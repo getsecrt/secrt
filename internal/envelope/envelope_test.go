@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"io"
 	"os"
 	"testing"
@@ -288,7 +289,7 @@ func TestDeriveClaimToken(t *testing.T) {
 func TestDeriveClaimToken_InvalidKey(t *testing.T) {
 	t.Parallel()
 	_, err := DeriveClaimToken([]byte("short"))
-	if err != ErrInvalidURLKey {
+	if !errors.Is(err, ErrInvalidURLKey) {
 		t.Errorf("expected ErrInvalidURLKey, got: %v", err)
 	}
 }
@@ -320,11 +321,11 @@ func TestComputeClaimHash(t *testing.T) {
 func TestSeal_RejectsEmpty(t *testing.T) {
 	t.Parallel()
 	_, err := Seal(SealParams{Plaintext: nil})
-	if err != ErrEmptyPlaintext {
+	if !errors.Is(err, ErrEmptyPlaintext) {
 		t.Errorf("expected ErrEmptyPlaintext, got: %v", err)
 	}
 	_, err = Seal(SealParams{Plaintext: []byte{}})
-	if err != ErrEmptyPlaintext {
+	if !errors.Is(err, ErrEmptyPlaintext) {
 		t.Errorf("expected ErrEmptyPlaintext for empty slice, got: %v", err)
 	}
 }
@@ -345,7 +346,7 @@ func TestOpen_WrongPassphrase(t *testing.T) {
 		URLKey:     result.URLKey,
 		Passphrase: "wrong",
 	})
-	if err != ErrDecryptionFailed {
+	if !errors.Is(err, ErrDecryptionFailed) {
 		t.Errorf("expected ErrDecryptionFailed, got: %v", err)
 	}
 }
@@ -372,7 +373,7 @@ func TestOpen_TamperedCiphertext(t *testing.T) {
 		Envelope: tampered,
 		URLKey:   result.URLKey,
 	})
-	if err != ErrDecryptionFailed {
+	if !errors.Is(err, ErrDecryptionFailed) {
 		t.Errorf("expected ErrDecryptionFailed, got: %v", err)
 	}
 }
@@ -428,7 +429,7 @@ func TestOpen_InvalidURLKey(t *testing.T) {
 		Envelope: result.Envelope,
 		URLKey:   []byte("short"),
 	})
-	if err != ErrInvalidURLKey {
+	if !errors.Is(err, ErrInvalidURLKey) {
 		t.Errorf("expected ErrInvalidURLKey, got: %v", err)
 	}
 }

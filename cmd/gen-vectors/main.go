@@ -33,8 +33,8 @@ func hexToBytes(h string) []byte {
 }
 
 const (
-	aad          = "secrt.ca/envelope/v1"
-	hkdfInfoEnc  = "secret:v1:enc"
+	aad           = "secrt.ca/envelope/v1"
+	hkdfInfoEnc   = "secret:v1:enc"
 	hkdfInfoClaim = "secret:v1:claim"
 )
 
@@ -44,18 +44,18 @@ type vectorInput struct {
 	hkdfSalt    []byte // 32 bytes
 	nonce       []byte // 12 bytes
 	plaintext   []byte
-	passphrase  *string // nil = no passphrase
-	kdfSalt     []byte  // 16+ bytes, only if passphrase
-	kdfIter     int     // only if passphrase
+	passphrase  *string           // nil = no passphrase
+	kdfSalt     []byte            // 16+ bytes, only if passphrase
+	kdfIter     int               // only if passphrase
 	hint        map[string]string // optional hint metadata
 }
 
 type envelope struct {
-	V     int         `json:"v"`
-	Suite string      `json:"suite"`
-	Enc   encBlock    `json:"enc"`
-	KDF   interface{} `json:"kdf"`
-	HKDF  hkdfBlock   `json:"hkdf"`
+	V     int               `json:"v"`
+	Suite string            `json:"suite"`
+	Enc   encBlock          `json:"enc"`
+	KDF   interface{}       `json:"kdf"`
+	HKDF  hkdfBlock         `json:"hkdf"`
 	Hint  map[string]string `json:"hint,omitempty"`
 }
 
@@ -85,25 +85,25 @@ type kdfPBKDF2 struct {
 }
 
 type vector struct {
-	Description        string      `json:"description"`
-	URLKey             string      `json:"url_key"`
-	Plaintext          string      `json:"plaintext"`
-	PlaintextUTF8      *string     `json:"plaintext_utf8,omitempty"`
-	Passphrase         *string     `json:"passphrase"`
-	IKM                string      `json:"ikm"`
-	EncKey             string      `json:"enc_key"`
-	ClaimToken         string      `json:"claim_token"`
-	ClaimHash          string      `json:"claim_hash"`
-	Envelope           envelope    `json:"envelope"`
+	Description   string   `json:"description"`
+	URLKey        string   `json:"url_key"`
+	Plaintext     string   `json:"plaintext"`
+	PlaintextUTF8 *string  `json:"plaintext_utf8,omitempty"`
+	Passphrase    *string  `json:"passphrase"`
+	IKM           string   `json:"ikm"`
+	EncKey        string   `json:"enc_key"`
+	ClaimToken    string   `json:"claim_token"`
+	ClaimHash     string   `json:"claim_hash"`
+	Envelope      envelope `json:"envelope"`
 }
 
 type vectorsFile struct {
-	Description string   `json:"_description"`
-	Spec        string   `json:"_spec"`
-	AAD         string   `json:"aad"`
-	HKDFInfoEnc string   `json:"hkdf_info_enc"`
-	HKDFInfoClaim string `json:"hkdf_info_claim"`
-	Vectors     []vector `json:"vectors"`
+	Description   string   `json:"_description"`
+	Spec          string   `json:"_spec"`
+	AAD           string   `json:"aad"`
+	HKDFInfoEnc   string   `json:"hkdf_info_enc"`
+	HKDFInfoClaim string   `json:"hkdf_info_claim"`
+	Vectors       []vector `json:"vectors"`
 }
 
 func deriveHKDF(ikm, salt []byte, info string, length int) []byte {
@@ -185,15 +185,15 @@ func generateVector(input vectorInput) vector {
 
 	// Build vector
 	v := vector{
-		Description:  input.description,
-		URLKey:       b64(input.urlKey),
-		Plaintext:    b64(input.plaintext),
-		Passphrase:   input.passphrase,
-		IKM:          b64(ikm),
-		EncKey:       b64(encKey),
-		ClaimToken:   b64(claimToken),
-		ClaimHash:    b64(claimHashRaw[:]),
-		Envelope:     env,
+		Description: input.description,
+		URLKey:      b64(input.urlKey),
+		Plaintext:   b64(input.plaintext),
+		Passphrase:  input.passphrase,
+		IKM:         b64(ikm),
+		EncKey:      b64(encKey),
+		ClaimToken:  b64(claimToken),
+		ClaimHash:   b64(claimHashRaw[:]),
+		Envelope:    env,
 	}
 
 	// Add plaintext_utf8 if it's valid UTF-8 text
@@ -259,8 +259,8 @@ func main() {
 			nonce:       hexToBytes("a0b1c2d3e4f506172839a0b1"),
 			plaintext:   []byte("DB_PASSWORD=s3cret_v4lue"),
 			hint: map[string]string{
-				"type": "text",
-				"mime": "text/plain",
+				"type":     "text",
+				"mime":     "text/plain",
 				"filename": "credentials.txt",
 			},
 		},

@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/url"
 
@@ -10,7 +11,7 @@ import (
 
 func runClaim(args []string, deps Deps) int {
 	pa, err := parseFlags(args, nil)
-	if err == errShowHelp {
+	if errors.Is(err, errShowHelp) {
 		printClaimHelp(deps)
 		return 0
 	}
@@ -86,9 +87,9 @@ func runClaim(args []string, deps Deps) int {
 			"expires_at": resp.ExpiresAt,
 		}
 		enc := json.NewEncoder(deps.Stdout)
-		enc.Encode(out)
+		_ = enc.Encode(out)
 	} else {
-		deps.Stdout.Write(plaintext)
+		_, _ = deps.Stdout.Write(plaintext)
 	}
 
 	return 0
