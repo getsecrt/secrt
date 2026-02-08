@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -11,7 +12,7 @@ import (
 
 func runCreate(args []string, deps Deps) int {
 	pa, err := parseFlags(args, nil)
-	if err == errShowHelp {
+	if errors.Is(err, errShowHelp) {
 		printCreateHelp(deps)
 		return 0
 	}
@@ -85,7 +86,7 @@ func runCreate(args []string, deps Deps) int {
 			"expires_at": resp.ExpiresAt,
 		}
 		enc := json.NewEncoder(deps.Stdout)
-		enc.Encode(out)
+		_ = enc.Encode(out)
 	} else {
 		fmt.Fprintln(deps.Stdout, shareLink)
 	}
@@ -107,9 +108,6 @@ func readPlaintext(pa parsedArgs, deps Deps) ([]byte, error) {
 	}
 
 	if pa.text != "" {
-		if pa.text == "" {
-			return nil, fmt.Errorf("--text value must not be empty")
-		}
 		return []byte(pa.text), nil
 	}
 

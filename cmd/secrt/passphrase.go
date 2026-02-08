@@ -65,6 +65,21 @@ func resolvePassphrase(args parsedArgs, deps Deps) (string, error) {
 
 // resolvePassphraseForCreate is like resolvePassphrase but prompts for confirmation.
 func resolvePassphraseForCreate(args parsedArgs, deps Deps) (string, error) {
+	// Check for conflicting flags first (before any I/O)
+	count := 0
+	if args.passphrasePrompt {
+		count++
+	}
+	if args.passphraseEnv != "" {
+		count++
+	}
+	if args.passphraseFile != "" {
+		count++
+	}
+	if count > 1 {
+		return "", fmt.Errorf("specify at most one of --passphrase-prompt, --passphrase-env, --passphrase-file")
+	}
+
 	if !args.passphrasePrompt {
 		return resolvePassphrase(args, deps)
 	}
@@ -91,9 +106,6 @@ func resolvePassphraseForCreate(args parsedArgs, deps Deps) (string, error) {
 
 	return p1, nil
 }
-
-// parsedArgs holds parsed flag values for passphrase-related flags.
-type parsedPassFlags struct{}
 
 func writeError(w io.Writer, jsonMode bool, msg string) {
 	if jsonMode {
