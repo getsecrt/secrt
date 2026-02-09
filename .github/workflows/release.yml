@@ -27,6 +27,8 @@ jobs:
     name: Build (${{ matrix.name }})
     needs: test
     runs-on: ${{ matrix.runner }}
+    env:
+      HAS_APPLE_CERT: ${{ secrets.APPLE_CERTIFICATE_P12 != '' }}
     strategy:
       fail-fast: true
       matrix:
@@ -76,7 +78,7 @@ jobs:
 
       # macOS code signing
       - name: Import Apple certificate
-        if: runner.os == 'macOS' && secrets.APPLE_CERTIFICATE_P12 != ''
+        if: runner.os == 'macOS' && env.HAS_APPLE_CERT == 'true'
         env:
           APPLE_CERTIFICATE_P12: ${{ secrets.APPLE_CERTIFICATE_P12 }}
           APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
@@ -90,7 +92,7 @@ jobs:
           security list-keychains -d user -s $KEYCHAIN_PATH login.keychain-db
 
       - name: Codesign macOS binary
-        if: runner.os == 'macOS' && secrets.APPLE_CERTIFICATE_P12 != ''
+        if: runner.os == 'macOS' && env.HAS_APPLE_CERT == 'true'
         env:
           APPLE_CERTIFICATE_P12: ${{ secrets.APPLE_CERTIFICATE_P12 }}
         run: |
@@ -120,6 +122,9 @@ jobs:
     name: Universal macOS binary
     needs: build
     runs-on: macos-latest
+    env:
+      HAS_APPLE_CERT: ${{ secrets.APPLE_CERTIFICATE_P12 != '' }}
+      HAS_APPLE_ID: ${{ secrets.APPLE_ID != '' }}
     steps:
       - name: Download macOS ARM binary
         uses: actions/download-artifact@v4
@@ -138,7 +143,7 @@ jobs:
           lipo -info secrt-darwin-universal
 
       - name: Import Apple certificate
-        if: secrets.APPLE_CERTIFICATE_P12 != ''
+        if: env.HAS_APPLE_CERT == 'true'
         env:
           APPLE_CERTIFICATE_P12: ${{ secrets.APPLE_CERTIFICATE_P12 }}
           APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
@@ -152,7 +157,7 @@ jobs:
           security list-keychains -d user -s $KEYCHAIN_PATH login.keychain-db
 
       - name: Codesign universal binary
-        if: secrets.APPLE_CERTIFICATE_P12 != ''
+        if: env.HAS_APPLE_CERT == 'true'
         env:
           APPLE_CERTIFICATE_P12: ${{ secrets.APPLE_CERTIFICATE_P12 }}
         run: |
@@ -162,7 +167,7 @@ jobs:
           codesign --verify --verbose secrt-darwin-universal
 
       - name: Notarize macOS binaries
-        if: secrets.APPLE_ID != ''
+        if: env.HAS_APPLE_ID == 'true'
         env:
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
