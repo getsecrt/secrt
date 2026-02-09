@@ -75,11 +75,12 @@ Indexes:
 
 Middleware stack order (outermost to innermost):
 
-1. request logging
-2. security headers
-3. request ID
-4. panic recovery
-5. route handler
+1. privacy log check (advisory, fires once)
+2. request logging
+3. security headers
+4. request ID
+5. panic recovery
+6. route handler
 
 Security headers set on all responses:
 
@@ -103,6 +104,24 @@ Logging fields:
 - method, path, status, bytes, duration_ms, request_id (if present)
 
 The server trusts `X-Forwarded-For` only when `RemoteAddr` is loopback (`127.0.0.1` or `::1`), extracting the leftmost IP for rate limiting. When not behind a trusted proxy, client identity uses `RemoteAddr` directly.
+
+### 4.1. Privacy Log Header Check
+
+The server checks the `X-Privacy-Log` request header on the first proxied request to verify that the reverse proxy has been configured for privacy-preserving access logging. This is an advisory check — it does not block requests.
+
+**Trigger condition:** The check fires once per process lifetime, on the first request where `X-Forwarded-For` is present (indicating a reverse proxy). Direct connections (no `X-Forwarded-For`) are ignored.
+
+**Header contract:**
+
+| `X-Privacy-Log` value | Behavior |
+|---|---|
+| `truncated-ip` | `INFO` log confirming privacy-preserving logging is configured |
+| (absent) | `WARN` log advising that access logs may contain full client IPs |
+| any other value | `WARN` log noting unrecognized value |
+
+**Trust model:** This header is advisory only. An attacker spoofing `X-Privacy-Log: truncated-ip` can only suppress a warning, not gain access or bypass any security control. No loopback restriction is applied.
+
+The header is an internal signal between the reverse proxy and the application and must not be forwarded to clients.
 
 ## 5. Route Surface (Current)
 
