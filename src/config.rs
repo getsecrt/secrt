@@ -10,7 +10,10 @@ pub struct Config {
     pub api_key: Option<String>,
     pub base_url: Option<String>,
     pub passphrase: Option<String>,
+    pub default_ttl: Option<String>,
     pub show_input: Option<bool>,
+    #[serde(default)]
+    pub decryption_passphrases: Vec<String>,
 }
 
 /// Returns the config file path: $XDG_CONFIG_HOME/secrt/config.toml
@@ -32,7 +35,12 @@ pub fn config_path_with(getenv: &dyn Fn(&str) -> Option<String>) -> Option<PathB
 /// Load config from the standard path. Returns default Config if file
 /// doesn't exist. Writes a warning to stderr if permissions are too open.
 pub fn load_config(stderr: &mut dyn Write) -> Config {
-    let path = match config_path() {
+    load_config_with(&|key| std::env::var(key).ok(), stderr)
+}
+
+/// Load config using a custom getenv (for testing/injection).
+pub fn load_config_with(getenv: &dyn Fn(&str) -> Option<String>, stderr: &mut dyn Write) -> Config {
+    let path = match config_path_with(getenv) {
         Some(p) => p,
         None => return Config::default(),
     };
@@ -66,12 +74,13 @@ pub fn load_config(stderr: &mut dyn Write) -> Config {
     load_config_from_path(&path, stderr)
 }
 
-/// Load config, but omit secret fields (api_key, passphrase) due to
-/// insecure file permissions.
+/// Load config, but omit secret fields (api_key, passphrase,
+/// decryption_passphrases) due to insecure file permissions.
 fn load_config_filtered(path: &PathBuf, stderr: &mut dyn Write) -> Config {
     let mut config = load_config_from_path(path, stderr);
     config.api_key = None;
     config.passphrase = None;
+    config.decryption_passphrases = Vec::new();
     config
 }
 
@@ -81,22 +90,12 @@ fn load_config_from_path(path: &PathBuf, stderr: &mut dyn Write) -> Config {
         Ok(contents) => match toml::from_str::<Config>(&contents) {
             Ok(config) => config,
             Err(e) => {
-                let _ = writeln!(
-                    stderr,
-                    "warning: failed to parse {}: {}",
-                    path.display(),
-                    e
-                );
+                let _ = writeln!(stderr, "warning: failed to parse {}: {}", path.display(), e);
                 Config::default()
             }
         },
         Err(e) => {
-            let _ = writeln!(
-                stderr,
-                "warning: failed to read {}: {}",
-                path.display(),
-                e
-            );
+            let _ = writeln!(stderr, "warning: failed to read {}: {}", path.display(), e);
             Config::default()
         }
     }
@@ -113,8 +112,14 @@ pub const CONFIG_TEMPLATE: &str = "\
 # API key for authenticated access
 # api_key = \"sk_...\"
 
-# Default TTL for secrets (e.g., 5m, 2h, 1d)
+# Default TTL for secrets (e.g., 5m, 2h, 1d, 1w)
 # default_ttl = \"24h\"
+
+# Default passphrase for encryption and decryption
+# passphrase = \"\"
+
+# Additional passphrases to try when claiming (tried in order)
+# decryption_passphrases = [\"old-passphrase\", \"team-passphrase\"]
 
 # Show input while typing (default: false)
 # show_input = false
@@ -168,6 +173,17 @@ pub fn mask_secret(value: &str, is_api_key: bool) -> String {
     }
 }
 
+/// Mask a list of secret values for display.
+/// Shows `[••••••••, ••••••••]` with the count of entries.
+pub fn mask_secret_list(values: &[String]) -> String {
+    if values.is_empty() {
+        return String::new();
+    }
+    let dots = "\u{2022}".repeat(8);
+    let masked: Vec<&str> = values.iter().map(|_| dots.as_str()).collect();
+    format!("[{}]", masked.join(", "))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -182,7 +198,8 @@ mod tests {
 
     #[test]
     fn load_missing_file() {
-        let config = load_config_from_path(&PathBuf::from("/nonexistent/config.toml"), &mut Vec::new());
+        let config =
+            load_config_from_path(&PathBuf::from("/nonexistent/config.toml"), &mut Vec::new());
         assert!(config.api_key.is_none());
         assert!(config.base_url.is_none());
         assert!(config.passphrase.is_none());
@@ -305,5 +322,139 @@ mod tests {
     fn mask_empty() {
         assert_eq!(mask_secret("", true), "");
         assert_eq!(mask_secret("", false), "");
+    }
+
+    #[test]
+    fn load_toml_with_default_ttl() {
+        let dir = std::env::temp_dir().join("secrt_config_ttl");
+        let _ = fs::create_dir_all(&dir);
+        let path = dir.join("config.toml");
+        fs::write(&path, "default_ttl = \"24h\"\n").unwrap();
+        let config = load_config_from_path(&path, &mut Vec::new());
+        assert_eq!(config.default_ttl.as_deref(), Some("24h"));
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn load_toml_with_decryption_passphrases() {
+        let dir = std::env::temp_dir().join("secrt_config_dp");
+        let _ = fs::create_dir_all(&dir);
+        let path = dir.join("config.toml");
+        fs::write(
+            &path,
+            "decryption_passphrases = [\"pass1\", \"pass2\", \"pass3\"]\n",
+        )
+        .unwrap();
+        let config = load_config_from_path(&path, &mut Vec::new());
+        assert_eq!(
+            config.decryption_passphrases,
+            vec!["pass1", "pass2", "pass3"]
+        );
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn load_toml_missing_fields_default() {
+        let dir = std::env::temp_dir().join("secrt_config_defaults");
+        let _ = fs::create_dir_all(&dir);
+        let path = dir.join("config.toml");
+        fs::write(&path, "base_url = \"https://ok.com\"\n").unwrap();
+        let config = load_config_from_path(&path, &mut Vec::new());
+        assert!(config.default_ttl.is_none());
+        assert!(config.decryption_passphrases.is_empty());
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn filtered_strips_decryption_passphrases() {
+        let dir = std::env::temp_dir().join("secrt_config_filtered_dp");
+        let _ = fs::create_dir_all(&dir);
+        let path = dir.join("config.toml");
+        fs::write(
+            &path,
+            "base_url = \"https://ok.com\"\ndefault_ttl = \"1h\"\ndecryption_passphrases = [\"secret1\"]\n",
+        )
+        .unwrap();
+        let config = load_config_filtered(&path, &mut Vec::new());
+        assert!(
+            config.decryption_passphrases.is_empty(),
+            "decryption_passphrases should be stripped"
+        );
+        assert_eq!(
+            config.default_ttl.as_deref(),
+            Some("1h"),
+            "default_ttl should NOT be stripped"
+        );
+        assert_eq!(config.base_url.as_deref(), Some("https://ok.com"));
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn mask_secret_list_empty() {
+        assert_eq!(mask_secret_list(&[]), "");
+    }
+
+    #[test]
+    fn mask_secret_list_multiple() {
+        let list = vec!["a".into(), "bb".into(), "ccc".into()];
+        let masked = mask_secret_list(&list);
+        assert!(masked.starts_with('['));
+        assert!(masked.ends_with(']'));
+        assert!(masked.contains('\u{2022}'));
+        // Should have 3 masked entries separated by commas
+        assert_eq!(masked.matches(", ").count(), 2);
+    }
+
+    #[test]
+    fn template_contains_all_keys() {
+        assert!(
+            CONFIG_TEMPLATE.contains("base_url"),
+            "template missing base_url"
+        );
+        assert!(
+            CONFIG_TEMPLATE.contains("api_key"),
+            "template missing api_key"
+        );
+        assert!(
+            CONFIG_TEMPLATE.contains("default_ttl"),
+            "template missing default_ttl"
+        );
+        assert!(
+            CONFIG_TEMPLATE.contains("passphrase ="),
+            "template missing passphrase"
+        );
+        assert!(
+            CONFIG_TEMPLATE.contains("decryption_passphrases"),
+            "template missing decryption_passphrases"
+        );
+        assert!(
+            CONFIG_TEMPLATE.contains("show_input"),
+            "template missing show_input"
+        );
+    }
+
+    #[test]
+    fn load_config_with_injectable() {
+        let dir = std::env::temp_dir().join("secrt_config_injectable");
+        let secrt_dir = dir.join("secrt");
+        let _ = fs::create_dir_all(&secrt_dir);
+        let path = secrt_dir.join("config.toml");
+        fs::write(&path, "default_ttl = \"2h\"\n").unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let _ = fs::set_permissions(&path, fs::Permissions::from_mode(0o600));
+        }
+        let dir_str = dir.to_str().unwrap().to_string();
+        let getenv = move |key: &str| -> Option<String> {
+            if key == "XDG_CONFIG_HOME" {
+                Some(dir_str.clone())
+            } else {
+                None
+            }
+        };
+        let config = load_config_with(&getenv, &mut Vec::new());
+        assert_eq!(config.default_ttl.as_deref(), Some("2h"));
+        let _ = fs::remove_dir_all(&dir);
     }
 }
