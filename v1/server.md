@@ -12,7 +12,6 @@ Source-of-truth code paths:
 - `internal/secrets/secrets.go`
 - `internal/storage/postgres/postgres.go`
 - `internal/database/migrations/001_initial.sql`
-- `internal/database/migrations/002_add_owner_key.sql`
 
 ## 1. Scope
 
