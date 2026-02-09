@@ -150,8 +150,10 @@ Notes:
 
 The server tracks an internal `owner_key` for each secret:
 
-- Public create: owner key is derived from client IP (`clientIP(r)`).
+- Public create: owner key is `ip:<HMAC-SHA256(client_ip)>`, keyed with a per-process random secret. Raw IPs are **never persisted** to the database.
 - Authenticated create: owner key is `apikey:<prefix>`.
+
+Because the HMAC key is per-process, public quota tracking resets on server restart. This is acceptable because secrets expire via TTL and the reaper deletes them; a brief window of relaxed quotas after restart is not a meaningful abuse vector.
 
 This owner key drives policy only:
 
@@ -165,10 +167,14 @@ Ownership metadata does not affect claim/decrypt semantics. Claim remains bearer
 
 Limiter implementation is an in-memory token bucket keyed by string.
 
+**Privacy:** Rate limiter keys are HMAC-SHA256 hashed with a per-process random key before use as map keys. Raw client IPs never appear in process memory data structures.
+
+**Garbage collection:** A background goroutine sweeps stale buckets every 2 minutes, evicting any bucket idle for more than 10 minutes. This bounds memory growth and limits the window during which any IP-derived data exists in memory.
+
 Configured limits:
 
-- Public create: `0.2 rps`, burst `4` (about 12/min, burst 4) keyed by client IP.
-- Claim: `1.0 rps`, burst `10` keyed by client IP.
+- Public create: `0.5 rps`, burst `6` (about 30/min, burst 6) keyed by client IP hash.
+- Claim: `1.0 rps`, burst `10` keyed by client IP hash.
 - Authenticated create: `2.0 rps`, burst `20` keyed by API key prefix.
 - Burn: no dedicated limiter in v1 (API key auth + owner checks apply).
 
