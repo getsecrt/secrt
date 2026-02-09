@@ -82,6 +82,9 @@ func NewServer(cfg config.Config, secretsStore storage.SecretsStore, authn *auth
 	mux.HandleFunc("POST /api/v1/secrets", s.handleCreateAuthedSecret)
 	mux.HandleFunc("POST /api/v1/secrets/{id}/burn", s.handleBurnAuthedSecret)
 
+	// Server info endpoint (optional API key to check authentication status).
+	mux.HandleFunc("GET /api/v1/info", s.handleInfo)
+
 	// Claim endpoint (no API key; possession of the URL fragment + optional passphrase should be enough).
 	mux.HandleFunc("POST /api/v1/secrets/{id}/claim", s.handleClaimSecret)
 
@@ -113,6 +116,56 @@ func (s *Server) handleHealthz(w http.ResponseWriter, r *http.Request) {
 		"ok":   true,
 		"time": time.Now().UTC().Format(time.RFC3339Nano),
 	})
+}
+
+func (s *Server) handleInfo(w http.ResponseWriter, r *http.Request) {
+	ip := clientIP(r)
+	if !s.claimLimiter.Allow(ip) {
+		rateLimited(w)
+		return
+	}
+
+	authenticated := false
+	raw := strings.TrimSpace(r.Header.Get("X-API-Key"))
+	if raw == "" {
+		authz := strings.TrimSpace(r.Header.Get("Authorization"))
+		if strings.HasPrefix(strings.ToLower(authz), "bearer ") {
+			raw = strings.TrimSpace(authz[len("bearer "):])
+		}
+	}
+	if raw != "" {
+		ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
+		defer cancel()
+		if _, err := s.auth.Authenticate(ctx, raw); err == nil {
+			authenticated = true
+		}
+	}
+
+	resp := InfoResponse{
+		Authenticated: authenticated,
+		TTL: InfoTTL{
+			DefaultSeconds: int64(secrets.DefaultTTL / time.Second),
+			MaxSeconds:     secrets.MaxTTLSeconds,
+		},
+		Limits: InfoLimits{
+			Public: InfoTier{
+				MaxEnvelopeBytes: s.cfg.PublicMaxEnvelopeBytes,
+				MaxSecrets:       s.cfg.PublicMaxSecrets,
+				MaxTotalBytes:    s.cfg.PublicMaxTotalBytes,
+				Rate:             InfoRate{RequestsPerSecond: 0.5, Burst: 6},
+			},
+			Authed: InfoTier{
+				MaxEnvelopeBytes: s.cfg.AuthedMaxEnvelopeBytes,
+				MaxSecrets:       s.cfg.AuthedMaxSecrets,
+				MaxTotalBytes:    s.cfg.AuthedMaxTotalBytes,
+				Rate:             InfoRate{RequestsPerSecond: 2.0, Burst: 20},
+			},
+		},
+		ClaimRate: InfoRate{RequestsPerSecond: 1.0, Burst: 10},
+	}
+
+	w.Header().Set("Cache-Control", "public, max-age=300")
+	writeJSON(w, http.StatusOK, resp)
 }
 
 func (s *Server) handleCreatePublicSecret(w http.ResponseWriter, r *http.Request) {

@@ -37,3 +37,33 @@ type ClaimSecretResponse struct {
 	Envelope  json.RawMessage `json:"envelope"`
 	ExpiresAt time.Time       `json:"expires_at"`
 }
+
+// InfoResponse is returned by GET /api/v1/info with server defaults and per-tier limits.
+type InfoResponse struct {
+	Authenticated bool       `json:"authenticated"`
+	TTL           InfoTTL    `json:"ttl"`
+	Limits        InfoLimits `json:"limits"`
+	ClaimRate     InfoRate   `json:"claim_rate"`
+}
+
+type InfoTTL struct {
+	DefaultSeconds int64 `json:"default_seconds"`
+	MaxSeconds     int64 `json:"max_seconds"`
+}
+
+type InfoLimits struct {
+	Public InfoTier `json:"public"`
+	Authed InfoTier `json:"authed"`
+}
+
+type InfoTier struct {
+	MaxEnvelopeBytes int64    `json:"max_envelope_bytes"`
+	MaxSecrets       int64    `json:"max_secrets"`
+	MaxTotalBytes    int64    `json:"max_total_bytes"`
+	Rate             InfoRate `json:"rate"`
+}
+
+type InfoRate struct {
+	RequestsPerSecond float64 `json:"requests_per_second"`
+	Burst             int     `json:"burst"`
+}

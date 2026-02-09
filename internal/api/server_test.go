@@ -239,6 +239,156 @@ func TestAuthedCreateRequiresAPIKey(t *testing.T) {
 	}
 }
 
+func TestInfoUnauthenticated(t *testing.T) {
+	t.Parallel()
+
+	secStore := newMemSecretsStore()
+	keyStore := newMemAPIKeyStore()
+	authn := auth.NewAuthenticator("pepper", keyStore)
+	srv := NewServer(config.Config{
+		PublicBaseURL:          "https://example.com",
+		PublicMaxEnvelopeBytes: 256 * 1024,
+		AuthedMaxEnvelopeBytes: 1024 * 1024,
+		PublicMaxSecrets:       10,
+		PublicMaxTotalBytes:    2 * 1024 * 1024,
+		AuthedMaxSecrets:       1000,
+		AuthedMaxTotalBytes:    20 * 1024 * 1024,
+	}, secStore, authn)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/info", nil)
+	rec := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d body=%s", rec.Code, rec.Body.String())
+	}
+
+	var resp InfoResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if resp.Authenticated {
+		t.Fatal("expected authenticated=false without API key")
+	}
+	if resp.TTL.DefaultSeconds != 86400 {
+		t.Fatalf("expected default_seconds=86400, got %d", resp.TTL.DefaultSeconds)
+	}
+	if resp.TTL.MaxSeconds != 31536000 {
+		t.Fatalf("expected max_seconds=31536000, got %d", resp.TTL.MaxSeconds)
+	}
+	if resp.Limits.Public.MaxEnvelopeBytes != 256*1024 {
+		t.Fatalf("expected public max_envelope_bytes=262144, got %d", resp.Limits.Public.MaxEnvelopeBytes)
+	}
+	if resp.Limits.Authed.MaxSecrets != 1000 {
+		t.Fatalf("expected authed max_secrets=1000, got %d", resp.Limits.Authed.MaxSecrets)
+	}
+}
+
+func TestInfoAuthenticated(t *testing.T) {
+	t.Parallel()
+
+	secStore := newMemSecretsStore()
+	keyStore := newMemAPIKeyStore()
+	pepper := "pepper"
+
+	apiKey, prefix, hash, err := auth.GenerateAPIKey(pepper)
+	if err != nil {
+		t.Fatalf("GenerateAPIKey: %v", err)
+	}
+	_ = keyStore.Insert(context.Background(), storage.APIKey{Prefix: prefix, Hash: hash})
+
+	authn := auth.NewAuthenticator(pepper, keyStore)
+	srv := NewServer(config.Config{
+		PublicBaseURL:          "https://example.com",
+		PublicMaxEnvelopeBytes: 256 * 1024,
+		AuthedMaxEnvelopeBytes: 1024 * 1024,
+		PublicMaxSecrets:       10,
+		PublicMaxTotalBytes:    2 * 1024 * 1024,
+		AuthedMaxSecrets:       1000,
+		AuthedMaxTotalBytes:    20 * 1024 * 1024,
+	}, secStore, authn)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/info", nil)
+	req.Header.Set("X-API-Key", apiKey)
+	rec := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d body=%s", rec.Code, rec.Body.String())
+	}
+
+	var resp InfoResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if !resp.Authenticated {
+		t.Fatal("expected authenticated=true with valid API key")
+	}
+}
+
+func TestInfoInvalidKey(t *testing.T) {
+	t.Parallel()
+
+	secStore := newMemSecretsStore()
+	keyStore := newMemAPIKeyStore()
+	authn := auth.NewAuthenticator("pepper", keyStore)
+	srv := NewServer(config.Config{
+		PublicBaseURL:          "https://example.com",
+		PublicMaxEnvelopeBytes: 256 * 1024,
+		AuthedMaxEnvelopeBytes: 1024 * 1024,
+		PublicMaxSecrets:       10,
+		PublicMaxTotalBytes:    2 * 1024 * 1024,
+		AuthedMaxSecrets:       1000,
+		AuthedMaxTotalBytes:    20 * 1024 * 1024,
+	}, secStore, authn)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/info", nil)
+	req.Header.Set("X-API-Key", "sk_invalid.notakey")
+	rec := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200 even with invalid key, got %d body=%s", rec.Code, rec.Body.String())
+	}
+
+	var resp InfoResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if resp.Authenticated {
+		t.Fatal("expected authenticated=false with invalid API key")
+	}
+}
+
+func TestInfoCacheHeader(t *testing.T) {
+	t.Parallel()
+
+	secStore := newMemSecretsStore()
+	keyStore := newMemAPIKeyStore()
+	authn := auth.NewAuthenticator("pepper", keyStore)
+	srv := NewServer(config.Config{
+		PublicBaseURL:          "https://example.com",
+		PublicMaxEnvelopeBytes: 256 * 1024,
+		AuthedMaxEnvelopeBytes: 1024 * 1024,
+		PublicMaxSecrets:       10,
+		PublicMaxTotalBytes:    2 * 1024 * 1024,
+		AuthedMaxSecrets:       1000,
+		AuthedMaxTotalBytes:    20 * 1024 * 1024,
+	}, secStore, authn)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/info", nil)
+	rec := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rec.Code)
+	}
+	cc := rec.Header().Get("Cache-Control")
+	if cc != "public, max-age=300" {
+		t.Fatalf("expected Cache-Control: public, max-age=300, got %q", cc)
+	}
+}
+
 func randomB64(n int) (string, error) {
 	b := make([]byte, n)
 	if _, err := rand.Read(b); err != nil {
