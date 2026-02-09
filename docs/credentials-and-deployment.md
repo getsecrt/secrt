@@ -177,6 +177,38 @@ If you are under active attack and need full IPs temporarily:
 
 Do not leave full IP logging enabled as the default.
 
+#### `X-Privacy-Log` header (application-level verification)
+
+The Go application can verify that the reverse proxy has been configured for privacy-preserving logging. This is done via a convention header that the reverse proxy sets on every proxied request.
+
+Add this directive inside the `location /` block that proxies to the Go backend:
+
+```nginx
+proxy_set_header X-Privacy-Log "truncated-ip";
+```
+
+The application checks for this header on the first proxied request (identified by the presence of `X-Forwarded-For`). If the header is missing or has an unrecognized value, the application logs a structured warning:
+
+```json
+{"level":"WARN","msg":"privacy_log_check","status":"missing","msg":"reverse proxy did not send X-Privacy-Log header; access logs may contain full client IP addresses."}
+```
+
+If the header is present and correct, an informational confirmation is logged once at startup.
+
+**Header contract:**
+
+| `X-Privacy-Log` value | Meaning |
+|---|---|
+| `truncated-ip` | Reverse proxy truncates IPs to /24 (IPv4) or /48 (IPv6) before writing access logs |
+| (absent) | Unknown logging configuration — application warns |
+| any other value | Unrecognized mode — application warns |
+
+This is an advisory check only — it does not block requests. The header is an internal signal between the reverse proxy and the application and is not forwarded to clients.
+
+For other reverse proxies (Caddy, Traefik, HAProxy), set the same header after configuring their equivalent IP truncation/anonymization.
+
+> **Spec TODO:** Once the `X-Privacy-Log` header check is implemented in the Go application, add a normative section to `spec/v1/server.md` documenting: (1) the header name and accepted values, (2) the expected application behavior (warn vs. hard-fail), (3) the trust model (advisory only, no loopback restriction needed since spoofing only suppresses a warning). See `docs/ip-privacy-logging.md` for the full implementation guide with proposed code, test cases, and middleware placement.
+
 ## Why Not Other Approaches?
 
 | Approach | Verdict | Reason |
