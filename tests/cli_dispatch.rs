@@ -421,13 +421,8 @@ fn config_shows_default_ttl_server_default() {
         err
     );
     assert!(
-        err.contains("24h"),
-        "config should show server default 24h: {}",
-        err
-    );
-    assert!(
         err.contains("server default"),
-        "config should indicate server default: {}",
+        "config should show server default: {}",
         err
     );
     let _ = fs::remove_dir_all(&cfg_dir);
