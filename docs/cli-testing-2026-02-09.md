@@ -8,11 +8,13 @@
 
 ## Summary
 
-Overall the CLI is well-designed and follows good conventions. Most operations work correctly. Found a few bugs, UX issues, and areas for improvement.
+Overall the CLI is well-designed and follows good conventions. Most operations work correctly. Found a couple bugs and some UX polish opportunities.
+
+**Note:** Initial testing was done before realizing the passphrase retry feature (b5fbf3b) was already implemented. Updated findings accordingly.
 
 ---
 
-## 🐛 Bugs
+## 🐛 Bugs (2 remaining)
 
 ### 1. JSON claim output missing plaintext
 **Severity:** Medium  
@@ -24,17 +26,16 @@ Overall the CLI is well-designed and follows good conventions. Most operations w
 ```
 **Impact:** Can't use JSON mode for scripted claim operations.
 
-### 2. Wrong passphrase burns the secret (with no retry)
-**Severity:** Medium (UX issue, solvable)  
-**Steps:**
-1. Create passphrase-protected secret
-2. Claim with wrong passphrase  
-**Result:** Server returns the encrypted payload (consuming it), client fails to decrypt, user is stuck.  
-**Impact:** Secret is permanently lost. User gets `decryption failed` but secret is gone.
+### 2. ~~Wrong passphrase burns the secret~~ → FIXED in b5fbf3b
+**Status:** ✅ Resolved for TTY users
 
-**Key insight:** Decryption is LOCAL. The ciphertext is in memory after claim. The CLI *could* prompt for retry since no server round-trip is needed.
+The CLI now auto-prompts for passphrase on TTY when claiming passphrase-protected secrets, with unlimited retries (envelope stays in memory). Non-TTY mode correctly shows error with flag suggestions.
 
-**Proposed fix:** See "Passphrase Retry Feature" in Suggestions section — add `decrypt_passphrase` config + interactive retry on failure.
+**Verified behavior:**
+- TTY: Auto-detects passphrase-protected secret, prompts, allows retries
+- Non-TTY: `error: this secret is passphrase-protected; use -p, --passphrase-env, or --passphrase-file`
+
+Great UX improvement! 👍
 
 ### 3. Redundant error messages
 **Severity:** Low (polish)  
@@ -117,30 +118,15 @@ Overall the CLI is well-designed and follows good conventions. Most operations w
 2. Add context to server errors (404 = already claimed/expired)
 3. Warn when passphrase decryption fails that the secret is now gone
 
-### Passphrase Retry Feature (Proposed)
-**Problem:** Wrong passphrase = lost secret, especially painful in non-interactive usage.
+### Passphrase Retry Feature → Already Implemented! ✅
+**Commit:** b5fbf3b
 
-**Insight:** Decryption is local. Once claimed, the ciphertext is in memory — you can retry decryption with different passphrases without server involvement.
+The CLI already supports:
+- Auto-prompting on TTY for passphrase-protected secrets
+- Unlimited retries (envelope stays in memory after claim)
+- Helpful error message for non-TTY with flag suggestions
 
-**Proposed solution:**
-1. Add `decrypt_passphrase` config option (separate from encryption passphrase)
-2. On claim, try config passphrase first
-3. If decryption fails, prompt interactively: "Default passphrase didn't work. Enter passphrase:"
-4. Allow multiple retry attempts (local crypto only)
-5. For non-interactive scripts: add `--no-prompt` flag to fail fast instead of blocking on stdin
-
-**Config example:**
-```toml
-# Passphrase to try automatically when claiming
-# (falls back to interactive prompt if decryption fails)
-decrypt_passphrase = "..."
-```
-
-**Benefits:**
-- Interactive users get retry opportunity
-- Config passphrase provides convenience for teams with shared secrets
-- Non-interactive scripts can opt out with `--no-prompt`
-- Solves the "wrong passphrase burns the secret" UX problem
+**Future enhancement idea:** Add `decrypt_passphrase` to config so teams with shared passphrases can auto-decrypt without prompting. Would try config passphrase first, then fall back to interactive prompt on failure.
 
 ### JSON Mode
 1. Fix claim --json to include plaintext
@@ -167,7 +153,7 @@ decrypt_passphrase = "..."
 | Create binary file | ✅ | |
 | Claim basic | ✅ | |
 | Claim with passphrase | ✅ | |
-| Claim wrong passphrase | ⚠️ | Burns secret, unclear error |
+| Claim wrong passphrase | ✅ | TTY: retries allowed. Non-TTY: clear error |
 | Claim --json | ❌ | Missing plaintext |
 | Claim --silent | ✅ | |
 | Claim expired/claimed | ✅ | 404 error |
