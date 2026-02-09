@@ -768,12 +768,12 @@ pub fn print_config_help(deps: &mut Deps) {
         deps.stderr,
         "{} {} — Show config / init / path\n\n\
 {}\n\
-  {} {}              Show effective config and file path\n\
-  {} {} {}   Create template config file\n\
-  {} {} {}           Print config file path\n\n\
+  {} {}           Show effective config and file path\n\
+  {} {} {}      Create template config file\n\
+  {} {} {}      Print config file path\n\n\
 {}\n\
-  {}              Overwrite existing config file (for init)\n\
-  {}              Show help\n\n\
+  {}          Overwrite existing config file (for init)\n\
+  {}       Show help\n\n\
 {}\n\
   Settings are loaded from ~/.config/secrt/config.toml.\n\
   Supported keys: api_key, base_url, default_ttl, passphrase,\n\
