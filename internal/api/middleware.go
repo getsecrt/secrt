@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"log/slog"
 	"net/http"
+	"sync/atomic"
 	"time"
 )
 
@@ -18,6 +19,7 @@ func withMiddleware(h http.Handler) http.Handler {
 	h = requestIDMiddleware(h)
 	h = securityHeadersMiddleware(h)
 	h = loggingMiddleware(h)
+	h = privacyLogCheckMiddleware(h)
 	return h
 }
 
@@ -106,5 +108,46 @@ func loggingMiddleware(next http.Handler) http.Handler {
 			attrs = append(attrs, "request_id", rid)
 		}
 		slog.Info("request", attrs...)
+	})
+}
+
+// privacyLogCheckMiddleware logs a warning if the reverse proxy has not
+// declared privacy-preserving access logging via the X-Privacy-Log header.
+//
+// The check fires once (on the first request that appears to come through
+// a reverse proxy). It is advisory only and does not block requests.
+func privacyLogCheckMiddleware(next http.Handler) http.Handler {
+	var checked atomic.Bool
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !checked.Load() {
+			if r.Header.Get("X-Forwarded-For") != "" {
+				checked.Store(true)
+
+				val := r.Header.Get("X-Privacy-Log")
+				switch val {
+				case "truncated-ip":
+					slog.Info("privacy_log_check",
+						"status", "ok",
+						"mode", val,
+						"detail", "reverse proxy declares truncated-ip access logging",
+					)
+				case "":
+					slog.Warn("privacy_log_check",
+						"status", "missing",
+						"detail", "reverse proxy did not send X-Privacy-Log header; "+
+							"access logs may contain full client IP addresses. "+
+							"See docs/ip-privacy-logging.md for configuration guidance.",
+					)
+				default:
+					slog.Warn("privacy_log_check",
+						"status", "unknown",
+						"mode", val,
+						"detail", "reverse proxy sent unrecognized X-Privacy-Log value; "+
+							"expected 'truncated-ip'",
+					)
+				}
+			}
+		}
+		next.ServeHTTP(w, r)
 	})
 }

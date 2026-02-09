@@ -207,8 +207,6 @@ This is an advisory check only — it does not block requests. The header is an 
 
 For other reverse proxies (Caddy, Traefik, HAProxy), set the same header after configuring their equivalent IP truncation/anonymization.
 
-> **Spec TODO:** Once the `X-Privacy-Log` header check is implemented in the Go application, add a normative section to `spec/v1/server.md` documenting: (1) the header name and accepted values, (2) the expected application behavior (warn vs. hard-fail), (3) the trust model (advisory only, no loopback restriction needed since spoofing only suppresses a warning). See `docs/ip-privacy-logging.md` for the full implementation guide with proposed code, test cases, and middleware placement.
-
 ## Why Not Other Approaches?
 
 | Approach | Verdict | Reason |
