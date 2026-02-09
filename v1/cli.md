@@ -142,6 +142,12 @@ To support piping and composition:
 
 This ensures patterns like `secrt create < secret.txt | pbcopy` work cleanly.
 
+### TTY Output Formatting
+
+When stdout is a TTY (interactive terminal), implementations SHOULD append a trailing newline after output that does not already end with one. This prevents shell artifacts (e.g., zsh's `%` indicator) and keeps terminal display clean.
+
+When stdout is piped or redirected, implementations MUST NOT modify the output bytes — the raw content MUST be preserved exactly for downstream consumers (e.g., `secrt claim <url> | pbcopy`).
+
 In `--json` mode, the JSON object is printed to stdout. Errors in `--json` mode SHOULD also be JSON on stderr when practical.
 
 ## Authenticated Mode
@@ -207,7 +213,10 @@ Behavior:
    - Default: stdin.
    - Optional: `--text` or `--file`.
    - Exactly one source MUST be selected.
-   - When reading from stdin with a TTY attached, the CLI SHOULD print a prompt to stderr (e.g., `"Enter secret (Ctrl+D to finish):"`) so the user knows input is expected.
+   - When reading from stdin with a TTY attached:
+     - Default (single-line): the CLI SHOULD use a password-style prompt with hidden input (no echo), reading until Enter. This is optimized for the common case of sharing passwords, API keys, and tokens. The prompt SHOULD indicate that input is hidden (e.g., `"Enter secret (input hidden):"`).
+     - Multi-line mode (e.g., `--multi-line` / `-m`): implementations SHOULD support reading until EOF (Ctrl+D), preserving exact bytes. This is intended for pasting multi-line content like SSH keys, certificates, or config snippets.
+   - When stdin is piped or redirected (non-TTY), the CLI MUST read all bytes until EOF regardless of flags.
    - Empty input MUST be rejected.
 2. CLI performs envelope creation per `spec/v1/envelope.md`.
 3. CLI computes `claim_hash = base64url(sha256(claim_token_bytes))`.
@@ -255,6 +264,8 @@ Behavior:
 Output:
 
 - Default mode: print plaintext to stdout only.
+  - When stdout is a TTY and the plaintext does not end with a newline (`\n`), implementations SHOULD append a trailing newline for clean terminal display (avoids shell prompt artifacts like zsh's `%` indicator).
+  - When stdout is piped or redirected, the raw decrypted bytes MUST be written exactly as-is with no modification, to preserve secret integrity for binary secrets or downstream consumers.
 - `--json` mode: SHOULD avoid embedding plaintext unless explicitly requested by implementation, to reduce accidental logging exposure.
 
 ## `burn` (optional)
