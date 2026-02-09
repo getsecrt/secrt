@@ -119,6 +119,7 @@ fn run_help(args: &[String], deps: &mut Deps) -> i32 {
         "create" => print_create_help(deps),
         "claim" => print_claim_help(deps),
         "burn" => print_burn_help(deps),
+        "config" => print_config_help(deps),
         _ => {
             let _ = writeln!(deps.stderr, "error: unknown command {:?}", args[0]);
             return 2;
@@ -284,6 +285,10 @@ fn run_config(args: &[String], deps: &mut Deps) -> i32 {
         return run_config_show(deps);
     }
     match args[0].as_str() {
+        "-h" | "--help" | "help" => {
+            print_config_help(deps);
+            0
+        }
         "init" => {
             let force = args.iter().any(|a| a == "--force");
             run_config_init(force, deps)
@@ -292,7 +297,7 @@ fn run_config(args: &[String], deps: &mut Deps) -> i32 {
         _ => {
             let _ = writeln!(
                 deps.stderr,
-                "error: unknown config subcommand {:?} (try: init, path)",
+                "error: unknown config subcommand {:?} (try: init, path, --help)",
                 args[0]
             );
             2
@@ -675,6 +680,40 @@ pub fn print_burn_help(deps: &mut Deps) {
         c(CMD, "secrt"),
         c(CMD, "burn"),
         c(OPT, "--api-key"),
+    );
+}
+
+pub fn print_config_help(deps: &mut Deps) {
+    let c = color_func((deps.is_stdout_tty)());
+    let _ = write!(
+        deps.stderr,
+        "{} {} — Show config / init / path\n\n\
+{}\n\
+  {} {}              Show effective config and file path\n\
+  {} {} {}   Create template config file\n\
+  {} {} {}           Print config file path\n\n\
+{}\n\
+  {}              Overwrite existing config file (for init)\n\
+  {}              Show help\n\n\
+{}\n\
+  Settings are loaded from ~/.config/secrt/config.toml.\n\
+  Supported keys: api_key, base_url, passphrase, show_input.\n\
+  Precedence: CLI flag > env var > config file > default.\n",
+        c(CMD, "secrt"),
+        c(CMD, "config"),
+        c(HEADING, "SUBCOMMANDS"),
+        c(CMD, "secrt"),
+        c(CMD, "config"),
+        c(CMD, "secrt"),
+        c(CMD, "config"),
+        c(CMD, "init"),
+        c(CMD, "secrt"),
+        c(CMD, "config"),
+        c(CMD, "path"),
+        c(HEADING, "OPTIONS"),
+        c(OPT, "--force"),
+        c(OPT, "-h, --help"),
+        c(HEADING, "CONFIG"),
     );
 }
 

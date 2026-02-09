@@ -98,6 +98,24 @@ fn help_unknown() {
 }
 
 #[test]
+fn help_config() {
+    let (mut deps, _stdout, stderr) = TestDepsBuilder::new().build();
+    let code = cli::run(&args(&["secrt", "help", "config"]), &mut deps);
+    assert_eq!(code, 0);
+    let err = stderr.to_string();
+    assert!(err.contains("config") && err.contains("init"));
+}
+
+#[test]
+fn config_help_flag() {
+    let (mut deps, _stdout, stderr) = TestDepsBuilder::new().build();
+    let code = cli::run(&args(&["secrt", "config", "--help"]), &mut deps);
+    assert_eq!(code, 0);
+    let err = stderr.to_string();
+    assert!(err.contains("config") && err.contains("init"));
+}
+
+#[test]
 fn unknown_command() {
     let (mut deps, _stdout, stderr) = TestDepsBuilder::new().build();
     let code = cli::run(&args(&["secrt", "bogus"]), &mut deps);
