@@ -74,9 +74,30 @@ jobs:
       - name: Build
         run: ${{ matrix.tool }} build --release --target ${{ matrix.target }}
 
-      # TODO: macOS code signing (task #4)
-      # codesign --sign "Developer ID Application: ..." --options runtime --timestamp <binary>
-      # xcrun notarytool submit ... --wait
+      # macOS code signing
+      - name: Import Apple certificate
+        if: runner.os == 'macOS' && secrets.APPLE_CERTIFICATE_P12 != ''
+        env:
+          APPLE_CERTIFICATE_P12: ${{ secrets.APPLE_CERTIFICATE_P12 }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+        run: |
+          KEYCHAIN_PATH=$RUNNER_TEMP/app-signing.keychain-db
+          security create-keychain -p "" $KEYCHAIN_PATH
+          security set-keychain-settings -lut 21600 $KEYCHAIN_PATH
+          echo "$APPLE_CERTIFICATE_P12" | base64 --decode > $RUNNER_TEMP/cert.p12
+          security import $RUNNER_TEMP/cert.p12 -P "$APPLE_CERTIFICATE_PASSWORD" -A -t cert -f pkcs12 -k $KEYCHAIN_PATH
+          security set-key-partition-list -S apple-tool:,apple: -k "" $KEYCHAIN_PATH
+          security list-keychains -d user -s $KEYCHAIN_PATH login.keychain-db
+
+      - name: Codesign macOS binary
+        if: runner.os == 'macOS' && secrets.APPLE_CERTIFICATE_P12 != ''
+        env:
+          APPLE_CERTIFICATE_P12: ${{ secrets.APPLE_CERTIFICATE_P12 }}
+        run: |
+          codesign --sign "Developer ID Application: Joseph Lien (A93Q7MKECL)" \
+            --options runtime --timestamp \
+            target/${{ matrix.target }}/release/secrt
+          codesign --verify --verbose target/${{ matrix.target }}/release/secrt
 
       # TODO: Windows code signing with SSL.com eSigner (task #5)
       # CodeSignTool sign -input_file_path=secrt.exe ...
@@ -116,9 +137,43 @@ jobs:
           chmod +x secrt-darwin-universal
           lipo -info secrt-darwin-universal
 
-      # TODO: Sign the universal binary (task #4)
-      # codesign --sign "Developer ID Application: ..." --options runtime --timestamp secrt-darwin-universal
-      # xcrun notarytool submit ... --wait
+      - name: Import Apple certificate
+        if: secrets.APPLE_CERTIFICATE_P12 != ''
+        env:
+          APPLE_CERTIFICATE_P12: ${{ secrets.APPLE_CERTIFICATE_P12 }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+        run: |
+          KEYCHAIN_PATH=$RUNNER_TEMP/app-signing.keychain-db
+          security create-keychain -p "" $KEYCHAIN_PATH
+          security set-keychain-settings -lut 21600 $KEYCHAIN_PATH
+          echo "$APPLE_CERTIFICATE_P12" | base64 --decode > $RUNNER_TEMP/cert.p12
+          security import $RUNNER_TEMP/cert.p12 -P "$APPLE_CERTIFICATE_PASSWORD" -A -t cert -f pkcs12 -k $KEYCHAIN_PATH
+          security set-key-partition-list -S apple-tool:,apple: -k "" $KEYCHAIN_PATH
+          security list-keychains -d user -s $KEYCHAIN_PATH login.keychain-db
+
+      - name: Codesign universal binary
+        if: secrets.APPLE_CERTIFICATE_P12 != ''
+        env:
+          APPLE_CERTIFICATE_P12: ${{ secrets.APPLE_CERTIFICATE_P12 }}
+        run: |
+          codesign --sign "Developer ID Application: Joseph Lien (A93Q7MKECL)" \
+            --options runtime --timestamp \
+            secrt-darwin-universal
+          codesign --verify --verbose secrt-darwin-universal
+
+      - name: Notarize macOS binaries
+        if: secrets.APPLE_ID != ''
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
+        run: |
+          zip secrt-notarize.zip secrt-darwin-arm64 secrt-darwin-amd64 secrt-darwin-universal
+          xcrun notarytool submit secrt-notarize.zip \
+            --apple-id "$APPLE_ID" \
+            --team-id "$APPLE_TEAM_ID" \
+            --password "$APPLE_APP_PASSWORD" \
+            --wait
 
       - name: Upload universal binary
         uses: actions/upload-artifact@v4
