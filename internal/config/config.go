@@ -45,8 +45,8 @@ func Load() (Config, error) {
 
 		DatabaseURL:   strings.TrimSpace(os.Getenv("DATABASE_URL")),
 		DBHost:        getenvDefault("DB_HOST", "127.0.0.1"),
-		DBName:        getenvDefault("DB_NAME", "secret"),
-		DBUser:        getenvDefault("DB_USER", "secret_app"),
+		DBName:        getenvDefault("DB_NAME", "secrt"),
+		DBUser:        getenvDefault("DB_USER", "secrt_app"),
 		DBPassword:    os.Getenv("DB_PASSWORD"),
 		DBSSLMode:     getenvDefault("DB_SSLMODE", "disable"),
 		DBSSLRootCert: strings.TrimSpace(os.Getenv("DB_SSLROOTCERT")),

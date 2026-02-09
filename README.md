@@ -28,12 +28,12 @@ Create a database and least-privilege user (adjust usernames as desired):
 
 ```bash
 sudo -u postgres psql -v ON_ERROR_STOP=1 <<'SQL'
-CREATE ROLE secret_app LOGIN PASSWORD 'REPLACE_ME_WITH_PASSWORD';
-CREATE DATABASE secret OWNER secret_app;
-\connect secret
+CREATE ROLE secrt_app LOGIN PASSWORD 'REPLACE_ME_WITH_PASSWORD';
+CREATE DATABASE secrt OWNER secrt_app;
+\connect secrt
 REVOKE ALL ON SCHEMA public FROM PUBLIC;
-CREATE SCHEMA IF NOT EXISTS secret AUTHORIZATION secret_app;
-ALTER ROLE secret_app SET search_path = secret,public;
+CREATE SCHEMA IF NOT EXISTS secrt AUTHORIZATION secrt_app;
+ALTER ROLE secrt_app SET search_path = secrt,public;
 SQL
 ```
 

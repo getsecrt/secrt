@@ -64,10 +64,10 @@ func TestLoad_Defaults(t *testing.T) {
 	if cfg.DBPort != 5432 {
 		t.Fatalf("DBPort: got %d", cfg.DBPort)
 	}
-	if cfg.DBName != "secret" {
+	if cfg.DBName != "secrt" {
 		t.Fatalf("DBName: got %q", cfg.DBName)
 	}
-	if cfg.DBUser != "secret_app" {
+	if cfg.DBUser != "secrt_app" {
 		t.Fatalf("DBUser: got %q", cfg.DBUser)
 	}
 	if cfg.DBPassword != "" {
@@ -253,8 +253,8 @@ func TestConfig_PostgresURL(t *testing.T) {
 		cfg := Config{
 			DBHost:        "127.0.0.1",
 			DBPort:        5432,
-			DBName:        "secret",
-			DBUser:        "secret_app",
+			DBName:        "secrt",
+			DBUser:        "secrt_app",
 			DBPassword:    "p@ss",
 			DBSSLMode:     "disable",
 			DBSSLRootCert: "/tmp/root.crt",
@@ -274,13 +274,13 @@ func TestConfig_PostgresURL(t *testing.T) {
 		if u.Host != "127.0.0.1:5432" {
 			t.Fatalf("host: got %q", u.Host)
 		}
-		if u.Path != "/secret" {
+		if u.Path != "/secrt" {
 			t.Fatalf("path: got %q", u.Path)
 		}
 		if u.User == nil {
 			t.Fatalf("expected userinfo")
 		}
-		if user := u.User.Username(); user != "secret_app" {
+		if user := u.User.Username(); user != "secrt_app" {
 			t.Fatalf("user: got %q", user)
 		}
 		if pw, ok := u.User.Password(); !ok || pw != "p@ss" {

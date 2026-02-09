@@ -53,7 +53,7 @@ ENV=production
 LISTEN_ADDR=127.0.0.1:8080
 PUBLIC_BASE_URL=https://secrt.ca
 LOG_LEVEL=info
-DATABASE_URL=postgres://secret_app:STRONG_PASSWORD@127.0.0.1:5432/secret?sslmode=disable
+DATABASE_URL=postgres://secrt_app:STRONG_PASSWORD@127.0.0.1:5432/secrt?sslmode=disable
 API_KEY_PEPPER=generated-random-pepper-value
 ```
 
