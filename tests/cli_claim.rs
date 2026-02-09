@@ -495,3 +495,130 @@ fn claim_passphrase_prompt_flag_allows_retry() {
     assert_eq!(code, 0, "stderr: {}", stderr.to_string());
     assert_eq!(stdout.to_string(), "prompt flag retry");
 }
+
+#[test]
+fn claim_passphrase_auto_prompt_empty_input() {
+    let plaintext = b"empty input test";
+    let (share_link, seal_result) = seal_test_secret(plaintext, "mypass");
+    let mock_resp = ClaimResponse {
+        envelope: seal_result.envelope,
+        expires_at: "2026-02-09T00:00:00Z".into(),
+    };
+    let (mut deps, _stdout, stderr) = TestDepsBuilder::new()
+        .is_tty(true)
+        .mock_claim(Ok(mock_resp))
+        .read_pass(&[""])
+        .build();
+    let code = cli::run(&args(&["secrt", "claim", &share_link]), &mut deps);
+    assert_eq!(code, 1);
+    assert!(
+        stderr.to_string().contains("must not be empty"),
+        "stderr: {}",
+        stderr.to_string()
+    );
+}
+
+#[test]
+fn claim_passphrase_auto_prompt_read_error() {
+    let plaintext = b"read error test";
+    let (share_link, seal_result) = seal_test_secret(plaintext, "mypass");
+    let mock_resp = ClaimResponse {
+        envelope: seal_result.envelope,
+        expires_at: "2026-02-09T00:00:00Z".into(),
+    };
+    let (mut deps, _stdout, stderr) = TestDepsBuilder::new()
+        .is_tty(true)
+        .mock_claim(Ok(mock_resp))
+        .read_pass_error("terminal lost")
+        .build();
+    let code = cli::run(&args(&["secrt", "claim", &share_link]), &mut deps);
+    assert_eq!(code, 1);
+    assert!(
+        stderr.to_string().contains("read passphrase"),
+        "stderr: {}",
+        stderr.to_string()
+    );
+}
+
+#[test]
+fn claim_passphrase_retry_empty_input() {
+    let plaintext = b"retry empty test";
+    let (share_link, seal_result) = seal_test_secret(plaintext, "correct");
+    let mock_resp = ClaimResponse {
+        envelope: seal_result.envelope,
+        expires_at: "2026-02-09T00:00:00Z".into(),
+    };
+    // First attempt wrong, retry gives empty string
+    let (mut deps, _stdout, stderr) = TestDepsBuilder::new()
+        .is_tty(true)
+        .mock_claim(Ok(mock_resp))
+        .read_pass(&["wrong", ""])
+        .build();
+    let code = cli::run(&args(&["secrt", "claim", &share_link]), &mut deps);
+    assert_eq!(code, 1);
+    let err = stderr.to_string();
+    assert!(err.contains("Wrong passphrase"), "stderr: {}", err);
+    assert!(err.contains("must not be empty"), "stderr: {}", err);
+}
+
+#[test]
+fn claim_passphrase_conflicting_flags() {
+    let plaintext = b"conflict test";
+    let (share_link, seal_result) = seal_test_secret(plaintext, "mypass");
+    let mock_resp = ClaimResponse {
+        envelope: seal_result.envelope,
+        expires_at: "2026-02-09T00:00:00Z".into(),
+    };
+    let (mut deps, _stdout, stderr) = TestDepsBuilder::new()
+        .mock_claim(Ok(mock_resp))
+        .env("MY_PASS", "mypass")
+        .read_pass(&["mypass"])
+        .build();
+    let code = cli::run(
+        &args(&[
+            "secrt",
+            "claim",
+            &share_link,
+            "-p",
+            "--passphrase-env",
+            "MY_PASS",
+        ]),
+        &mut deps,
+    );
+    assert_eq!(code, 1);
+    assert!(
+        stderr.to_string().contains("at most one"),
+        "stderr: {}",
+        stderr.to_string()
+    );
+}
+
+#[test]
+fn claim_passphrase_json_non_tty_error() {
+    let plaintext = b"json non-tty";
+    let (share_link, seal_result) = seal_test_secret(plaintext, "mypass");
+    let mock_resp = ClaimResponse {
+        envelope: seal_result.envelope,
+        expires_at: "2026-02-09T00:00:00Z".into(),
+    };
+    let (mut deps, _stdout, stderr) = TestDepsBuilder::new()
+        .is_tty(false)
+        .mock_claim(Ok(mock_resp))
+        .build();
+    let code = cli::run(
+        &args(&["secrt", "claim", &share_link, "--json"]),
+        &mut deps,
+    );
+    assert_eq!(code, 1);
+    let err = stderr.to_string();
+    assert!(
+        err.contains("\"error\""),
+        "should be JSON error: {}",
+        err
+    );
+    assert!(
+        err.contains("passphrase-protected"),
+        "should mention passphrase: {}",
+        err
+    );
+}

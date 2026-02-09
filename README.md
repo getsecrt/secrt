@@ -39,13 +39,19 @@ secrt completion fish | source
 ## Quick start
 
 ```sh
-# Share a secret (reads from stdin)
+# Share a secret (interactive, hidden input)
+secrt create
+
+# Share with visible input and a TTL
+secrt create --show --ttl 5m
+
+# Pipe in a secret
 echo "s3cret-password" | secrt create
 
-# Share with a TTL and passphrase
-echo "s3cret-password" | secrt create --ttl 5m --passphrase-prompt
+# Share with passphrase protection
+echo "s3cret-password" | secrt create -p --ttl 5m
 
-# Claim a secret
+# Claim a secret (auto-prompts for passphrase if needed)
 secrt claim https://secrt.ca/s/abc123#v1.key...
 
 # Burn a secret (requires API key)
@@ -60,21 +66,35 @@ secrt burn abc123 --api-key sk_prefix.secret
 secrt create [options]
 ```
 
-Reads the secret from **stdin** by default. Use `--text` or `--file` for alternatives (exactly one input source).
+Reads the secret interactively on a TTY, or from **stdin** when piped. Use `--text` or `--file` for alternatives (exactly one input source).
 
 | Option | Description |
 |---|---|
 | `--ttl <ttl>` | Time-to-live (e.g. `30s`, `5m`, `2h`, `1d`, `1w`) |
 | `--text <value>` | Secret text inline (visible in shell history) |
 | `--file <path>` | Read secret from a file |
-| `--passphrase-prompt` | Interactively prompt for a passphrase |
+| `-m`, `--multi-line` | Multi-line input (read until Ctrl+D) |
+| `--trim` | Trim leading/trailing whitespace from input |
+| `-s`, `--show` | Show input as you type (default: hidden) |
+| `--hidden` | Hide input (default; overrides `--show`) |
+| `-p`, `--passphrase-prompt` | Interactively prompt for a passphrase |
 | `--passphrase-env <name>` | Read passphrase from an environment variable |
 | `--passphrase-file <path>` | Read passphrase from a file |
 | `--json` | Output as JSON |
+| `--silent` | Suppress status output |
 
 **Examples:**
 
 ```sh
+# Interactive single-line (hidden input, like a password)
+secrt create
+
+# Interactive with visible input
+secrt create --show
+
+# Multi-line input (Ctrl+D to finish)
+secrt create -m
+
 # Pipe in a secret
 echo "database-password" | secrt create
 
@@ -82,7 +102,7 @@ echo "database-password" | secrt create
 secrt create --file ./credentials.txt --ttl 1h
 
 # With passphrase protection
-cat key.pem | secrt create --passphrase-prompt --ttl 30m
+cat key.pem | secrt create -p --ttl 30m
 
 # JSON output for scripting
 echo "token" | secrt create --json --ttl 5m
@@ -94,21 +114,27 @@ echo "token" | secrt create --json --ttl 5m
 secrt claim <share-url> [options]
 ```
 
+If the secret is passphrase-protected and a TTY is attached, `claim` automatically prompts for the passphrase with unlimited retries. For non-interactive use, provide the passphrase via `--passphrase-env` or `--passphrase-file`.
+
 | Option | Description |
 |---|---|
-| `--passphrase-prompt` | Prompt for the passphrase |
+| `-p`, `--passphrase-prompt` | Prompt for the passphrase |
 | `--passphrase-env <name>` | Read passphrase from an environment variable |
 | `--passphrase-file <path>` | Read passphrase from a file |
 | `--json` | Output as JSON |
+| `--silent` | Suppress status output |
 
 **Examples:**
 
 ```sh
-# Claim a secret
+# Claim a secret (auto-prompts for passphrase if needed)
 secrt claim https://secrt.ca/s/abc123#v1.key...
 
-# Claim a passphrase-protected secret
-secrt claim https://secrt.ca/s/abc123#v1.key... --passphrase-prompt
+# Explicitly prompt for passphrase
+secrt claim https://secrt.ca/s/abc123#v1.key... -p
+
+# Passphrase from env (non-interactive)
+secrt claim https://secrt.ca/s/abc123#v1.key... --passphrase-env MY_PASS
 
 # Pipe to a file
 secrt claim https://secrt.ca/s/abc123#v1.key... > secret.txt
@@ -124,6 +150,7 @@ secrt burn <id-or-url> [options]
 |---|---|
 | `--api-key <key>` | API key (required) |
 | `--json` | Output as JSON |
+| `--silent` | Suppress status output |
 
 **Examples:**
 
@@ -142,6 +169,7 @@ secrt burn https://secrt.ca/s/abc123#v1.key... --api-key sk_prefix.secret
 | `--base-url <url>` | Server URL (default: `https://secrt.ca`) |
 | `--api-key <key>` | API key for authenticated access |
 | `--json` | Output as JSON |
+| `--silent` | Suppress status output |
 | `-h`, `--help` | Show help |
 | `-v`, `--version` | Show version |
 
@@ -169,6 +197,25 @@ base_url = "https://my-secrt-server.example.com"
 
 # Default passphrase for encryption
 passphrase = "my-default-passphrase"
+
+# Show secret input as typed (default: false)
+show_input = true
+```
+
+### Config subcommands
+
+```sh
+# Show effective settings (config file + env + keychain)
+secrt config
+
+# Create a template config file
+secrt config init
+
+# Overwrite an existing config file
+secrt config init --force
+
+# Print the config file path
+secrt config path
 ```
 
 **Important:** The config file may contain secrets. Set restrictive permissions:

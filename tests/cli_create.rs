@@ -625,3 +625,69 @@ fn create_show_empty_input_errors() {
         stderr.to_string()
     );
 }
+
+#[test]
+fn create_passphrase_conflicting_flags() {
+    let (mut deps, _stdout, stderr) = TestDepsBuilder::new()
+        .stdin(b"my secret")
+        .env("MY_PASS", "pass123")
+        .read_pass(&["pass123", "pass123"])
+        .mock_create(Ok(mock_create_response()))
+        .build();
+    let code = cli::run(
+        &args(&[
+            "secrt",
+            "create",
+            "-p",
+            "--passphrase-env",
+            "MY_PASS",
+        ]),
+        &mut deps,
+    );
+    assert_eq!(code, 2);
+    assert!(
+        stderr.to_string().contains("at most one"),
+        "stderr: {}",
+        stderr.to_string()
+    );
+}
+
+#[test]
+fn create_api_error_tty_silent() {
+    let (mut deps, _stdout, stderr) = TestDepsBuilder::new()
+        .read_pass(&["my secret"])
+        .is_tty(true)
+        .mock_create(Err("server error (500): internal error".into()))
+        .build();
+    let code = cli::run(&args(&["secrt", "create", "--silent"]), &mut deps);
+    assert_eq!(code, 1);
+    let err = stderr.to_string();
+    assert!(
+        err.contains("internal error"),
+        "should show error even when silent: {}",
+        err
+    );
+    assert!(
+        !err.contains("Encrypting"),
+        "silent should suppress status: {}",
+        err
+    );
+}
+
+#[test]
+fn create_success_tty_stdout_shows_link() {
+    let (mut deps, stdout, stderr) = TestDepsBuilder::new()
+        .read_pass(&["my secret"])
+        .is_tty(true)
+        .is_stdout_tty(true)
+        .mock_create(Ok(mock_create_response()))
+        .build();
+    let code = cli::run(&args(&["secrt", "create"]), &mut deps);
+    assert_eq!(code, 0, "stderr: {}", stderr.to_string());
+    let out = stdout.to_string();
+    assert!(
+        out.contains("#v1."),
+        "should show share link: {}",
+        out
+    );
+}

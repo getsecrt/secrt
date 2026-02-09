@@ -2,27 +2,18 @@
 
 ## Current State
 
-**165 tests passing, 6 E2E tests ignored (gated by env var)**
+**251 tests passing, 6 E2E tests ignored (gated by env var)**
 
-| File | Lines | Missed | Coverage |
-|------|------:|-------:|---------:|
-| `burn.rs` | 57 | 2 | 96.5% |
-| `claim.rs` | 73 | 12 | 83.6% |
-| `cli.rs` | 492 | 15 | 97.0% |
-| `client.rs` | 98 | 45 | 54.1% |
-| `color.rs` | 15 | 0 | 100% |
-| `config.rs` | 120 | 13 | 89.2% |
-| `create.rs` | 100 | 11 | 89.0% |
-| `envelope/crypto.rs` | 660 | 18 | 97.3% |
-| `envelope/ttl.rs` | 53 | 3 | 94.3% |
-| `envelope/types.rs` | 10 | 0 | 100% |
-| `envelope/url.rs` | 127 | 1 | 99.2% |
-| `keychain.rs` | 3 | 0 | 100% |
-| `main.rs` | 41 | 41 | 0% |
-| `passphrase.rs` | 281 | 14 | 95.0% |
-| **TOTAL** | **2130** | **175** | **91.8%** |
-
-Excluding `main.rs` and `client.rs` (untestable I/O wiring and HTTP): **95.5%**.
+| Suite | Tests | Description |
+|-------|------:|-------------|
+| Unit (secrt) | 134 | Flag parsing, globals, crypto, URL, TTL, config, passphrase |
+| cli_burn | 15 | Burn command integration tests |
+| cli_claim | 28 | Claim command integration tests |
+| cli_create | 41 | Create command integration tests |
+| cli_dispatch | 25 | Top-level dispatch, help, version, completion |
+| envelope_vectors | 6 | Spec crypto test vectors |
+| ttl_vectors | 2 | Spec TTL test vectors (17 valid + 17 invalid) |
+| E2E (ignored) | 6 | Full roundtrip against live server |
 
 ## Architecture: Mock API Testing
 
@@ -40,60 +31,58 @@ pub trait SecretApi {
 
 ## What's Covered
 
-- **Crypto**: All `seal()`/`open()` paths, RNG failure injection at each call site, every `validate_envelope()` check, every `parse_kdf()` branch, claim token derivation, base64 error handling, Display impl for all error variants.
+- **Crypto**: All `seal()`/`open()` paths, `requires_passphrase()`, RNG failure injection at each call site, every `validate_envelope()` check, every `parse_kdf()` branch, claim token derivation, base64 error handling, Display impl for all error variants.
 - **URL parsing**: Full URL, bare ID, port, missing fragment, wrong version, bad base64, wrong key length, empty ID, no-path URL, format/parse roundtrip.
 - **TTL parsing**: All valid/invalid vectors from the spec (34 vectors), single-char invalid input.
-- **CLI parsing**: Every flag (value + missing-value), positional args, `--help`/`-h`, unknown flags, mixed args. `resolve_globals()` with env vars, config file, flag overrides, and defaults.
-- **Config**: TOML loading, partial configs, invalid TOML warnings, permission-based secret filtering, missing file fallback.
+- **CLI parsing**: Every flag (value + missing-value), positional args, `--help`/`-h`, unknown flags, mixed args, `-p`/`-s`/`-m` short forms. `resolve_globals()` with env vars, config file, flag overrides, and defaults.
+- **Config**: TOML loading, partial configs, invalid TOML warnings, permission-based secret filtering, missing file fallback, `show_input` option.
 - **Passphrase**: All three sources (env/file/prompt), config default fallback, mutual exclusivity (in both `resolve_passphrase` and `resolve_passphrase_for_create`), empty values, file trimming, create confirmation match/mismatch, `write_error()` in JSON and plain modes.
-- **CLI dispatch**: All commands, version/help flags, completion scripts (bash/zsh/fish), unknown command/shell errors.
-- **Command handlers (create)**: Unknown flags, input validation (empty stdin/file, multiple sources, invalid TTL), passphrase via env, success path (plain + JSON + TTL), API error handling.
-- **Command handlers (claim)**: Unknown flags, missing URL, invalid URL, base-URL override, success path (plain + JSON + passphrase), decryption error, API error handling.
-- **Command handlers (burn)**: Unknown flags, missing ID, missing API key, bare ID, share URL, malformed URL, success path (plain + JSON + via share URL), API error handling.
+- **CLI dispatch**: All commands, version/help flags, completion scripts (bash/zsh/fish), unknown command/shell errors, config subcommands.
+- **Command handlers (create)**: Unknown flags, input validation (empty stdin/file, multiple sources, invalid TTL), passphrase via env, conflicting passphrase flags, success paths (plain + JSON + TTL + TTY stdout), API error handling (TTY + silent), `--show`/`--hidden`/`--silent`/`--trim` modes.
+- **Command handlers (claim)**: Unknown flags, missing URL, invalid URL, base-URL override, success paths (plain + JSON + passphrase), decryption error, API error handling, auto-prompt on TTY (success + empty input + read error), non-TTY passphrase error, passphrase retry (single + many attempts), no retry with env/file flags, retry with explicit `-p` flag, conflicting flags, JSON non-TTY error, `--silent` hides notice.
+- **Command handlers (burn)**: Unknown flags, missing ID, missing API key, bare ID, share URL, malformed URL, success paths (plain + JSON + via share URL + TTY checkmark), API error handling, env API key, `--silent` suppresses message.
 
-## What's Not Covered (175 lines)
+## What's Not Covered
 
-### 1. `main.rs` -- 41 lines, 0%
+### 1. `main.rs` — 37 lines, 0%
 
 Pure I/O wiring: `io::stdin()`, `io::stdout()`, `SystemRandom`, `rpassword`, config loading. Tests use `cli::run()` with injected deps instead. Not coverable with unit/integration tests.
 
-### 2. `client.rs` -- 45 lines, 54%
+### 2. `client.rs` — ~45 lines uncovered, ~86%
 
 All HTTP methods (`create`, `claim`, `burn`), response parsing, and error handling. The mock API trait bypasses this code entirely. Only coverable via E2E tests against a real server.
 
-### 3. `config.rs` -- 13 lines, 89%
-
-The top-level `load_config()` function (config path resolution, permission checking, file loading orchestration). The internal functions (`load_config_from_path`, `load_config_filtered`) are fully tested. `load_config()` itself is only called from `main.rs`.
-
-### 4. `claim.rs` -- 12 lines, 84%
+### 3. `claim.rs` — ~10 lines uncovered
 
 | Lines | What | Why |
 |-------|------|-----|
-| L50, L53, L56 | Base URL derivation edge cases | L53 unreachable (redundant `if let` after `contains`). L50/L56 require URLs without paths, which fail at `parse_share_url` first. |
-| L65-72 | `derive_claim_token` error | Only triggers with invalid url_key length, but `parse_share_url` already validates this. Dead code. |
-| L89-92 | Passphrase resolution error during claim | Requires a passphrase flag that errors, but the mock API must succeed first. |
+| Base URL derivation | Edge cases in URL parsing fallback | Some branches unreachable after `parse_share_url` validates |
+| `derive_claim_token` error | Only triggers with invalid url_key length | `parse_share_url` already validates key length |
 
-### 5. `create.rs` -- 11 lines, 89%
+### 4. `create.rs` — ~8 lines uncovered
 
 | Lines | What | Why |
 |-------|------|-----|
-| L48-51 | Passphrase resolution error during create | Requires passphrase to fail after plaintext/TTL succeed. |
-| L65-72 | Seal envelope error | Ring won't fail with valid inputs. |
-| L126, L141 | `fs::read` and `stdin.read_to_end` error map closures | Require I/O errors that can't be injected through `Deps`. |
+| Seal envelope error | Ring won't fail with valid inputs | Defensive code |
+| `fs::read` / `stdin.read_to_end` error closures | I/O errors can't be injected through `Deps` | Would need OS-level fault injection |
 
-### 6. `envelope/crypto.rs` -- 18 lines, 97%
+### 5. `envelope/crypto.rs` — ~18 lines uncovered
 
 All inside ring library error branches (`UnboundKey::new`, `Nonce::try_assume_unique_for_key`, HKDF expand/fill). Ring won't fail on valid-length inputs. Defensive code.
 
-### 7. `passphrase.rs` -- 14 lines, 95%
+### 6. `config.rs` — ~13 lines uncovered
 
-Uncovered lines are inside test helper closures (`make_deps`), not production code. One line (L77) is the `passphrase_default` counting in `resolve_passphrase_for_create` which delegates to `resolve_passphrase` before reaching that check.
+The top-level `load_config()` function (config path resolution, permission checking, file loading orchestration). The internal functions (`load_config_from_path`, `load_config_filtered`) are fully tested. `load_config()` itself is only called from `main.rs`.
 
-### 8. `cli.rs` -- 15 lines, 97%
+### 7. `passphrase.rs` — ~10 lines uncovered
+
+Uncovered lines are inside test helper closures (`make_deps`), not production code.
+
+### 8. `cli.rs` — ~15 lines uncovered
 
 Test helper closures and config-related globals wiring in test helpers. Not production code.
 
-### 9. `envelope/ttl.rs` -- 3 lines, 94%
+### 9. `envelope/ttl.rs` — 3 lines uncovered
 
 L35 and L61 are genuinely unreachable (empty check at L11 prevents L35; L61 is `unreachable!()` after exhaustive match).
 
@@ -101,15 +90,15 @@ L35 and L61 are genuinely unreachable (empty check at L11 prevents L35; L61 is `
 
 | Category | Lines | Notes |
 |----------|------:|-------|
-| `main.rs` I/O wiring | 41 | Not testable |
-| `client.rs` HTTP | 45 | Only via E2E |
-| `crypto.rs` ring errors | 18 | Can't trigger with valid inputs |
-| `config.rs` `load_config()` | 13 | Only called from `main.rs` |
+| `main.rs` I/O wiring | 37 | Not testable |
+| `client.rs` HTTP | ~45 | Only via E2E |
+| `crypto.rs` ring errors | ~18 | Can't trigger with valid inputs |
+| `config.rs` `load_config()` | ~13 | Only called from `main.rs` |
 | `ttl.rs` unreachable | 2 | Dead code |
 | Test helper closures | ~10 | Not production code |
-| **Total uncoverable** | **~129** | |
+| **Total uncoverable** | **~125** | |
 
-Maximum achievable without E2E: **~93.9%** (2130 - 129 = 2001 coverable, 2130 - 175 = 1955 covered, 1955/2001 = 97.7% of coverable code).
+Maximum achievable without E2E: approximately 97% of coverable production code.
 
 ## E2E Tests
 
@@ -123,4 +112,4 @@ SECRET_E2E_BASE_URL=https://secrt.ca cargo test e2e -- --ignored
 SECRET_E2E_BASE_URL=https://secrt.ca SECRET_E2E_API_KEY=sk_... cargo test e2e -- --ignored
 ```
 
-When run, these cover `client.rs` HTTP paths (~45 lines), pushing total coverage towards ~94%.
+When run, these cover `client.rs` HTTP paths (~45 lines), pushing total coverage towards ~98%.
