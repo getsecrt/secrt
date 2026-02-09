@@ -43,6 +43,9 @@ Built-in commands:
 - `secrt --help` or `secrt help`: print top-level usage and exit.
 - `secrt <command> --help` or `secrt help <command>`: print command-specific usage and exit.
 - `secrt completion <shell>`: emit shell completion script (see Shell Completions below).
+- `secrt config`: show effective settings (resolved from all sources).
+- `secrt config init [--force]`: create a template config file.
+- `secrt config path`: print the config file path.
 
 Operational/admin API-key management commands are implementation-specific and out of scope for this client-interoperability spec.
 
@@ -53,6 +56,7 @@ All commands SHOULD support:
 - `--base-url <url>`: base service URL (default: `https://secrt.ca`).
 - `--api-key <key>`: API key when using authenticated API endpoints.
 - `--json`: machine-readable output mode.
+- `--silent`: suppress non-essential stderr output (prompts, status, labels). Errors are never suppressed.
 - `--help`, `-h`: print usage for current command and exit.
 - `--version`, `-v`: print version string and exit (top-level only).
 
@@ -84,6 +88,7 @@ Supported keys:
 | `api_key` | string | API key for authenticated endpoints |
 | `base_url` | string | Base service URL |
 | `passphrase` | string | Default passphrase for encryption/decryption |
+| `show_input` | bool | Show secret input as typed (default: false) |
 
 Example:
 
@@ -202,9 +207,11 @@ Creates a one-time secret by encrypting locally, then uploading ciphertext envel
 Usage:
 
 ```bash
-secrt create [--ttl <ttl>] [--api-key <key>] [--base-url <url>] [--json]
+secrt create [--ttl <ttl>] [--api-key <key>] [--base-url <url>] [--json] [--silent]
                          [--text <value> | --file <path>]
-                         [--passphrase-prompt | --passphrase-env <name> | --passphrase-file <path>]
+                         [-m | --multi-line] [--trim]
+                         [-s | --show | --hidden]
+                         [-p | --passphrase-prompt | --passphrase-env <name> | --passphrase-file <path>]
 ```
 
 Behavior:
@@ -216,6 +223,7 @@ Behavior:
    - When reading from stdin with a TTY attached:
      - Default (single-line): the CLI SHOULD use a password-style prompt with hidden input (no echo), reading until Enter. This is optimized for the common case of sharing passwords, API keys, and tokens. The prompt SHOULD indicate that input is hidden (e.g., `"Enter secret (input hidden):"`).
      - Multi-line mode (e.g., `--multi-line` / `-m`): implementations SHOULD support reading until EOF (Ctrl+D), preserving exact bytes. This is intended for pasting multi-line content like SSH keys, certificates, or config snippets.
+   - `--trim` trims leading/trailing whitespace from input. Input that is empty after trimming MUST be rejected.
    - When stdin is piped or redirected (non-TTY), the CLI MUST read all bytes until EOF regardless of flags.
    - Empty input MUST be rejected.
 2. CLI performs envelope creation per `spec/v1/envelope.md`.
@@ -237,10 +245,10 @@ Input security note:
 
 Passphrase handling:
 
-- Implementations SHOULD support `--passphrase-prompt`.
+- Implementations SHOULD support `-p`/`--passphrase-prompt`.
 - Implementations MAY support `--passphrase-env` and `--passphrase-file`.
 - Implementations SHOULD NOT support passphrase values directly in command arguments (high leakage risk via shell history/process list).
-- When using `--passphrase-prompt` during `create`, implementations SHOULD prompt for confirmation (enter passphrase twice) to prevent typos that would make the secret unrecoverable.
+- When using `-p`/`--passphrase-prompt` during `create`, implementations SHOULD prompt for confirmation (enter passphrase twice) to prevent typos that would make the secret unrecoverable.
 
 ## `claim`
 
@@ -249,8 +257,8 @@ Claims and decrypts a secret once.
 Usage:
 
 ```bash
-secrt claim <share-url> [--base-url <url>] [--json]
-                        [--passphrase-prompt | --passphrase-env <name> | --passphrase-file <path>]
+secrt claim <share-url> [--base-url <url>] [--json] [--silent]
+                        [-p | --passphrase-prompt | --passphrase-env <name> | --passphrase-file <path>]
 ```
 
 Behavior:
@@ -260,6 +268,15 @@ Behavior:
 3. Send `POST /api/v1/secrets/{id}/claim` with `{ "claim": base64url(claim_token_bytes) }`.
 4. On `200`, decrypt locally and print plaintext.
 5. On `404`, return a generic failure message (not found / expired / already claimed / invalid claim) and non-zero exit.
+
+Passphrase auto-detection:
+
+After claiming the envelope from the server, implementations SHOULD inspect the `kdf.name` field to determine if the secret is passphrase-protected (i.e., `kdf.name` is not `"none"`).
+
+- If the secret requires a passphrase and a TTY is attached, the CLI SHOULD automatically prompt for the passphrase (without requiring `-p`). A notice (e.g., `⚷ This secret is passphrase-protected`) SHOULD be displayed before the prompt.
+- If the secret requires a passphrase and no TTY is attached, the CLI MUST exit with an error message directing the user to `--passphrase-env` or `--passphrase-file`.
+- Since the envelope is already claimed and held in memory, wrong passphrase retries do not require additional server round-trips. Implementations SHOULD allow unlimited retries when the passphrase was entered interactively.
+- `--silent` suppresses the notice but not the passphrase prompt itself.
 
 Output:
 
@@ -276,7 +293,7 @@ Deletes a secret without claiming it.
 Usage:
 
 ```bash
-secrt burn <id-or-share-url> --api-key <key> [--base-url <url>] [--json]
+secrt burn <id-or-share-url> --api-key <key> [--base-url <url>] [--json] [--silent]
 ```
 
 Behavior:
@@ -324,6 +341,41 @@ Implementation note: given the small command surface, completion scripts SHOULD 
 - Default request timeout: 30 seconds. Implementations MAY allow override via `--timeout` in a future version.
 - The CLI SHOULD respect standard proxy environment variables (`HTTP_PROXY`, `HTTPS_PROXY`, `NO_PROXY`) via the runtime's default HTTP transport.
 - TLS certificate verification MUST NOT be skippable. No `--insecure` flag — this is a security-sensitive tool.
+
+## Input Visibility
+
+When reading interactive single-line input on a TTY, implementations SHOULD default to hidden input (no-echo, like a password prompt).
+
+- `-s`, `--show`: show input as typed.
+- `--hidden`: force hidden input (default). Overrides `--show` if both are provided.
+- Config key `show_input = true` changes the default to visible input. `--hidden` still overrides.
+
+## Status Indicators
+
+On TTY, implementations SHOULD display a status indicator during upload:
+
+- **In-progress:** yellow circle (`○`) with message (e.g., `○ Encrypting and uploading...`)
+- **Success:** green checkmark (`✓`) with message (e.g., `✓ Encrypted and uploaded!`)
+
+The success line SHOULD overwrite the in-progress line using carriage return (`\r`).
+
+`--silent` suppresses all status indicators. Errors are never suppressed.
+
+## Color & Styling
+
+Implementations SHOULD use semantic color tokens for TTY output. All color MUST be suppressed when output is not a TTY.
+
+| Token | ANSI SGR | Usage |
+|---|---|---|
+| CMD | 36 (cyan) | Command names |
+| OPT | 33 (yellow) | Flags/options |
+| ARG | 2 (dim) | Argument placeholders |
+| HEADING | 1 (bold) | Section headings |
+| SUCCESS | 32 (green) | Success indicators |
+| ERROR | 31 (red) | Error prefix |
+| URL | 1;36 (bold cyan) | Share URLs |
+| DIM | 2 (dim) | Prompts, status, secondary text |
+| WARN | 33 (yellow) | Warnings, in-progress indicators |
 
 ## Interoperability Requirements
 
