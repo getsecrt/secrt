@@ -47,6 +47,39 @@ paths:
               schema:
                 $ref: "#/components/schemas/HealthResponse"
 
+  /api/v1/info:
+    get:
+      operationId: getServerInfo
+      summary: Server info and limits
+      description: |
+        Returns server defaults and per-tier limits. Authentication is optional;
+        if a valid API key is provided, `authenticated` is `true`. Invalid keys
+        are not an error — `authenticated` will be `false`.
+
+        Both tiers are always returned regardless of authentication status.
+        Rate-limited via the claim limiter (1 rps, burst 10).
+      tags: [info]
+      security:
+        - {}
+        - apiKey: []
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Server info and limits
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                example: "public, max-age=300"
+            X-Request-Id:
+              $ref: "#/components/headers/X-Request-Id"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/InfoResponse"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+
   /api/v1/public/secrets:
     post:
       operationId: createPublicSecret
@@ -318,6 +351,57 @@ components:
           format: date-time
           description: Server time (RFC 3339 with nanoseconds, UTC)
 
+    InfoResponse:
+      type: object
+      properties:
+        authenticated:
+          type: boolean
+          description: Whether a valid API key was provided
+        ttl:
+          type: object
+          properties:
+            default_seconds:
+              type: integer
+              format: int64
+              description: Default TTL when ttl_seconds is omitted (86400 = 24h)
+            max_seconds:
+              type: integer
+              format: int64
+              description: Maximum allowed TTL (31536000 = 1 year)
+        limits:
+          type: object
+          properties:
+            public:
+              $ref: "#/components/schemas/InfoTier"
+            authed:
+              $ref: "#/components/schemas/InfoTier"
+        claim_rate:
+          $ref: "#/components/schemas/InfoRate"
+
+    InfoTier:
+      type: object
+      properties:
+        max_envelope_bytes:
+          type: integer
+          format: int64
+        max_secrets:
+          type: integer
+          format: int64
+        max_total_bytes:
+          type: integer
+          format: int64
+        rate:
+          $ref: "#/components/schemas/InfoRate"
+
+    InfoRate:
+      type: object
+      properties:
+        requests_per_second:
+          type: number
+          format: double
+        burst:
+          type: integer
+
     ErrorResponse:
       type: object
       properties:
@@ -420,5 +504,7 @@ components:
 tags:
   - name: health
     description: Health check endpoint
+  - name: info
+    description: Server info and operational limits
   - name: secrets
     description: One-time secret creation, claim, and burn operations

@@ -85,6 +85,49 @@ Quota and size failures:
 
 `GET /healthz`
 
+### Server Info
+
+`GET /api/v1/info`
+
+Returns server defaults and per-tier limits. Authentication is optional;
+if a valid API key is provided, `authenticated` is `true`.
+
+Caching: `Cache-Control: public, max-age=300`
+
+Response (`200`):
+
+```json
+{
+  "authenticated": false,
+  "ttl": {
+    "default_seconds": 86400,
+    "max_seconds": 31536000
+  },
+  "limits": {
+    "public": {
+      "max_envelope_bytes": 262144,
+      "max_secrets": 10,
+      "max_total_bytes": 2097152,
+      "rate": { "requests_per_second": 0.5, "burst": 6 }
+    },
+    "authed": {
+      "max_envelope_bytes": 1048576,
+      "max_secrets": 1000,
+      "max_total_bytes": 20971520,
+      "rate": { "requests_per_second": 2.0, "burst": 20 }
+    }
+  },
+  "claim_rate": { "requests_per_second": 1.0, "burst": 10 }
+}
+```
+
+Policy notes:
+
+- No API key required. If provided and valid, `authenticated` is `true`.
+- Invalid API key is not an error; `authenticated` is `false`.
+- Both tiers are always returned regardless of authentication status.
+- Rate-limited via the claim limiter (1 rps, burst 10).
+
 ### Create (public / anonymous)
 
 `POST /api/v1/public/secrets`
