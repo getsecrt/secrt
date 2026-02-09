@@ -122,6 +122,14 @@ When non-trivial, add a few lines in the body in bullet point explaining the key
 Important: When planning big new features or preparing to make large refactors, commit any uncommitted files, _especially_ if they are likely to be touched in the impending changes. That way if everything goes wrong, it's relatively easy to revert the changes.
 
 
+## Building and deploying
+
+- **Always use `make build`** to compile the server — never raw `go build`. The Makefile outputs to `bin/secrt-server`, which is the path the systemd service expects.
+- The systemd unit is `secrt.service` (`/etc/systemd/system/secrt.service`). The service name is `secrt` (not `secrt-server`).
+- Binary path: `bin/secrt-server` (relative to repo root).
+- After building, the user must restart the service to pick up changes: `sudo systemctl restart secrt`.
+- For production builds (stripped, smaller), use `make build-prod`.
+
 ## Dependency policy
 
 - Prefer stdlib (`net/http`, `crypto/*`, `database/sql`, `log/slog`).
