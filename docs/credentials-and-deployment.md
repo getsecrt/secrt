@@ -122,12 +122,35 @@ sudo journalctl -u secrt-server -f
 
 ### 6. Reverse proxy (nginx)
 
-The server listens on `127.0.0.1:8080`. Put nginx or Caddy in front for TLS termination:
+The server listens on `127.0.0.1:8080`. Put nginx or Caddy in front for TLS termination.
+
+#### IP privacy in access logs
+
+This is a privacy-sensitive service. **Do not log full client IPs.** Truncate the last octet of IPv4 addresses and the last 80 bits of IPv6 addresses. This preserves enough information to detect /24 abuse clusters and geographic patterns without identifying individual users.
+
+Add the following to your `http {}` block (e.g., in `/etc/nginx/nginx.conf` or a conf.d snippet):
+
+```nginx
+# Truncate IPs: 1.2.3.4 → 1.2.3.0, 2001:db8::1 → 2001:db8::
+map $remote_addr $truncated_ip {
+    ~(?P<prefix>\d+\.\d+\.\d+)\.\d+$    $prefix.0;
+    ~(?P<prefix>[0-9a-fA-F]+:[0-9a-fA-F]+:[0-9a-fA-F]+):    $prefix::;
+    default                               0.0.0.0;
+}
+
+log_format secrt '$truncated_ip - $remote_user [$time_local] '
+                 '"$request" $status $body_bytes_sent '
+                 '"$http_referer" "$http_user_agent"';
+```
+
+Then reference this format in the server block:
 
 ```nginx
 server {
     listen 443 ssl http2;
     server_name secrt.ca;
+
+    access_log /var/log/nginx/secrt-access.log secrt;
 
     ssl_certificate     /etc/letsencrypt/live/secrt.ca/fullchain.pem;
     ssl_certificate_key /etc/letsencrypt/live/secrt.ca/privkey.pem;
@@ -141,6 +164,18 @@ server {
     }
 }
 ```
+
+> **Note:** The `X-Forwarded-For` header sent to the backend still contains the full IP — this is needed for rate limiting (the app hashes it in memory). Only the nginx *log file* is truncated.
+
+#### Responding to active abuse
+
+If you are under active attack and need full IPs temporarily:
+
+1. Switch `access_log` to the default `combined` format (which logs full IPs).
+2. Respond to the abuse (block at firewall, report, etc.).
+3. Revert to the `secrt` format and **delete the full-IP log** when done.
+
+Do not leave full IP logging enabled as the default.
 
 ## Why Not Other Approaches?
 

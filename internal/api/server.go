@@ -2,6 +2,10 @@ package api
 
 import (
 	"context"
+	"crypto/hmac"
+	"crypto/rand"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -29,6 +33,12 @@ type Server struct {
 	claimLimiter        *ratelimit.Limiter
 	apiLimiter          *ratelimit.Limiter
 
+	// ownerHMACKey is a per-process random key used to HMAC-hash client IPs
+	// before storing them as owner_key in the database, so raw IPs are never
+	// persisted. Generated at startup; quota tracking resets on restart (which
+	// is acceptable because secrets expire via TTL anyway).
+	ownerHMACKey [32]byte
+
 	generateID func() (string, error)
 
 	mux *http.ServeMux
@@ -48,6 +58,16 @@ func NewServer(cfg config.Config, secretsStore storage.SecretsStore, authn *auth
 		generateID:          secrets.GenerateID,
 		mux:                 mux,
 	}
+
+	// Generate a per-process HMAC key for hashing client IPs in owner_key.
+	if _, err := rand.Read(s.ownerHMACKey[:]); err != nil {
+		panic("api: crypto/rand failed: " + err.Error())
+	}
+
+	// Start GC on rate limiters: sweep every 2 minutes, evict after 10 minutes idle.
+	s.publicCreateLimiter.StartGC(2*time.Minute, 10*time.Minute)
+	s.claimLimiter.StartGC(2*time.Minute, 10*time.Minute)
+	s.apiLimiter.StartGC(2*time.Minute, 10*time.Minute)
 
 	mux.HandleFunc("GET /healthz", s.handleHealthz)
 	mux.HandleFunc("GET /", s.handleIndex)
@@ -72,6 +92,22 @@ func (s *Server) Handler() http.Handler {
 	return withMiddleware(s.mux)
 }
 
+// Close stops background goroutines (rate limiter GC). Safe to call multiple times.
+func (s *Server) Close() {
+	s.publicCreateLimiter.Stop()
+	s.claimLimiter.Stop()
+	s.apiLimiter.Stop()
+}
+
+// hashOwnerIP returns an HMAC-SHA256 hex digest of the IP, suitable for use as
+// owner_key in the database. This avoids persisting raw IPs while preserving
+// per-IP quota enforcement within a process lifetime.
+func (s *Server) hashOwnerIP(ip string) string {
+	mac := hmac.New(sha256.New, s.ownerHMACKey[:])
+	mac.Write([]byte(ip))
+	return "ip:" + hex.EncodeToString(mac.Sum(nil))
+}
+
 func (s *Server) handleHealthz(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{
 		"ok":   true,
@@ -80,12 +116,13 @@ func (s *Server) handleHealthz(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleCreatePublicSecret(w http.ResponseWriter, r *http.Request) {
-	if !s.publicCreateLimiter.Allow(clientIP(r)) {
+	ip := clientIP(r)
+	if !s.publicCreateLimiter.Allow(ip) {
 		rateLimited(w)
 		return
 	}
 
-	s.handleCreateSecret(w, r, false, clientIP(r))
+	s.handleCreateSecret(w, r, false, s.hashOwnerIP(ip))
 }
 
 func (s *Server) handleCreateAuthedSecret(w http.ResponseWriter, r *http.Request) {
