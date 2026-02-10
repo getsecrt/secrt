@@ -790,7 +790,7 @@ fn print_usage(deps: &mut Deps) {
         c(CMD, "secrt"),
         c(CMD, "secrt create"),
         c(CMD, "secrt claim"),
-        c(OPT, "<url>"),
+        c(ARG, "<url>"),
         c(CMD, "secrt help")
     );
 }
