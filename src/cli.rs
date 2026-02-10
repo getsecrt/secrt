@@ -1,12 +1,12 @@
 use std::io::{self, Read, Write};
 
 use crate::burn::run_burn;
-use crate::claim::run_claim;
 use crate::client::SecretApi;
 use crate::color::{color_func, ARG, CMD, DIM, HEADING, OPT, SUCCESS};
 use crate::completion::{BASH_COMPLETION, FISH_COMPLETION, ZSH_COMPLETION};
-use crate::create::run_create;
 use crate::gen::run_gen;
+use crate::get::run_get;
+use crate::send::run_send;
 
 const DEFAULT_BASE_URL: &str = "https://secrt.ca";
 const VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -44,7 +44,7 @@ pub struct ParsedArgs {
     pub api_key: String,
     pub json: bool,
 
-    // Create
+    // Send
     pub ttl: String,
     pub text: String,
     pub file: String,
@@ -64,7 +64,7 @@ pub struct ParsedArgs {
     pub passphrase_file: String,
     pub no_passphrase: bool,
 
-    // Claim
+    // Get
     pub output: String,
 
     // Gen
@@ -119,13 +119,13 @@ pub fn run(args: &[String], deps: &mut Deps) -> i32 {
         "help" => run_help(remaining, deps),
         "completion" => run_completion(remaining, deps),
         "config" => run_config(remaining, deps),
-        "create" => run_create(remaining, deps),
-        "claim" => run_claim(remaining, deps),
+        "send" => run_send(remaining, deps),
+        "get" => run_get(remaining, deps),
         "burn" => run_burn(remaining, deps),
         "gen" | "generate" => run_gen(remaining, deps),
         _ if command.contains("#v1.") => {
-            // Implicit claim: treat share URLs/bare IDs as `secrt claim <url>`
-            run_claim(&args[1..], deps)
+            // Implicit get: treat share URLs/bare IDs as `secrt get <url>`
+            run_get(&args[1..], deps)
         }
         _ => {
             let _ = writeln!(deps.stderr, "error: unknown command {:?}", command);
@@ -141,8 +141,8 @@ fn run_help(args: &[String], deps: &mut Deps) -> i32 {
         return 0;
     }
     match args[0].as_str() {
-        "create" => print_create_help(deps),
-        "claim" => print_claim_help(deps),
+        "send" => print_send_help(deps),
+        "get" => print_get_help(deps),
         "burn" => print_burn_help(deps),
         "gen" | "generate" => print_gen_help(deps),
         "config" => print_config_help(deps),
@@ -866,10 +866,10 @@ fn print_usage(deps: &mut Deps) {
     let c = color_func((deps.is_stdout_tty)());
     let _ = write!(
         deps.stderr,
-        "{} — one-time secret sharing\n\n  {}            share a secret (interactive)\n  {} {}       retrieve a secret\n\nRun '{}' for full usage.\n",
+        "{} — one-time secret sharing\n\n  {}              share a secret (interactive)\n  {} {}       retrieve a secret\n\nRun '{}' for full usage.\n",
         c(CMD, "secrt"),
-        c(CMD, "secrt create"),
-        c(CMD, "secrt claim"),
+        c(CMD, "secrt send"),
+        c(CMD, "secrt get"),
         c(ARG, "<url>"),
         c(CMD, "secrt help")
     );
@@ -892,8 +892,8 @@ pub fn print_help(deps: &mut Deps) {
         w,
         &c,
         &[
-            ("create", "Encrypt and upload a secret"),
-            ("claim", "Retrieve and decrypt a secret"),
+            ("send", "Encrypt and upload a secret"),
+            ("get", "Retrieve and decrypt a secret"),
             ("burn", "Destroy a secret (requires API key)"),
             ("gen", "Generate a random password"),
             ("config", "Show config / init / path"),
@@ -924,21 +924,17 @@ pub fn print_help(deps: &mut Deps) {
         w,
         "  echo \"pw123\" | {} {}",
         c(CMD, "secrt"),
-        c(CMD, "create")
+        c(CMD, "send")
     );
     let _ = writeln!(
         w,
         "  {} {} {} 32 {} 1h",
         c(CMD, "secrt"),
-        c(CMD, "create gen"),
+        c(CMD, "send gen"),
         c(OPT, "-L"),
         c(OPT, "--ttl")
     );
-    let _ = writeln!(
-        w,
-        "  {} https://secrt.ca/s/abc#v1.key",
-        c(CMD, "secrt claim")
-    );
+    let _ = writeln!(w, "  {} https://secrt.ca/s/abc#v1.key", c(CMD, "secrt get"));
     let _ = writeln!(w, "\n{}", c(HEADING, "CONFIG"));
     write_cmd_rows(
         w,
@@ -964,21 +960,21 @@ pub fn print_help(deps: &mut Deps) {
     );
 }
 
-pub fn print_create_help(deps: &mut Deps) {
+pub fn print_send_help(deps: &mut Deps) {
     let c = color_func((deps.is_stdout_tty)());
     let w = &mut deps.stderr;
     let _ = writeln!(
         w,
         "{} {} — Encrypt and upload a secret\n",
         c(CMD, "secrt"),
-        c(CMD, "create")
+        c(CMD, "send")
     );
     let _ = writeln!(
         w,
         "{}\n  {} {} {}\n",
         c(HEADING, "USAGE"),
         c(CMD, "secrt"),
-        c(CMD, "create"),
+        c(CMD, "send"),
         c(ARG, "[options]")
     );
     let _ = writeln!(w, "{}", c(HEADING, "OPTIONS"));
@@ -1039,13 +1035,13 @@ pub fn print_create_help(deps: &mut Deps) {
         w,
         "  echo \"secret\" | {} {}",
         c(CMD, "secrt"),
-        c(CMD, "create")
+        c(CMD, "send")
     );
     let _ = writeln!(
         w,
         "  {} {} {} \"my secret\" {} 5m",
         c(CMD, "secrt"),
-        c(CMD, "create"),
+        c(CMD, "send"),
         c(OPT, "--text"),
         c(OPT, "--ttl")
     );
@@ -1053,27 +1049,27 @@ pub fn print_create_help(deps: &mut Deps) {
         w,
         "  {} {} {} 32 {} 1h",
         c(CMD, "secrt"),
-        c(CMD, "create gen"),
+        c(CMD, "send gen"),
         c(OPT, "-L"),
         c(OPT, "--ttl")
     );
 }
 
-pub fn print_claim_help(deps: &mut Deps) {
+pub fn print_get_help(deps: &mut Deps) {
     let c = color_func((deps.is_stdout_tty)());
     let w = &mut deps.stderr;
     let _ = writeln!(
         w,
         "{} {} — Retrieve and decrypt a secret\n",
         c(CMD, "secrt"),
-        c(CMD, "claim")
+        c(CMD, "get")
     );
     let _ = writeln!(
         w,
         "{}\n  {} {} {} {}\n",
         c(HEADING, "USAGE"),
         c(CMD, "secrt"),
-        c(CMD, "claim"),
+        c(CMD, "get"),
         c(ARG, "<share-url>"),
         c(ARG, "[options]")
     );
@@ -1106,7 +1102,7 @@ pub fn print_claim_help(deps: &mut Deps) {
         w,
         "  {} {} https://secrt.ca/s/abc#v1.key",
         c(CMD, "secrt"),
-        c(CMD, "claim")
+        c(CMD, "get")
     );
 }
 
@@ -1231,14 +1227,14 @@ pub fn print_gen_help(deps: &mut Deps) {
         w,
         "  {} {} {} 1h",
         c(CMD, "secrt"),
-        c(CMD, "gen create"),
+        c(CMD, "gen send"),
         c(OPT, "--ttl")
     );
     let _ = writeln!(
         w,
         "  All {} and {} options can be combined.",
         c(CMD, "gen"),
-        c(CMD, "create")
+        c(CMD, "send")
     );
 }
 
@@ -1666,39 +1662,39 @@ mod tests {
     /// All flags accepted by parse_flags, grouped by which help screen(s)
     /// must mention them. Each entry is (flag, needs_value, help_fns) where
     /// help_fns lists which print_*_help functions should contain the flag.
-    ///   "main"   = print_help
-    ///   "create" = print_create_help
-    ///   "claim"  = print_claim_help
-    ///   "burn"   = print_burn_help
+    ///   "main" = print_help
+    ///   "send" = print_send_help
+    ///   "get"  = print_get_help
+    ///   "burn" = print_burn_help
     const FLAG_REGISTRY: &[(&str, bool, &[&str])] = &[
         // Global flags — should appear in main help
-        ("--base-url", true, &["main", "create", "claim", "burn"]),
-        ("--api-key", true, &["main", "create", "burn"]),
-        ("--json", false, &["main", "create", "claim", "burn"]),
-        ("--silent", false, &["main", "create", "claim", "burn"]),
-        ("-h", false, &["main", "create", "claim", "burn"]),
-        ("--help", false, &["main", "create", "claim", "burn"]),
-        // Create flags
-        ("--ttl", true, &["create"]),
-        ("--text", true, &["create"]),
-        ("--file", true, &["create"]),
-        ("-f", true, &["create"]),
-        ("-m", false, &["create"]),
-        ("--multi-line", false, &["create"]),
-        ("--trim", false, &["create"]),
-        ("-s", false, &["create"]),
-        ("--show", false, &["create"]),
-        ("--hidden", false, &["create"]),
-        // Passphrase flags — create + claim
-        ("-p", false, &["create", "claim"]),
-        ("--passphrase-prompt", false, &["create", "claim"]),
-        ("-n", false, &["create", "claim"]),
-        ("--no-passphrase", false, &["create", "claim"]),
-        ("--passphrase-env", true, &["create", "claim"]),
-        ("--passphrase-file", true, &["create", "claim"]),
-        // Claim flags
-        ("-o", true, &["claim"]),
-        ("--output", true, &["claim"]),
+        ("--base-url", true, &["main", "send", "get", "burn"]),
+        ("--api-key", true, &["main", "send", "burn"]),
+        ("--json", false, &["main", "send", "get", "burn"]),
+        ("--silent", false, &["main", "send", "get", "burn"]),
+        ("-h", false, &["main", "send", "get", "burn"]),
+        ("--help", false, &["main", "send", "get", "burn"]),
+        // Send flags
+        ("--ttl", true, &["send"]),
+        ("--text", true, &["send"]),
+        ("--file", true, &["send"]),
+        ("-f", true, &["send"]),
+        ("-m", false, &["send"]),
+        ("--multi-line", false, &["send"]),
+        ("--trim", false, &["send"]),
+        ("-s", false, &["send"]),
+        ("--show", false, &["send"]),
+        ("--hidden", false, &["send"]),
+        // Passphrase flags — send + get
+        ("-p", false, &["send", "get"]),
+        ("--passphrase-prompt", false, &["send", "get"]),
+        ("-n", false, &["send", "get"]),
+        ("--no-passphrase", false, &["send", "get"]),
+        ("--passphrase-env", true, &["send", "get"]),
+        ("--passphrase-file", true, &["send", "get"]),
+        // Get flags
+        ("-o", true, &["get"]),
+        ("--output", true, &["get"]),
         // Gen flags
         ("-L", true, &["gen"]),
         ("--length", true, &["gen"]),
@@ -1780,8 +1776,8 @@ mod tests {
     fn registry_flags_appear_in_help() {
         let screens: std::collections::HashMap<&str, String> = [
             ("main", capture_help(print_help)),
-            ("create", capture_help(print_create_help)),
-            ("claim", capture_help(print_claim_help)),
+            ("send", capture_help(print_send_help)),
+            ("get", capture_help(print_get_help)),
             ("burn", capture_help(print_burn_help)),
             ("gen", capture_help(print_gen_help)),
         ]

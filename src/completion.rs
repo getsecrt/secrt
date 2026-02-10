@@ -3,7 +3,7 @@ pub const BASH_COMPLETION: &str = r#"_secrt() {
     COMPREPLY=()
     cur="${COMP_WORDS[COMP_CWORD]}"
     prev="${COMP_WORDS[COMP_CWORD-1]}"
-    commands="create claim burn gen generate config version help completion"
+    commands="send get burn gen generate config version help completion"
 
     if [[ ${COMP_CWORD} -eq 1 ]]; then
         COMPREPLY=($(compgen -W "${commands}" -- "${cur}"))
@@ -11,17 +11,17 @@ pub const BASH_COMPLETION: &str = r#"_secrt() {
     fi
 
     case "${prev}" in
-        create)
+        send)
             COMPREPLY=($(compgen -W "gen generate --ttl --api-key --base-url --json --text --file --show --hidden --silent --multi-line --trim --passphrase-prompt --passphrase-env --passphrase-file --help" -- "${cur}"))
             ;;
-        claim)
+        get)
             COMPREPLY=($(compgen -W "--output --base-url --json --silent --passphrase-prompt --passphrase-env --passphrase-file --help" -- "${cur}"))
             ;;
         burn)
             COMPREPLY=($(compgen -W "--api-key --base-url --json --silent --help" -- "${cur}"))
             ;;
         gen|generate)
-            COMPREPLY=($(compgen -W "create --length --no-symbols --no-numbers --no-caps --grouped --count --json --help" -- "${cur}"))
+            COMPREPLY=($(compgen -W "send --length --no-symbols --no-numbers --no-caps --grouped --count --json --help" -- "${cur}"))
             ;;
         config)
             COMPREPLY=($(compgen -W "init path set-passphrase delete-passphrase --force" -- "${cur}"))
@@ -40,8 +40,8 @@ pub const ZSH_COMPLETION: &str = r#"#compdef secrt
 _secrt() {
     local -a commands
     commands=(
-        'create:Encrypt and upload a secret'
-        'claim:Retrieve and decrypt a secret'
+        'send:Encrypt and upload a secret'
+        'get:Retrieve and decrypt a secret'
         'burn:Destroy a secret (requires API key)'
         'gen:Generate a random password'
         'generate:Generate a random password'
@@ -61,7 +61,7 @@ _secrt() {
             ;;
         args)
             case $words[1] in
-                create)
+                send)
                     _arguments \
                         '1:input source:(gen generate)' \
                         '--ttl[TTL for secret]:ttl:' \
@@ -80,7 +80,7 @@ _secrt() {
                         '--passphrase-file[Passphrase file]:file:_files' \
                         '--help[Show help]'
                     ;;
-                claim)
+                get)
                     _arguments \
                         {-o,--output}'[Write output to file (- for stdout)]:path:_files' \
                         '--base-url[Server URL]:url:' \
@@ -101,7 +101,7 @@ _secrt() {
                     ;;
                 gen|generate)
                     _arguments \
-                        '1:subcommand:(create)' \
+                        '1:subcommand:(send)' \
                         {-L,--length}'[Password length]:length:' \
                         {-S,--no-symbols}'[Exclude symbols]' \
                         {-N,--no-numbers}'[Exclude digits]' \
@@ -128,8 +128,8 @@ _secrt
 "#;
 
 pub const FISH_COMPLETION: &str = r#"complete -c secrt -f
-complete -c secrt -n '__fish_use_subcommand' -a create -d 'Encrypt and upload a secret'
-complete -c secrt -n '__fish_use_subcommand' -a claim -d 'Retrieve and decrypt a secret'
+complete -c secrt -n '__fish_use_subcommand' -a send -d 'Encrypt and upload a secret'
+complete -c secrt -n '__fish_use_subcommand' -a get -d 'Retrieve and decrypt a secret'
 complete -c secrt -n '__fish_use_subcommand' -a burn -d 'Destroy a secret (requires API key)'
 complete -c secrt -n '__fish_use_subcommand' -a gen -d 'Generate a random password'
 complete -c secrt -n '__fish_use_subcommand' -a generate -d 'Generate a random password'
@@ -138,29 +138,29 @@ complete -c secrt -n '__fish_use_subcommand' -a version -d 'Show version'
 complete -c secrt -n '__fish_use_subcommand' -a help -d 'Show help'
 complete -c secrt -n '__fish_use_subcommand' -a completion -d 'Output shell completion script'
 
-complete -c secrt -n '__fish_seen_subcommand_from create' -l ttl -d 'TTL for secret'
-complete -c secrt -n '__fish_seen_subcommand_from create' -l api-key -d 'API key'
-complete -c secrt -n '__fish_seen_subcommand_from create' -l base-url -d 'Server URL'
-complete -c secrt -n '__fish_seen_subcommand_from create' -l json -d 'Output as JSON'
-complete -c secrt -n '__fish_seen_subcommand_from create' -l text -d 'Secret text'
-complete -c secrt -n '__fish_seen_subcommand_from create' -l file -d 'Secret file' -F
-complete -c secrt -n '__fish_seen_subcommand_from create' -s s -l show -d 'Show input as you type'
-complete -c secrt -n '__fish_seen_subcommand_from create' -l hidden -d 'Hide input'
-complete -c secrt -n '__fish_seen_subcommand_from create' -l silent -d 'Suppress status output'
-complete -c secrt -n '__fish_seen_subcommand_from create' -s m -l multi-line -d 'Multi-line input'
-complete -c secrt -n '__fish_seen_subcommand_from create' -l trim -d 'Trim whitespace'
-complete -c secrt -n '__fish_seen_subcommand_from create' -s p -l passphrase-prompt -d 'Prompt for passphrase'
-complete -c secrt -n '__fish_seen_subcommand_from create' -l passphrase-env -d 'Passphrase env var'
-complete -c secrt -n '__fish_seen_subcommand_from create' -l passphrase-file -d 'Passphrase file' -F
-complete -c secrt -n '__fish_seen_subcommand_from create' -a 'gen generate' -d 'Generate and share a password'
+complete -c secrt -n '__fish_seen_subcommand_from send' -l ttl -d 'TTL for secret'
+complete -c secrt -n '__fish_seen_subcommand_from send' -l api-key -d 'API key'
+complete -c secrt -n '__fish_seen_subcommand_from send' -l base-url -d 'Server URL'
+complete -c secrt -n '__fish_seen_subcommand_from send' -l json -d 'Output as JSON'
+complete -c secrt -n '__fish_seen_subcommand_from send' -l text -d 'Secret text'
+complete -c secrt -n '__fish_seen_subcommand_from send' -l file -d 'Secret file' -F
+complete -c secrt -n '__fish_seen_subcommand_from send' -s s -l show -d 'Show input as you type'
+complete -c secrt -n '__fish_seen_subcommand_from send' -l hidden -d 'Hide input'
+complete -c secrt -n '__fish_seen_subcommand_from send' -l silent -d 'Suppress status output'
+complete -c secrt -n '__fish_seen_subcommand_from send' -s m -l multi-line -d 'Multi-line input'
+complete -c secrt -n '__fish_seen_subcommand_from send' -l trim -d 'Trim whitespace'
+complete -c secrt -n '__fish_seen_subcommand_from send' -s p -l passphrase-prompt -d 'Prompt for passphrase'
+complete -c secrt -n '__fish_seen_subcommand_from send' -l passphrase-env -d 'Passphrase env var'
+complete -c secrt -n '__fish_seen_subcommand_from send' -l passphrase-file -d 'Passphrase file' -F
+complete -c secrt -n '__fish_seen_subcommand_from send' -a 'gen generate' -d 'Generate and share a password'
 
-complete -c secrt -n '__fish_seen_subcommand_from claim' -s o -l output -d 'Write output to file (- for stdout)' -F
-complete -c secrt -n '__fish_seen_subcommand_from claim' -l base-url -d 'Server URL'
-complete -c secrt -n '__fish_seen_subcommand_from claim' -l json -d 'Output as JSON'
-complete -c secrt -n '__fish_seen_subcommand_from claim' -l silent -d 'Suppress status output'
-complete -c secrt -n '__fish_seen_subcommand_from claim' -s p -l passphrase-prompt -d 'Prompt for passphrase'
-complete -c secrt -n '__fish_seen_subcommand_from claim' -l passphrase-env -d 'Passphrase env var'
-complete -c secrt -n '__fish_seen_subcommand_from claim' -l passphrase-file -d 'Passphrase file' -F
+complete -c secrt -n '__fish_seen_subcommand_from get' -s o -l output -d 'Write output to file (- for stdout)' -F
+complete -c secrt -n '__fish_seen_subcommand_from get' -l base-url -d 'Server URL'
+complete -c secrt -n '__fish_seen_subcommand_from get' -l json -d 'Output as JSON'
+complete -c secrt -n '__fish_seen_subcommand_from get' -l silent -d 'Suppress status output'
+complete -c secrt -n '__fish_seen_subcommand_from get' -s p -l passphrase-prompt -d 'Prompt for passphrase'
+complete -c secrt -n '__fish_seen_subcommand_from get' -l passphrase-env -d 'Passphrase env var'
+complete -c secrt -n '__fish_seen_subcommand_from get' -l passphrase-file -d 'Passphrase file' -F
 
 complete -c secrt -n '__fish_seen_subcommand_from burn' -l api-key -d 'API key'
 complete -c secrt -n '__fish_seen_subcommand_from burn' -l base-url -d 'Server URL'
@@ -174,7 +174,7 @@ complete -c secrt -n '__fish_seen_subcommand_from gen generate' -s C -l no-caps 
 complete -c secrt -n '__fish_seen_subcommand_from gen generate' -s G -l grouped -d 'Group characters by type'
 complete -c secrt -n '__fish_seen_subcommand_from gen generate' -l count -d 'Generate multiple passwords'
 complete -c secrt -n '__fish_seen_subcommand_from gen generate' -l json -d 'Output as JSON'
-complete -c secrt -n '__fish_seen_subcommand_from gen generate' -a 'create' -d 'Generate and share a password'
+complete -c secrt -n '__fish_seen_subcommand_from gen generate' -a 'send' -d 'Generate and share a password'
 
 complete -c secrt -n '__fish_seen_subcommand_from config' -a 'init path set-passphrase delete-passphrase' -d 'Config subcommand'
 complete -c secrt -n '__fish_seen_subcommand_from config' -l force -d 'Overwrite existing config file'

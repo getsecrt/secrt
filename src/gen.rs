@@ -22,19 +22,19 @@ pub fn run_gen(args: &[String], deps: &mut Deps) -> i32 {
         }
     };
 
-    // Combined mode: `secrt gen create ...` → delegate to run_create
-    if pa.args.iter().any(|a| a == "create") {
+    // Combined mode: `secrt gen send ...` → delegate to run_send
+    if pa.args.iter().any(|a| a == "send") {
         let new_args: Vec<String> = args
             .iter()
             .map(|a| {
-                if a == "create" {
+                if a == "send" {
                     "gen".to_string()
                 } else {
                     a.clone()
                 }
             })
             .collect();
-        return crate::create::run_create(&new_args, deps);
+        return crate::send::run_send(&new_args, deps);
     }
 
     let count = if pa.gen_count == 0 { 1 } else { pa.gen_count } as usize;
@@ -70,7 +70,7 @@ pub fn run_gen(args: &[String], deps: &mut Deps) -> i32 {
 }
 
 /// Generate a single password using the gen flags from ParsedArgs.
-/// Used by both `run_gen` and `create.rs` in combined mode.
+/// Used by both `run_gen` and `send.rs` in combined mode.
 pub fn generate_password_from_args(
     pa: &ParsedArgs,
     rand_bytes: &dyn Fn(&mut [u8]) -> Result<(), EnvelopeError>,

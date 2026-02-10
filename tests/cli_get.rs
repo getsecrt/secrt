@@ -44,9 +44,9 @@ fn seal_test_secret(plaintext: &[u8], passphrase: &str) -> (String, envelope::Se
 }
 
 #[test]
-fn claim_unknown_flag() {
+fn get_unknown_flag() {
     let (mut deps, _stdout, stderr) = TestDepsBuilder::new().build();
-    let code = cli::run(&args(&["secrt", "claim", "--bogus"]), &mut deps);
+    let code = cli::run(&args(&["secrt", "get", "--bogus"]), &mut deps);
     assert_eq!(code, 2);
     assert!(
         stderr.to_string().contains("unknown flag"),
@@ -56,52 +56,52 @@ fn claim_unknown_flag() {
 }
 
 #[test]
-fn claim_help() {
+fn get_help() {
     let (mut deps, _stdout, stderr) = TestDepsBuilder::new().build();
-    let code = cli::run(&args(&["secrt", "claim", "--help"]), &mut deps);
+    let code = cli::run(&args(&["secrt", "get", "--help"]), &mut deps);
     assert_eq!(code, 0);
     assert!(!stderr.to_string().is_empty());
 }
 
 #[test]
-fn claim_no_url() {
+fn get_no_url() {
     let (mut deps, _stdout, stderr) = TestDepsBuilder::new().build();
-    let code = cli::run(&args(&["secrt", "claim"]), &mut deps);
+    let code = cli::run(&args(&["secrt", "get"]), &mut deps);
     assert_eq!(code, 2);
     assert!(stderr.to_string().contains("required"));
 }
 
 #[test]
-fn claim_invalid_url() {
+fn get_invalid_url() {
     let (mut deps, _stdout, stderr) = TestDepsBuilder::new().build();
-    let code = cli::run(&args(&["secrt", "claim", "not-a-valid-url"]), &mut deps);
+    let code = cli::run(&args(&["secrt", "get", "not-a-valid-url"]), &mut deps);
     assert_eq!(code, 2);
     assert!(stderr.to_string().contains("invalid"));
 }
 
 #[test]
-fn claim_api_call_fails() {
+fn get_api_call_fails() {
     let url = make_share_url(DEAD_URL, "test123");
     let (mut deps, _stdout, stderr) = TestDepsBuilder::new().build();
-    let code = cli::run(&args(&["secrt", "claim", &url]), &mut deps);
+    let code = cli::run(&args(&["secrt", "get", &url]), &mut deps);
     assert_eq!(code, 1, "stderr: {}", stderr.to_string());
 }
 
 #[test]
-fn claim_base_url_flag_override() {
+fn get_base_url_flag_override() {
     let url = make_share_url("https://secrt.ca", "test123");
     let (mut deps, _stdout, stderr) = TestDepsBuilder::new().build();
     let code = cli::run(
-        &args(&["secrt", "claim", &url, "--base-url", DEAD_URL]),
+        &args(&["secrt", "get", &url, "--base-url", DEAD_URL]),
         &mut deps,
     );
     assert_eq!(code, 1, "stderr: {}", stderr.to_string());
 }
 
 #[test]
-fn claim_json_error() {
+fn get_json_error() {
     let (mut deps, _stdout, stderr) = TestDepsBuilder::new().build();
-    let code = cli::run(&args(&["secrt", "claim", "--json", "not-valid"]), &mut deps);
+    let code = cli::run(&args(&["secrt", "get", "--json", "not-valid"]), &mut deps);
     assert_eq!(code, 2);
     let err = stderr.to_string();
     assert!(err.contains("\"error\""), "should be JSON error: {}", err);
@@ -110,7 +110,7 @@ fn claim_json_error() {
 // --- Mock API success tests ---
 
 #[test]
-fn claim_success_plain() {
+fn get_success_plain() {
     let plaintext = b"hello from mock claim";
     let (share_link, seal_result) = seal_test_secret(plaintext, "");
     let mock_resp = ClaimResponse {
@@ -118,13 +118,13 @@ fn claim_success_plain() {
         expires_at: "2026-02-09T00:00:00Z".into(),
     };
     let (mut deps, stdout, stderr) = TestDepsBuilder::new().mock_claim(Ok(mock_resp)).build();
-    let code = cli::run(&args(&["secrt", "claim", &share_link]), &mut deps);
+    let code = cli::run(&args(&["secrt", "get", &share_link]), &mut deps);
     assert_eq!(code, 0, "stderr: {}", stderr.to_string());
     assert_eq!(stdout.to_string(), "hello from mock claim");
 }
 
 #[test]
-fn claim_success_tty_shows_label() {
+fn get_success_tty_shows_label() {
     let plaintext = b"my secret value";
     let (share_link, seal_result) = seal_test_secret(plaintext, "");
     let mock_resp = ClaimResponse {
@@ -135,7 +135,7 @@ fn claim_success_tty_shows_label() {
         .is_stdout_tty(true)
         .mock_claim(Ok(mock_resp))
         .build();
-    let code = cli::run(&args(&["secrt", "claim", &share_link]), &mut deps);
+    let code = cli::run(&args(&["secrt", "get", &share_link]), &mut deps);
     assert_eq!(code, 0, "stderr: {}", stderr.to_string());
     assert_eq!(stdout.to_string(), "my secret value\n");
     assert!(
@@ -146,7 +146,7 @@ fn claim_success_tty_shows_label() {
 }
 
 #[test]
-fn claim_success_non_tty_no_label() {
+fn get_success_non_tty_no_label() {
     let plaintext = b"my secret value";
     let (share_link, seal_result) = seal_test_secret(plaintext, "");
     let mock_resp = ClaimResponse {
@@ -157,7 +157,7 @@ fn claim_success_non_tty_no_label() {
         .is_stdout_tty(false)
         .mock_claim(Ok(mock_resp))
         .build();
-    let code = cli::run(&args(&["secrt", "claim", &share_link]), &mut deps);
+    let code = cli::run(&args(&["secrt", "get", &share_link]), &mut deps);
     assert_eq!(code, 0, "stderr: {}", stderr.to_string());
     // Non-TTY: exact bytes, no label, no trailing newline
     assert_eq!(stdout.to_string(), "my secret value");
@@ -169,7 +169,7 @@ fn claim_success_non_tty_no_label() {
 }
 
 #[test]
-fn claim_success_json() {
+fn get_success_json() {
     let plaintext = b"json claim test";
     let (share_link, seal_result) = seal_test_secret(plaintext, "");
     let mock_resp = ClaimResponse {
@@ -177,7 +177,7 @@ fn claim_success_json() {
         expires_at: "2026-02-09T12:00:00Z".into(),
     };
     let (mut deps, stdout, stderr) = TestDepsBuilder::new().mock_claim(Ok(mock_resp)).build();
-    let code = cli::run(&args(&["secrt", "claim", &share_link, "--json"]), &mut deps);
+    let code = cli::run(&args(&["secrt", "get", &share_link, "--json"]), &mut deps);
     assert_eq!(code, 0, "stderr: {}", stderr.to_string());
     let out = stdout.to_string();
     let json: serde_json::Value = serde_json::from_str(out.trim()).expect("invalid JSON output");
@@ -186,7 +186,7 @@ fn claim_success_json() {
 }
 
 #[test]
-fn claim_success_json_with_unicode() {
+fn get_success_json_with_unicode() {
     // Test that unicode/emoji survives the JSON round-trip
     let plaintext = "🔐 Secret with émoji and 日本語!".as_bytes();
     let (share_link, seal_result) = seal_test_secret(plaintext, "");
@@ -195,7 +195,7 @@ fn claim_success_json_with_unicode() {
         expires_at: "2026-02-09T12:00:00Z".into(),
     };
     let (mut deps, stdout, stderr) = TestDepsBuilder::new().mock_claim(Ok(mock_resp)).build();
-    let code = cli::run(&args(&["secrt", "claim", &share_link, "--json"]), &mut deps);
+    let code = cli::run(&args(&["secrt", "get", &share_link, "--json"]), &mut deps);
     assert_eq!(code, 0, "stderr: {}", stderr.to_string());
     let out = stdout.to_string();
     let json: serde_json::Value = serde_json::from_str(out.trim()).expect("invalid JSON output");
@@ -206,7 +206,7 @@ fn claim_success_json_with_unicode() {
 }
 
 #[test]
-fn claim_success_json_with_binary() {
+fn get_success_json_with_binary() {
     // Test that binary data (non-UTF-8) uses base64 encoding in JSON output
     let plaintext: &[u8] = &[0x80, 0x81, 0x82, 0xFF, 0xFE]; // Invalid UTF-8 bytes
     let (share_link, seal_result) = seal_test_secret(plaintext, "");
@@ -215,7 +215,7 @@ fn claim_success_json_with_binary() {
         expires_at: "2026-02-09T12:00:00Z".into(),
     };
     let (mut deps, stdout, stderr) = TestDepsBuilder::new().mock_claim(Ok(mock_resp)).build();
-    let code = cli::run(&args(&["secrt", "claim", &share_link, "--json"]), &mut deps);
+    let code = cli::run(&args(&["secrt", "get", &share_link, "--json"]), &mut deps);
     assert_eq!(code, 0, "stderr: {}", stderr.to_string());
     let out = stdout.to_string();
     let json: serde_json::Value = serde_json::from_str(out.trim()).expect("invalid JSON output");
@@ -227,7 +227,7 @@ fn claim_success_json_with_binary() {
 }
 
 #[test]
-fn claim_success_with_passphrase() {
+fn get_success_with_passphrase() {
     let plaintext = b"passphrase protected";
     let (share_link, seal_result) = seal_test_secret(plaintext, "mypass");
     let mock_resp = ClaimResponse {
@@ -239,7 +239,7 @@ fn claim_success_with_passphrase() {
         .env("MY_PASS", "mypass")
         .build();
     let code = cli::run(
-        &args(&["secrt", "claim", &share_link, "--passphrase-env", "MY_PASS"]),
+        &args(&["secrt", "get", &share_link, "--passphrase-env", "MY_PASS"]),
         &mut deps,
     );
     assert_eq!(code, 0, "stderr: {}", stderr.to_string());
@@ -247,7 +247,7 @@ fn claim_success_with_passphrase() {
 }
 
 #[test]
-fn claim_decryption_error() {
+fn get_decryption_error() {
     let plaintext = b"will fail";
     let (_share_link, seal_result) = seal_test_secret(plaintext, "");
     // Use a different key in the share URL so decryption fails
@@ -257,8 +257,11 @@ fn claim_decryption_error() {
         envelope: seal_result.envelope,
         expires_at: "2026-02-09T00:00:00Z".into(),
     };
-    let (mut deps, _stdout, stderr) = TestDepsBuilder::new().mock_claim(Ok(mock_resp)).build();
-    let code = cli::run(&args(&["secrt", "claim", &bad_share_link]), &mut deps);
+    let (mut deps, _stdout, stderr) = TestDepsBuilder::new()
+        .env("XDG_CONFIG_HOME", "/tmp/secrt_test_no_config")
+        .mock_claim(Ok(mock_resp))
+        .build();
+    let code = cli::run(&args(&["secrt", "get", &bad_share_link]), &mut deps);
     assert_eq!(code, 1);
     assert!(
         stderr.to_string().contains("decryption failed"),
@@ -268,22 +271,22 @@ fn claim_decryption_error() {
 }
 
 #[test]
-fn claim_api_error() {
+fn get_api_error() {
     let url = make_share_url("https://secrt.ca", "test123");
     let (mut deps, _stdout, stderr) = TestDepsBuilder::new()
         .mock_claim(Err("server error (404): secret not found".into()))
         .build();
-    let code = cli::run(&args(&["secrt", "claim", &url]), &mut deps);
+    let code = cli::run(&args(&["secrt", "get", &url]), &mut deps);
     assert_eq!(code, 1);
     assert!(
-        stderr.to_string().contains("claim failed"),
+        stderr.to_string().contains("get failed"),
         "stderr: {}",
         stderr.to_string()
     );
 }
 
 #[test]
-fn claim_silent_suppresses_label() {
+fn get_silent_suppresses_label() {
     let plaintext = b"silent claim test";
     let (share_link, seal_result) = seal_test_secret(plaintext, "");
     let mock_resp = ClaimResponse {
@@ -294,10 +297,7 @@ fn claim_silent_suppresses_label() {
         .is_stdout_tty(true)
         .mock_claim(Ok(mock_resp))
         .build();
-    let code = cli::run(
-        &args(&["secrt", "claim", &share_link, "--silent"]),
-        &mut deps,
-    );
+    let code = cli::run(&args(&["secrt", "get", &share_link, "--silent"]), &mut deps);
     assert_eq!(code, 0, "stderr: {}", stderr.to_string());
     assert_eq!(stdout.to_string(), "silent claim test\n");
     assert!(
@@ -310,7 +310,7 @@ fn claim_silent_suppresses_label() {
 // --- Passphrase auto-prompt tests ---
 
 #[test]
-fn claim_passphrase_auto_prompt_on_tty() {
+fn get_passphrase_auto_prompt_on_tty() {
     let plaintext = b"auto prompt secret";
     let (share_link, seal_result) = seal_test_secret(plaintext, "mypass");
     let mock_resp = ClaimResponse {
@@ -319,11 +319,12 @@ fn claim_passphrase_auto_prompt_on_tty() {
     };
     // TTY + no passphrase flags → should auto-prompt
     let (mut deps, stdout, stderr) = TestDepsBuilder::new()
+        .env("XDG_CONFIG_HOME", "/tmp/secrt_test_no_config")
         .is_tty(true)
         .mock_claim(Ok(mock_resp))
         .read_pass(&["mypass"])
         .build();
-    let code = cli::run(&args(&["secrt", "claim", &share_link]), &mut deps);
+    let code = cli::run(&args(&["secrt", "get", &share_link]), &mut deps);
     assert_eq!(code, 0, "stderr: {}", stderr.to_string());
     assert_eq!(stdout.to_string(), "auto prompt secret");
     let err = stderr.to_string();
@@ -335,7 +336,7 @@ fn claim_passphrase_auto_prompt_on_tty() {
 }
 
 #[test]
-fn claim_passphrase_auto_prompt_shows_key_symbol() {
+fn get_passphrase_auto_prompt_shows_key_symbol() {
     let plaintext = b"key symbol test";
     let (share_link, seal_result) = seal_test_secret(plaintext, "pass123");
     let mock_resp = ClaimResponse {
@@ -347,14 +348,14 @@ fn claim_passphrase_auto_prompt_shows_key_symbol() {
         .mock_claim(Ok(mock_resp))
         .read_pass(&["pass123"])
         .build();
-    let code = cli::run(&args(&["secrt", "claim", &share_link]), &mut deps);
+    let code = cli::run(&args(&["secrt", "get", &share_link]), &mut deps);
     assert_eq!(code, 0, "stderr: {}", stderr.to_string());
     let err = stderr.to_string();
     assert!(err.contains("\u{26b7}"), "should show key symbol: {}", err);
 }
 
 #[test]
-fn claim_passphrase_auto_prompt_silent_hides_notice() {
+fn get_passphrase_auto_prompt_silent_hides_notice() {
     let plaintext = b"silent passphrase";
     let (share_link, seal_result) = seal_test_secret(plaintext, "mypass");
     let mock_resp = ClaimResponse {
@@ -366,10 +367,7 @@ fn claim_passphrase_auto_prompt_silent_hides_notice() {
         .mock_claim(Ok(mock_resp))
         .read_pass(&["mypass"])
         .build();
-    let code = cli::run(
-        &args(&["secrt", "claim", &share_link, "--silent"]),
-        &mut deps,
-    );
+    let code = cli::run(&args(&["secrt", "get", &share_link, "--silent"]), &mut deps);
     assert_eq!(code, 0, "stderr: {}", stderr.to_string());
     assert_eq!(stdout.to_string(), "silent passphrase");
     assert!(
@@ -380,7 +378,7 @@ fn claim_passphrase_auto_prompt_silent_hides_notice() {
 }
 
 #[test]
-fn claim_passphrase_non_tty_errors_with_hint() {
+fn get_passphrase_non_tty_errors_with_hint() {
     let plaintext = b"non-tty secret";
     let (share_link, seal_result) = seal_test_secret(plaintext, "mypass");
     let mock_resp = ClaimResponse {
@@ -392,7 +390,7 @@ fn claim_passphrase_non_tty_errors_with_hint() {
         .is_tty(false)
         .mock_claim(Ok(mock_resp))
         .build();
-    let code = cli::run(&args(&["secrt", "claim", &share_link]), &mut deps);
+    let code = cli::run(&args(&["secrt", "get", &share_link]), &mut deps);
     assert_eq!(code, 1);
     let err = stderr.to_string();
     assert!(
@@ -404,7 +402,7 @@ fn claim_passphrase_non_tty_errors_with_hint() {
 }
 
 #[test]
-fn claim_passphrase_retry_on_wrong_passphrase() {
+fn get_passphrase_retry_on_wrong_passphrase() {
     let plaintext = b"retry secret";
     let (share_link, seal_result) = seal_test_secret(plaintext, "correct");
     let mock_resp = ClaimResponse {
@@ -417,7 +415,7 @@ fn claim_passphrase_retry_on_wrong_passphrase() {
         .mock_claim(Ok(mock_resp))
         .read_pass(&["wrong", "correct"])
         .build();
-    let code = cli::run(&args(&["secrt", "claim", &share_link]), &mut deps);
+    let code = cli::run(&args(&["secrt", "get", &share_link]), &mut deps);
     assert_eq!(code, 0, "stderr: {}", stderr.to_string());
     assert_eq!(stdout.to_string(), "retry secret");
     let err = stderr.to_string();
@@ -429,7 +427,7 @@ fn claim_passphrase_retry_on_wrong_passphrase() {
 }
 
 #[test]
-fn claim_passphrase_retry_many_then_succeed() {
+fn get_passphrase_retry_many_then_succeed() {
     let plaintext = b"many retries";
     let (share_link, seal_result) = seal_test_secret(plaintext, "correct");
     let mock_resp = ClaimResponse {
@@ -442,7 +440,7 @@ fn claim_passphrase_retry_many_then_succeed() {
         .mock_claim(Ok(mock_resp))
         .read_pass(&["wrong1", "wrong2", "wrong3", "wrong4", "correct"])
         .build();
-    let code = cli::run(&args(&["secrt", "claim", &share_link]), &mut deps);
+    let code = cli::run(&args(&["secrt", "get", &share_link]), &mut deps);
     assert_eq!(code, 0, "stderr: {}", stderr.to_string());
     assert_eq!(stdout.to_string(), "many retries");
     let err = stderr.to_string();
@@ -456,7 +454,7 @@ fn claim_passphrase_retry_many_then_succeed() {
 }
 
 #[test]
-fn claim_passphrase_no_retry_with_env_flag() {
+fn get_passphrase_no_retry_with_env_flag() {
     let plaintext = b"env flag no retry";
     let (share_link, seal_result) = seal_test_secret(plaintext, "correct");
     let mock_resp = ClaimResponse {
@@ -470,13 +468,7 @@ fn claim_passphrase_no_retry_with_env_flag() {
         .env("BAD_PASS", "wrong")
         .build();
     let code = cli::run(
-        &args(&[
-            "secrt",
-            "claim",
-            &share_link,
-            "--passphrase-env",
-            "BAD_PASS",
-        ]),
+        &args(&["secrt", "get", &share_link, "--passphrase-env", "BAD_PASS"]),
         &mut deps,
     );
     assert_eq!(code, 1);
@@ -494,7 +486,7 @@ fn claim_passphrase_no_retry_with_env_flag() {
 }
 
 #[test]
-fn claim_passphrase_prompt_flag_allows_retry() {
+fn get_passphrase_prompt_flag_allows_retry() {
     let plaintext = b"prompt flag retry";
     let (share_link, seal_result) = seal_test_secret(plaintext, "correct");
     let mock_resp = ClaimResponse {
@@ -507,13 +499,13 @@ fn claim_passphrase_prompt_flag_allows_retry() {
         .mock_claim(Ok(mock_resp))
         .read_pass(&["wrong", "correct"])
         .build();
-    let code = cli::run(&args(&["secrt", "claim", &share_link, "-p"]), &mut deps);
+    let code = cli::run(&args(&["secrt", "get", &share_link, "-p"]), &mut deps);
     assert_eq!(code, 0, "stderr: {}", stderr.to_string());
     assert_eq!(stdout.to_string(), "prompt flag retry");
 }
 
 #[test]
-fn claim_passphrase_auto_prompt_empty_input() {
+fn get_passphrase_auto_prompt_empty_input() {
     let plaintext = b"empty input test";
     let (share_link, seal_result) = seal_test_secret(plaintext, "mypass");
     let mock_resp = ClaimResponse {
@@ -525,7 +517,7 @@ fn claim_passphrase_auto_prompt_empty_input() {
         .mock_claim(Ok(mock_resp))
         .read_pass(&[""])
         .build();
-    let code = cli::run(&args(&["secrt", "claim", &share_link]), &mut deps);
+    let code = cli::run(&args(&["secrt", "get", &share_link]), &mut deps);
     assert_eq!(code, 1);
     assert!(
         stderr.to_string().contains("must not be empty"),
@@ -535,7 +527,7 @@ fn claim_passphrase_auto_prompt_empty_input() {
 }
 
 #[test]
-fn claim_passphrase_auto_prompt_read_error() {
+fn get_passphrase_auto_prompt_read_error() {
     let plaintext = b"read error test";
     let (share_link, seal_result) = seal_test_secret(plaintext, "mypass");
     let mock_resp = ClaimResponse {
@@ -547,7 +539,7 @@ fn claim_passphrase_auto_prompt_read_error() {
         .mock_claim(Ok(mock_resp))
         .read_pass_error("terminal lost")
         .build();
-    let code = cli::run(&args(&["secrt", "claim", &share_link]), &mut deps);
+    let code = cli::run(&args(&["secrt", "get", &share_link]), &mut deps);
     assert_eq!(code, 1);
     assert!(
         stderr.to_string().contains("read passphrase"),
@@ -557,7 +549,7 @@ fn claim_passphrase_auto_prompt_read_error() {
 }
 
 #[test]
-fn claim_passphrase_retry_empty_input() {
+fn get_passphrase_retry_empty_input() {
     let plaintext = b"retry empty test";
     let (share_link, seal_result) = seal_test_secret(plaintext, "correct");
     let mock_resp = ClaimResponse {
@@ -570,7 +562,7 @@ fn claim_passphrase_retry_empty_input() {
         .mock_claim(Ok(mock_resp))
         .read_pass(&["wrong", ""])
         .build();
-    let code = cli::run(&args(&["secrt", "claim", &share_link]), &mut deps);
+    let code = cli::run(&args(&["secrt", "get", &share_link]), &mut deps);
     assert_eq!(code, 1);
     let err = stderr.to_string();
     assert!(err.contains("Wrong passphrase"), "stderr: {}", err);
@@ -578,7 +570,7 @@ fn claim_passphrase_retry_empty_input() {
 }
 
 #[test]
-fn claim_passphrase_conflicting_flags() {
+fn get_passphrase_conflicting_flags() {
     let plaintext = b"conflict test";
     let (share_link, seal_result) = seal_test_secret(plaintext, "mypass");
     let mock_resp = ClaimResponse {
@@ -593,7 +585,7 @@ fn claim_passphrase_conflicting_flags() {
     let code = cli::run(
         &args(&[
             "secrt",
-            "claim",
+            "get",
             &share_link,
             "-p",
             "--passphrase-env",
@@ -610,7 +602,7 @@ fn claim_passphrase_conflicting_flags() {
 }
 
 #[test]
-fn claim_passphrase_json_non_tty_error() {
+fn get_passphrase_json_non_tty_error() {
     let plaintext = b"json non-tty";
     let (share_link, seal_result) = seal_test_secret(plaintext, "mypass");
     let mock_resp = ClaimResponse {
@@ -621,7 +613,7 @@ fn claim_passphrase_json_non_tty_error() {
         .is_tty(false)
         .mock_claim(Ok(mock_resp))
         .build();
-    let code = cli::run(&args(&["secrt", "claim", &share_link, "--json"]), &mut deps);
+    let code = cli::run(&args(&["secrt", "get", &share_link, "--json"]), &mut deps);
     assert_eq!(code, 1);
     let err = stderr.to_string();
     assert!(err.contains("\"error\""), "should be JSON error: {}", err);
@@ -655,7 +647,7 @@ fn setup_config(toml_content: &str) -> std::path::PathBuf {
 }
 
 #[test]
-fn claim_passphrase_list_first_matches() {
+fn get_passphrase_list_first_matches() {
     let plaintext = b"list first match";
     let (share_link, seal_result) = seal_test_secret(plaintext, "correct");
     let mock_resp = ClaimResponse {
@@ -668,14 +660,14 @@ fn claim_passphrase_list_first_matches() {
         .mock_claim(Ok(mock_resp))
         .env("XDG_CONFIG_HOME", cfg_dir.to_str().unwrap())
         .build();
-    let code = cli::run(&args(&["secrt", "claim", &share_link]), &mut deps);
+    let code = cli::run(&args(&["secrt", "get", &share_link]), &mut deps);
     assert_eq!(code, 0, "stderr: {}", stderr.to_string());
     assert_eq!(stdout.to_string(), "list first match");
     let _ = fs::remove_dir_all(&cfg_dir);
 }
 
 #[test]
-fn claim_passphrase_list_second_matches() {
+fn get_passphrase_list_second_matches() {
     let plaintext = b"list second match";
     let (share_link, seal_result) = seal_test_secret(plaintext, "correct");
     let mock_resp = ClaimResponse {
@@ -688,14 +680,14 @@ fn claim_passphrase_list_second_matches() {
         .mock_claim(Ok(mock_resp))
         .env("XDG_CONFIG_HOME", cfg_dir.to_str().unwrap())
         .build();
-    let code = cli::run(&args(&["secrt", "claim", &share_link]), &mut deps);
+    let code = cli::run(&args(&["secrt", "get", &share_link]), &mut deps);
     assert_eq!(code, 0, "stderr: {}", stderr.to_string());
     assert_eq!(stdout.to_string(), "list second match");
     let _ = fs::remove_dir_all(&cfg_dir);
 }
 
 #[test]
-fn claim_passphrase_default_tried_before_list() {
+fn get_passphrase_default_tried_before_list() {
     let plaintext = b"default first";
     let (share_link, seal_result) = seal_test_secret(plaintext, "default-pass");
     let mock_resp = ClaimResponse {
@@ -711,14 +703,14 @@ fn claim_passphrase_default_tried_before_list() {
         .mock_claim(Ok(mock_resp))
         .env("XDG_CONFIG_HOME", cfg_dir.to_str().unwrap())
         .build();
-    let code = cli::run(&args(&["secrt", "claim", &share_link]), &mut deps);
+    let code = cli::run(&args(&["secrt", "get", &share_link]), &mut deps);
     assert_eq!(code, 0, "stderr: {}", stderr.to_string());
     assert_eq!(stdout.to_string(), "default first");
     let _ = fs::remove_dir_all(&cfg_dir);
 }
 
 #[test]
-fn claim_passphrase_list_no_match_non_tty_error() {
+fn get_passphrase_list_no_match_non_tty_error() {
     let plaintext = b"no match";
     let (share_link, seal_result) = seal_test_secret(plaintext, "actual-pass");
     let mock_resp = ClaimResponse {
@@ -731,7 +723,7 @@ fn claim_passphrase_list_no_match_non_tty_error() {
         .mock_claim(Ok(mock_resp))
         .env("XDG_CONFIG_HOME", cfg_dir.to_str().unwrap())
         .build();
-    let code = cli::run(&args(&["secrt", "claim", &share_link]), &mut deps);
+    let code = cli::run(&args(&["secrt", "get", &share_link]), &mut deps);
     assert_eq!(code, 1);
     let err = stderr.to_string();
     assert!(
@@ -743,7 +735,7 @@ fn claim_passphrase_list_no_match_non_tty_error() {
 }
 
 #[test]
-fn claim_passphrase_list_no_match_tty_falls_through_to_prompt() {
+fn get_passphrase_list_no_match_tty_falls_through_to_prompt() {
     let plaintext = b"tty prompt fallback";
     let (share_link, seal_result) = seal_test_secret(plaintext, "correct");
     let mock_resp = ClaimResponse {
@@ -757,7 +749,7 @@ fn claim_passphrase_list_no_match_tty_falls_through_to_prompt() {
         .read_pass(&["correct"])
         .env("XDG_CONFIG_HOME", cfg_dir.to_str().unwrap())
         .build();
-    let code = cli::run(&args(&["secrt", "claim", &share_link]), &mut deps);
+    let code = cli::run(&args(&["secrt", "get", &share_link]), &mut deps);
     assert_eq!(code, 0, "stderr: {}", stderr.to_string());
     assert_eq!(stdout.to_string(), "tty prompt fallback");
     let err = stderr.to_string();
@@ -770,7 +762,7 @@ fn claim_passphrase_list_no_match_tty_falls_through_to_prompt() {
 }
 
 #[test]
-fn claim_passphrase_explicit_flag_bypasses_list() {
+fn get_passphrase_explicit_flag_bypasses_list() {
     let plaintext = b"explicit bypasses list";
     let (share_link, seal_result) = seal_test_secret(plaintext, "correct");
     let mock_resp = ClaimResponse {
@@ -786,13 +778,7 @@ fn claim_passphrase_explicit_flag_bypasses_list() {
         .env("BAD_PASS", "wrong")
         .build();
     let code = cli::run(
-        &args(&[
-            "secrt",
-            "claim",
-            &share_link,
-            "--passphrase-env",
-            "BAD_PASS",
-        ]),
+        &args(&["secrt", "get", &share_link, "--passphrase-env", "BAD_PASS"]),
         &mut deps,
     );
     assert_eq!(code, 1, "explicit flag should bypass list");
@@ -806,7 +792,7 @@ fn claim_passphrase_explicit_flag_bypasses_list() {
 }
 
 #[test]
-fn claim_passphrase_list_deduplication() {
+fn get_passphrase_list_deduplication() {
     // If default passphrase and list contain the same value, it should only be tried once
     let plaintext = b"dedup test";
     let (share_link, seal_result) = seal_test_secret(plaintext, "same-pass");
@@ -822,14 +808,14 @@ fn claim_passphrase_list_deduplication() {
         .mock_claim(Ok(mock_resp))
         .env("XDG_CONFIG_HOME", cfg_dir.to_str().unwrap())
         .build();
-    let code = cli::run(&args(&["secrt", "claim", &share_link]), &mut deps);
+    let code = cli::run(&args(&["secrt", "get", &share_link]), &mut deps);
     assert_eq!(code, 0, "stderr: {}", stderr.to_string());
     assert_eq!(stdout.to_string(), "dedup test");
     let _ = fs::remove_dir_all(&cfg_dir);
 }
 
 #[test]
-fn claim_implicit_from_share_url() {
+fn get_implicit_from_share_url() {
     let plaintext = b"implicit claim works";
     let (share_link, seal_result) = seal_test_secret(plaintext, "");
     let mock_resp = ClaimResponse {
@@ -837,14 +823,14 @@ fn claim_implicit_from_share_url() {
         expires_at: "2026-02-09T00:00:00Z".into(),
     };
     let (mut deps, stdout, stderr) = TestDepsBuilder::new().mock_claim(Ok(mock_resp)).build();
-    // No "claim" subcommand — just secrt <url>
+    // No "get" subcommand — just secrt <url>
     let code = cli::run(&args(&["secrt", &share_link]), &mut deps);
     assert_eq!(code, 0, "stderr: {}", stderr.to_string());
     assert_eq!(stdout.to_string(), "implicit claim works");
 }
 
 #[test]
-fn claim_implicit_with_flags() {
+fn get_implicit_with_flags() {
     let plaintext = b"implicit with json";
     let (share_link, seal_result) = seal_test_secret(plaintext, "");
     let mock_resp = ClaimResponse {
@@ -852,7 +838,7 @@ fn claim_implicit_with_flags() {
         expires_at: "2026-02-09T00:00:00Z".into(),
     };
     let (mut deps, stdout, stderr) = TestDepsBuilder::new().mock_claim(Ok(mock_resp)).build();
-    // Implicit claim with --json flag
+    // Implicit get with --json flag
     let code = cli::run(&args(&["secrt", &share_link, "--json"]), &mut deps);
     assert_eq!(code, 0, "stderr: {}", stderr.to_string());
     assert!(
@@ -886,7 +872,7 @@ fn seal_test_file(plaintext: &[u8], filename: &str, mime: &str) -> (String, enve
 }
 
 #[test]
-fn claim_file_auto_save_on_tty() {
+fn get_file_auto_save_on_tty() {
     let plaintext = b"\x89PNG\r\n\x1a\nfake png data";
     let (share_link, seal_result) = seal_test_file(plaintext, "photo.png", "image/png");
     let mock_resp = ClaimResponse {
@@ -910,7 +896,7 @@ fn claim_file_auto_save_on_tty() {
         .is_stdout_tty(true)
         .mock_claim(Ok(mock_resp))
         .build();
-    let code = cli::run(&args(&["secrt", "claim", &share_link]), &mut deps);
+    let code = cli::run(&args(&["secrt", "get", &share_link]), &mut deps);
 
     let _ = std::env::set_current_dir(&orig_dir);
 
@@ -930,7 +916,7 @@ fn claim_file_auto_save_on_tty() {
 }
 
 #[test]
-fn claim_file_output_flag() {
+fn get_file_output_flag() {
     let plaintext = b"explicit output path";
     let (share_link, seal_result) =
         seal_test_file(plaintext, "data.bin", "application/octet-stream");
@@ -951,7 +937,7 @@ fn claim_file_output_flag() {
     let code = cli::run(
         &args(&[
             "secrt",
-            "claim",
+            "get",
             &share_link,
             "--output",
             out_path.to_str().unwrap(),
@@ -974,7 +960,7 @@ fn claim_file_output_flag() {
 }
 
 #[test]
-fn claim_file_output_dash_stdout() {
+fn get_file_output_dash_stdout() {
     let plaintext = b"raw stdout output";
     let (share_link, seal_result) = seal_test_file(plaintext, "test.txt", "text/plain");
     let mock_resp = ClaimResponse {
@@ -983,7 +969,7 @@ fn claim_file_output_dash_stdout() {
     };
     let (mut deps, stdout, stderr) = TestDepsBuilder::new().mock_claim(Ok(mock_resp)).build();
     let code = cli::run(
-        &args(&["secrt", "claim", &share_link, "--output", "-"]),
+        &args(&["secrt", "get", &share_link, "--output", "-"]),
         &mut deps,
     );
     assert_eq!(code, 0, "stderr: {}", stderr.to_string());
@@ -992,7 +978,7 @@ fn claim_file_output_dash_stdout() {
 }
 
 #[test]
-fn claim_file_piped_stdout_raw_bytes() {
+fn get_file_piped_stdout_raw_bytes() {
     let plaintext = b"\x00\x01\x02binary\xff\xfe";
     let (share_link, seal_result) =
         seal_test_file(plaintext, "data.bin", "application/octet-stream");
@@ -1004,14 +990,14 @@ fn claim_file_piped_stdout_raw_bytes() {
         .is_stdout_tty(false) // piped
         .mock_claim(Ok(mock_resp))
         .build();
-    let code = cli::run(&args(&["secrt", "claim", &share_link]), &mut deps);
+    let code = cli::run(&args(&["secrt", "get", &share_link]), &mut deps);
     assert_eq!(code, 0, "stderr: {}", stderr.to_string());
     // Piped: raw bytes, no label
     assert_eq!(stdout.0.lock().unwrap().as_slice(), plaintext);
 }
 
 #[test]
-fn claim_file_json_with_hint_utf8() {
+fn get_file_json_with_hint_utf8() {
     let plaintext = b"file text content";
     let (share_link, seal_result) = seal_test_file(plaintext, "notes.txt", "text/plain");
     let mock_resp = ClaimResponse {
@@ -1019,7 +1005,7 @@ fn claim_file_json_with_hint_utf8() {
         expires_at: "2026-02-09T12:00:00Z".into(),
     };
     let (mut deps, stdout, stderr) = TestDepsBuilder::new().mock_claim(Ok(mock_resp)).build();
-    let code = cli::run(&args(&["secrt", "claim", &share_link, "--json"]), &mut deps);
+    let code = cli::run(&args(&["secrt", "get", &share_link, "--json"]), &mut deps);
     assert_eq!(code, 0, "stderr: {}", stderr.to_string());
 
     let json: serde_json::Value =
@@ -1032,7 +1018,7 @@ fn claim_file_json_with_hint_utf8() {
 }
 
 #[test]
-fn claim_file_json_with_hint_binary() {
+fn get_file_json_with_hint_binary() {
     let plaintext: &[u8] = &[0x89, 0x50, 0x4E, 0x47, 0xFF, 0xFE];
     let (share_link, seal_result) = seal_test_file(plaintext, "photo.png", "image/png");
     let mock_resp = ClaimResponse {
@@ -1040,7 +1026,7 @@ fn claim_file_json_with_hint_binary() {
         expires_at: "2026-02-09T12:00:00Z".into(),
     };
     let (mut deps, stdout, stderr) = TestDepsBuilder::new().mock_claim(Ok(mock_resp)).build();
-    let code = cli::run(&args(&["secrt", "claim", &share_link, "--json"]), &mut deps);
+    let code = cli::run(&args(&["secrt", "get", &share_link, "--json"]), &mut deps);
     assert_eq!(code, 0, "stderr: {}", stderr.to_string());
 
     let json: serde_json::Value =
@@ -1060,7 +1046,7 @@ fn claim_file_json_with_hint_binary() {
 }
 
 #[test]
-fn claim_text_no_hint_unchanged_behavior() {
+fn get_text_no_hint_unchanged_behavior() {
     // Verify that text secrets without file hints still work exactly as before
     let plaintext = b"just a text secret";
     let (share_link, seal_result) = seal_test_secret(plaintext, "");
@@ -1072,7 +1058,7 @@ fn claim_text_no_hint_unchanged_behavior() {
         .is_stdout_tty(true)
         .mock_claim(Ok(mock_resp))
         .build();
-    let code = cli::run(&args(&["secrt", "claim", &share_link]), &mut deps);
+    let code = cli::run(&args(&["secrt", "get", &share_link]), &mut deps);
     assert_eq!(code, 0, "stderr: {}", stderr.to_string());
     assert_eq!(stdout.to_string(), "just a text secret\n");
     assert!(
@@ -1086,7 +1072,7 @@ fn claim_text_no_hint_unchanged_behavior() {
 }
 
 #[test]
-fn claim_binary_no_hint_tty_auto_saves() {
+fn get_binary_no_hint_tty_auto_saves() {
     // Binary data without a file hint on a TTY should auto-save to secret.bin
     // (file writing verified via --output in claim_file_output_flag; here we just
     // confirm the right code path is taken without cwd manipulation that races)
@@ -1112,7 +1098,7 @@ fn claim_binary_no_hint_tty_auto_saves() {
         .build();
     let tmp_str = tmp.to_string_lossy().to_string();
     let code = cli::run(
-        &args(&["secrt", "claim", &share_link, "--output", &tmp_str]),
+        &args(&["secrt", "get", &share_link, "--output", &tmp_str]),
         &mut deps,
     );
 
@@ -1135,7 +1121,7 @@ fn claim_binary_no_hint_tty_auto_saves() {
 }
 
 #[test]
-fn claim_binary_no_hint_piped_passes_through() {
+fn get_binary_no_hint_piped_passes_through() {
     // Binary data without a hint on piped stdout should pass through raw
     let plaintext: &[u8] = &[0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A];
     let (share_link, seal_result) = seal_test_secret(plaintext, "");
@@ -1147,7 +1133,7 @@ fn claim_binary_no_hint_piped_passes_through() {
         .is_stdout_tty(false)
         .mock_claim(Ok(mock_resp))
         .build();
-    let code = cli::run(&args(&["secrt", "claim", &share_link]), &mut deps);
+    let code = cli::run(&args(&["secrt", "get", &share_link]), &mut deps);
     assert_eq!(code, 0, "piped binary should succeed");
     assert_eq!(
         &*stdout.0.lock().unwrap(),
@@ -1157,9 +1143,9 @@ fn claim_binary_no_hint_piped_passes_through() {
 }
 
 #[test]
-fn claim_output_flag_missing_value() {
+fn get_output_flag_missing_value() {
     let (mut deps, _stdout, stderr) = TestDepsBuilder::new().build();
-    let code = cli::run(&args(&["secrt", "claim", "--output"]), &mut deps);
+    let code = cli::run(&args(&["secrt", "get", "--output"]), &mut deps);
     assert_eq!(code, 2);
     assert!(
         stderr.to_string().contains("--output requires a value"),
@@ -1169,7 +1155,7 @@ fn claim_output_flag_missing_value() {
 }
 
 #[test]
-fn claim_output_short_flag() {
+fn get_output_short_flag() {
     let plaintext = b"short flag test";
     let (share_link, seal_result) = seal_test_file(plaintext, "test.txt", "text/plain");
     let mock_resp = ClaimResponse {
@@ -1177,16 +1163,13 @@ fn claim_output_short_flag() {
         expires_at: "2026-02-09T00:00:00Z".into(),
     };
     let (mut deps, stdout, _stderr) = TestDepsBuilder::new().mock_claim(Ok(mock_resp)).build();
-    let code = cli::run(
-        &args(&["secrt", "claim", &share_link, "-o", "-"]),
-        &mut deps,
-    );
+    let code = cli::run(&args(&["secrt", "get", &share_link, "-o", "-"]), &mut deps);
     assert_eq!(code, 0);
     assert_eq!(stdout.0.lock().unwrap().as_slice(), plaintext);
 }
 
 #[test]
-fn claim_file_output_flag_text_no_hint() {
+fn get_file_output_flag_text_no_hint() {
     // --output works for text secrets too (no file hint needed)
     let plaintext = b"save this text";
     let (share_link, seal_result) = seal_test_secret(plaintext, "");
@@ -1207,7 +1190,7 @@ fn claim_file_output_flag_text_no_hint() {
     let code = cli::run(
         &args(&[
             "secrt",
-            "claim",
+            "get",
             &share_link,
             "--output",
             out_path.to_str().unwrap(),

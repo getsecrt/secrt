@@ -8,9 +8,9 @@ use secrt::client::CreateResponse;
 const DEAD_URL: &str = "http://127.0.0.1:19191";
 
 #[test]
-fn create_unknown_flag() {
+fn send_unknown_flag() {
     let (mut deps, _stdout, stderr) = TestDepsBuilder::new().build();
-    let code = cli::run(&args(&["secrt", "create", "--bogus"]), &mut deps);
+    let code = cli::run(&args(&["secrt", "send", "--bogus"]), &mut deps);
     assert_eq!(code, 2);
     assert!(
         stderr.to_string().contains("unknown flag"),
@@ -20,34 +20,34 @@ fn create_unknown_flag() {
 }
 
 #[test]
-fn create_help() {
+fn send_help() {
     let (mut deps, _stdout, stderr) = TestDepsBuilder::new().build();
-    let code = cli::run(&args(&["secrt", "create", "--help"]), &mut deps);
+    let code = cli::run(&args(&["secrt", "send", "--help"]), &mut deps);
     assert_eq!(code, 0);
     assert!(!stderr.to_string().is_empty());
 }
 
 #[test]
-fn create_stdin() {
+fn send_stdin() {
     let (mut deps, _stdout, stderr) = TestDepsBuilder::new()
         .stdin(b"my secret data")
         .env("SECRET_BASE_URL", DEAD_URL)
         .build();
-    let code = cli::run(&args(&["secrt", "create"]), &mut deps);
+    let code = cli::run(&args(&["secrt", "send"]), &mut deps);
     assert_eq!(code, 1, "stderr: {}", stderr.to_string());
 }
 
 #[test]
-fn create_text_flag() {
+fn send_text_flag() {
     let (mut deps, _stdout, stderr) = TestDepsBuilder::new()
         .env("SECRET_BASE_URL", DEAD_URL)
         .build();
-    let code = cli::run(&args(&["secrt", "create", "--text", "hello"]), &mut deps);
+    let code = cli::run(&args(&["secrt", "send", "--text", "hello"]), &mut deps);
     assert_eq!(code, 1, "stderr: {}", stderr.to_string());
 }
 
 #[test]
-fn create_file_flag() {
+fn send_file_flag() {
     let dir = std::env::temp_dir();
     let path = dir.join("secrt_test_create_file.txt");
     std::fs::write(&path, "file content").unwrap();
@@ -56,7 +56,7 @@ fn create_file_flag() {
         .env("SECRET_BASE_URL", DEAD_URL)
         .build();
     let code = cli::run(
-        &args(&["secrt", "create", "--file", path.to_str().unwrap()]),
+        &args(&["secrt", "send", "--file", path.to_str().unwrap()]),
         &mut deps,
     );
     assert_eq!(code, 1, "stderr: {}", stderr.to_string());
@@ -64,7 +64,7 @@ fn create_file_flag() {
 }
 
 #[test]
-fn create_multiple_sources() {
+fn send_multiple_sources() {
     let dir = std::env::temp_dir();
     let path = dir.join("secrt_test_create_multi.txt");
     std::fs::write(&path, "data").unwrap();
@@ -73,7 +73,7 @@ fn create_multiple_sources() {
     let code = cli::run(
         &args(&[
             "secrt",
-            "create",
+            "send",
             "--text",
             "hello",
             "--file",
@@ -86,28 +86,28 @@ fn create_multiple_sources() {
 }
 
 #[test]
-fn create_empty_stdin() {
+fn send_empty_stdin() {
     let (mut deps, _stdout, stderr) = TestDepsBuilder::new().stdin(b"").build();
-    let code = cli::run(&args(&["secrt", "create"]), &mut deps);
+    let code = cli::run(&args(&["secrt", "send"]), &mut deps);
     assert_eq!(code, 2, "stderr: {}", stderr.to_string());
     assert!(stderr.to_string().contains("empty"));
 }
 
 #[test]
-fn create_invalid_ttl() {
+fn send_invalid_ttl() {
     let (mut deps, _stdout, stderr) = TestDepsBuilder::new().stdin(b"data").build();
-    let code = cli::run(&args(&["secrt", "create", "--ttl", "abc"]), &mut deps);
+    let code = cli::run(&args(&["secrt", "send", "--ttl", "abc"]), &mut deps);
     assert_eq!(code, 2, "stderr: {}", stderr.to_string());
 }
 
 #[test]
-fn create_tty_prompt() {
+fn send_tty_prompt() {
     let (mut deps, _stdout, stderr) = TestDepsBuilder::new()
         .read_pass(&["tty secret data"])
         .is_tty(true)
         .env("SECRET_BASE_URL", DEAD_URL)
         .build();
-    let code = cli::run(&args(&["secrt", "create"]), &mut deps);
+    let code = cli::run(&args(&["secrt", "send"]), &mut deps);
     assert_eq!(code, 1, "stderr: {}", stderr.to_string());
     assert!(
         stderr.to_string().contains("Enter your secret"),
@@ -117,28 +117,28 @@ fn create_tty_prompt() {
 }
 
 #[test]
-fn create_with_passphrase_env() {
+fn send_with_passphrase_env() {
     let (mut deps, _stdout, stderr) = TestDepsBuilder::new()
         .stdin(b"data")
         .env("MY_PASS", "secret123")
         .env("SECRET_BASE_URL", DEAD_URL)
         .build();
     let code = cli::run(
-        &args(&["secrt", "create", "--passphrase-env", "MY_PASS"]),
+        &args(&["secrt", "send", "--passphrase-env", "MY_PASS"]),
         &mut deps,
     );
     assert_eq!(code, 1, "stderr: {}", stderr.to_string());
 }
 
 #[test]
-fn create_empty_file() {
+fn send_empty_file() {
     let dir = std::env::temp_dir();
     let path = dir.join("secrt_test_create_empty_file.txt");
     std::fs::write(&path, "").unwrap();
 
     let (mut deps, _stdout, stderr) = TestDepsBuilder::new().build();
     let code = cli::run(
-        &args(&["secrt", "create", "--file", path.to_str().unwrap()]),
+        &args(&["secrt", "send", "--file", path.to_str().unwrap()]),
         &mut deps,
     );
     assert_eq!(code, 2, "stderr: {}", stderr.to_string());
@@ -151,18 +151,18 @@ fn create_empty_file() {
 }
 
 #[test]
-fn create_json_output() {
+fn send_json_output() {
     let (mut deps, _stdout, stderr) = TestDepsBuilder::new()
         .stdin(b"data")
         .env("SECRET_BASE_URL", DEAD_URL)
         .build();
-    let code = cli::run(&args(&["secrt", "create", "--json"]), &mut deps);
+    let code = cli::run(&args(&["secrt", "send", "--json"]), &mut deps);
     assert_eq!(code, 1);
     let err = stderr.to_string();
     assert!(err.contains("\"error\""), "stderr should be JSON: {}", err);
 }
 
-fn mock_create_response() -> CreateResponse {
+fn mock_send_response() -> CreateResponse {
     CreateResponse {
         id: "test-id-123".into(),
         share_url: "https://secrt.ca/s/test-id-123".into(),
@@ -173,13 +173,13 @@ fn mock_create_response() -> CreateResponse {
 // --- TTY status message tests ---
 
 #[test]
-fn create_tty_shows_status_message_on_success() {
+fn send_tty_shows_status_message_on_success() {
     let (mut deps, _stdout, stderr) = TestDepsBuilder::new()
         .read_pass(&["my secret"])
         .is_tty(true)
-        .mock_create(Ok(mock_create_response()))
+        .mock_create(Ok(mock_send_response()))
         .build();
-    let code = cli::run(&args(&["secrt", "create"]), &mut deps);
+    let code = cli::run(&args(&["secrt", "send"]), &mut deps);
     assert_eq!(code, 0, "stderr: {}", stderr.to_string());
     let err = stderr.to_string();
     assert!(
@@ -190,13 +190,13 @@ fn create_tty_shows_status_message_on_success() {
 }
 
 #[test]
-fn create_tty_shows_status_message_on_api_error() {
+fn send_tty_shows_status_message_on_api_error() {
     let (mut deps, _stdout, stderr) = TestDepsBuilder::new()
         .read_pass(&["my secret"])
         .is_tty(true)
         .mock_create(Err("connection refused".into()))
         .build();
-    let code = cli::run(&args(&["secrt", "create"]), &mut deps);
+    let code = cli::run(&args(&["secrt", "send"]), &mut deps);
     assert_eq!(code, 1);
     let err = stderr.to_string();
     assert!(
@@ -212,13 +212,13 @@ fn create_tty_shows_status_message_on_api_error() {
 }
 
 #[test]
-fn create_non_tty_no_status_message() {
+fn send_non_tty_no_status_message() {
     let (mut deps, _stdout, stderr) = TestDepsBuilder::new()
         .stdin(b"my secret")
         .is_tty(false)
-        .mock_create(Ok(mock_create_response()))
+        .mock_create(Ok(mock_send_response()))
         .build();
-    let code = cli::run(&args(&["secrt", "create"]), &mut deps);
+    let code = cli::run(&args(&["secrt", "send"]), &mut deps);
     assert_eq!(code, 0, "stderr: {}", stderr.to_string());
     let err = stderr.to_string();
     assert!(
@@ -231,14 +231,14 @@ fn create_non_tty_no_status_message() {
 // --- Multi-line and trim tests ---
 
 #[test]
-fn create_multi_line_tty_reads_from_stdin() {
+fn send_multi_line_tty_reads_from_stdin() {
     // With --multi-line in TTY mode, should read from stdin (not read_pass)
     let (mut deps, stdout, stderr) = TestDepsBuilder::new()
         .stdin(b"line 1\nline 2\n")
         .is_tty(true)
-        .mock_create(Ok(mock_create_response()))
+        .mock_create(Ok(mock_send_response()))
         .build();
-    let code = cli::run(&args(&["secrt", "create", "--multi-line"]), &mut deps);
+    let code = cli::run(&args(&["secrt", "send", "--multi-line"]), &mut deps);
     assert_eq!(code, 0, "stderr: {}", stderr.to_string());
     assert!(
         stdout.to_string().contains("#v1."),
@@ -248,13 +248,13 @@ fn create_multi_line_tty_reads_from_stdin() {
 }
 
 #[test]
-fn create_multi_line_tty_shows_prompt() {
+fn send_multi_line_tty_shows_prompt() {
     let (mut deps, _stdout, stderr) = TestDepsBuilder::new()
         .stdin(b"some data")
         .is_tty(true)
-        .mock_create(Ok(mock_create_response()))
+        .mock_create(Ok(mock_send_response()))
         .build();
-    let code = cli::run(&args(&["secrt", "create", "-m"]), &mut deps);
+    let code = cli::run(&args(&["secrt", "send", "-m"]), &mut deps);
     assert_eq!(code, 0, "stderr: {}", stderr.to_string());
     let err = stderr.to_string();
     assert!(
@@ -265,24 +265,24 @@ fn create_multi_line_tty_shows_prompt() {
 }
 
 #[test]
-fn create_multi_line_preserves_exact_bytes() {
+fn send_multi_line_preserves_exact_bytes() {
     // Multi-line should preserve trailing newlines exactly
     let input = b"line 1\nline 2\n";
     let (mut deps, stdout, stderr) = TestDepsBuilder::new()
         .stdin(input)
         .is_tty(true)
-        .mock_create(Ok(mock_create_response()))
+        .mock_create(Ok(mock_send_response()))
         .build();
-    let code = cli::run(&args(&["secrt", "create", "--multi-line"]), &mut deps);
+    let code = cli::run(&args(&["secrt", "send", "--multi-line"]), &mut deps);
     assert_eq!(code, 0, "stderr: {}", stderr.to_string());
     // Success means the exact bytes were used (not trimmed)
     assert!(stdout.to_string().contains("#v1."));
 }
 
 #[test]
-fn create_multi_line_empty_input() {
+fn send_multi_line_empty_input() {
     let (mut deps, _stdout, stderr) = TestDepsBuilder::new().stdin(b"").is_tty(true).build();
-    let code = cli::run(&args(&["secrt", "create", "--multi-line"]), &mut deps);
+    let code = cli::run(&args(&["secrt", "send", "--multi-line"]), &mut deps);
     assert_eq!(code, 2, "stderr: {}", stderr.to_string());
     assert!(
         stderr.to_string().contains("empty"),
@@ -292,23 +292,23 @@ fn create_multi_line_empty_input() {
 }
 
 #[test]
-fn create_trim_strips_whitespace_stdin() {
+fn send_trim_strips_whitespace_stdin() {
     let (mut deps, stdout, stderr) = TestDepsBuilder::new()
         .stdin(b"  my secret  \n")
-        .mock_create(Ok(mock_create_response()))
+        .mock_create(Ok(mock_send_response()))
         .build();
-    let code = cli::run(&args(&["secrt", "create", "--trim"]), &mut deps);
+    let code = cli::run(&args(&["secrt", "send", "--trim"]), &mut deps);
     assert_eq!(code, 0, "stderr: {}", stderr.to_string());
     assert!(stdout.to_string().contains("#v1."));
 }
 
 #[test]
-fn create_trim_with_text_flag() {
+fn send_trim_with_text_flag() {
     let (mut deps, stdout, stderr) = TestDepsBuilder::new()
-        .mock_create(Ok(mock_create_response()))
+        .mock_create(Ok(mock_send_response()))
         .build();
     let code = cli::run(
-        &args(&["secrt", "create", "--text", "  hello  ", "--trim"]),
+        &args(&["secrt", "send", "--text", "  hello  ", "--trim"]),
         &mut deps,
     );
     assert_eq!(code, 0, "stderr: {}", stderr.to_string());
@@ -316,22 +316,16 @@ fn create_trim_with_text_flag() {
 }
 
 #[test]
-fn create_trim_with_file_flag() {
+fn send_trim_with_file_flag() {
     let dir = std::env::temp_dir();
     let path = dir.join("secrt_test_create_trim_file.txt");
     std::fs::write(&path, "  secret data  \r\n").unwrap();
 
     let (mut deps, stdout, stderr) = TestDepsBuilder::new()
-        .mock_create(Ok(mock_create_response()))
+        .mock_create(Ok(mock_send_response()))
         .build();
     let code = cli::run(
-        &args(&[
-            "secrt",
-            "create",
-            "--file",
-            path.to_str().unwrap(),
-            "--trim",
-        ]),
+        &args(&["secrt", "send", "--file", path.to_str().unwrap(), "--trim"]),
         &mut deps,
     );
     assert_eq!(code, 0, "stderr: {}", stderr.to_string());
@@ -340,9 +334,9 @@ fn create_trim_with_file_flag() {
 }
 
 #[test]
-fn create_trim_makes_empty_errors() {
+fn send_trim_makes_empty_errors() {
     let (mut deps, _stdout, stderr) = TestDepsBuilder::new().stdin(b"  \n  \r\n  ").build();
-    let code = cli::run(&args(&["secrt", "create", "--trim"]), &mut deps);
+    let code = cli::run(&args(&["secrt", "send", "--trim"]), &mut deps);
     assert_eq!(code, 2, "stderr: {}", stderr.to_string());
     assert!(
         stderr.to_string().contains("empty"),
@@ -352,13 +346,13 @@ fn create_trim_makes_empty_errors() {
 }
 
 #[test]
-fn create_multi_line_with_trim() {
+fn send_multi_line_with_trim() {
     let (mut deps, stdout, stderr) = TestDepsBuilder::new()
         .stdin(b"\n  line 1\n  line 2  \n\n")
-        .mock_create(Ok(mock_create_response()))
+        .mock_create(Ok(mock_send_response()))
         .build();
     let code = cli::run(
-        &args(&["secrt", "create", "--multi-line", "--trim"]),
+        &args(&["secrt", "send", "--multi-line", "--trim"]),
         &mut deps,
     );
     assert_eq!(code, 0, "stderr: {}", stderr.to_string());
@@ -366,14 +360,14 @@ fn create_multi_line_with_trim() {
 }
 
 #[test]
-fn create_default_tty_uses_single_line() {
+fn send_default_tty_uses_single_line() {
     // Default TTY (no --multi-line) should use read_pass (single-line, no echo)
     let (mut deps, stdout, stderr) = TestDepsBuilder::new()
         .read_pass(&["single line secret"])
         .is_tty(true)
-        .mock_create(Ok(mock_create_response()))
+        .mock_create(Ok(mock_send_response()))
         .build();
-    let code = cli::run(&args(&["secrt", "create"]), &mut deps);
+    let code = cli::run(&args(&["secrt", "send"]), &mut deps);
     assert_eq!(code, 0, "stderr: {}", stderr.to_string());
     assert!(stdout.to_string().contains("#v1."));
     // Should show "input is hidden" hint on instruction line
@@ -394,12 +388,12 @@ fn create_default_tty_uses_single_line() {
 // --- Mock API success tests ---
 
 #[test]
-fn create_success_plain() {
+fn send_success_plain() {
     let (mut deps, stdout, stderr) = TestDepsBuilder::new()
         .stdin(b"my secret")
-        .mock_create(Ok(mock_create_response()))
+        .mock_create(Ok(mock_send_response()))
         .build();
-    let code = cli::run(&args(&["secrt", "create"]), &mut deps);
+    let code = cli::run(&args(&["secrt", "send"]), &mut deps);
     assert_eq!(code, 0, "stderr: {}", stderr.to_string());
     let out = stdout.to_string();
     assert!(
@@ -410,12 +404,12 @@ fn create_success_plain() {
 }
 
 #[test]
-fn create_success_json() {
+fn send_success_json() {
     let (mut deps, stdout, stderr) = TestDepsBuilder::new()
         .stdin(b"my secret")
-        .mock_create(Ok(mock_create_response()))
+        .mock_create(Ok(mock_send_response()))
         .build();
-    let code = cli::run(&args(&["secrt", "create", "--json"]), &mut deps);
+    let code = cli::run(&args(&["secrt", "send", "--json"]), &mut deps);
     assert_eq!(code, 0, "stderr: {}", stderr.to_string());
     let out = stdout.to_string();
     let json: serde_json::Value = serde_json::from_str(out.trim()).expect("invalid JSON output");
@@ -426,12 +420,12 @@ fn create_success_json() {
 }
 
 #[test]
-fn create_success_with_ttl() {
+fn send_success_with_ttl() {
     let (mut deps, stdout, stderr) = TestDepsBuilder::new()
         .stdin(b"my secret")
-        .mock_create(Ok(mock_create_response()))
+        .mock_create(Ok(mock_send_response()))
         .build();
-    let code = cli::run(&args(&["secrt", "create", "--ttl", "5m"]), &mut deps);
+    let code = cli::run(&args(&["secrt", "send", "--ttl", "5m"]), &mut deps);
     assert_eq!(code, 0, "stderr: {}", stderr.to_string());
     let out = stdout.to_string();
     assert!(
@@ -442,12 +436,12 @@ fn create_success_with_ttl() {
 }
 
 #[test]
-fn create_api_error() {
+fn send_api_error() {
     let (mut deps, _stdout, stderr) = TestDepsBuilder::new()
         .stdin(b"my secret")
         .mock_create(Err("server error (500): internal error".into()))
         .build();
-    let code = cli::run(&args(&["secrt", "create"]), &mut deps);
+    let code = cli::run(&args(&["secrt", "send"]), &mut deps);
     assert_eq!(code, 1);
     assert!(
         stderr.to_string().contains("server error"),
@@ -457,14 +451,14 @@ fn create_api_error() {
 }
 
 #[test]
-fn create_rate_limit_error_shows_friendly_message() {
+fn send_rate_limit_error_shows_friendly_message() {
     let (mut deps, _stdout, stderr) = TestDepsBuilder::new()
         .stdin(b"my secret")
         .mock_create(Err(
             "server error (429): rate limit exceeded; please try again in a few seconds".into(),
         ))
         .build();
-    let code = cli::run(&args(&["secrt", "create"]), &mut deps);
+    let code = cli::run(&args(&["secrt", "send"]), &mut deps);
     assert_eq!(code, 1);
     let err = stderr.to_string();
     assert!(
@@ -480,14 +474,14 @@ fn create_rate_limit_error_shows_friendly_message() {
 }
 
 #[test]
-fn create_unauthorized_error_shows_api_key_hint() {
+fn send_unauthorized_error_shows_api_key_hint() {
     let (mut deps, _stdout, stderr) = TestDepsBuilder::new()
         .stdin(b"my secret")
         .mock_create(Err(
             "server error (401): unauthorized; check your API key".into()
         ))
         .build();
-    let code = cli::run(&args(&["secrt", "create"]), &mut deps);
+    let code = cli::run(&args(&["secrt", "send"]), &mut deps);
     assert_eq!(code, 1);
     let err = stderr.to_string();
     assert!(
@@ -505,13 +499,13 @@ fn create_unauthorized_error_shows_api_key_hint() {
 // --- --show / --hidden / --silent tests ---
 
 #[test]
-fn create_show_flag_reads_visible_input() {
+fn send_show_flag_reads_visible_input() {
     let (mut deps, stdout, stderr) = TestDepsBuilder::new()
         .stdin(b"visible secret\n")
         .is_tty(true)
-        .mock_create(Ok(mock_create_response()))
+        .mock_create(Ok(mock_send_response()))
         .build();
-    let code = cli::run(&args(&["secrt", "create", "--show"]), &mut deps);
+    let code = cli::run(&args(&["secrt", "send", "--show"]), &mut deps);
     assert_eq!(code, 0, "stderr: {}", stderr.to_string());
     assert!(stdout.to_string().contains("#v1."));
     let err = stderr.to_string();
@@ -523,25 +517,25 @@ fn create_show_flag_reads_visible_input() {
 }
 
 #[test]
-fn create_show_short_flag() {
+fn send_show_short_flag() {
     let (mut deps, stdout, stderr) = TestDepsBuilder::new()
         .stdin(b"visible secret\n")
         .is_tty(true)
-        .mock_create(Ok(mock_create_response()))
+        .mock_create(Ok(mock_send_response()))
         .build();
-    let code = cli::run(&args(&["secrt", "create", "-s"]), &mut deps);
+    let code = cli::run(&args(&["secrt", "send", "-s"]), &mut deps);
     assert_eq!(code, 0, "stderr: {}", stderr.to_string());
     assert!(stdout.to_string().contains("#v1."));
 }
 
 #[test]
-fn create_hidden_overrides_show() {
+fn send_hidden_overrides_show() {
     let (mut deps, _stdout, stderr) = TestDepsBuilder::new()
         .read_pass(&["hidden secret"])
         .is_tty(true)
-        .mock_create(Ok(mock_create_response()))
+        .mock_create(Ok(mock_send_response()))
         .build();
-    let code = cli::run(&args(&["secrt", "create", "--show", "--hidden"]), &mut deps);
+    let code = cli::run(&args(&["secrt", "send", "--show", "--hidden"]), &mut deps);
     assert_eq!(code, 0, "stderr: {}", stderr.to_string());
     let err = stderr.to_string();
     assert!(
@@ -552,12 +546,12 @@ fn create_hidden_overrides_show() {
 }
 
 #[test]
-fn create_silent_suppresses_status() {
+fn send_silent_suppresses_status() {
     let (mut deps, stdout, stderr) = TestDepsBuilder::new()
         .stdin(b"my secret")
-        .mock_create(Ok(mock_create_response()))
+        .mock_create(Ok(mock_send_response()))
         .build();
-    let code = cli::run(&args(&["secrt", "create", "--silent"]), &mut deps);
+    let code = cli::run(&args(&["secrt", "send", "--silent"]), &mut deps);
     assert_eq!(code, 0, "stderr: {}", stderr.to_string());
     assert!(stdout.to_string().contains("#v1."));
     let err = stderr.to_string();
@@ -569,13 +563,13 @@ fn create_silent_suppresses_status() {
 }
 
 #[test]
-fn create_silent_tty_suppresses_prompts_and_status() {
+fn send_silent_tty_suppresses_prompts_and_status() {
     let (mut deps, stdout, stderr) = TestDepsBuilder::new()
         .read_pass(&["my secret"])
         .is_tty(true)
-        .mock_create(Ok(mock_create_response()))
+        .mock_create(Ok(mock_send_response()))
         .build();
-    let code = cli::run(&args(&["secrt", "create", "--silent"]), &mut deps);
+    let code = cli::run(&args(&["secrt", "send", "--silent"]), &mut deps);
     assert_eq!(code, 0, "stderr: {}", stderr.to_string());
     assert!(stdout.to_string().contains("#v1."));
     let err = stderr.to_string();
@@ -592,13 +586,13 @@ fn create_silent_tty_suppresses_prompts_and_status() {
 }
 
 #[test]
-fn create_tty_status_indicator_success() {
+fn send_tty_status_indicator_success() {
     let (mut deps, _stdout, stderr) = TestDepsBuilder::new()
         .read_pass(&["my secret"])
         .is_tty(true)
-        .mock_create(Ok(mock_create_response()))
+        .mock_create(Ok(mock_send_response()))
         .build();
-    let code = cli::run(&args(&["secrt", "create"]), &mut deps);
+    let code = cli::run(&args(&["secrt", "send"]), &mut deps);
     assert_eq!(code, 0, "stderr: {}", stderr.to_string());
     let err = stderr.to_string();
     // Should contain both the in-progress and success indicators
@@ -616,9 +610,9 @@ fn create_tty_status_indicator_success() {
 }
 
 #[test]
-fn create_show_empty_input_errors() {
+fn send_show_empty_input_errors() {
     let (mut deps, _stdout, stderr) = TestDepsBuilder::new().stdin(b"\n").is_tty(true).build();
-    let code = cli::run(&args(&["secrt", "create", "--show"]), &mut deps);
+    let code = cli::run(&args(&["secrt", "send", "--show"]), &mut deps);
     assert_eq!(code, 2, "stderr: {}", stderr.to_string());
     assert!(
         stderr.to_string().contains("empty"),
@@ -628,15 +622,15 @@ fn create_show_empty_input_errors() {
 }
 
 #[test]
-fn create_passphrase_conflicting_flags() {
+fn send_passphrase_conflicting_flags() {
     let (mut deps, _stdout, stderr) = TestDepsBuilder::new()
         .stdin(b"my secret")
         .env("MY_PASS", "pass123")
         .read_pass(&["pass123", "pass123"])
-        .mock_create(Ok(mock_create_response()))
+        .mock_create(Ok(mock_send_response()))
         .build();
     let code = cli::run(
-        &args(&["secrt", "create", "-p", "--passphrase-env", "MY_PASS"]),
+        &args(&["secrt", "send", "-p", "--passphrase-env", "MY_PASS"]),
         &mut deps,
     );
     assert_eq!(code, 2);
@@ -648,13 +642,13 @@ fn create_passphrase_conflicting_flags() {
 }
 
 #[test]
-fn create_api_error_tty_silent() {
+fn send_api_error_tty_silent() {
     let (mut deps, _stdout, stderr) = TestDepsBuilder::new()
         .read_pass(&["my secret"])
         .is_tty(true)
         .mock_create(Err("server error (500): internal error".into()))
         .build();
-    let code = cli::run(&args(&["secrt", "create", "--silent"]), &mut deps);
+    let code = cli::run(&args(&["secrt", "send", "--silent"]), &mut deps);
     assert_eq!(code, 1);
     let err = stderr.to_string();
     assert!(
@@ -670,29 +664,29 @@ fn create_api_error_tty_silent() {
 }
 
 #[test]
-fn create_success_tty_stdout_shows_link() {
+fn send_success_tty_stdout_shows_link() {
     let (mut deps, stdout, stderr) = TestDepsBuilder::new()
         .read_pass(&["my secret"])
         .is_tty(true)
         .is_stdout_tty(true)
-        .mock_create(Ok(mock_create_response()))
+        .mock_create(Ok(mock_send_response()))
         .build();
-    let code = cli::run(&args(&["secrt", "create"]), &mut deps);
+    let code = cli::run(&args(&["secrt", "send"]), &mut deps);
     assert_eq!(code, 0, "stderr: {}", stderr.to_string());
     let out = stdout.to_string();
     assert!(out.contains("#v1."), "should show share link: {}", out);
 }
 
 #[test]
-fn create_tty_status_shows_with_passphrase() {
+fn send_tty_status_shows_with_passphrase() {
     let (mut deps, _stdout, stderr) = TestDepsBuilder::new()
         .read_pass(&["my secret"])
         .is_tty(true)
         .env("MY_PASS", "testpass")
-        .mock_create(Ok(mock_create_response()))
+        .mock_create(Ok(mock_send_response()))
         .build();
     let code = cli::run(
-        &args(&["secrt", "create", "--passphrase-env", "MY_PASS"]),
+        &args(&["secrt", "send", "--passphrase-env", "MY_PASS"]),
         &mut deps,
     );
     assert_eq!(code, 0, "stderr: {}", stderr.to_string());
@@ -705,13 +699,13 @@ fn create_tty_status_shows_with_passphrase() {
 }
 
 #[test]
-fn create_tty_status_no_passphrase_message_without_passphrase() {
+fn send_tty_status_no_passphrase_message_without_passphrase() {
     let (mut deps, _stdout, stderr) = TestDepsBuilder::new()
         .read_pass(&["my secret"])
         .is_tty(true)
-        .mock_create(Ok(mock_create_response()))
+        .mock_create(Ok(mock_send_response()))
         .build();
-    let code = cli::run(&args(&["secrt", "create"]), &mut deps);
+    let code = cli::run(&args(&["secrt", "send"]), &mut deps);
     assert_eq!(code, 0, "stderr: {}", stderr.to_string());
     let err = stderr.to_string();
     assert!(

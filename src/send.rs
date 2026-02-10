@@ -1,12 +1,12 @@
 use std::fs;
 use std::io::{Read, Write};
 
-use crate::cli::{parse_flags, print_create_help, resolve_globals, CliError, Deps, ParsedArgs};
+use crate::cli::{parse_flags, print_send_help, resolve_globals, CliError, Deps, ParsedArgs};
 use crate::client::CreateRequest;
 use crate::color::{color_func, DIM, LABEL, SUCCESS, URL, WARN};
 use crate::envelope::{self, format_share_link, SealParams};
 use crate::gen::generate_password_from_args;
-use crate::passphrase::{resolve_passphrase_for_create, write_error};
+use crate::passphrase::{resolve_passphrase_for_send, write_error};
 
 fn is_gen_mode(pa: &ParsedArgs) -> bool {
     pa.args
@@ -15,11 +15,11 @@ fn is_gen_mode(pa: &ParsedArgs) -> bool {
         .unwrap_or(false)
 }
 
-pub fn run_create(args: &[String], deps: &mut Deps) -> i32 {
+pub fn run_send(args: &[String], deps: &mut Deps) -> i32 {
     let mut pa = match parse_flags(args) {
         Ok(pa) => pa,
         Err(CliError::ShowHelp) => {
-            print_create_help(deps);
+            print_send_help(deps);
             return 0;
         }
         Err(CliError::Error(e)) => {
@@ -75,7 +75,7 @@ pub fn run_create(args: &[String], deps: &mut Deps) -> i32 {
     };
 
     // Resolve passphrase
-    let passphrase = match resolve_passphrase_for_create(&pa, deps) {
+    let passphrase = match resolve_passphrase_for_send(&pa, deps) {
         Ok(p) => p,
         Err(e) => {
             write_error(&mut deps.stderr, pa.json, (deps.is_tty)(), &e);
@@ -229,7 +229,7 @@ fn read_plaintext(pa: &ParsedArgs, deps: &mut Deps) -> Result<Vec<u8>, String> {
 
     if gen_mode {
         if pa.gen_count > 1 {
-            return Err("--count cannot be used with create".into());
+            return Err("--count cannot be used with send".into());
         }
         let password = generate_password_from_args(pa, &*deps.rand_bytes)?;
         return Ok(password.into_bytes());

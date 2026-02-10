@@ -1,14 +1,14 @@
 pub mod burn;
-pub mod claim;
 pub mod cli;
 pub mod client;
 pub mod color;
 pub mod completion;
 pub mod config;
-pub mod create;
 pub mod envelope;
 pub mod fileutil;
 pub mod gen;
+pub mod get;
 pub mod keychain;
 pub mod mime;
 pub mod passphrase;
+pub mod send;

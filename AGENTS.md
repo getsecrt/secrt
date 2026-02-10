@@ -26,8 +26,8 @@ Reference those files directly; do NOT copy spec content here.
 src/
 ├── main.rs          # Wires real dependencies, calls run()
 ├── cli.rs           # Arg parsing, command dispatch, help text
-├── create.rs        # create command
-├── claim.rs         # claim command
+├── send.rs          # send command
+├── get.rs           # get command
 ├── burn.rs          # burn command
 ├── client.rs        # HTTP API client (ureq)
 ├── passphrase.rs    # Passphrase resolution

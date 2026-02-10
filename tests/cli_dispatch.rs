@@ -66,21 +66,21 @@ fn help_command() {
 }
 
 #[test]
-fn help_create() {
+fn help_send() {
     let (mut deps, _stdout, stderr) = TestDepsBuilder::new().build();
-    let code = cli::run(&args(&["secrt", "help", "create"]), &mut deps);
+    let code = cli::run(&args(&["secrt", "help", "send"]), &mut deps);
     assert_eq!(code, 0);
     let err = stderr.to_string();
-    assert!(err.contains("create") || err.contains("Encrypt"));
+    assert!(err.contains("send") || err.contains("Encrypt"));
 }
 
 #[test]
-fn help_claim() {
+fn help_get() {
     let (mut deps, _stdout, stderr) = TestDepsBuilder::new().build();
-    let code = cli::run(&args(&["secrt", "help", "claim"]), &mut deps);
+    let code = cli::run(&args(&["secrt", "help", "get"]), &mut deps);
     assert_eq!(code, 0);
     let err = stderr.to_string();
-    assert!(err.contains("claim") || err.contains("Retrieve"));
+    assert!(err.contains("get") || err.contains("Retrieve"));
 }
 
 #[test]
@@ -600,6 +600,53 @@ fn config_help_shows_passphrase_subcommands() {
         err.contains("delete-passphrase"),
         "config help should list delete-passphrase: {}",
         err
+    );
+}
+
+// --- Old verb rejection tests (no aliases for removed commands) ---
+
+#[test]
+fn old_verb_create_rejected() {
+    let (mut deps, _stdout, stderr) = TestDepsBuilder::new().build();
+    let code = cli::run(&args(&["secrt", "create"]), &mut deps);
+    assert_eq!(code, 2, "old 'create' command should be rejected");
+    let err = stderr.to_string();
+    assert!(
+        err.contains("unknown command"),
+        "should show unknown command error: {}",
+        err
+    );
+}
+
+#[test]
+fn old_verb_claim_rejected() {
+    let (mut deps, _stdout, stderr) = TestDepsBuilder::new().build();
+    let code = cli::run(
+        &args(&["secrt", "claim", "https://secrt.ca/s/abc123#v1.key"]),
+        &mut deps,
+    );
+    assert_eq!(code, 2, "old 'claim' command should be rejected");
+    let err = stderr.to_string();
+    assert!(
+        err.contains("unknown command"),
+        "should show unknown command error: {}",
+        err
+    );
+}
+
+#[test]
+fn old_verb_gen_create_not_combined() {
+    // `gen create` should NOT trigger combined mode (only `gen send` does).
+    // `gen` ignores unknown positional args and just generates a password.
+    let (mut deps, stdout, _stderr) = TestDepsBuilder::new().build();
+    let code = cli::run(&args(&["secrt", "gen", "create"]), &mut deps);
+    assert_eq!(code, 0, "gen ignores unknown positional args");
+    // Should produce a password (gen output), not a share link
+    let out = stdout.to_string();
+    assert!(
+        !out.contains("#v1."),
+        "gen create should NOT create a secret: {}",
+        out
     );
 }
 

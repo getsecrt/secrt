@@ -50,19 +50,19 @@ secrt completion fish | source
 
 ```sh
 # Share a secret (interactive, hidden input)
-secrt create
+secrt send
 
 # Share with visible input and a TTL
-secrt create --show --ttl 5m
+secrt send --show --ttl 5m
 
 # Pipe in a secret
-echo "s3cret-password" | secrt create
+echo "s3cret-password" | secrt send
 
 # Share with passphrase protection
-echo "s3cret-password" | secrt create -p --ttl 5m
+echo "s3cret-password" | secrt send -p --ttl 5m
 
 # Claim a secret (auto-prompts for passphrase if needed)
-secrt claim https://secrt.ca/s/abc123#v1.key...
+secrt get https://secrt.ca/s/abc123#v1.key...
 
 # Burn a secret (requires API key)
 secrt burn abc123 --api-key sk_prefix.secret
@@ -70,10 +70,10 @@ secrt burn abc123 --api-key sk_prefix.secret
 
 ## Commands
 
-### `create` — Encrypt and upload a secret
+### `send` — Encrypt and upload a secret
 
 ```
-secrt create [options]
+secrt send [options]
 ```
 
 Reads the secret interactively on a TTY, or from **stdin** when piped. Use `--text` or `--file` for alternatives (exactly one input source).
@@ -97,34 +97,34 @@ Reads the secret interactively on a TTY, or from **stdin** when piped. Use `--te
 
 ```sh
 # Interactive single-line (hidden input, like a password)
-secrt create
+secrt send
 
 # Interactive with visible input
-secrt create --show
+secrt send --show
 
 # Multi-line input (Ctrl+D to finish)
-secrt create -m
+secrt send -m
 
 # Pipe in a secret
-echo "database-password" | secrt create
+echo "database-password" | secrt send
 
 # From a file, expires in 1 hour
-secrt create --file ./credentials.txt --ttl 1h
+secrt send --file ./credentials.txt --ttl 1h
 
 # With passphrase protection
-cat key.pem | secrt create -p --ttl 30m
+cat key.pem | secrt send -p --ttl 30m
 
 # JSON output for scripting
-echo "token" | secrt create --json --ttl 5m
+echo "token" | secrt send --json --ttl 5m
 ```
 
-### `claim` — Retrieve and decrypt a secret
+### `get` — Retrieve and decrypt a secret
 
 ```
-secrt claim <share-url> [options]
+secrt get <share-url> [options]
 ```
 
-If the secret is passphrase-protected and a TTY is attached, `claim` automatically prompts for the passphrase with unlimited retries. For non-interactive use, provide the passphrase via `--passphrase-env` or `--passphrase-file`.
+If the secret is passphrase-protected and a TTY is attached, `get` automatically prompts for the passphrase with unlimited retries. For non-interactive use, provide the passphrase via `--passphrase-env` or `--passphrase-file`.
 
 | Option | Description |
 |---|---|
@@ -138,16 +138,16 @@ If the secret is passphrase-protected and a TTY is attached, `claim` automatical
 
 ```sh
 # Claim a secret (auto-prompts for passphrase if needed)
-secrt claim https://secrt.ca/s/abc123#v1.key...
+secrt get https://secrt.ca/s/abc123#v1.key...
 
 # Explicitly prompt for passphrase
-secrt claim https://secrt.ca/s/abc123#v1.key... -p
+secrt get https://secrt.ca/s/abc123#v1.key... -p
 
 # Passphrase from env (non-interactive)
-secrt claim https://secrt.ca/s/abc123#v1.key... --passphrase-env MY_PASS
+secrt get https://secrt.ca/s/abc123#v1.key... --passphrase-env MY_PASS
 
 # Pipe to a file
-secrt claim https://secrt.ca/s/abc123#v1.key... > secret.txt
+secrt get https://secrt.ca/s/abc123#v1.key... > secret.txt
 ```
 
 ### `burn` — Destroy a secret
@@ -199,7 +199,7 @@ Settings can be persisted in a TOML config file so you don't need to pass flags 
 **Location:** `~/.config/secrt/config.toml` (or `$XDG_CONFIG_HOME/secrt/config.toml`)
 
 ```toml
-# API key for authenticated access (create, burn)
+# API key for authenticated access (send, burn)
 api_key = "sk_live_abc123"
 
 # Custom server URL (default: https://secrt.ca)

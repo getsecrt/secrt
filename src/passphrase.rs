@@ -72,8 +72,8 @@ pub fn resolve_passphrase(args: &ParsedArgs, deps: &mut Deps) -> Result<String, 
     Ok(p)
 }
 
-/// Like resolve_passphrase but prompts for confirmation on create.
-pub fn resolve_passphrase_for_create(args: &ParsedArgs, deps: &mut Deps) -> Result<String, String> {
+/// Like resolve_passphrase but prompts for confirmation on send.
+pub fn resolve_passphrase_for_send(args: &ParsedArgs, deps: &mut Deps) -> Result<String, String> {
     // Check for conflicting flags first
     let mut count = 0;
     if args.passphrase_prompt {
@@ -346,10 +346,10 @@ mod tests {
             .contains("--no-passphrase cannot be combined"));
     }
 
-    // --- resolve_passphrase_for_create tests ---
+    // --- resolve_passphrase_for_send tests ---
 
     #[test]
-    fn create_prompt_match() {
+    fn send_prompt_match() {
         let mut deps = make_deps(
             HashMap::new(),
             vec!["pass123".into(), "pass123".into()],
@@ -357,12 +357,12 @@ mod tests {
         );
         let mut pa = ParsedArgs::default();
         pa.passphrase_prompt = true;
-        let result = resolve_passphrase_for_create(&pa, &mut deps).unwrap();
+        let result = resolve_passphrase_for_send(&pa, &mut deps).unwrap();
         assert_eq!(result, "pass123");
     }
 
     #[test]
-    fn create_prompt_mismatch() {
+    fn send_prompt_mismatch() {
         let mut deps = make_deps(
             HashMap::new(),
             vec!["pass123".into(), "different".into()],
@@ -370,49 +370,49 @@ mod tests {
         );
         let mut pa = ParsedArgs::default();
         pa.passphrase_prompt = true;
-        let err = resolve_passphrase_for_create(&pa, &mut deps);
+        let err = resolve_passphrase_for_send(&pa, &mut deps);
         assert!(err.is_err());
         assert!(err.unwrap_err().contains("do not match"));
     }
 
     #[test]
-    fn create_prompt_empty() {
+    fn send_prompt_empty() {
         let mut deps = make_deps(HashMap::new(), vec!["".into()], None);
         let mut pa = ParsedArgs::default();
         pa.passphrase_prompt = true;
-        let err = resolve_passphrase_for_create(&pa, &mut deps);
+        let err = resolve_passphrase_for_send(&pa, &mut deps);
         assert!(err.is_err());
         assert!(err.unwrap_err().contains("must not be empty"));
     }
 
     #[test]
-    fn create_multiple_flags_error() {
+    fn send_multiple_flags_error() {
         let mut deps = default_deps();
         let mut pa = ParsedArgs::default();
         pa.passphrase_prompt = true;
         pa.passphrase_env = "MY_VAR".into();
-        let err = resolve_passphrase_for_create(&pa, &mut deps);
+        let err = resolve_passphrase_for_send(&pa, &mut deps);
         assert!(err.is_err());
         assert!(err.unwrap_err().contains("at most one"));
     }
 
     #[test]
-    fn create_no_passphrase_skips_default() {
+    fn send_no_passphrase_skips_default() {
         let mut deps = default_deps();
         let mut pa = ParsedArgs::default();
         pa.passphrase_default = "from-config".into();
         pa.no_passphrase = true;
-        let result = resolve_passphrase_for_create(&pa, &mut deps).unwrap();
-        assert_eq!(result, "", "--no-passphrase should skip default on create");
+        let result = resolve_passphrase_for_send(&pa, &mut deps).unwrap();
+        assert_eq!(result, "", "--no-passphrase should skip default on send");
     }
 
     #[test]
-    fn create_no_passphrase_conflicts_with_prompt() {
+    fn send_no_passphrase_conflicts_with_prompt() {
         let mut deps = default_deps();
         let mut pa = ParsedArgs::default();
         pa.no_passphrase = true;
         pa.passphrase_prompt = true;
-        let err = resolve_passphrase_for_create(&pa, &mut deps);
+        let err = resolve_passphrase_for_send(&pa, &mut deps);
         assert!(err.is_err());
         assert!(err
             .unwrap_err()

@@ -1,17 +1,17 @@
 use std::fs;
 use std::io::Write;
 
-use crate::cli::{parse_flags, print_claim_help, resolve_globals, CliError, Deps};
+use crate::cli::{parse_flags, print_get_help, resolve_globals, CliError, Deps};
 use crate::color::{color_func, DIM, LABEL, SUCCESS, WARN};
 use crate::envelope::{self, EnvelopeError, OpenParams};
 use crate::fileutil::{extract_file_hint, resolve_output_path};
 use crate::passphrase::{resolve_passphrase, write_error};
 
-pub fn run_claim(args: &[String], deps: &mut Deps) -> i32 {
+pub fn run_get(args: &[String], deps: &mut Deps) -> i32 {
     let mut pa = match parse_flags(args) {
         Ok(pa) => pa,
         Err(CliError::ShowHelp) => {
-            print_claim_help(deps);
+            print_get_help(deps);
             return 0;
         }
         Err(CliError::Error(e)) => {
@@ -92,7 +92,7 @@ pub fn run_claim(args: &[String], deps: &mut Deps) -> i32 {
                 &mut deps.stderr,
                 pa.json,
                 (deps.is_tty)(),
-                &format!("claim failed: {}", e),
+                &format!("get failed: {}", e),
             );
             return 1;
         }
