@@ -112,7 +112,7 @@ jobs:
           azure-client-id: ${{ secrets.AZURE_CLIENT_ID }}
           azure-client-secret: ${{ secrets.AZURE_CLIENT_SECRET }}
           endpoint: https://wus.codesigning.azure.net/
-          signing-account-name: jdlien-signing
+          trusted-signing-account-name: jdlien-signing
           certificate-profile-name: jdlien-public-trust
           files: ${{ github.workspace }}/target/${{ matrix.target }}/release/secrt.exe
 
