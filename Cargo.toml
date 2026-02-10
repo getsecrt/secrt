@@ -2,7 +2,9 @@
 name = "secrt"
 version = "0.3.0"
 edition = "2021"
+rust-version = "1.82"
 repository = "https://github.com/getsecrt/secrt-rs"
+license = "MIT"
 
 [dependencies]
 ring = "0.17"

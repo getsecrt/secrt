@@ -6,6 +6,12 @@
   </picture>
 </p>
 
+<p align="center">
+  <a href="https://github.com/getsecrt/secrt-rs/actions/workflows/ci.yml"><img src="https://github.com/getsecrt/secrt-rs/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+  <img src="https://img.shields.io/badge/MSRV-1.82-blue" alt="MSRV: 1.82">
+  <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-yellow.svg" alt="License: MIT"></a>
+</p>
+
 # secrt
 
 A fast, minimal CLI for [secrt.ca](https://secrt.ca) — one-time secret sharing with zero-knowledge client-side encryption.
