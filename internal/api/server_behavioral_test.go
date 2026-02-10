@@ -535,6 +535,14 @@ func TestCreateSecret_OversizeBodyRejected(t *testing.T) {
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("expected 400 for oversize body, got %d", rec.Code)
 	}
+
+	var errResp struct{ Error string }
+	if err := json.NewDecoder(rec.Body).Decode(&errResp); err != nil {
+		t.Fatalf("decode error response: %v", err)
+	}
+	if !strings.Contains(errResp.Error, "envelope exceeds maximum size") {
+		t.Errorf("expected size error message, got %q", errResp.Error)
+	}
 }
 
 func TestCreateSecret_ContentTypeWithCharset(t *testing.T) {

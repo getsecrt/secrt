@@ -218,6 +218,11 @@ func (s *Server) handleCreateSecret(w http.ResponseWriter, r *http.Request, auth
 
 	var req CreateSecretRequest
 	if err := dec.Decode(&req); err != nil {
+		var maxBytesErr *http.MaxBytesError
+		if errors.As(err, &maxBytesErr) {
+			badRequest(w, fmt.Sprintf("envelope exceeds maximum size (%s)", secrets.FormatBytes(maxEnvelopeBytes)))
+			return
+		}
 		badRequest(w, mapDecodeError(err))
 		return
 	}
