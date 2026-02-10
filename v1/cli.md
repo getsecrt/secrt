@@ -274,6 +274,7 @@ Behavior:
    - When stdin is piped or redirected (non-TTY), the CLI MUST read all bytes until EOF regardless of flags.
    - Empty input MUST be rejected.
 2. CLI performs envelope creation per `spec/v1/envelope.md`.
+   - When `--file` is used, implementations SHOULD populate the envelope `hint` field with file metadata (`type: "file"`, `filename`, `mime`) as defined in `spec/v1/envelope.md`. This enables file-aware behavior on claim.
 3. CLI computes `claim_hash = base64url(sha256(claim_token_bytes))`.
 4. CLI sends create request:
    - Anonymous: `POST /api/v1/public/secrets`
@@ -305,6 +306,7 @@ Usage:
 
 ```bash
 secrt claim <share-url> [--base-url <url>] [--json] [--silent]
+                        [--output <path> | -o <path>]
                         [-p | --passphrase-prompt | --passphrase-env <name> | --passphrase-file <path>]
 ```
 
@@ -327,11 +329,15 @@ After claiming the envelope from the server, implementations SHOULD inspect the 
 
 Output:
 
-- Default mode: print plaintext to stdout only.
-  - When stdout is a TTY, implementations SHOULD print a brief label (e.g., `"Secret:"`) to stderr before the plaintext, so the output is clearly identified as the decrypted secret rather than an error or status message.
-  - When stdout is a TTY and the plaintext does not end with a newline (`\n`), implementations SHOULD append a trailing newline for clean terminal display (avoids shell prompt artifacts like zsh's `%` indicator).
-  - When stdout is piped or redirected, the raw decrypted bytes MUST be written exactly as-is with no modification, and no label MUST be printed, to preserve secret integrity for binary secrets or downstream consumers.
-- `--json` mode: SHOULD avoid embedding plaintext unless explicitly requested by implementation, to reduce accidental logging exposure.
+Output behavior follows a decision matrix based on flags, envelope hints, and terminal state:
+
+1. `--json`: JSON output to stdout. When the envelope contains a file `hint`, include `filename`, `mime`, and `type` fields. For non-UTF-8 binary data, use `plaintext_base64` (standard base64) instead of `plaintext`.
+2. `--output -` (or `-o -`): write raw decrypted bytes to stdout with no label or framing.
+3. `--output <path>` (or `-o <path>`): write decrypted bytes to the specified file path. Print a success message to stderr (e.g., `✓ Saved to <path> (mime, N bytes)`).
+4. File hint present + stdout is TTY: auto-save to `./<hint.filename>` in the current directory. If the filename already exists, implementations SHOULD deconflict (e.g., `file (1).ext`). Print a success message to stderr. Implementations MUST sanitize `hint.filename` before use (strip path separators, control characters, leading dots; limit length).
+5. No file hint + stdout is TTY + plaintext is non-UTF-8 binary: auto-save to a default filename (e.g., `secret.bin`) and print a success message to stderr. Implementations MUST NOT dump raw binary bytes to a TTY, as the secret is already burned and cannot be re-claimed.
+6. Stdout is piped or redirected: write raw decrypted bytes exactly as-is with no label or modification, to preserve secret integrity for binary secrets or downstream consumers.
+7. No hint + stdout is TTY + plaintext is valid UTF-8: print a brief label (e.g., `"Secret:"`) to stderr, then print plaintext to stdout. If the plaintext does not end with a newline (`\n`), implementations SHOULD append a trailing newline for clean terminal display.
 
 ## `burn` (optional)
 
