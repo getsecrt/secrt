@@ -896,7 +896,7 @@ pub fn print_help(deps: &mut Deps) {
             ("get", "Retrieve and decrypt a secret"),
             ("burn", "Destroy a secret (requires API key)"),
             ("gen", "Generate a random password"),
-            ("config", "Show config / init / path"),
+            ("config", "Show or initialize configuration"),
             ("version", "Show version"),
             ("help", "Show this help"),
             ("completion", "Output shell completion script"),
@@ -920,11 +920,17 @@ pub fn print_help(deps: &mut Deps) {
         ],
     );
     let _ = writeln!(w, "\n{}", c(HEADING, "EXAMPLES"));
+    let _ = writeln!(w, "  {} Share a secret from stdin:", c(DIM, "#"));
     let _ = writeln!(
         w,
         "  echo \"pw123\" | {} {}",
         c(CMD, "secrt"),
         c(CMD, "send")
+    );
+    let _ = writeln!(
+        w,
+        "\n  {} Generate and share a 32-char password (1h TTL):",
+        c(DIM, "#")
     );
     let _ = writeln!(
         w,
@@ -934,30 +940,8 @@ pub fn print_help(deps: &mut Deps) {
         c(OPT, "-L"),
         c(OPT, "--ttl")
     );
+    let _ = writeln!(w, "\n  {} Retrieve a secret:", c(DIM, "#"));
     let _ = writeln!(w, "  {} https://secrt.ca/s/abc#v1.key", c(CMD, "secrt get"));
-    let _ = writeln!(w, "\n{}", c(HEADING, "CONFIG"));
-    write_cmd_rows(
-        w,
-        &c,
-        &[
-            ("config init [--force]", "Create template config file"),
-            ("config path", "Print config file path"),
-        ],
-    );
-    let _ = writeln!(
-        w,
-        "  Settings are loaded from {}.",
-        c(DIM, "~/.config/secrt/config.toml")
-    );
-    let _ = writeln!(
-        w,
-        "  Supported keys: api_key, base_url, default_ttl, passphrase,"
-    );
-    let _ = writeln!(w, "  decryption_passphrases, show_input.");
-    let _ = writeln!(
-        w,
-        "  Precedence: CLI flag > env var > config file > default."
-    );
 }
 
 pub fn print_send_help(deps: &mut Deps) {
