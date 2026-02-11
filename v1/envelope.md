@@ -142,7 +142,7 @@ Unknown fields:
 
 The shared link format is:
 
-`https://<host>/s/<id>#v1.<url_key_b64>`
+`https://<host>/s/<id>#<url_key_b64>`
 
 - `<url_key_b64>` MUST decode to exactly 32 random bytes.
 - The fragment MUST NOT include passphrase/PIN.
@@ -197,19 +197,19 @@ Steps:
     - `envelope` (JSON object from step 8)
     - `claim_hash` (step 10)
 12. Share:
-    - URL with fragment `#v1.<base64url(url_key)>`
+    - URL with fragment `#<base64url(url_key)>`
     - passphrase separately if used
 
 ## Claim + Decrypt Flow (Normative)
 
 Inputs:
 
-- URL fragment `#v1.<url_key_b64>`
+- URL fragment `#<url_key_b64>`
 - Optional passphrase
 
 Steps:
 
-1. Decode `url_key_b64` from fragment and enforce 32 bytes.
+1. Decode `url_key_b64` from the URL fragment and enforce 32 bytes.
 2. Derive claim token (from `url_key` alone):
    - `claim_token_bytes = HKDF-SHA-256(url_key, nil, "secret:v1:claim", 32)`
 3. Claim API call:

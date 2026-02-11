@@ -52,19 +52,19 @@ Built-in commands:
 
 ### Implicit `get` from Share URL
 
-When the first positional argument is not a recognized command but contains the fragment `#v1.` (indicating a share URL or bare ID with fragment), the CLI MUST treat the invocation as `secrt get <arg> [remaining args...]`. This allows users to run:
+When the first positional argument is not a recognized command but contains a `#` followed by a base64url string of at least 22 characters (indicating a share URL or bare ID with fragment), the CLI MUST treat the invocation as `secrt get <arg> [remaining args...]`. This allows users to run:
 
 ```bash
-secrt https://secrt.ca/s/abc123#v1.key...
+secrt https://secrt.ca/s/abc123#key...
 ```
 
 as shorthand for:
 
 ```bash
-secrt get https://secrt.ca/s/abc123#v1.key...
+secrt get https://secrt.ca/s/abc123#key...
 ```
 
-The detection MUST be based solely on the presence of `#v1.` in the first argument. Full URL validation is deferred to the `get` command's normal parsing.
+The detection MUST be based on the presence of `#` followed by a base64url string (characters `[A-Za-z0-9_-]`) of at least 22 characters. The 22-character threshold (16 bytes in base64url) prevents false positives on short fragments while remaining well below the actual 43-character key length. Full URL validation is deferred to the `get` command's normal parsing.
 
 Operational/admin API-key management commands are implementation-specific and out of scope for this client-interoperability spec.
 
@@ -285,7 +285,7 @@ Behavior:
    - Anonymous: `POST /api/v1/public/secrets`
    - Authenticated (`--api-key` set): `POST /api/v1/secrets`
 5. CLI outputs a share link containing the URL fragment key:
-   - `<share_url>#v1.<url_key_b64>`
+   - `<share_url>#<url_key_b64>`
 
 Output:
 
@@ -319,7 +319,7 @@ secrt get <share-url> [--base-url <url>] [--json] [--silent]
 
 Behavior:
 
-1. Parse `<id>` from `/s/<id>` and parse fragment `#v1.<url_key_b64>`.
+1. Parse `<id>` from `/s/<id>` and decode `url_key_b64` from the URL fragment.
 2. Derive `claim_token_bytes` and `enc_key` per `spec/v1/envelope.md`.
 3. Send `POST /api/v1/secrets/{id}/claim` with `{ "claim": base64url(claim_token_bytes) }`.
 4. On `200`, decrypt locally and print plaintext.
