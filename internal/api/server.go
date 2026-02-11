@@ -258,14 +258,6 @@ func (s *Server) handleCreateSecret(w http.ResponseWriter, r *http.Request, auth
 
 	expiresAt := time.Now().UTC().Add(ttl)
 
-	// Generate a random ID server-side to prevent predictable IDs.
-	id, err := s.generateID()
-	if err != nil {
-		slog.Error("id generation error", "err", err)
-		internalServerError(w)
-		return
-	}
-
 	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
 	defer cancel()
 
@@ -295,15 +287,35 @@ func (s *Server) handleCreateSecret(w http.ResponseWriter, r *http.Request, auth
 		}
 	}
 
-	sec := storage.Secret{
-		ID:        id,
-		ClaimHash: req.ClaimHash,
-		Envelope:  req.Envelope,
-		ExpiresAt: expiresAt,
-		OwnerKey:  ownerKey,
-	}
+	// Generate a random ID and persist, retrying on the astronomically
+	// unlikely event of an ID collision.
+	const maxIDRetries = 3
+	var id string
+	for attempt := 0; ; attempt++ {
+		var err error
+		id, err = s.generateID()
+		if err != nil {
+			slog.Error("id generation error", "err", err)
+			internalServerError(w)
+			return
+		}
 
-	if err := s.secrets.Create(ctx, sec); err != nil {
+		sec := storage.Secret{
+			ID:        id,
+			ClaimHash: req.ClaimHash,
+			Envelope:  req.Envelope,
+			ExpiresAt: expiresAt,
+			OwnerKey:  ownerKey,
+		}
+
+		err = s.secrets.Create(ctx, sec)
+		if err == nil {
+			break
+		}
+		if errors.Is(err, storage.ErrDuplicateID) && attempt < maxIDRetries {
+			slog.Warn("id collision, retrying", "id", id, "attempt", attempt+1)
+			continue
+		}
 		slog.Error("create secret error", "err", err)
 		internalServerError(w)
 		return

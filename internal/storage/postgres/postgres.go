@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgconn"
 	"secrt/internal/storage"
 )
 
@@ -30,6 +31,10 @@ VALUES ($1, $2, $3::jsonb, $4, $5)`,
 		sec.OwnerKey,
 	)
 	if err != nil {
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
+			return storage.ErrDuplicateID
+		}
 		return fmt.Errorf("insert secret: %w", err)
 	}
 	return nil
