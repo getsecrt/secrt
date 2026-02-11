@@ -294,4 +294,65 @@ mod tests {
         let fh = extract_file_hint(&env).unwrap();
         assert_eq!(fh.mime, "application/octet-stream");
     }
+
+    #[test]
+    fn sanitize_multibyte_truncation() {
+        // é = 2 bytes in UTF-8. 254 + 2 = 256, over the 255-byte limit.
+        let s = "a".repeat(254) + "é";
+        assert_eq!(s.len(), 256);
+        let result = sanitize_filename(&s).unwrap();
+        assert!(result.len() <= 255);
+        // Should truncate at the char boundary: 254 (can't include the 2-byte char)
+        assert_eq!(result.len(), 254);
+    }
+
+    #[test]
+    fn sanitize_multibyte_exact_fit() {
+        // 253 + 2 = 255 bytes, fits exactly at the boundary
+        let s = "a".repeat(253) + "é";
+        assert_eq!(s.len(), 255);
+        let result = sanitize_filename(&s).unwrap();
+        assert_eq!(result.len(), 255);
+    }
+
+    #[test]
+    fn sanitize_multibyte_3byte_truncation() {
+        // 日 = 3 bytes in UTF-8. 254 + 3 = 257, over limit.
+        let s = "a".repeat(254) + "日";
+        assert_eq!(s.len(), 257);
+        let result = sanitize_filename(&s).unwrap();
+        assert!(result.len() <= 255);
+        assert_eq!(result.len(), 254);
+    }
+
+    // NOTE: resolve_output_path collision tests are in tests/cli_get.rs as integration
+    // tests because they depend on CWD manipulation, which races with parallel unit tests.
+
+    #[test]
+    fn extract_hint_missing_filename() {
+        let env = serde_json::json!({
+            "hint": {
+                "type": "file",
+                "mime": "text/plain"
+            }
+        });
+        assert!(extract_file_hint(&env).is_none());
+    }
+
+    #[test]
+    fn extract_hint_missing_type() {
+        let env = serde_json::json!({
+            "hint": {
+                "filename": "test.txt",
+                "mime": "text/plain"
+            }
+        });
+        assert!(extract_file_hint(&env).is_none());
+    }
+
+    #[test]
+    fn build_hint_root_path() {
+        // Path "/" has no file_name component
+        assert!(build_file_hint("/").is_none());
+    }
 }

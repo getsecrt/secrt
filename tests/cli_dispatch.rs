@@ -792,3 +792,363 @@ fn config_show_authenticated_server_info() {
         envelope_line
     );
 }
+
+// --- Keychain-based config show tests ---
+
+#[test]
+fn config_show_passphrase_from_keychain() {
+    let cfg_dir = setup_config("use_keychain = true\n");
+    let (mut deps, _stdout, stderr) = TestDepsBuilder::new()
+        .env("XDG_CONFIG_HOME", cfg_dir.to_str().unwrap())
+        .keychain_secret("passphrase", "kc-pass-secret")
+        .build();
+    let code = cli::run(&args(&["secrt", "config"]), &mut deps);
+    assert_eq!(code, 0);
+    let err = stderr.to_string();
+    assert!(
+        err.contains("keychain"),
+        "passphrase source should be keychain: {}",
+        err
+    );
+    assert!(
+        !err.contains("kc-pass-secret"),
+        "passphrase value should be masked: {}",
+        err
+    );
+    let _ = fs::remove_dir_all(&cfg_dir);
+}
+
+#[test]
+fn config_show_api_key_from_keychain() {
+    let cfg_dir = setup_config("use_keychain = true\n");
+    let (mut deps, _stdout, stderr) = TestDepsBuilder::new()
+        .env("XDG_CONFIG_HOME", cfg_dir.to_str().unwrap())
+        .keychain_secret("api_key", "sk_kc_abc123secret")
+        .build();
+    let code = cli::run(&args(&["secrt", "config"]), &mut deps);
+    assert_eq!(code, 0);
+    let err = stderr.to_string();
+    assert!(
+        err.contains("keychain"),
+        "api_key source should be keychain: {}",
+        err
+    );
+    assert!(
+        err.contains("sk_kc_ab"),
+        "api_key should show masked prefix: {}",
+        err
+    );
+    assert!(
+        !err.contains("abc123secret"),
+        "api_key should not show full value: {}",
+        err
+    );
+    let _ = fs::remove_dir_all(&cfg_dir);
+}
+
+#[test]
+fn config_show_use_keychain_from_config() {
+    let cfg_dir = setup_config("use_keychain = true\n");
+    let (mut deps, _stdout, stderr) = TestDepsBuilder::new()
+        .env("XDG_CONFIG_HOME", cfg_dir.to_str().unwrap())
+        .build();
+    let code = cli::run(&args(&["secrt", "config"]), &mut deps);
+    assert_eq!(code, 0);
+    let err = stderr.to_string();
+    assert!(
+        err.contains("use_keychain") && err.contains("true"),
+        "should show use_keychain: true: {}",
+        err
+    );
+    assert!(
+        err.contains("config file"),
+        "use_keychain source should be config file: {}",
+        err
+    );
+    let _ = fs::remove_dir_all(&cfg_dir);
+}
+
+#[test]
+fn config_show_decryption_passphrases_from_keychain_and_config() {
+    let cfg_dir = setup_config("use_keychain = true\ndecryption_passphrases = [\"config-pass\"]\n");
+    let (mut deps, _stdout, stderr) = TestDepsBuilder::new()
+        .env("XDG_CONFIG_HOME", cfg_dir.to_str().unwrap())
+        .keychain_secret_list("decryption_passphrases", &["kc-pass1", "kc-pass2"])
+        .build();
+    let code = cli::run(&args(&["secrt", "config"]), &mut deps);
+    assert_eq!(code, 0);
+    let err = stderr.to_string();
+    assert!(
+        err.contains("keychain + config file"),
+        "should show combined source: {}",
+        err
+    );
+    assert!(
+        err.contains("3 entries"),
+        "should show merged count: {}",
+        err
+    );
+    let _ = fs::remove_dir_all(&cfg_dir);
+}
+
+#[test]
+fn config_show_passphrase_not_set() {
+    let cfg_dir = setup_config("base_url = \"https://ok.com\"\n");
+    let (mut deps, _stdout, stderr) = TestDepsBuilder::new()
+        .env("XDG_CONFIG_HOME", cfg_dir.to_str().unwrap())
+        .build();
+    let code = cli::run(&args(&["secrt", "config"]), &mut deps);
+    assert_eq!(code, 0);
+    let err = stderr.to_string();
+    assert!(
+        err.contains("passphrase") && err.contains("(not set)"),
+        "passphrase should show (not set): {}",
+        err
+    );
+    let _ = fs::remove_dir_all(&cfg_dir);
+}
+
+#[test]
+fn config_show_api_key_not_set() {
+    let cfg_dir = setup_config("base_url = \"https://ok.com\"\n");
+    let (mut deps, _stdout, stderr) = TestDepsBuilder::new()
+        .env("XDG_CONFIG_HOME", cfg_dir.to_str().unwrap())
+        .build();
+    let code = cli::run(&args(&["secrt", "config"]), &mut deps);
+    assert_eq!(code, 0);
+    let err = stderr.to_string();
+    assert!(
+        err.contains("api_key") && err.contains("(not set)"),
+        "api_key should show (not set): {}",
+        err
+    );
+    let _ = fs::remove_dir_all(&cfg_dir);
+}
+
+#[test]
+fn config_show_passphrase_from_config_file() {
+    let cfg_dir = setup_config("passphrase = \"my-config-pass\"\n");
+    let (mut deps, _stdout, stderr) = TestDepsBuilder::new()
+        .env("XDG_CONFIG_HOME", cfg_dir.to_str().unwrap())
+        .build();
+    let code = cli::run(&args(&["secrt", "config"]), &mut deps);
+    assert_eq!(code, 0);
+    let err = stderr.to_string();
+    assert!(
+        err.contains("config file"),
+        "passphrase source should be config file: {}",
+        err
+    );
+    assert!(
+        !err.contains("my-config-pass"),
+        "passphrase value should be masked: {}",
+        err
+    );
+    let _ = fs::remove_dir_all(&cfg_dir);
+}
+
+#[test]
+fn config_show_api_key_from_config_file() {
+    let cfg_dir = setup_config("api_key = \"sk_test_fromcfg\"\n");
+    let (mut deps, _stdout, stderr) = TestDepsBuilder::new()
+        .env("XDG_CONFIG_HOME", cfg_dir.to_str().unwrap())
+        .build();
+    let code = cli::run(&args(&["secrt", "config"]), &mut deps);
+    assert_eq!(code, 0);
+    let err = stderr.to_string();
+    assert!(
+        err.contains("config file"),
+        "api_key source should be config file: {}",
+        err
+    );
+    assert!(
+        err.contains("sk_test_"),
+        "api_key should show masked prefix: {}",
+        err
+    );
+    let _ = fs::remove_dir_all(&cfg_dir);
+}
+
+#[test]
+fn config_show_no_config_file() {
+    // Point to a dir with no config file
+    let dir = std::env::temp_dir().join(format!(
+        "secrt_no_config_{}",
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    ));
+    let _ = fs::create_dir_all(&dir);
+    let (mut deps, _stdout, stderr) = TestDepsBuilder::new()
+        .env("XDG_CONFIG_HOME", dir.to_str().unwrap())
+        .build();
+    let code = cli::run(&args(&["secrt", "config"]), &mut deps);
+    assert_eq!(code, 0);
+    let err = stderr.to_string();
+    assert!(
+        err.contains("(not found)"),
+        "should show (not found) for missing config: {}",
+        err
+    );
+    assert!(
+        err.contains("config init"),
+        "should suggest config init: {}",
+        err
+    );
+    let _ = fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn config_show_show_input_from_config() {
+    let cfg_dir = setup_config("show_input = true\n");
+    let (mut deps, _stdout, stderr) = TestDepsBuilder::new()
+        .env("XDG_CONFIG_HOME", cfg_dir.to_str().unwrap())
+        .build();
+    let code = cli::run(&args(&["secrt", "config"]), &mut deps);
+    assert_eq!(code, 0);
+    let err = stderr.to_string();
+    assert!(
+        err.contains("show_input") && err.contains("true") && err.contains("config file"),
+        "show_input should show true from config file: {}",
+        err
+    );
+    let _ = fs::remove_dir_all(&cfg_dir);
+}
+
+// --- Additional dispatch tests ---
+
+#[test]
+fn help_gen() {
+    let (mut deps, _stdout, stderr) = TestDepsBuilder::new().build();
+    let code = cli::run(&args(&["secrt", "help", "gen"]), &mut deps);
+    assert_eq!(code, 0);
+    let err = stderr.to_string();
+    assert!(err.contains("gen") || err.contains("Generate"));
+}
+
+#[test]
+fn help_generate_alias() {
+    let (mut deps, _stdout, stderr) = TestDepsBuilder::new().build();
+    let code = cli::run(&args(&["secrt", "help", "generate"]), &mut deps);
+    assert_eq!(code, 0);
+    let err = stderr.to_string();
+    assert!(err.contains("gen") || err.contains("Generate"));
+}
+
+#[test]
+fn config_path_help_flag() {
+    let (mut deps, _stdout, stderr) = TestDepsBuilder::new().build();
+    let code = cli::run(&args(&["secrt", "config", "path", "--help"]), &mut deps);
+    assert_eq!(code, 0);
+    let err = stderr.to_string();
+    assert!(err.contains("config"));
+}
+
+#[test]
+fn config_set_passphrase_help_flag() {
+    let (mut deps, _stdout, stderr) = TestDepsBuilder::new().build();
+    let code = cli::run(
+        &args(&["secrt", "config", "set-passphrase", "--help"]),
+        &mut deps,
+    );
+    assert_eq!(code, 0);
+    let err = stderr.to_string();
+    assert!(err.contains("config"));
+}
+
+#[test]
+fn config_delete_passphrase_help_flag() {
+    let (mut deps, _stdout, stderr) = TestDepsBuilder::new().build();
+    let code = cli::run(
+        &args(&["secrt", "config", "delete-passphrase", "--help"]),
+        &mut deps,
+    );
+    assert_eq!(code, 0);
+    let err = stderr.to_string();
+    assert!(err.contains("config"));
+}
+
+#[test]
+fn config_init_help_flag() {
+    let (mut deps, _stdout, stderr) = TestDepsBuilder::new().build();
+    let code = cli::run(&args(&["secrt", "config", "init", "--help"]), &mut deps);
+    assert_eq!(code, 0);
+    let err = stderr.to_string();
+    assert!(err.contains("config"));
+}
+
+#[test]
+fn config_show_server_info_success_path() {
+    let cfg_dir = setup_config("api_key = \"sk_test_123\"\n");
+    let (mut deps, _stdout, stderr) = TestDepsBuilder::new()
+        .env("XDG_CONFIG_HOME", cfg_dir.to_str().unwrap())
+        .mock_info(Ok(mock_info_response(false)))
+        .build();
+    let code = cli::run(&args(&["secrt", "config"]), &mut deps);
+    assert_eq!(code, 0);
+    let err = stderr.to_string();
+    assert!(
+        err.contains("SERVER LIMITS"),
+        "should show SERVER LIMITS: {}",
+        err
+    );
+    assert!(err.contains("max_ttl"), "should show max_ttl: {}", err);
+    let _ = fs::remove_dir_all(&cfg_dir);
+}
+
+#[test]
+fn config_show_decryption_passphrases_from_keychain_only() {
+    let cfg_dir = setup_config("use_keychain = true\n");
+    let (mut deps, _stdout, stderr) = TestDepsBuilder::new()
+        .env("XDG_CONFIG_HOME", cfg_dir.to_str().unwrap())
+        .keychain_secret_list("decryption_passphrases", &["kc-only-pass"])
+        .build();
+    let code = cli::run(&args(&["secrt", "config"]), &mut deps);
+    assert_eq!(code, 0);
+    let err = stderr.to_string();
+    assert!(
+        err.contains("1 entries") && err.contains("keychain"),
+        "should show keychain source: {}",
+        err
+    );
+    let _ = fs::remove_dir_all(&cfg_dir);
+}
+
+// --- Keychain-based resolve_globals tests ---
+
+#[test]
+fn config_show_api_key_from_keychain_fallback_to_config() {
+    // When keychain has no api_key, should fall back to config file
+    let cfg_dir = setup_config("use_keychain = true\napi_key = \"sk_cfg_fallback\"\n");
+    let (mut deps, _stdout, stderr) = TestDepsBuilder::new()
+        .env("XDG_CONFIG_HOME", cfg_dir.to_str().unwrap())
+        .build();
+    let code = cli::run(&args(&["secrt", "config"]), &mut deps);
+    assert_eq!(code, 0);
+    let err = stderr.to_string();
+    assert!(
+        err.contains("config file"),
+        "api_key source should fall back to config file: {}",
+        err
+    );
+    let _ = fs::remove_dir_all(&cfg_dir);
+}
+
+#[test]
+fn config_show_passphrase_keychain_fallback_to_config() {
+    // When keychain has no passphrase, fall back to config file
+    let cfg_dir = setup_config("use_keychain = true\npassphrase = \"cfg-pass\"\n");
+    let (mut deps, _stdout, stderr) = TestDepsBuilder::new()
+        .env("XDG_CONFIG_HOME", cfg_dir.to_str().unwrap())
+        .build();
+    let code = cli::run(&args(&["secrt", "config"]), &mut deps);
+    assert_eq!(code, 0);
+    let err = stderr.to_string();
+    assert!(
+        err.contains("config file"),
+        "passphrase should fall back to config file: {}",
+        err
+    );
+    let _ = fs::remove_dir_all(&cfg_dir);
+}

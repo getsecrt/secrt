@@ -2043,4 +2043,96 @@ mod tests {
         resolve_globals_with_config(&mut pa, &deps, &config);
         assert!(pa.ttl.is_empty(), "ttl should remain empty when no config");
     }
+
+    // --- format_ttl_seconds tests ---
+
+    #[test]
+    fn ttl_zero() {
+        assert_eq!(format_ttl_seconds(0), "0s");
+    }
+
+    #[test]
+    fn ttl_negative() {
+        assert_eq!(format_ttl_seconds(-5), "0s");
+    }
+
+    #[test]
+    fn ttl_seconds_only() {
+        assert_eq!(format_ttl_seconds(30), "30s");
+    }
+
+    #[test]
+    fn ttl_exact_minutes() {
+        assert_eq!(format_ttl_seconds(90), "1m30s");
+    }
+
+    #[test]
+    fn ttl_exact_minutes_boundary() {
+        assert_eq!(format_ttl_seconds(60), "1m");
+    }
+
+    #[test]
+    fn ttl_exact_hours() {
+        assert_eq!(format_ttl_seconds(3600), "1h");
+    }
+
+    #[test]
+    fn ttl_hours_and_seconds() {
+        assert_eq!(format_ttl_seconds(3661), "1h1m1s");
+    }
+
+    #[test]
+    fn ttl_two_hours() {
+        assert_eq!(format_ttl_seconds(7200), "2h");
+    }
+
+    #[test]
+    fn ttl_two_days() {
+        assert_eq!(format_ttl_seconds(172800), "2d");
+    }
+
+    #[test]
+    fn ttl_day_and_hour() {
+        // 90000 = 25 * 3600, evenly divisible by 3600 → outputs "25h"
+        assert_eq!(format_ttl_seconds(90000), "25h");
+    }
+
+    // --- format_bytes tests ---
+
+    #[test]
+    fn bytes_small() {
+        assert_eq!(format_bytes(500), "500 bytes");
+    }
+
+    #[test]
+    fn bytes_exact_kb() {
+        assert_eq!(format_bytes(1024), "1 KB");
+    }
+
+    #[test]
+    fn bytes_non_exact_kb() {
+        assert_eq!(format_bytes(1500), "1500 bytes");
+    }
+
+    #[test]
+    fn bytes_exact_mb() {
+        assert_eq!(format_bytes(1048576), "1 MB");
+    }
+
+    #[test]
+    fn bytes_multi_mb() {
+        assert_eq!(format_bytes(20971520), "20 MB");
+    }
+
+    // --- format_limit tests ---
+
+    #[test]
+    fn limit_zero_unlimited() {
+        assert_eq!(format_limit(0), "unlimited");
+    }
+
+    #[test]
+    fn limit_nonzero() {
+        assert_eq!(format_limit(42), "42");
+    }
 }

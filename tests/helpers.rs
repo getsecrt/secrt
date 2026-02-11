@@ -117,6 +117,8 @@ pub struct TestDepsBuilder {
     read_pass_responses: Vec<String>,
     read_pass_error: Option<String>,
     mock_responses: Option<MockApiResponses>,
+    keychain_secrets: HashMap<String, String>,
+    keychain_secret_lists: HashMap<String, Vec<String>>,
 }
 
 impl TestDepsBuilder {
@@ -129,6 +131,8 @@ impl TestDepsBuilder {
             read_pass_responses: Vec::new(),
             read_pass_error: None,
             mock_responses: None,
+            keychain_secrets: HashMap::new(),
+            keychain_secret_lists: HashMap::new(),
         }
     }
 
@@ -191,6 +195,20 @@ impl TestDepsBuilder {
         self
     }
 
+    pub fn keychain_secret(mut self, key: &str, val: &str) -> Self {
+        self.keychain_secrets
+            .insert(key.to_string(), val.to_string());
+        self
+    }
+
+    pub fn keychain_secret_list(mut self, key: &str, vals: &[&str]) -> Self {
+        self.keychain_secret_lists.insert(
+            key.to_string(),
+            vals.iter().map(|s| s.to_string()).collect(),
+        );
+        self
+    }
+
     pub fn build(self) -> (Deps, SharedBuf, SharedBuf) {
         let stdout = SharedBuf::new();
         let stderr = SharedBuf::new();
@@ -230,8 +248,14 @@ impl TestDepsBuilder {
                     Ok(responses.remove(0))
                 }
             }),
-            get_keychain_secret: Box::new(|_key: &str| None),
-            get_keychain_secret_list: Box::new(|_key: &str| Vec::new()),
+            get_keychain_secret: {
+                let kc = self.keychain_secrets;
+                Box::new(move |key: &str| kc.get(key).cloned())
+            },
+            get_keychain_secret_list: {
+                let kcl = self.keychain_secret_lists;
+                Box::new(move |key: &str| kcl.get(key).cloned().unwrap_or_default())
+            },
             make_api: if let Some(mock_responses) = self.mock_responses {
                 Box::new(move |_base_url: &str, _api_key: &str| {
                     Box::new(MockApi::new(mock_responses.clone())) as Box<dyn SecretApi>

@@ -18,7 +18,7 @@ size: release
 	@du -h target/release/secrt
 
 coverage:
-	cargo llvm-cov --html --open
+	cargo llvm-cov --html --open --ignore-filename-regex "(main|keychain)\.rs"
 
 clean:
 	cargo clean

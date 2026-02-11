@@ -1,6 +1,7 @@
 mod helpers;
 
 use std::fs;
+use std::sync::Mutex;
 
 use std::collections::HashMap;
 
@@ -12,6 +13,10 @@ use secrt::envelope::{self, SealParams};
 
 /// Non-routable address to ensure API calls fail
 const DEAD_URL: &str = "http://127.0.0.1:19191";
+
+/// Mutex to serialize tests that change the current working directory.
+/// CWD is process-global, so parallel tests that call set_current_dir race.
+static CWD_LOCK: Mutex<()> = Mutex::new(());
 
 fn make_share_url(base: &str, id: &str) -> String {
     let key = vec![42u8; 32];
@@ -873,6 +878,7 @@ fn seal_test_file(plaintext: &[u8], filename: &str, mime: &str) -> (String, enve
 
 #[test]
 fn get_file_auto_save_on_tty() {
+    let _guard = CWD_LOCK.lock().unwrap();
     let plaintext = b"\x89PNG\r\n\x1a\nfake png data";
     let (share_link, seal_result) = seal_test_file(plaintext, "photo.png", "image/png");
     let mock_resp = ClaimResponse {
@@ -1201,4 +1207,211 @@ fn get_file_output_flag_text_no_hint() {
     let saved = fs::read(&out_path).expect("output file should exist");
     assert_eq!(saved, plaintext);
     let _ = fs::remove_file(&out_path);
+}
+
+#[test]
+fn get_passphrase_non_tty_no_candidates_error() {
+    // Non-TTY, passphrase-protected, no configured passphrases (tried==0)
+    let plaintext = b"no candidates";
+    let (share_link, seal_result) = seal_test_secret(plaintext, "mypass");
+    let mock_resp = ClaimResponse {
+        envelope: seal_result.envelope,
+        expires_at: "2026-02-09T00:00:00Z".into(),
+    };
+    let (mut deps, _stdout, stderr) = TestDepsBuilder::new()
+        .is_tty(false)
+        .mock_claim(Ok(mock_resp))
+        .env("XDG_CONFIG_HOME", "/tmp/secrt_test_no_config_nonexistent")
+        .build();
+    let code = cli::run(&args(&["secrt", "get", &share_link]), &mut deps);
+    assert_eq!(code, 1);
+    let err = stderr.to_string();
+    assert!(
+        err.contains("passphrase-protected"),
+        "should mention passphrase-protected: {}",
+        err
+    );
+    assert!(
+        !err.contains("tried"),
+        "should NOT mention tried count when 0 candidates: {}",
+        err
+    );
+}
+
+#[test]
+fn get_passphrase_prompt_retry_read_error() {
+    // Phase A: -p flag, first attempt wrong, retry read fails
+    let plaintext = b"retry error test";
+    let (share_link, seal_result) = seal_test_secret(plaintext, "correct");
+    let mock_resp = ClaimResponse {
+        envelope: seal_result.envelope,
+        expires_at: "2026-02-09T00:00:00Z".into(),
+    };
+    // Only one response: "wrong". Second read_pass call returns error.
+    let (mut deps, _stdout, stderr) = TestDepsBuilder::new()
+        .is_tty(true)
+        .mock_claim(Ok(mock_resp))
+        .read_pass(&["wrong"])
+        .build();
+    let code = cli::run(&args(&["secrt", "get", &share_link, "-p"]), &mut deps);
+    assert_eq!(code, 1);
+    let err = stderr.to_string();
+    assert!(
+        err.contains("Wrong passphrase"),
+        "should show retry message: {}",
+        err
+    );
+    assert!(
+        err.contains("read passphrase"),
+        "should show read error: {}",
+        err
+    );
+}
+
+#[test]
+fn get_passphrase_prompt_retry_empty() {
+    // Phase A: -p flag, first attempt wrong, retry returns empty
+    let plaintext = b"retry empty phase a";
+    let (share_link, seal_result) = seal_test_secret(plaintext, "correct");
+    let mock_resp = ClaimResponse {
+        envelope: seal_result.envelope,
+        expires_at: "2026-02-09T00:00:00Z".into(),
+    };
+    let (mut deps, _stdout, stderr) = TestDepsBuilder::new()
+        .is_tty(true)
+        .mock_claim(Ok(mock_resp))
+        .read_pass(&["wrong", ""])
+        .build();
+    let code = cli::run(&args(&["secrt", "get", &share_link, "-p"]), &mut deps);
+    assert_eq!(code, 1);
+    let err = stderr.to_string();
+    assert!(err.contains("Wrong passphrase"), "stderr: {}", err);
+    assert!(err.contains("must not be empty"), "stderr: {}", err);
+}
+
+#[test]
+fn get_file_auto_save_collision() {
+    let _guard = CWD_LOCK.lock().unwrap();
+    let plaintext = b"collision test data";
+    let (share_link, seal_result) = seal_test_file(plaintext, "data.txt", "text/plain");
+    let mock_resp = ClaimResponse {
+        envelope: seal_result.envelope,
+        expires_at: "2026-02-09T00:00:00Z".into(),
+    };
+
+    let dir = std::env::temp_dir().join(format!(
+        "secrt_test_collision_{}",
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    ));
+    let _ = fs::create_dir_all(&dir);
+    let orig_dir = std::env::current_dir().unwrap();
+
+    // Create existing file to cause collision
+    fs::write(dir.join("data.txt"), "existing").unwrap();
+
+    let _ = std::env::set_current_dir(&dir);
+
+    let (mut deps, _stdout, stderr) = TestDepsBuilder::new()
+        .is_tty(true)
+        .is_stdout_tty(true)
+        .mock_claim(Ok(mock_resp))
+        .build();
+    let code = cli::run(&args(&["secrt", "get", &share_link]), &mut deps);
+
+    let _ = std::env::set_current_dir(&orig_dir);
+
+    assert_eq!(code, 0, "stderr: {}", stderr.to_string());
+    let err = stderr.to_string();
+    assert!(err.contains("Saved to"), "should save: {}", err);
+    assert!(
+        err.contains("data (1).txt"),
+        "should use collision-avoidance name: {}",
+        err
+    );
+
+    let saved = fs::read(dir.join("data (1).txt")).expect("collision file should exist");
+    assert_eq!(saved, plaintext);
+
+    let _ = fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn get_binary_no_hint_tty_auto_saves_secret_bin() {
+    let _guard = CWD_LOCK.lock().unwrap();
+    // Binary data without a file hint on a TTY should auto-save to secret.bin
+    let plaintext: &[u8] = &[0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A];
+    let (share_link, seal_result) = seal_test_secret(plaintext, "");
+    let mock_resp = ClaimResponse {
+        envelope: seal_result.envelope,
+        expires_at: "2026-02-09T00:00:00Z".into(),
+    };
+
+    let dir = std::env::temp_dir().join(format!(
+        "secrt_test_binautosave_{}",
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    ));
+    let _ = fs::create_dir_all(&dir);
+    let orig_dir = std::env::current_dir().unwrap();
+    let _ = std::env::set_current_dir(&dir);
+
+    let (mut deps, _stdout, stderr) = TestDepsBuilder::new()
+        .is_tty(true)
+        .is_stdout_tty(true)
+        .mock_claim(Ok(mock_resp))
+        .build();
+    let code = cli::run(&args(&["secrt", "get", &share_link]), &mut deps);
+
+    let _ = std::env::set_current_dir(&orig_dir);
+
+    assert_eq!(code, 0, "stderr: {}", stderr.to_string());
+    let err = stderr.to_string();
+    assert!(err.contains("Saved to"), "should auto-save: {}", err);
+    assert!(
+        err.contains("secret.bin"),
+        "should save as secret.bin: {}",
+        err
+    );
+
+    let saved = fs::read(dir.join("secret.bin")).expect("secret.bin should exist");
+    assert_eq!(saved, plaintext);
+
+    let _ = fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn get_tty_no_candidates_shows_notice() {
+    // TTY, passphrase-protected, no configured passphrases (tried==0)
+    // Should show "This secret is passphrase-protected" notice
+    let plaintext = b"tty no candidates";
+    let (share_link, seal_result) = seal_test_secret(plaintext, "correct");
+    let mock_resp = ClaimResponse {
+        envelope: seal_result.envelope,
+        expires_at: "2026-02-09T00:00:00Z".into(),
+    };
+    let (mut deps, stdout, stderr) = TestDepsBuilder::new()
+        .is_tty(true)
+        .mock_claim(Ok(mock_resp))
+        .read_pass(&["correct"])
+        .env("XDG_CONFIG_HOME", "/tmp/secrt_test_no_config_nonexistent")
+        .build();
+    let code = cli::run(&args(&["secrt", "get", &share_link]), &mut deps);
+    assert_eq!(code, 0, "stderr: {}", stderr.to_string());
+    assert_eq!(stdout.to_string(), "tty no candidates");
+    let err = stderr.to_string();
+    assert!(
+        err.contains("passphrase-protected"),
+        "should show notice: {}",
+        err
+    );
+    assert!(
+        !err.contains("didn't match"),
+        "should NOT show 'didn't match' when 0 candidates: {}",
+        err
+    );
 }

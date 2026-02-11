@@ -443,6 +443,97 @@ mod tests {
         );
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn load_config_with_bad_permissions_warns_and_strips() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = std::env::temp_dir().join(format!(
+            "secrt_config_perm_warn_{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let secrt_dir = dir.join("secrt");
+        let _ = fs::create_dir_all(&secrt_dir);
+        let path = secrt_dir.join("config.toml");
+        fs::write(
+            &path,
+            "api_key = \"sk_secret\"\nbase_url = \"https://ok.com\"\npassphrase = \"hunter2\"\n",
+        )
+        .unwrap();
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o644)).unwrap();
+
+        let dir_str = dir.to_str().unwrap().to_string();
+        let getenv = move |key: &str| -> Option<String> {
+            if key == "XDG_CONFIG_HOME" {
+                Some(dir_str.clone())
+            } else {
+                None
+            }
+        };
+        let mut stderr = Vec::new();
+        let config = load_config_with(&getenv, &mut stderr);
+
+        let warning = String::from_utf8(stderr).unwrap();
+        assert!(
+            warning.contains("warning:"),
+            "should warn about permissions: {}",
+            warning
+        );
+        assert!(
+            warning.contains("0644"),
+            "should show actual mode: {}",
+            warning
+        );
+        assert!(
+            config.api_key.is_none(),
+            "api_key should be stripped for insecure file"
+        );
+        assert!(
+            config.passphrase.is_none(),
+            "passphrase should be stripped for insecure file"
+        );
+        assert_eq!(
+            config.base_url.as_deref(),
+            Some("https://ok.com"),
+            "base_url should not be stripped"
+        );
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn config_path_with_xdg_override() {
+        let getenv = |key: &str| -> Option<String> {
+            if key == "XDG_CONFIG_HOME" {
+                Some("/custom/config".into())
+            } else {
+                None
+            }
+        };
+        let path = config_path_with(&getenv).unwrap();
+        assert_eq!(path, PathBuf::from("/custom/config/secrt/config.toml"));
+    }
+
+    #[test]
+    fn config_path_with_empty_xdg() {
+        // Empty XDG_CONFIG_HOME should fall back to ~/.config
+        let getenv = |key: &str| -> Option<String> {
+            if key == "XDG_CONFIG_HOME" {
+                Some(String::new())
+            } else {
+                None
+            }
+        };
+        let path = config_path_with(&getenv).unwrap();
+        assert!(
+            path.to_string_lossy().contains("config/secrt/config.toml"),
+            "should fall back to ~/.config: {:?}",
+            path
+        );
+    }
+
     #[test]
     fn load_config_with_injectable() {
         let dir = std::env::temp_dir().join("secrt_config_injectable");

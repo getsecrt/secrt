@@ -407,6 +407,46 @@ mod tests {
     }
 
     #[test]
+    fn prompt_read_error() {
+        let mut deps = make_deps(HashMap::new(), Vec::new(), Some("terminal error".into()));
+        let mut pa = ParsedArgs::default();
+        pa.passphrase_prompt = true;
+        let err = resolve_passphrase(&pa, &mut deps);
+        assert!(err.is_err());
+        assert!(
+            err.unwrap_err().contains("read passphrase"),
+            "should contain read passphrase error"
+        );
+    }
+
+    #[test]
+    fn send_prompt_first_read_error() {
+        let mut deps = make_deps(HashMap::new(), Vec::new(), Some("terminal error".into()));
+        let mut pa = ParsedArgs::default();
+        pa.passphrase_prompt = true;
+        let err = resolve_passphrase_for_send(&pa, &mut deps);
+        assert!(err.is_err());
+        assert!(
+            err.unwrap_err().contains("read passphrase"),
+            "should contain read passphrase error"
+        );
+    }
+
+    #[test]
+    fn send_prompt_confirm_read_error() {
+        // First read succeeds, confirm read fails (no more responses)
+        let mut deps = make_deps(HashMap::new(), vec!["pass123".into()], None);
+        let mut pa = ParsedArgs::default();
+        pa.passphrase_prompt = true;
+        let err = resolve_passphrase_for_send(&pa, &mut deps);
+        assert!(err.is_err());
+        assert!(
+            err.unwrap_err().contains("read passphrase confirmation"),
+            "should mention confirmation"
+        );
+    }
+
+    #[test]
     fn send_no_passphrase_conflicts_with_prompt() {
         let mut deps = default_deps();
         let mut pa = ParsedArgs::default();

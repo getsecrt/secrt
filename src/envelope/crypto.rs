@@ -844,6 +844,23 @@ mod tests {
     }
 
     #[test]
+    fn open_kdf_pbkdf2_missing_fields() {
+        // PBKDF2-SHA256 with name only (missing salt, iterations, length)
+        let (result, _) = seal_valid();
+        let env = mutate_envelope(
+            &result.envelope,
+            &["kdf"],
+            serde_json::json!({"name": "PBKDF2-SHA256"}),
+        );
+        let err = open(OpenParams {
+            envelope: env,
+            url_key: result.url_key,
+            passphrase: "test".into(),
+        });
+        assert!(matches!(err, Err(EnvelopeError::InvalidEnvelope(_))));
+    }
+
+    #[test]
     fn requires_passphrase_sealed_with_passphrase() {
         // Test with a real sealed envelope (with passphrase)
         let result = seal(SealParams {

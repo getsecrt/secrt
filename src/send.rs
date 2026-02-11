@@ -329,3 +329,49 @@ fn read_plaintext(pa: &ParsedArgs, deps: &mut Deps) -> Result<Vec<u8>, String> {
     }
     Ok(data)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn format_expires_valid_iso() {
+        let result = format_expires("2026-02-09T00:00:00Z");
+        assert!(result.starts_with("Expires "), "result: {}", result);
+        assert!(result.contains("2026"), "result: {}", result);
+    }
+
+    #[test]
+    fn format_expires_short_string() {
+        let result = format_expires("2026-02");
+        assert_eq!(result, "Expires 2026-02");
+    }
+
+    #[test]
+    fn format_expires_exactly_16_chars() {
+        // len >= 16, uses the substring fallback: [0..10] and [11..16]
+        let result = format_expires("2026-02-09T12:34");
+        assert_eq!(result, "Expires 2026-02-09 12:34 UTC");
+    }
+
+    #[test]
+    fn format_expires_malformed_long() {
+        // len >= 16 but not valid ISO — exercises the fallback path
+        let result = format_expires("not-a-valid-date-but-long");
+        assert!(result.starts_with("Expires "), "result: {}", result);
+        assert!(result.contains("UTC"), "should use fallback: {}", result);
+    }
+
+    #[test]
+    fn format_expires_empty() {
+        let result = format_expires("");
+        assert_eq!(result, "Expires ");
+    }
+
+    #[test]
+    fn format_expires_15_chars() {
+        // Just under 16 chars — uses the short fallback
+        let result = format_expires("2026-02-09T12:3");
+        assert_eq!(result, "Expires 2026-02-09T12:3");
+    }
+}

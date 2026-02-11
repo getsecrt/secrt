@@ -719,3 +719,69 @@ fn send_tty_status_no_passphrase_message_without_passphrase() {
         err
     );
 }
+
+#[test]
+fn send_show_crlf_stripping() {
+    // --show mode should strip trailing \r\n
+    let (mut deps, stdout, stderr) = TestDepsBuilder::new()
+        .stdin(b"secret with crlf\r\n")
+        .is_tty(true)
+        .mock_create(Ok(mock_send_response()))
+        .build();
+    let code = cli::run(&args(&["secrt", "send", "--show"]), &mut deps);
+    assert_eq!(code, 0, "stderr: {}", stderr.to_string());
+    assert!(stdout.to_string().contains("#v1."));
+}
+
+#[test]
+fn send_hidden_empty_input_error() {
+    // Default hidden mode with empty password from read_pass
+    let (mut deps, _stdout, stderr) = TestDepsBuilder::new().read_pass(&[""]).is_tty(true).build();
+    let code = cli::run(&args(&["secrt", "send"]), &mut deps);
+    assert_eq!(code, 2);
+    assert!(
+        stderr.to_string().contains("empty"),
+        "should error on empty hidden input: {}",
+        stderr.to_string()
+    );
+}
+
+#[test]
+fn send_silent_show_mode_suppresses_prompts() {
+    // --silent + --show on TTY should not show prompts
+    let (mut deps, stdout, stderr) = TestDepsBuilder::new()
+        .stdin(b"my secret\n")
+        .is_tty(true)
+        .mock_create(Ok(mock_send_response()))
+        .build();
+    let code = cli::run(&args(&["secrt", "send", "--show", "--silent"]), &mut deps);
+    assert_eq!(code, 0, "stderr: {}", stderr.to_string());
+    assert!(stdout.to_string().contains("#v1."));
+    let err = stderr.to_string();
+    assert!(
+        !err.contains("input will be shown"),
+        "silent should suppress instruction: {}",
+        err
+    );
+    assert!(
+        !err.contains("Secret:"),
+        "silent should suppress prompt: {}",
+        err
+    );
+}
+
+#[test]
+fn send_hidden_read_error() {
+    // Hidden mode when read_pass returns an I/O error
+    let (mut deps, _stdout, stderr) = TestDepsBuilder::new()
+        .read_pass_error("terminal lost")
+        .is_tty(true)
+        .build();
+    let code = cli::run(&args(&["secrt", "send"]), &mut deps);
+    assert_eq!(code, 2);
+    assert!(
+        stderr.to_string().contains("read secret"),
+        "should contain read error: {}",
+        stderr.to_string()
+    );
+}
