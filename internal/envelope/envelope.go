@@ -432,8 +432,8 @@ func parseKDF(raw json.RawMessage) (kdfParsed, error) {
 
 // ParseShareURL extracts id and url_key from a share URL with fragment.
 // Accepts formats:
-//   - https://host/s/<id>#v1.<url_key_b64>
-//   - <id>#v1.<url_key_b64> (bare ID with fragment)
+//   - https://host/s/<id>#<url_key_b64>
+//   - <id>#<url_key_b64> (bare ID with fragment)
 func ParseShareURL(rawURL string) (id string, urlKey []byte, err error) {
 	// Try parsing as full URL
 	u, parseErr := url.Parse(rawURL)
@@ -466,11 +466,7 @@ func ParseShareURL(rawURL string) (id string, urlKey []byte, err error) {
 		}
 	}
 
-	if !strings.HasPrefix(frag, "v1.") {
-		return "", nil, fmt.Errorf("%w: fragment must start with v1.", ErrInvalidFragment)
-	}
-
-	keyB64 := frag[3:]
+	keyB64 := frag
 	urlKey, err = b64Decode(keyB64)
 	if err != nil {
 		return "", nil, fmt.Errorf("%w: invalid url_key encoding", ErrInvalidFragment)
@@ -484,5 +480,5 @@ func ParseShareURL(rawURL string) (id string, urlKey []byte, err error) {
 
 // FormatShareLink builds a share URL with fragment.
 func FormatShareLink(shareURL string, urlKey []byte) string {
-	return shareURL + "#v1." + b64Encode(urlKey)
+	return shareURL + "#" + b64Encode(urlKey)
 }

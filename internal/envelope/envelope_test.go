@@ -453,12 +453,12 @@ func TestParseShareURL(t *testing.T) {
 	}{
 		{
 			"full URL",
-			"https://secrt.ca/s/abc123#v1." + keyB64,
+			"https://secrt.ca/s/abc123#" + keyB64,
 			"abc123", urlKey, false,
 		},
 		{
 			"full URL with base64url ID",
-			"https://secrt.ca/s/Xy_Z-abc#v1." + keyB64,
+			"https://secrt.ca/s/Xy_Z-abc#" + keyB64,
 			"Xy_Z-abc", urlKey, false,
 		},
 		{
@@ -467,28 +467,28 @@ func TestParseShareURL(t *testing.T) {
 			"", nil, true,
 		},
 		{
-			"wrong fragment prefix",
-			"https://secrt.ca/s/abc123#v2." + keyB64,
+			"fragment decodes to wrong length",
+			"https://secrt.ca/s/abc123#" + base64.RawURLEncoding.EncodeToString([]byte("short")),
 			"", nil, true,
 		},
 		{
 			"no /s/ path",
-			"https://secrt.ca/other/abc123#v1." + keyB64,
+			"https://secrt.ca/other/abc123#" + keyB64,
 			"", nil, true,
 		},
 		{
 			"bad url_key encoding",
-			"https://secrt.ca/s/abc123#v1.!!!invalid!!!",
+			"https://secrt.ca/s/abc123#!!!invalid!!!",
 			"", nil, true,
 		},
 		{
 			"url_key wrong length",
-			"https://secrt.ca/s/abc123#v1.AAAA",
+			"https://secrt.ca/s/abc123#AAAA",
 			"", nil, true,
 		},
 		{
 			"bare ID with fragment",
-			"abc123#v1." + keyB64,
+			"abc123#" + keyB64,
 			"abc123", urlKey, false,
 		},
 		{
@@ -531,7 +531,7 @@ func TestFormatShareLink(t *testing.T) {
 	keyB64 := base64.RawURLEncoding.EncodeToString(urlKey)
 
 	got := FormatShareLink("https://secrt.ca/s/abc123", urlKey)
-	want := "https://secrt.ca/s/abc123#v1." + keyB64
+	want := "https://secrt.ca/s/abc123#" + keyB64
 	if got != want {
 		t.Errorf("got %q, want %q", got, want)
 	}

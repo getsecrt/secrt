@@ -38,7 +38,7 @@ var (
 // GenerateID returns a high-entropy, URL-safe identifier for a secret.
 // The ID is not a decryption key; it exists to locate a stored envelope.
 func GenerateID() (string, error) {
-	var b [32]byte
+	var b [16]byte
 	if _, err := randReader.Read(b[:]); err != nil {
 		return "", fmt.Errorf("generate id: %w", err)
 	}

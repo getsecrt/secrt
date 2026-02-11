@@ -26,8 +26,11 @@ func TestGenerateID(t *testing.T) {
 	if err != nil {
 		t.Fatalf("expected base64url: %v", err)
 	}
-	if len(b) != 32 {
-		t.Fatalf("expected 32 bytes, got %d", len(b))
+	if len(b) != 16 {
+		t.Fatalf("expected 16 bytes, got %d", len(b))
+	}
+	if len(id) != 22 {
+		t.Fatalf("expected 22-char ID string, got %d", len(id))
 	}
 }
 
