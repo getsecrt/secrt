@@ -50,7 +50,7 @@ web/                       # static frontend (minimal JS)
 docs/                      # design + security notes
 ```
 
-> The CLI client lives in a separate repo: [getsecrt/secrt-rs](https://github.com/getsecrt/secrt-rs) (Rust).
+> The CLI client lives in a separate repo: [getsecrt/secrt-cli](https://github.com/getsecrt/secrt-cli) (Rust).
 
 ## Testing expectations
 

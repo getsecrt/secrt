@@ -14,7 +14,7 @@ One-time secret sharing service (v1.0 planned backend: Go).
 
 ## CLI
 
-The CLI is implemented in Rust: [getsecrt/secrt-rs](https://github.com/getsecrt/secrt-rs)
+The CLI is implemented in Rust: [getsecrt/secrt-cli](https://github.com/getsecrt/secrt-cli)
 
 It implements the [v1 CLI spec](spec/v1/cli.md) and passes all [test vectors](spec/v1/envelope.vectors.json).
 
