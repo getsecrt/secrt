@@ -30,7 +30,7 @@ git submodule update --remote spec
 ## Implementations
 
 - **Server (Go):** [getsecrt/secrt](https://github.com/getsecrt/secrt)
-- **CLI (Rust):** [getsecrt/secrt-rs](https://github.com/getsecrt/secrt-rs)
+- **CLI (Rust):** [getsecrt/secrt-cli](https://github.com/getsecrt/secrt-cli)
 
 ## Versioning
 
