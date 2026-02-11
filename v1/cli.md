@@ -30,12 +30,13 @@ Reference binary name in examples: `secrt`.
 
 Required commands:
 
-- `secrt create`
-- `secrt claim <share-url>`
+- `secrt send`
+- `secrt get <share-url>`
 
-Optional command:
+Optional commands:
 
 - `secrt burn <id-or-share-url>` (API-key authenticated)
+- `secrt gen` (password generation)
 
 Built-in commands:
 
@@ -46,10 +47,12 @@ Built-in commands:
 - `secrt config`: show effective settings (resolved from all sources).
 - `secrt config init [--force]`: create a template config file.
 - `secrt config path`: print the config file path.
+- `secrt config set-passphrase`: store default passphrase in OS keychain.
+- `secrt config delete-passphrase`: remove passphrase from OS keychain.
 
-### Implicit `claim` from Share URL
+### Implicit `get` from Share URL
 
-When the first positional argument is not a recognized command but contains the fragment `#v1.` (indicating a share URL or bare ID with fragment), the CLI MUST treat the invocation as `secrt claim <arg> [remaining args...]`. This allows users to run:
+When the first positional argument is not a recognized command but contains the fragment `#v1.` (indicating a share URL or bare ID with fragment), the CLI MUST treat the invocation as `secrt get <arg> [remaining args...]`. This allows users to run:
 
 ```bash
 secrt https://secrt.ca/s/abc123#v1.key...
@@ -58,10 +61,10 @@ secrt https://secrt.ca/s/abc123#v1.key...
 as shorthand for:
 
 ```bash
-secrt claim https://secrt.ca/s/abc123#v1.key...
+secrt get https://secrt.ca/s/abc123#v1.key...
 ```
 
-The detection MUST be based solely on the presence of `#v1.` in the first argument. Full URL validation is deferred to the `claim` command's normal parsing.
+The detection MUST be based solely on the presence of `#v1.` in the first argument. Full URL validation is deferred to the `get` command's normal parsing.
 
 Operational/admin API-key management commands are implementation-specific and out of scope for this client-interoperability spec.
 
@@ -107,6 +110,7 @@ Supported keys:
 | `passphrase` | string | Default passphrase for encryption/decryption |
 | `decryption_passphrases` | string[] | Additional passphrases to try when claiming (tried in order) |
 | `show_input` | bool | Show secret input as typed (default: `false`) |
+| `use_keychain` | bool | Enable OS keychain lookups for credentials (default: `false`) |
 
 `default_ttl` precedence: `--ttl` flag > config `default_ttl` > none (server decides).
 
@@ -189,16 +193,16 @@ Implementations MAY support storing `decryption_passphrases` in the OS keychain 
 
 To support piping and composition:
 
-- **stdout**: MUST contain only the primary output (share link for `create`, plaintext for `claim`, completion script for `completion`).
+- **stdout**: MUST contain only the primary output (share link for `send`, plaintext for `get`, completion script for `completion`).
 - **stderr**: all status messages, prompts, warnings, and errors.
 
-This ensures patterns like `secrt create < secret.txt | pbcopy` work cleanly.
+This ensures patterns like `secrt send < secret.txt | pbcopy` work cleanly.
 
 ### TTY Output Formatting
 
 When stdout is a TTY (interactive terminal), implementations SHOULD append a trailing newline after output that does not already end with one. This prevents shell artifacts (e.g., zsh's `%` indicator) and keeps terminal display clean.
 
-When stdout is piped or redirected, implementations MUST NOT modify the output bytes — the raw content MUST be preserved exactly for downstream consumers (e.g., `secrt claim <url> | pbcopy`).
+When stdout is piped or redirected, implementations MUST NOT modify the output bytes — the raw content MUST be preserved exactly for downstream consumers (e.g., `secrt get <url> | pbcopy`).
 
 In `--json` mode, the JSON object is printed to stdout. Errors in `--json` mode SHOULD also be JSON on stderr when practical.
 
@@ -212,7 +216,7 @@ Authenticated mode enables:
 - Ownership-bound management operations like `burn`.
 - Future owner metadata APIs (for example listing active secrets) without changing trust model.
 
-`claim` remains token-based and does not require an API key.
+`get` remains token-based and does not require an API key.
 
 ## TTL Input Grammar
 
@@ -247,18 +251,19 @@ Rejection rules (MUST reject with a clear error):
 
 Rationale: strict parsing avoids ambiguity and sharp edges in security-sensitive workflows.
 
-## `create`
+## `send`
 
-Creates a one-time secret by encrypting locally, then uploading ciphertext envelope.
+Encrypts and uploads a one-time secret.
 
 Usage:
 
 ```bash
-secrt create [--ttl <ttl>] [--api-key <key>] [--base-url <url>] [--json] [--silent]
-                         [--text <value> | --file <path>]
-                         [-m | --multi-line] [--trim]
-                         [-s | --show | --hidden]
-                         [-p | --passphrase-prompt | --passphrase-env <name> | --passphrase-file <path>]
+secrt send [--ttl <ttl>] [--api-key <key>] [--base-url <url>] [--json] [--silent]
+           [--text <value> | --file <path>]
+           [-m | --multi-line] [--trim]
+           [-s | --show | --hidden]
+           [-n | --no-passphrase]
+           [-p | --passphrase-prompt | --passphrase-env <name> | --passphrase-file <path>]
 ```
 
 Behavior:
@@ -274,7 +279,7 @@ Behavior:
    - When stdin is piped or redirected (non-TTY), the CLI MUST read all bytes until EOF regardless of flags.
    - Empty input MUST be rejected.
 2. CLI performs envelope creation per `spec/v1/envelope.md`.
-   - When `--file` is used, implementations SHOULD populate the envelope `hint` field with file metadata (`type: "file"`, `filename`, `mime`) as defined in `spec/v1/envelope.md`. This enables file-aware behavior on claim.
+   - When `--file` is used, implementations SHOULD populate the envelope `hint` field with file metadata (`type: "file"`, `filename`, `mime`) as defined in `spec/v1/envelope.md`. This enables file-aware behavior on `get`.
 3. CLI computes `claim_hash = base64url(sha256(claim_token_bytes))`.
 4. CLI sends create request:
    - Anonymous: `POST /api/v1/public/secrets`
@@ -296,18 +301,20 @@ Passphrase handling:
 - Implementations SHOULD support `-p`/`--passphrase-prompt`.
 - Implementations MAY support `--passphrase-env` and `--passphrase-file`.
 - Implementations SHOULD NOT support passphrase values directly in command arguments (high leakage risk via shell history/process list).
-- When using `-p`/`--passphrase-prompt` during `create`, implementations SHOULD prompt for confirmation (enter passphrase twice) to prevent typos that would make the secret unrecoverable.
+- When using `-p`/`--passphrase-prompt` during `send`, implementations SHOULD prompt for confirmation (enter passphrase twice) to prevent typos that would make the secret unrecoverable.
+- `-n`/`--no-passphrase` explicitly skips any configured default passphrase, creating an unprotected secret.
 
-## `claim`
+## `get`
 
-Claims and decrypts a secret once.
+Retrieves and decrypts a secret once.
 
 Usage:
 
 ```bash
-secrt claim <share-url> [--base-url <url>] [--json] [--silent]
-                        [--output <path> | -o <path>]
-                        [-p | --passphrase-prompt | --passphrase-env <name> | --passphrase-file <path>]
+secrt get <share-url> [--base-url <url>] [--json] [--silent]
+          [--output <path> | -o <path>]
+          [-n | --no-passphrase]
+          [-p | --passphrase-prompt | --passphrase-env <name> | --passphrase-file <path>]
 ```
 
 Behavior:
@@ -326,6 +333,7 @@ After claiming the envelope from the server, implementations SHOULD inspect the 
 - If the secret requires a passphrase and no TTY is attached, the CLI MUST exit with an error message directing the user to `--passphrase-env` or `--passphrase-file`.
 - Since the envelope is already claimed and held in memory, wrong passphrase retries do not require additional server round-trips. Implementations SHOULD allow unlimited retries when the passphrase was entered interactively.
 - `--silent` suppresses the notice but not the passphrase prompt itself.
+- `-n`/`--no-passphrase` skips the configured `decryption_passphrases` list and proceeds directly to interactive prompt (or error if non-TTY).
 
 Output:
 
@@ -354,6 +362,53 @@ Behavior:
 - Resolve `<id>` and call `POST /api/v1/secrets/{id}/burn`.
 - Requires API key auth.
 
+## `gen` (optional)
+
+Generates a random password. May be used standalone or combined with `send`.
+
+Aliases: `gen`, `generate`
+
+Usage:
+
+```bash
+secrt gen [--length <n>] [--no-symbols] [--no-numbers] [--no-caps] [--grouped] [--count <n>] [--json]
+```
+
+Options:
+
+- `-L`, `--length <n>`: password length (default: 20)
+- `-S`, `--no-symbols`: exclude symbol characters
+- `-N`, `--no-numbers`: exclude digit characters
+- `-C`, `--no-caps`: exclude uppercase letters
+- `-G`, `--grouped`: group characters by type (all lowercase, then uppercase, then digits, then symbols)
+- `--count <n>`: generate multiple passwords (default: 1)
+- `--json`: output as JSON array
+
+Character sets:
+
+- Lowercase: `a-z` (always included)
+- Uppercase: `A-Z` (unless `--no-caps`)
+- Digits: `0-9` (unless `--no-numbers`)
+- Symbols: `!@*^_+-=?` (unless `--no-symbols`)
+
+When at least one character from each enabled class is required, implementations SHOULD ensure the generated password contains at least one character from each class, then fill remaining positions randomly from all enabled classes.
+
+### Combined Mode (`send gen` / `gen send`)
+
+Implementations SHOULD support combining `gen` with `send` to generate and immediately share a password:
+
+```bash
+secrt send gen [--length 32] [--ttl 1h] [--no-symbols]
+secrt gen send [--length 32] [--ttl 1h]
+```
+
+Both orderings are equivalent. All `gen` options and all `send` options may be combined. The generated password is used as the secret content.
+
+Output in combined mode:
+
+- Default: print share link only (same as `send`)
+- `--json`: include `password` field alongside `id`, `share_url`, `share_link`, `expires_at`
+
 ## Error and Exit Behavior
 
 Recommended exit codes:
@@ -366,9 +421,9 @@ Error messages MUST NOT reveal secret material.
 
 Recommended HTTP error mapping:
 
-- Create `400`: invalid input (envelope, claim hash, ttl, JSON shape)
-- Create/claim/burn `429`: rate limited
-- Claim `404`: generic unavailable result (not found, expired, already claimed, invalid claim)
+- `send` `400`: invalid input (envelope, claim hash, ttl, JSON shape)
+- `send`/`get`/`burn` `429`: rate limited
+- `get` `404`: generic unavailable result (not found, expired, already claimed, invalid claim)
 - Authenticated endpoints `401`/`403`: invalid or unauthorized API key
 
 ## Shell Completions
