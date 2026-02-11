@@ -15,7 +15,8 @@ Toolchain:
 
 ## Specifications (normative)
 
-The `spec/v1/` directory contains the normative v1 specs. **Read these before making changes to crypto, API, or CLI behavior:**
+The spec lives in a sibling repo: `../spec/v1/` (symlinked into this repo as `spec/`).
+**Read these before making changes to crypto, API, or CLI behavior:**
 
 - `spec/v1/envelope.md` — client-side crypto workflow (AES-256-GCM, HKDF, PBKDF2, envelope JSON shape)
 - `spec/v1/api.md` — HTTP API contract (endpoints, auth, error semantics, policy tiers)
@@ -45,7 +46,7 @@ internal/
   secrets/                 # envelope validation, TTL rules, claim token checks
   auth/                    # API key auth + scopes + rate limit keys
   config/                  # env parsing, defaults
-spec/v1/                   # normative specs + test vectors
+spec -> ../spec             # symlink to sibling spec repo
 web/                       # static frontend (minimal JS)
 docs/                      # design + security notes
 ```
