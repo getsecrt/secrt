@@ -30,6 +30,9 @@ func newMemSecretsStore() *memSecretsStore {
 func (m *memSecretsStore) Create(_ context.Context, s storage.Secret) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	if _, exists := m.secrets[s.ID]; exists {
+		return storage.ErrDuplicateID
+	}
 	m.secrets[s.ID] = s
 	return nil
 }

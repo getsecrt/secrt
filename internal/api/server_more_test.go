@@ -317,6 +317,75 @@ func TestCreateSecret_IDGenerationError(t *testing.T) {
 	}
 }
 
+// TestCreateSecret_IDCollisionRetry verifies that the server retries ID generation
+// when a collision occurs. This test currently FAILS because retry logic is not
+// implemented yet. See: https://github.com/getsecrt/secrt-server/issues/3
+func TestCreateSecret_IDCollisionRetry(t *testing.T) {
+	keyStore := newMemAPIKeyStore()
+	authn := auth.NewAuthenticator("pepper", keyStore)
+	secStore := newMemSecretsStore()
+	srv := NewServer(config.Config{PublicBaseURL: "https://example.com"}, secStore, authn)
+
+	// First, create a secret with a known ID
+	firstID := "collision-test-id-12345"
+	secondID := "unique-id-67890"
+	callCount := 0
+	srv.generateID = func() (string, error) {
+		callCount++
+		if callCount <= 2 {
+			// First two calls return the colliding ID
+			return firstID, nil
+		}
+		// Third call returns a unique ID
+		return secondID, nil
+	}
+
+	// Create the first secret (should succeed with firstID)
+	claimToken1, _ := randomB64(32)
+	claimHash1, _ := secrets.HashClaimToken(claimToken1)
+	reqBody1, _ := json.Marshal(CreateSecretRequest{
+		Envelope:  json.RawMessage(`{"ciphertext":"first"}`),
+		ClaimHash: claimHash1,
+	})
+
+	rec1 := httptest.NewRecorder()
+	req1 := httptest.NewRequest(http.MethodPost, "/api/v1/public/secrets", bytes.NewReader(reqBody1))
+	req1.Header.Set("Content-Type", "application/json")
+	srv.handleCreateSecret(rec1, req1, false, "test")
+
+	if rec1.Code != http.StatusCreated {
+		t.Fatalf("first create: expected 201, got %d body=%s", rec1.Code, rec1.Body.String())
+	}
+
+	// Create a second secret - should collide on first attempt, retry, and succeed
+	claimToken2, _ := randomB64(32)
+	claimHash2, _ := secrets.HashClaimToken(claimToken2)
+	reqBody2, _ := json.Marshal(CreateSecretRequest{
+		Envelope:  json.RawMessage(`{"ciphertext":"second"}`),
+		ClaimHash: claimHash2,
+	})
+
+	rec2 := httptest.NewRecorder()
+	req2 := httptest.NewRequest(http.MethodPost, "/api/v1/public/secrets", bytes.NewReader(reqBody2))
+	req2.Header.Set("Content-Type", "application/json")
+	srv.handleCreateSecret(rec2, req2, false, "test")
+
+	// This assertion will FAIL until retry logic is implemented.
+	// Currently returns 500 on collision instead of retrying.
+	if rec2.Code != http.StatusCreated {
+		t.Fatalf("second create with collision retry: expected 201, got %d body=%s", rec2.Code, rec2.Body.String())
+	}
+
+	// Verify the second secret got the unique ID
+	var resp CreateSecretResponse
+	if err := json.Unmarshal(rec2.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if resp.ID != secondID {
+		t.Fatalf("expected ID %q after retry, got %q", secondID, resp.ID)
+	}
+}
+
 func TestClaimSecret_ValidationAndRateLimit(t *testing.T) {
 	t.Run("bad content-type", func(t *testing.T) {
 		secStore := newMemSecretsStore()
