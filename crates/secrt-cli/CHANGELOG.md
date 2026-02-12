@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.5.2 — 2026-02-12
+
+No CLI changes — version bump to unify with workspace at 0.5.2.
+
 ## 0.5.1 — 2026-02-12
 
 No CLI changes — version bump to unify with workspace at 0.5.1.

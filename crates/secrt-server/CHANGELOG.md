@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.5.2 — 2026-02-12
+
+### Added
+
+- **Branded landing page:** Homepage now shows the secrt logo with light/dark mode support, explains zero-knowledge encryption, and links to CLI downloads. HTML moved from inline Rust to a `templates/index.html` file loaded via `include_str!`.
+
 ## 0.5.1 — 2026-02-12
 
 ### Fixed
