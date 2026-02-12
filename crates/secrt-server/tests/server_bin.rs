@@ -15,12 +15,11 @@ fn server_exits_non_zero_on_invalid_database_url() {
 }
 
 #[cfg(unix)]
-fn test_database_url() -> String {
+fn test_database_url() -> Option<String> {
     std::env::var("TEST_DATABASE_URL")
         .ok()
         .map(|s| s.trim().to_string())
         .filter(|s| !s.is_empty())
-        .unwrap_or_else(|| "postgres://localhost/postgres?sslmode=disable".to_string())
 }
 
 #[cfg(unix)]
@@ -55,7 +54,10 @@ fn free_port() -> u16 {
 #[cfg(unix)]
 #[tokio::test]
 async fn server_starts_and_stops_gracefully_with_sigterm() {
-    let base = test_database_url();
+    let Some(base) = test_database_url() else {
+        eprintln!("skipping: TEST_DATABASE_URL not set");
+        return;
+    };
     let schema = format!(
         "test_server_bin_{}",
         std::time::SystemTime::now()

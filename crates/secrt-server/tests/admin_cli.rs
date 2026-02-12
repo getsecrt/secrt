@@ -1,11 +1,10 @@
 use std::process::Command;
 
-fn test_database_url() -> String {
+fn test_database_url() -> Option<String> {
     std::env::var("TEST_DATABASE_URL")
         .ok()
         .map(|s| s.trim().to_string())
         .filter(|s| !s.is_empty())
-        .unwrap_or_else(|| "postgres://localhost/postgres?sslmode=disable".to_string())
 }
 
 fn schema_url(base: &str, schema: &str) -> String {
@@ -28,7 +27,10 @@ async fn create_schema(base_url: &str, schema: &str) {
 
 #[tokio::test]
 async fn admin_create_and_revoke_api_key() {
-    let base = test_database_url();
+    let Some(base) = test_database_url() else {
+        eprintln!("skipping: TEST_DATABASE_URL not set");
+        return;
+    };
     let schema = format!(
         "test_admin_{}",
         std::time::SystemTime::now()
@@ -114,7 +116,10 @@ fn admin_usage_on_missing_apikey_action() {
 
 #[tokio::test]
 async fn admin_create_requires_pepper() {
-    let base = test_database_url();
+    let Some(base) = test_database_url() else {
+        eprintln!("skipping: TEST_DATABASE_URL not set");
+        return;
+    };
     let schema = format!(
         "test_admin_nopepper_{}",
         std::time::SystemTime::now()
@@ -145,12 +150,9 @@ fn admin_unknown_subcommands_exit_2() {
     let out = Command::new(bin)
         .arg("apikey")
         .arg("unknown")
-        .env("ENV", "development")
-        .env("DATABASE_URL", test_database_url())
-        .env("PUBLIC_BASE_URL", "https://example.com")
         .output()
         .expect("run command");
-    assert!(!out.status.success());
+    assert_eq!(out.status.code(), Some(2));
 }
 
 #[test]
@@ -159,9 +161,6 @@ fn admin_revoke_missing_prefix_exits_2() {
     let out = Command::new(bin)
         .arg("apikey")
         .arg("revoke")
-        .env("ENV", "development")
-        .env("DATABASE_URL", test_database_url())
-        .env("PUBLIC_BASE_URL", "https://example.com")
         .output()
         .expect("run command");
     assert_eq!(out.status.code(), Some(2));
@@ -190,7 +189,7 @@ fn admin_config_error_exits_non_zero() {
         .arg("create")
         .env("ENV", "development")
         .env("PUBLIC_BASE_URL", "://bad-url")
-        .env("DATABASE_URL", test_database_url())
+        .env("DATABASE_URL", "postgres://localhost/test")
         .env("API_KEY_PEPPER", "pepper")
         .output()
         .expect("run command");

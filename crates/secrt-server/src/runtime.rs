@@ -204,13 +204,16 @@ mod tests {
         let original_existing = std::env::var("EXISTING").ok();
         std::env::set_var("FOO", "before_foo");
         std::env::set_var("EXISTING", "before_existing");
-        let path = format!(
-            "/tmp/secrt-dotenv-{}",
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .expect("time")
-                .as_nanos()
-        );
+        let path = std::env::temp_dir()
+            .join(format!(
+                "secrt-dotenv-{}",
+                std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .expect("time")
+                    .as_nanos()
+            ))
+            .to_string_lossy()
+            .to_string();
         std::fs::write(
             &path,
             "\n# comment\nFOO=bar\nMISSING_LINE\nEXISTING=from_file\n",

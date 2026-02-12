@@ -9,6 +9,11 @@ use secrt_server::storage::migrations::migrate;
 use secrt_server::storage::postgres::PgStore;
 use secrt_server::storage::{ApiKeyRecord, ApiKeysStore};
 
+enum Action {
+    Create { scopes: String },
+    Revoke { prefix: String },
+}
+
 #[tokio::main]
 async fn main() -> ExitCode {
     if std::env::var("ENV").unwrap_or_else(|_| "development".to_string()) != "production" {
@@ -16,10 +21,15 @@ async fn main() -> ExitCode {
     }
 
     let args: Vec<String> = std::env::args().collect();
-    if args.len() < 3 || args[1] != "apikey" {
-        usage();
-        return ExitCode::from(2);
-    }
+
+    // Validate all args before doing any I/O.
+    let action = match parse_action(&args) {
+        Some(a) => a,
+        None => {
+            usage();
+            return ExitCode::from(2);
+        }
+    };
 
     let cfg = match Config::load() {
         Ok(v) => v,
@@ -50,14 +60,8 @@ async fn main() -> ExitCode {
         return ExitCode::FAILURE;
     }
 
-    match args[2].as_str() {
-        "create" => {
-            let scopes = if args.len() >= 4 {
-                args[3].trim().to_string()
-            } else {
-                String::new()
-            };
-
+    match action {
+        Action::Create { scopes } => {
             if cfg.api_key_pepper.is_empty() {
                 eprintln!("API_KEY_PEPPER is required to create API keys");
                 return ExitCode::FAILURE;
@@ -88,31 +92,45 @@ async fn main() -> ExitCode {
             println!("{api_key}");
             ExitCode::SUCCESS
         }
+        Action::Revoke { prefix } => match store.revoke_by_prefix(&prefix).await {
+            Ok(true) => {
+                println!("revoked");
+                ExitCode::SUCCESS
+            }
+            Ok(false) => {
+                eprintln!("not found or already revoked");
+                ExitCode::FAILURE
+            }
+            Err(err) => {
+                eprintln!("revoke api key: {err}");
+                ExitCode::FAILURE
+            }
+        },
+    }
+}
+
+fn parse_action(args: &[String]) -> Option<Action> {
+    if args.len() < 3 || args[1] != "apikey" {
+        return None;
+    }
+    match args[2].as_str() {
+        "create" => {
+            let scopes = if args.len() >= 4 {
+                args[3].trim().to_string()
+            } else {
+                String::new()
+            };
+            Some(Action::Create { scopes })
+        }
         "revoke" => {
             if args.len() < 4 {
-                usage();
-                return ExitCode::from(2);
+                return None;
             }
-            let prefix = args[3].trim();
-            match store.revoke_by_prefix(prefix).await {
-                Ok(true) => {
-                    println!("revoked");
-                    ExitCode::SUCCESS
-                }
-                Ok(false) => {
-                    eprintln!("not found or already revoked");
-                    ExitCode::FAILURE
-                }
-                Err(err) => {
-                    eprintln!("revoke api key: {err}");
-                    ExitCode::FAILURE
-                }
-            }
+            Some(Action::Revoke {
+                prefix: args[3].trim().to_string(),
+            })
         }
-        _ => {
-            usage();
-            ExitCode::from(2)
-        }
+        _ => None,
     }
 }
 
