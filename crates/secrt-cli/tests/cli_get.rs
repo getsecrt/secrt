@@ -120,7 +120,7 @@ fn get_success_plain() {
     let (share_link, seal_result) = seal_test_secret(plaintext, "");
     let mock_resp = ClaimResponse {
         envelope: seal_result.envelope,
-        expires_at: "2026-02-09T00:00:00Z".into(),
+        expires_at: "2099-12-31T23:59:59Z".into(),
     };
     let (mut deps, stdout, stderr) = TestDepsBuilder::new().mock_claim(Ok(mock_resp)).build();
     let code = cli::run(&args(&["secrt", "get", &share_link]), &mut deps);
@@ -134,7 +134,7 @@ fn get_success_tty_shows_label() {
     let (share_link, seal_result) = seal_test_secret(plaintext, "");
     let mock_resp = ClaimResponse {
         envelope: seal_result.envelope,
-        expires_at: "2026-02-09T00:00:00Z".into(),
+        expires_at: "2099-12-31T23:59:59Z".into(),
     };
     let (mut deps, stdout, stderr) = TestDepsBuilder::new()
         .is_stdout_tty(true)
@@ -156,7 +156,7 @@ fn get_success_non_tty_no_label() {
     let (share_link, seal_result) = seal_test_secret(plaintext, "");
     let mock_resp = ClaimResponse {
         envelope: seal_result.envelope,
-        expires_at: "2026-02-09T00:00:00Z".into(),
+        expires_at: "2099-12-31T23:59:59Z".into(),
     };
     let (mut deps, stdout, stderr) = TestDepsBuilder::new()
         .is_stdout_tty(false)
@@ -237,7 +237,7 @@ fn get_success_with_passphrase() {
     let (share_link, seal_result) = seal_test_secret(plaintext, "mypass");
     let mock_resp = ClaimResponse {
         envelope: seal_result.envelope,
-        expires_at: "2026-02-09T00:00:00Z".into(),
+        expires_at: "2099-12-31T23:59:59Z".into(),
     };
     let (mut deps, stdout, stderr) = TestDepsBuilder::new()
         .mock_claim(Ok(mock_resp))
@@ -260,7 +260,7 @@ fn get_decryption_error() {
     let bad_share_link = envelope::format_share_link("https://secrt.ca/s/mock-id", &bad_key);
     let mock_resp = ClaimResponse {
         envelope: seal_result.envelope,
-        expires_at: "2026-02-09T00:00:00Z".into(),
+        expires_at: "2099-12-31T23:59:59Z".into(),
     };
     let (mut deps, _stdout, stderr) = TestDepsBuilder::new()
         .env("XDG_CONFIG_HOME", "/tmp/secrt_test_no_config")
@@ -296,7 +296,7 @@ fn get_silent_suppresses_label() {
     let (share_link, seal_result) = seal_test_secret(plaintext, "");
     let mock_resp = ClaimResponse {
         envelope: seal_result.envelope,
-        expires_at: "2026-02-09T00:00:00Z".into(),
+        expires_at: "2099-12-31T23:59:59Z".into(),
     };
     let (mut deps, stdout, stderr) = TestDepsBuilder::new()
         .is_stdout_tty(true)
@@ -320,7 +320,7 @@ fn get_passphrase_auto_prompt_on_tty() {
     let (share_link, seal_result) = seal_test_secret(plaintext, "mypass");
     let mock_resp = ClaimResponse {
         envelope: seal_result.envelope,
-        expires_at: "2026-02-09T00:00:00Z".into(),
+        expires_at: "2099-12-31T23:59:59Z".into(),
     };
     // TTY + no passphrase flags → should auto-prompt
     let (mut deps, stdout, stderr) = TestDepsBuilder::new()
@@ -346,7 +346,7 @@ fn get_passphrase_auto_prompt_shows_key_symbol() {
     let (share_link, seal_result) = seal_test_secret(plaintext, "pass123");
     let mock_resp = ClaimResponse {
         envelope: seal_result.envelope,
-        expires_at: "2026-02-09T00:00:00Z".into(),
+        expires_at: "2099-12-31T23:59:59Z".into(),
     };
     let (mut deps, _stdout, stderr) = TestDepsBuilder::new()
         .is_tty(true)
@@ -365,7 +365,7 @@ fn get_passphrase_auto_prompt_silent_hides_notice() {
     let (share_link, seal_result) = seal_test_secret(plaintext, "mypass");
     let mock_resp = ClaimResponse {
         envelope: seal_result.envelope,
-        expires_at: "2026-02-09T00:00:00Z".into(),
+        expires_at: "2099-12-31T23:59:59Z".into(),
     };
     let (mut deps, stdout, stderr) = TestDepsBuilder::new()
         .is_tty(true)
@@ -388,7 +388,7 @@ fn get_passphrase_non_tty_errors_with_hint() {
     let (share_link, seal_result) = seal_test_secret(plaintext, "mypass");
     let mock_resp = ClaimResponse {
         envelope: seal_result.envelope,
-        expires_at: "2026-02-09T00:00:00Z".into(),
+        expires_at: "2099-12-31T23:59:59Z".into(),
     };
     // Non-TTY + no passphrase flags → should error with helpful message
     let (mut deps, _stdout, stderr) = TestDepsBuilder::new()
@@ -412,7 +412,7 @@ fn get_passphrase_retry_on_wrong_passphrase() {
     let (share_link, seal_result) = seal_test_secret(plaintext, "correct");
     let mock_resp = ClaimResponse {
         envelope: seal_result.envelope,
-        expires_at: "2026-02-09T00:00:00Z".into(),
+        expires_at: "2099-12-31T23:59:59Z".into(),
     };
     // First attempt wrong, second attempt correct
     let (mut deps, stdout, stderr) = TestDepsBuilder::new()
@@ -437,7 +437,7 @@ fn get_passphrase_retry_many_then_succeed() {
     let (share_link, seal_result) = seal_test_secret(plaintext, "correct");
     let mock_resp = ClaimResponse {
         envelope: seal_result.envelope,
-        expires_at: "2026-02-09T00:00:00Z".into(),
+        expires_at: "2099-12-31T23:59:59Z".into(),
     };
     // 4 wrong attempts then correct — no limit on retries
     let (mut deps, stdout, stderr) = TestDepsBuilder::new()
@@ -464,7 +464,7 @@ fn get_passphrase_no_retry_with_env_flag() {
     let (share_link, seal_result) = seal_test_secret(plaintext, "correct");
     let mock_resp = ClaimResponse {
         envelope: seal_result.envelope,
-        expires_at: "2026-02-09T00:00:00Z".into(),
+        expires_at: "2099-12-31T23:59:59Z".into(),
     };
     // Wrong passphrase via --passphrase-env → no retry even on TTY
     let (mut deps, _stdout, stderr) = TestDepsBuilder::new()
@@ -496,7 +496,7 @@ fn get_passphrase_prompt_flag_allows_retry() {
     let (share_link, seal_result) = seal_test_secret(plaintext, "correct");
     let mock_resp = ClaimResponse {
         envelope: seal_result.envelope,
-        expires_at: "2026-02-09T00:00:00Z".into(),
+        expires_at: "2099-12-31T23:59:59Z".into(),
     };
     // Wrong first via -p, then correct on retry
     let (mut deps, stdout, stderr) = TestDepsBuilder::new()
@@ -515,7 +515,7 @@ fn get_passphrase_auto_prompt_empty_input() {
     let (share_link, seal_result) = seal_test_secret(plaintext, "mypass");
     let mock_resp = ClaimResponse {
         envelope: seal_result.envelope,
-        expires_at: "2026-02-09T00:00:00Z".into(),
+        expires_at: "2099-12-31T23:59:59Z".into(),
     };
     let (mut deps, _stdout, stderr) = TestDepsBuilder::new()
         .is_tty(true)
@@ -537,7 +537,7 @@ fn get_passphrase_auto_prompt_read_error() {
     let (share_link, seal_result) = seal_test_secret(plaintext, "mypass");
     let mock_resp = ClaimResponse {
         envelope: seal_result.envelope,
-        expires_at: "2026-02-09T00:00:00Z".into(),
+        expires_at: "2099-12-31T23:59:59Z".into(),
     };
     let (mut deps, _stdout, stderr) = TestDepsBuilder::new()
         .is_tty(true)
@@ -559,7 +559,7 @@ fn get_passphrase_retry_empty_input() {
     let (share_link, seal_result) = seal_test_secret(plaintext, "correct");
     let mock_resp = ClaimResponse {
         envelope: seal_result.envelope,
-        expires_at: "2026-02-09T00:00:00Z".into(),
+        expires_at: "2099-12-31T23:59:59Z".into(),
     };
     // First attempt wrong, retry gives empty string
     let (mut deps, _stdout, stderr) = TestDepsBuilder::new()
@@ -580,7 +580,7 @@ fn get_passphrase_conflicting_flags() {
     let (share_link, seal_result) = seal_test_secret(plaintext, "mypass");
     let mock_resp = ClaimResponse {
         envelope: seal_result.envelope,
-        expires_at: "2026-02-09T00:00:00Z".into(),
+        expires_at: "2099-12-31T23:59:59Z".into(),
     };
     let (mut deps, _stdout, stderr) = TestDepsBuilder::new()
         .mock_claim(Ok(mock_resp))
@@ -612,7 +612,7 @@ fn get_passphrase_json_non_tty_error() {
     let (share_link, seal_result) = seal_test_secret(plaintext, "mypass");
     let mock_resp = ClaimResponse {
         envelope: seal_result.envelope,
-        expires_at: "2026-02-09T00:00:00Z".into(),
+        expires_at: "2099-12-31T23:59:59Z".into(),
     };
     let (mut deps, _stdout, stderr) = TestDepsBuilder::new()
         .is_tty(false)
@@ -657,7 +657,7 @@ fn get_passphrase_list_first_matches() {
     let (share_link, seal_result) = seal_test_secret(plaintext, "correct");
     let mock_resp = ClaimResponse {
         envelope: seal_result.envelope,
-        expires_at: "2026-02-09T00:00:00Z".into(),
+        expires_at: "2099-12-31T23:59:59Z".into(),
     };
     let cfg_dir = setup_config("decryption_passphrases = [\"correct\", \"other\"]\n");
     let (mut deps, stdout, stderr) = TestDepsBuilder::new()
@@ -677,7 +677,7 @@ fn get_passphrase_list_second_matches() {
     let (share_link, seal_result) = seal_test_secret(plaintext, "correct");
     let mock_resp = ClaimResponse {
         envelope: seal_result.envelope,
-        expires_at: "2026-02-09T00:00:00Z".into(),
+        expires_at: "2099-12-31T23:59:59Z".into(),
     };
     let cfg_dir = setup_config("decryption_passphrases = [\"wrong\", \"correct\"]\n");
     let (mut deps, stdout, stderr) = TestDepsBuilder::new()
@@ -697,7 +697,7 @@ fn get_passphrase_default_tried_before_list() {
     let (share_link, seal_result) = seal_test_secret(plaintext, "default-pass");
     let mock_resp = ClaimResponse {
         envelope: seal_result.envelope,
-        expires_at: "2026-02-09T00:00:00Z".into(),
+        expires_at: "2099-12-31T23:59:59Z".into(),
     };
     // passphrase (default) = "default-pass", list has different entries
     let cfg_dir = setup_config(
@@ -720,7 +720,7 @@ fn get_passphrase_list_no_match_non_tty_error() {
     let (share_link, seal_result) = seal_test_secret(plaintext, "actual-pass");
     let mock_resp = ClaimResponse {
         envelope: seal_result.envelope,
-        expires_at: "2026-02-09T00:00:00Z".into(),
+        expires_at: "2099-12-31T23:59:59Z".into(),
     };
     let cfg_dir = setup_config("decryption_passphrases = [\"wrong1\", \"wrong2\"]\n");
     let (mut deps, _stdout, stderr) = TestDepsBuilder::new()
@@ -745,7 +745,7 @@ fn get_passphrase_list_no_match_tty_falls_through_to_prompt() {
     let (share_link, seal_result) = seal_test_secret(plaintext, "correct");
     let mock_resp = ClaimResponse {
         envelope: seal_result.envelope,
-        expires_at: "2026-02-09T00:00:00Z".into(),
+        expires_at: "2099-12-31T23:59:59Z".into(),
     };
     let cfg_dir = setup_config("decryption_passphrases = [\"wrong1\"]\n");
     let (mut deps, stdout, stderr) = TestDepsBuilder::new()
@@ -772,7 +772,7 @@ fn get_passphrase_explicit_flag_bypasses_list() {
     let (share_link, seal_result) = seal_test_secret(plaintext, "correct");
     let mock_resp = ClaimResponse {
         envelope: seal_result.envelope,
-        expires_at: "2026-02-09T00:00:00Z".into(),
+        expires_at: "2099-12-31T23:59:59Z".into(),
     };
     // Config has the correct passphrase in list, but explicit --passphrase-env with wrong value
     let cfg_dir = setup_config("decryption_passphrases = [\"correct\"]\n");
@@ -803,7 +803,7 @@ fn get_passphrase_list_deduplication() {
     let (share_link, seal_result) = seal_test_secret(plaintext, "same-pass");
     let mock_resp = ClaimResponse {
         envelope: seal_result.envelope,
-        expires_at: "2026-02-09T00:00:00Z".into(),
+        expires_at: "2099-12-31T23:59:59Z".into(),
     };
     let cfg_dir = setup_config(
         "passphrase = \"same-pass\"\ndecryption_passphrases = [\"same-pass\", \"other\"]\n",
@@ -825,7 +825,7 @@ fn get_implicit_from_share_url() {
     let (share_link, seal_result) = seal_test_secret(plaintext, "");
     let mock_resp = ClaimResponse {
         envelope: seal_result.envelope,
-        expires_at: "2026-02-09T00:00:00Z".into(),
+        expires_at: "2099-12-31T23:59:59Z".into(),
     };
     let (mut deps, stdout, stderr) = TestDepsBuilder::new().mock_claim(Ok(mock_resp)).build();
     // No "get" subcommand — just secrt <url>
@@ -840,7 +840,7 @@ fn get_implicit_with_flags() {
     let (share_link, seal_result) = seal_test_secret(plaintext, "");
     let mock_resp = ClaimResponse {
         envelope: seal_result.envelope,
-        expires_at: "2026-02-09T00:00:00Z".into(),
+        expires_at: "2099-12-31T23:59:59Z".into(),
     };
     let (mut deps, stdout, stderr) = TestDepsBuilder::new().mock_claim(Ok(mock_resp)).build();
     // Implicit get with --json flag
@@ -883,7 +883,7 @@ fn get_file_auto_save_on_tty() {
     let (share_link, seal_result) = seal_test_file(plaintext, "photo.png", "image/png");
     let mock_resp = ClaimResponse {
         envelope: seal_result.envelope,
-        expires_at: "2026-02-09T00:00:00Z".into(),
+        expires_at: "2099-12-31T23:59:59Z".into(),
     };
     // Use a temp dir to avoid polluting CWD
     let dir = std::env::temp_dir().join(format!(
@@ -928,7 +928,7 @@ fn get_file_output_flag() {
         seal_test_file(plaintext, "data.bin", "application/octet-stream");
     let mock_resp = ClaimResponse {
         envelope: seal_result.envelope,
-        expires_at: "2026-02-09T00:00:00Z".into(),
+        expires_at: "2099-12-31T23:59:59Z".into(),
     };
     let dir = std::env::temp_dir();
     let out_path = dir.join(format!(
@@ -971,7 +971,7 @@ fn get_file_output_dash_stdout() {
     let (share_link, seal_result) = seal_test_file(plaintext, "test.txt", "text/plain");
     let mock_resp = ClaimResponse {
         envelope: seal_result.envelope,
-        expires_at: "2026-02-09T00:00:00Z".into(),
+        expires_at: "2099-12-31T23:59:59Z".into(),
     };
     let (mut deps, stdout, stderr) = TestDepsBuilder::new().mock_claim(Ok(mock_resp)).build();
     let code = cli::run(
@@ -990,7 +990,7 @@ fn get_file_piped_stdout_raw_bytes() {
         seal_test_file(plaintext, "data.bin", "application/octet-stream");
     let mock_resp = ClaimResponse {
         envelope: seal_result.envelope,
-        expires_at: "2026-02-09T00:00:00Z".into(),
+        expires_at: "2099-12-31T23:59:59Z".into(),
     };
     let (mut deps, stdout, stderr) = TestDepsBuilder::new()
         .is_stdout_tty(false) // piped
@@ -1058,7 +1058,7 @@ fn get_text_no_hint_unchanged_behavior() {
     let (share_link, seal_result) = seal_test_secret(plaintext, "");
     let mock_resp = ClaimResponse {
         envelope: seal_result.envelope,
-        expires_at: "2026-02-09T00:00:00Z".into(),
+        expires_at: "2099-12-31T23:59:59Z".into(),
     };
     let (mut deps, stdout, stderr) = TestDepsBuilder::new()
         .is_stdout_tty(true)
@@ -1086,7 +1086,7 @@ fn get_binary_no_hint_tty_auto_saves() {
     let (share_link, seal_result) = seal_test_secret(plaintext, "");
     let mock_resp = ClaimResponse {
         envelope: seal_result.envelope,
-        expires_at: "2026-02-09T00:00:00Z".into(),
+        expires_at: "2099-12-31T23:59:59Z".into(),
     };
 
     // Use --output with an explicit temp path to avoid cwd races in parallel tests
@@ -1133,7 +1133,7 @@ fn get_binary_no_hint_piped_passes_through() {
     let (share_link, seal_result) = seal_test_secret(plaintext, "");
     let mock_resp = ClaimResponse {
         envelope: seal_result.envelope,
-        expires_at: "2026-02-09T00:00:00Z".into(),
+        expires_at: "2099-12-31T23:59:59Z".into(),
     };
     let (mut deps, stdout, _stderr) = TestDepsBuilder::new()
         .is_stdout_tty(false)
@@ -1166,7 +1166,7 @@ fn get_output_short_flag() {
     let (share_link, seal_result) = seal_test_file(plaintext, "test.txt", "text/plain");
     let mock_resp = ClaimResponse {
         envelope: seal_result.envelope,
-        expires_at: "2026-02-09T00:00:00Z".into(),
+        expires_at: "2099-12-31T23:59:59Z".into(),
     };
     let (mut deps, stdout, _stderr) = TestDepsBuilder::new().mock_claim(Ok(mock_resp)).build();
     let code = cli::run(&args(&["secrt", "get", &share_link, "-o", "-"]), &mut deps);
@@ -1181,7 +1181,7 @@ fn get_file_output_flag_text_no_hint() {
     let (share_link, seal_result) = seal_test_secret(plaintext, "");
     let mock_resp = ClaimResponse {
         envelope: seal_result.envelope,
-        expires_at: "2026-02-09T00:00:00Z".into(),
+        expires_at: "2099-12-31T23:59:59Z".into(),
     };
     let dir = std::env::temp_dir();
     let out_path = dir.join(format!(
@@ -1216,7 +1216,7 @@ fn get_passphrase_non_tty_no_candidates_error() {
     let (share_link, seal_result) = seal_test_secret(plaintext, "mypass");
     let mock_resp = ClaimResponse {
         envelope: seal_result.envelope,
-        expires_at: "2026-02-09T00:00:00Z".into(),
+        expires_at: "2099-12-31T23:59:59Z".into(),
     };
     let (mut deps, _stdout, stderr) = TestDepsBuilder::new()
         .is_tty(false)
@@ -1245,7 +1245,7 @@ fn get_passphrase_prompt_retry_read_error() {
     let (share_link, seal_result) = seal_test_secret(plaintext, "correct");
     let mock_resp = ClaimResponse {
         envelope: seal_result.envelope,
-        expires_at: "2026-02-09T00:00:00Z".into(),
+        expires_at: "2099-12-31T23:59:59Z".into(),
     };
     // Only one response: "wrong". Second read_pass call returns error.
     let (mut deps, _stdout, stderr) = TestDepsBuilder::new()
@@ -1275,7 +1275,7 @@ fn get_passphrase_prompt_retry_empty() {
     let (share_link, seal_result) = seal_test_secret(plaintext, "correct");
     let mock_resp = ClaimResponse {
         envelope: seal_result.envelope,
-        expires_at: "2026-02-09T00:00:00Z".into(),
+        expires_at: "2099-12-31T23:59:59Z".into(),
     };
     let (mut deps, _stdout, stderr) = TestDepsBuilder::new()
         .is_tty(true)
@@ -1296,7 +1296,7 @@ fn get_file_auto_save_collision() {
     let (share_link, seal_result) = seal_test_file(plaintext, "data.txt", "text/plain");
     let mock_resp = ClaimResponse {
         envelope: seal_result.envelope,
-        expires_at: "2026-02-09T00:00:00Z".into(),
+        expires_at: "2099-12-31T23:59:59Z".into(),
     };
 
     let dir = std::env::temp_dir().join(format!(
@@ -1346,7 +1346,7 @@ fn get_binary_no_hint_tty_auto_saves_secret_bin() {
     let (share_link, seal_result) = seal_test_secret(plaintext, "");
     let mock_resp = ClaimResponse {
         envelope: seal_result.envelope,
-        expires_at: "2026-02-09T00:00:00Z".into(),
+        expires_at: "2099-12-31T23:59:59Z".into(),
     };
 
     let dir = std::env::temp_dir().join(format!(
@@ -1392,7 +1392,7 @@ fn get_tty_no_candidates_shows_notice() {
     let (share_link, seal_result) = seal_test_secret(plaintext, "correct");
     let mock_resp = ClaimResponse {
         envelope: seal_result.envelope,
-        expires_at: "2026-02-09T00:00:00Z".into(),
+        expires_at: "2099-12-31T23:59:59Z".into(),
     };
     let (mut deps, stdout, stderr) = TestDepsBuilder::new()
         .is_tty(true)

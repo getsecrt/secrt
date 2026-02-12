@@ -166,7 +166,7 @@ fn mock_send_response() -> CreateResponse {
     CreateResponse {
         id: "test-id-123".into(),
         share_url: "https://secrt.ca/s/test-id-123".into(),
-        expires_at: "2026-02-09T00:00:00Z".into(),
+        expires_at: "2099-12-31T23:59:59Z".into(),
     }
 }
 

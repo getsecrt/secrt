@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.4.2 — 2026-02-11
+
+### Changed
+
+- **Relative expiry display:** Expiry timestamps now show relative time with the UTC timestamp in parentheses (e.g., "Expires in 3 days, 2 hours (2026-02-09 00:00 UTC)") instead of converting to local timezone.
+- **Remove `chrono` dependency:** Replaced with ~35 lines of hand-rolled date math, dropping 4 crates from the dependency tree and saving ~49 KB from the release binary.
+
 ## 0.4.1 — 2026-02-11
 
 ### Changed

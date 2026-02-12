@@ -196,18 +196,91 @@ pub fn run_send(args: &[String], deps: &mut Deps) -> i32 {
     0
 }
 
-/// Format ISO 8601 UTC timestamp to "Expires YYYY-MM-DD HH:MM TZ" in local time.
-fn format_expires(iso: &str) -> String {
-    use chrono::{DateTime, Local, Utc};
-
-    if let Ok(utc) = iso.parse::<DateTime<Utc>>() {
-        let local = utc.with_timezone(&Local);
-        format!("Expires {}", local.format("%Y-%m-%d %H:%M %Z"))
-    } else if iso.len() >= 16 {
-        format!("Expires {} {} UTC", &iso[0..10], &iso[11..16])
-    } else {
-        format!("Expires {}", iso)
+/// Parse a subset of ISO 8601 UTC timestamps ("2026-02-09T00:00:00Z") to unix epoch seconds.
+fn parse_iso_to_epoch(iso: &str) -> Option<u64> {
+    let b = iso.as_bytes();
+    if b.len() < 16 {
+        return None;
     }
+    let y: u64 = iso[0..4].parse().ok()?;
+    let m: u64 = iso[5..7].parse().ok()?;
+    let d: u64 = iso[8..10].parse().ok()?;
+    let hh: u64 = iso[11..13].parse().ok()?;
+    let mm: u64 = iso[14..16].parse().ok()?;
+    let ss: u64 = if b.len() >= 19 {
+        iso[17..19].parse().unwrap_or(0)
+    } else {
+        0
+    };
+    // Days from civil date (Euclidean affine algorithm)
+    let (y2, m2) = if m <= 2 { (y - 1, m + 9) } else { (y, m - 3) };
+    let era = y2 / 400;
+    let yoe = y2 - era * 400;
+    let doy = (153 * m2 + 2) / 5 + d - 1;
+    let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+    let days = era * 146097 + doe - 719468;
+    Some(days * 86400 + hh * 3600 + mm * 60 + ss)
+}
+
+/// Format seconds into a human-readable relative duration, e.g. "3 days, 2 hours".
+fn humanize_seconds(secs: u64) -> String {
+    const MINUTE: u64 = 60;
+    const HOUR: u64 = 3600;
+    const DAY: u64 = 86400;
+
+    let (val, unit, remainder) = if secs >= DAY {
+        (secs / DAY, "day", secs % DAY)
+    } else if secs >= HOUR {
+        (secs / HOUR, "hour", secs % HOUR)
+    } else if secs >= MINUTE {
+        (secs / MINUTE, "minute", secs % MINUTE)
+    } else {
+        return format!("{secs} second{}", if secs == 1 { "" } else { "s" });
+    };
+
+    let primary = format!("{val} {unit}{}", if val == 1 { "" } else { "s" });
+
+    // Add a secondary unit if meaningful
+    let secondary = if unit == "day" && remainder >= HOUR {
+        let h = remainder / HOUR;
+        Some(format!("{h} hour{}", if h == 1 { "" } else { "s" }))
+    } else if unit == "hour" && remainder >= MINUTE {
+        let m = remainder / MINUTE;
+        Some(format!("{m} minute{}", if m == 1 { "" } else { "s" }))
+    } else {
+        None
+    };
+
+    match secondary {
+        Some(s) => format!("{primary}, {s}"),
+        None => primary,
+    }
+}
+
+/// Format ISO 8601 UTC expiry to "Expires in 3 days, 2 hours (2026-02-09 00:00 UTC)".
+fn format_expires(iso: &str) -> String {
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    let utc_display = if iso.len() >= 16 {
+        format!("{} {} UTC", &iso[0..10], &iso[11..16])
+    } else {
+        iso.to_string()
+    };
+
+    let Some(expires) = parse_iso_to_epoch(iso) else {
+        return format!("Expires {utc_display}");
+    };
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_secs();
+
+    if expires <= now {
+        return format!("Expired ({utc_display})");
+    }
+
+    let remaining = expires - now;
+    format!("Expires in {} ({utc_display})", humanize_seconds(remaining))
 }
 
 fn read_plaintext(pa: &ParsedArgs, deps: &mut Deps) -> Result<Vec<u8>, String> {
@@ -335,10 +408,16 @@ mod tests {
     use super::*;
 
     #[test]
-    fn format_expires_valid_iso() {
-        let result = format_expires("2026-02-09T00:00:00Z");
-        assert!(result.starts_with("Expires "), "result: {}", result);
-        assert!(result.contains("2026"), "result: {}", result);
+    fn format_expires_future_iso() {
+        let result = format_expires("2099-12-31T23:59:59Z");
+        assert!(result.starts_with("Expires in "), "result: {}", result);
+        assert!(result.contains("(2099-12-31 23:59 UTC)"), "result: {}", result);
+    }
+
+    #[test]
+    fn format_expires_past_iso() {
+        let result = format_expires("2020-01-01T00:00:00Z");
+        assert!(result.starts_with("Expired ("), "result: {}", result);
     }
 
     #[test]
@@ -348,15 +427,7 @@ mod tests {
     }
 
     #[test]
-    fn format_expires_exactly_16_chars() {
-        // len >= 16, uses the substring fallback: [0..10] and [11..16]
-        let result = format_expires("2026-02-09T12:34");
-        assert_eq!(result, "Expires 2026-02-09 12:34 UTC");
-    }
-
-    #[test]
     fn format_expires_malformed_long() {
-        // len >= 16 but not valid ISO — exercises the fallback path
         let result = format_expires("not-a-valid-date-but-long");
         assert!(result.starts_with("Expires "), "result: {}", result);
         assert!(result.contains("UTC"), "should use fallback: {}", result);
@@ -370,8 +441,39 @@ mod tests {
 
     #[test]
     fn format_expires_15_chars() {
-        // Just under 16 chars — uses the short fallback
         let result = format_expires("2026-02-09T12:3");
         assert_eq!(result, "Expires 2026-02-09T12:3");
+    }
+
+    #[test]
+    fn parse_iso_known_epoch() {
+        // 2000-01-01T00:00:00Z = 946684800
+        assert_eq!(parse_iso_to_epoch("2000-01-01T00:00:00Z"), Some(946684800));
+    }
+
+    #[test]
+    fn parse_iso_unix_epoch() {
+        assert_eq!(parse_iso_to_epoch("1970-01-01T00:00:00Z"), Some(0));
+    }
+
+    #[test]
+    fn humanize_days_and_hours() {
+        assert_eq!(humanize_seconds(3 * 86400 + 2 * 3600), "3 days, 2 hours");
+    }
+
+    #[test]
+    fn humanize_one_day() {
+        assert_eq!(humanize_seconds(86400), "1 day");
+    }
+
+    #[test]
+    fn humanize_hours_and_minutes() {
+        assert_eq!(humanize_seconds(2 * 3600 + 30 * 60), "2 hours, 30 minutes");
+    }
+
+    #[test]
+    fn humanize_seconds_only() {
+        assert_eq!(humanize_seconds(45), "45 seconds");
+        assert_eq!(humanize_seconds(1), "1 second");
     }
 }
