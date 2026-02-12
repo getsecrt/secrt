@@ -1,0 +1,43 @@
+{
+  "_description": "Test vectors for CLI TTL input parsing. Generated from spec/v1/cli.md TTL Input Grammar.",
+  "_spec": "spec/v1/cli.md",
+  "valid": [
+    { "input": "90",    "ttl_seconds": 90,      "description": "bare integer defaults to seconds" },
+    { "input": "90s",   "ttl_seconds": 90,      "description": "explicit seconds" },
+    { "input": "5m",    "ttl_seconds": 300,     "description": "minutes" },
+    { "input": "2h",    "ttl_seconds": 7200,    "description": "hours" },
+    { "input": "2d",    "ttl_seconds": 172800,  "description": "days" },
+    { "input": "1w",    "ttl_seconds": 604800,  "description": "weeks" },
+    { "input": "1",     "ttl_seconds": 1,       "description": "minimum valid TTL (1 second)" },
+    { "input": "1s",    "ttl_seconds": 1,       "description": "minimum valid TTL explicit unit" },
+    { "input": "31536000",  "ttl_seconds": 31536000, "description": "maximum valid TTL (1 year in seconds)" },
+    { "input": "31536000s", "ttl_seconds": 31536000, "description": "maximum valid TTL explicit unit" },
+    { "input": "365d",  "ttl_seconds": 31536000, "description": "1 year in days" },
+    { "input": "52w",   "ttl_seconds": 31449600, "description": "52 weeks (364 days)" },
+    { "input": "60m",   "ttl_seconds": 3600,    "description": "60 minutes = 1 hour" },
+    { "input": "24h",   "ttl_seconds": 86400,   "description": "24 hours = 1 day" },
+    { "input": "7d",    "ttl_seconds": 604800,  "description": "7 days = 1 week" },
+    { "input": "100",   "ttl_seconds": 100,     "description": "three-digit bare integer" },
+    { "input": "10s",   "ttl_seconds": 10,      "description": "10 seconds" }
+  ],
+  "invalid": [
+    { "input": "0",       "reason": "zero value" },
+    { "input": "0s",      "reason": "zero value with unit" },
+    { "input": "-1",      "reason": "negative value" },
+    { "input": "-5m",     "reason": "negative value with unit" },
+    { "input": "1.5m",    "reason": "decimal value" },
+    { "input": "1 d",     "reason": "whitespace between value and unit" },
+    { "input": "month",   "reason": "unknown unit (no number)" },
+    { "input": "1month",  "reason": "ambiguous multi-char unit" },
+    { "input": "1minute", "reason": "full word unit" },
+    { "input": "1ms",     "reason": "unknown unit (milliseconds)" },
+    { "input": "1y",      "reason": "unknown unit (year)" },
+    { "input": "",        "reason": "empty string" },
+    { "input": "abc",     "reason": "non-numeric" },
+    { "input": "5 m",     "reason": "space-separated value and unit" },
+    { "input": "31536001",  "reason": "exceeds maximum TTL (1 year + 1 second)" },
+    { "input": "366d",    "reason": "exceeds maximum TTL (366 days)" },
+    { "input": "53w",     "reason": "exceeds maximum TTL (53 weeks)" },
+    { "input": "8761h",   "reason": "exceeds maximum TTL (8761 hours)" }
+  ]
+}

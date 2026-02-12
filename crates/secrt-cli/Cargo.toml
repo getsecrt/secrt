@@ -1,0 +1,37 @@
+[package]
+name = "secrt"
+version = "0.4.0"
+edition = "2021"
+rust-version = "1.82"
+repository = "https://github.com/getsecrt/secrt-cli"
+license = "MIT"
+
+[dependencies]
+ring = "0.17"
+ureq = { version = "3", default-features = false, features = ["rustls"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+base64 = "0.22"
+is-terminal = "0.4"
+rpassword = "7"
+toml = "0.8"
+dirs = "6"
+chrono = { version = "0.4", default-features = false, features = ["clock"] }
+keyring = { version = "3", optional = true, features = ["apple-native", "linux-native", "windows-native"] }
+
+[features]
+default = ["keychain"]
+keychain = ["keyring"]
+
+[dev-dependencies]
+serde = { version = "1", features = ["derive"] }
+
+[profile.release]
+opt-level = "z"
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true
+
+[profile.release.package.ring]
+opt-level = 3
