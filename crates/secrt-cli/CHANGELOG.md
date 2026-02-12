@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.4.1 — 2026-02-11
+
+### Changed
+
+- **Monorepo migration:** Project moved to [getsecrt/secrt](https://github.com/getsecrt/secrt) monorepo. Shared crypto and protocol logic extracted into `secrt-core` crate. No functional changes to the CLI.
+
 ## 0.4.0 — 2026-02-11
 
 ### Changed
