@@ -5,12 +5,11 @@ use secrt_server::storage::migrations::migrate;
 use secrt_server::storage::postgres::PgStore;
 use secrt_server::storage::{ApiKeyRecord, ApiKeysStore, SecretRecord, SecretsStore, StorageError};
 
-fn test_database_url() -> String {
+fn test_database_url() -> Option<String> {
     std::env::var("TEST_DATABASE_URL")
         .ok()
         .map(|s| s.trim().to_string())
         .filter(|s| !s.is_empty())
-        .unwrap_or_else(|| "postgres://localhost/postgres?sslmode=disable".to_string())
 }
 
 fn test_schema_name() -> String {
@@ -39,7 +38,10 @@ async fn create_schema(base_url: &str, schema: &str) {
 
 #[tokio::test]
 async fn postgres_secret_lifecycle_and_api_keys() {
-    let base_url = test_database_url();
+    let Some(base_url) = test_database_url() else {
+        eprintln!("skipping: TEST_DATABASE_URL not set");
+        return;
+    };
 
     let schema = test_schema_name();
     create_schema(&base_url, &schema).await;
