@@ -44,20 +44,32 @@ pub enum StorageError {
 
 impl From<tokio_postgres::Error> for StorageError {
     fn from(value: tokio_postgres::Error) -> Self {
-        StorageError::Other(value.to_string())
+        StorageError::Other(format_error_chain(&value))
     }
 }
 
 impl From<deadpool_postgres::PoolError> for StorageError {
     fn from(value: deadpool_postgres::PoolError) -> Self {
-        StorageError::Other(value.to_string())
+        StorageError::Other(format_error_chain(&value))
     }
 }
 
 impl From<deadpool_postgres::CreatePoolError> for StorageError {
     fn from(value: deadpool_postgres::CreatePoolError) -> Self {
-        StorageError::Other(value.to_string())
+        StorageError::Other(format_error_chain(&value))
     }
+}
+
+/// Format an error with its full source chain so root causes aren't swallowed.
+fn format_error_chain(err: &dyn std::error::Error) -> String {
+    let mut msg = err.to_string();
+    let mut source = err.source();
+    while let Some(cause) = source {
+        msg.push_str(": ");
+        msg.push_str(&cause.to_string());
+        source = cause.source();
+    }
+    msg
 }
 
 #[async_trait]

@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.5.1 — 2026-02-12
+
+### Fixed
+
+- **Database error logging:** Storage errors now include the full error source chain instead of a truncated "db error" message. Root causes like connection failures, auth errors, and missing tables are now visible in logs.
+
 ## 0.5.0 — 2026-02-12
 
 ### Added

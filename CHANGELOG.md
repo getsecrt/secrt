@@ -6,6 +6,12 @@ All notable changes to the secrt monorepo are documented here. Individual crate 
 - [secrt-core](crates/secrt-core/CHANGELOG.md)
 - [secrt-server](crates/secrt-server/CHANGELOG.md)
 
+## 0.5.1 — 2026-02-12
+
+### Fixed
+
+- **secrt-server:** Database error logging now includes the full error source chain instead of truncated "db error" messages.
+
 ## 0.5.0 — 2026-02-12
 
 ### Added

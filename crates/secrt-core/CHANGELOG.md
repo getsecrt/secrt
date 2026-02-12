@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.5.1 — 2026-02-12
+
+No changes to secrt-core in this release.
+
 ## 0.5.0 — 2026-02-12
 
 No changes to secrt-core in this release.
