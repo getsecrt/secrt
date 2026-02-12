@@ -44,6 +44,10 @@ where
     let cfg = Config::load()?;
     init_logging(&cfg.log_level);
 
+    // Validate listen address early, before expensive DB operations.
+    let addr = parse_socket_addr(&cfg.listen_addr)
+        .map_err(|e| RuntimeError::ParseListenAddr(format!("{} ({e})", cfg.listen_addr)))?;
+
     let db_url = cfg.postgres_url()?;
     let pg_store = Arc::new(PgStore::from_database_url(&db_url).await?);
     migrate(pg_store.pool()).await?;
@@ -56,9 +60,6 @@ where
     let reaper_stop = start_expiry_reaper(secrets);
 
     let app = build_router(state.clone());
-
-    let addr = parse_socket_addr(&cfg.listen_addr)
-        .map_err(|e| RuntimeError::ParseListenAddr(format!("{} ({e})", cfg.listen_addr)))?;
     let listener = TcpListener::bind(addr)
         .await
         .map_err(|e| RuntimeError::Bind(e.to_string()))?;
@@ -158,6 +159,10 @@ mod tests {
 
     static ENV_LOCK: Mutex<()> = Mutex::new(());
 
+    fn env_lock() -> std::sync::MutexGuard<'static, ()> {
+        ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
     struct EnvGuard {
         key: &'static str,
         old: Option<String>,
@@ -194,7 +199,7 @@ mod tests {
 
     #[test]
     fn dotenv_parses_lines_and_preserves_existing_env() {
-        let _lock = ENV_LOCK.lock().expect("env lock");
+        let _lock = env_lock();
         let original_foo = std::env::var("FOO").ok();
         let original_existing = std::env::var("EXISTING").ok();
         std::env::set_var("FOO", "before_foo");
@@ -247,7 +252,7 @@ mod tests {
 
     #[test]
     fn env_guard_restores_previous_value() {
-        let _lock = ENV_LOCK.lock().expect("env lock");
+        let _lock = env_lock();
         std::env::set_var("SECRT_RUNTIME_GUARD", "before");
         {
             let _guard = EnvGuard::set("SECRT_RUNTIME_GUARD", "after");
@@ -265,7 +270,7 @@ mod tests {
 
     #[tokio::test]
     async fn run_server_invalid_listen_addr_errors() {
-        let _lock = ENV_LOCK.lock().expect("env lock");
+        let _lock = env_lock();
         let _env = [
             EnvGuard::set("ENV", "development"),
             EnvGuard::set("LISTEN_ADDR", "not-an-addr"),
@@ -284,7 +289,7 @@ mod tests {
 
     #[tokio::test]
     async fn run_server_invalid_database_url_errors() {
-        let _lock = ENV_LOCK.lock().expect("env lock");
+        let _lock = env_lock();
         let _env = [
             EnvGuard::set("ENV", "development"),
             EnvGuard::set("LISTEN_ADDR", "127.0.0.1:0"),
@@ -300,10 +305,15 @@ mod tests {
 
     #[tokio::test]
     async fn run_server_with_immediate_shutdown_smoke() {
-        let _lock = ENV_LOCK.lock().expect("env lock");
+        let _lock = env_lock();
 
-        let base_url = std::env::var("TEST_DATABASE_URL")
-            .unwrap_or_else(|_| "postgres://localhost/postgres?sslmode=disable".to_string());
+        let base_url = match std::env::var("TEST_DATABASE_URL") {
+            Ok(url) => url,
+            Err(_) => {
+                eprintln!("skipping: TEST_DATABASE_URL not set");
+                return;
+            }
+        };
 
         let schema = format!(
             "test_runtime_{}",
