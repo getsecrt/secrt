@@ -732,20 +732,7 @@ pub async fn handle_healthz() -> Response {
 }
 
 pub async fn handle_index() -> Response {
-    let html = r#"<!doctype html>
-<html lang=\"en\">
-  <head>
-    <meta charset=\"utf-8\" />
-    <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\" />
-    <title>secrt.ca</title>
-  </head>
-  <body>
-    <main>
-      <h1>secrt.ca</h1>
-      <p>One-time secret sharing with zero-knowledge encryption.</p>
-    </main>
-  </body>
-</html>"#;
+    let html = include_str!("../../templates/index.html");
 
     let mut resp = Html(html).into_response();
     insert_header(resp.headers_mut(), "cache-control", "no-store");
