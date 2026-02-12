@@ -34,3 +34,42 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - run: cargo test --workspace
+
+  coverage:
+    name: Coverage + Legacy Parity
+    runs-on: ubuntu-latest
+    needs: [check, test]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: taiki-e/install-action@cargo-llvm-cov
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo test --workspace
+      - run: cargo llvm-cov --package secrt-server --all-targets --fail-under-lines 95
+      - name: Verify legacy parity artifact exists
+        run: test -f crates/secrt-server/tests/legacy_test_parity.md
+      - name: Verify parity file includes all required legacy suites
+        run: |
+          for suite in \
+            legacy/secrt-server/internal/api/server_test.go \
+            legacy/secrt-server/internal/api/server_more_test.go \
+            legacy/secrt-server/internal/api/server_behavioral_test.go \
+            legacy/secrt-server/internal/api/quota_test.go \
+            legacy/secrt-server/internal/api/binary_payload_test.go \
+            legacy/secrt-server/internal/api/middleware_test.go \
+            legacy/secrt-server/internal/api/errors_test.go \
+            legacy/secrt-server/internal/auth/api_keys_test.go \
+            legacy/secrt-server/internal/secrets/secrets_test.go \
+            legacy/secrt-server/internal/storage/postgres \
+            legacy/secrt-server/internal/database \
+            legacy/secrt-server/cmd/secrt-server/reaper_test.go \
+            legacy/secrt-server/internal/api/pages_test.go
+          do
+            grep -q "$suite" crates/secrt-server/tests/legacy_test_parity.md
+          done
+      - name: Fail on unresolved feasible legacy parity entries
+        run: |
+          if grep -nE "UNRESOLVED_FEASIBLE|FEASIBLE_PENDING" crates/secrt-server/tests/legacy_test_parity.md; then
+            echo "Unresolved feasible legacy parity entries detected"
+            exit 1
+          fi
