@@ -147,14 +147,22 @@ struct InfoRate {
 }
 
 pub fn build_router(state: Arc<AppState>) -> Router {
-    let static_dir = std::env::var("SECRT_WEB_DIST_DIR").unwrap_or_else(|_| "web/dist".to_string());
-
-    Router::new()
+    let router = Router::new()
         .route("/healthz", get(handle_healthz))
         .route("/", get(handle_index))
         .route("/s/{id}", get(handle_secret_page))
-        .route("/robots.txt", get(handle_robots_txt))
-        .nest_service("/static", ServeDir::new(static_dir))
+        .route("/robots.txt", get(handle_robots_txt));
+
+    // Serve static files: env override → embedded assets → filesystem fallback
+    let router = if let Ok(dir) = std::env::var("SECRT_WEB_DIST_DIR") {
+        router.nest_service("/static", ServeDir::new(dir))
+    } else if crate::assets::has_embedded_assets() {
+        router.route("/static/{*path}", get(crate::assets::serve_embedded))
+    } else {
+        router.nest_service("/static", ServeDir::new("web/dist"))
+    };
+
+    router
         .route("/api/v1/info", any(handle_info_entry))
         .route("/api/v1/public/secrets", any(handle_create_public_entry))
         .route("/api/v1/secrets", any(handle_create_authed_entry))

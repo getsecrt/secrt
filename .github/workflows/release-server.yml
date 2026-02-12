@@ -1,0 +1,119 @@
+name: Release Server
+
+on:
+  push:
+    tags: ["server/v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  test:
+    name: Pre-release checks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo test --workspace
+      - run: cargo clippy --workspace -- -D warnings
+
+  build:
+    name: Build (${{ matrix.name }})
+    needs: test
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - name: linux-amd64
+            target: x86_64-unknown-linux-musl
+            artifact_server: secrt-server-linux-amd64
+            artifact_admin: secrt-admin-linux-amd64
+          - name: linux-arm64
+            target: aarch64-unknown-linux-musl
+            artifact_server: secrt-server-linux-arm64
+            artifact_admin: secrt-admin-linux-arm64
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: web/pnpm-lock.yaml
+
+      - name: Build web frontend
+        working-directory: web
+        run: pnpm install --frozen-lockfile && pnpm run build
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.target }}
+
+      - name: Install cross
+        run: cargo install cross --git https://github.com/cross-rs/cross
+
+      - name: Build server
+        run: cross build --release -p secrt-server --target ${{ matrix.target }}
+
+      - name: Rename binaries
+        run: |
+          cp target/${{ matrix.target }}/release/secrt-server ${{ matrix.artifact_server }}
+          cp target/${{ matrix.target }}/release/secrt-admin ${{ matrix.artifact_admin }}
+
+      - name: Upload server artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact_server }}
+          path: ${{ matrix.artifact_server }}
+
+      - name: Upload admin artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact_admin }}
+          path: ${{ matrix.artifact_admin }}
+
+  release:
+    name: Publish release
+    if: startsWith(github.ref, 'refs/tags/')
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - name: List artifacts
+        run: ls -la artifacts/
+
+      - name: Generate checksums
+        working-directory: artifacts
+        run: sha256sum secrt-server-* secrt-admin-* > secrt-server-checksums-sha256.txt
+
+      - name: Show checksums
+        run: cat artifacts/secrt-server-checksums-sha256.txt
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          files: |
+            artifacts/secrt-server-linux-amd64
+            artifacts/secrt-server-linux-arm64
+            artifacts/secrt-admin-linux-amd64
+            artifacts/secrt-admin-linux-arm64
+            artifacts/secrt-server-checksums-sha256.txt

@@ -8,7 +8,7 @@ members = [
 ]
 
 [workspace.package]
-version = "0.4.2"
+version = "0.5.0"
 edition = "2021"
 license = "MIT"
 repository = "https://github.com/getsecrt/secrt"
@@ -33,6 +33,8 @@ deadpool-postgres = "0.14"
 hex = "0.4"
 url = "2"
 urlencoding = "2"
+rust-embed = "8"
+mime_guess = "2"
 
 [profile.release]
 opt-level = "z"

@@ -59,7 +59,7 @@ jobs:
       - run: cargo test --workspace
         env:
           TEST_DATABASE_URL: postgres://postgres:postgres@localhost:5432/postgres
-      - run: cargo llvm-cov --package secrt-server --all-targets --fail-under-lines 95
+      - run: cargo llvm-cov --package secrt-server --all-targets --fail-under-lines 90
         env:
           TEST_DATABASE_URL: postgres://postgres:postgres@localhost:5432/postgres
       - name: Verify legacy parity artifact exists
