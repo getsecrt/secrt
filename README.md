@@ -21,9 +21,28 @@ Monorepo for the [secrt.ca](https://secrt.ca) protocol. Share secrets that self-
 
 **AES-256-GCM + HKDF-SHA256 + optional PBKDF2 passphrase protection**, powered by [ring](https://github.com/briansmith/ring).
 
-## Quick start
+## Downloads
 
-**Download the CLI:** [macOS (Universal)](https://github.com/getsecrt/secrt/releases/latest/download/secrt-darwin-universal) | [Linux (x86_64)](https://github.com/getsecrt/secrt/releases/latest/download/secrt-linux-amd64) | [Windows (x86_64)](https://github.com/getsecrt/secrt/releases/latest/download/secrt-windows-amd64.exe)
+### CLI
+
+| Platform | Download |
+|----------|----------|
+| macOS (Universal) | [secrt-darwin-universal](https://github.com/getsecrt/secrt/releases/latest/download/secrt-darwin-universal) |
+| Linux x64 | [secrt-linux-amd64](https://github.com/getsecrt/secrt/releases/latest/download/secrt-linux-amd64) |
+| Linux ARM64 | [secrt-linux-arm64](https://github.com/getsecrt/secrt/releases/latest/download/secrt-linux-arm64) |
+| Windows x64 | [secrt-windows-amd64.exe](https://github.com/getsecrt/secrt/releases/latest/download/secrt-windows-amd64.exe) |
+| Windows ARM64 | [secrt-windows-arm64.exe](https://github.com/getsecrt/secrt/releases/latest/download/secrt-windows-arm64.exe) |
+
+### Server
+
+Server releases use separate tags (`server/v*`). Download from the [latest server release](https://github.com/getsecrt/secrt/releases?q=server).
+
+| Platform | Download |
+|----------|----------|
+| Linux x64 | [secrt-server-linux-amd64](https://github.com/getsecrt/secrt/releases/download/server%2Fv0.5.0/secrt-server-linux-amd64) |
+| Linux ARM64 | [secrt-server-linux-arm64](https://github.com/getsecrt/secrt/releases/download/server%2Fv0.5.0/secrt-server-linux-arm64) |
+
+## Quick start
 
 ```sh
 # Share a secret
@@ -44,10 +63,12 @@ See the [CLI README](crates/secrt-cli/README.md) for full documentation.
 secrt/
 ├── crates/
 │   ├── secrt-core/         Shared crypto, envelope types, and protocol logic
-│   └── secrt-cli/          CLI binary (secrt send / secrt get / secrt gen)
+│   ├── secrt-cli/          CLI binary (secrt send / secrt get / secrt gen)
+│   └── secrt-server/       Axum server + admin CLI (secrt-server / secrt-admin)
+├── web/                    Web frontend (Vite + Preact + TypeScript)
 ├── spec/                   Protocol specification, test vectors, OpenAPI schema
 └── legacy/
-    └── secrt-server/       Go server (reference implementation, being replaced)
+    └── secrt-server/       Go server (deprecated)
 ```
 
 ### [`secrt-core`](crates/secrt-core/)
@@ -60,13 +81,21 @@ Shared library crate containing the cryptographic protocol implementation:
 - **Share URL handling** — URL parsing and formatting
 - **API types** — request/response types and the `SecretApi` trait
 
-Used by the CLI today, and will be shared with the Rust server and WASM browser crypto in the future.
-
 ### [`secrt-cli`](crates/secrt-cli/)
 
 Command-line tool for creating, claiming, and managing secrets. No async runtime, no framework overhead. Builds to a small static binary (~1.5 MB).
 
 Commands: `send`, `get`, `burn`, `gen`, `config`, `completion`
+
+### [`secrt-server`](crates/secrt-server/)
+
+Axum-based server with Postgres storage, rate limiting, API key auth, and a background secret reaper. The web frontend is embedded in the binary via `rust-embed` — a single artifact with zero filesystem dependencies.
+
+Includes `secrt-admin` for API key management (create, revoke, list).
+
+### [`web`](web/)
+
+Preact + TypeScript web frontend, built with Vite and bundled with pnpm. Embedded into the server binary at compile time.
 
 ### [`spec`](spec/)
 
@@ -78,10 +107,6 @@ Protocol specification for v1, including:
 - [Server runtime behavior](spec/v1/server.md)
 - [OpenAPI schema](spec/v1/openapi.yaml)
 - Crypto and TTL test vectors
-
-### [`legacy/secrt-server`](legacy/secrt-server/)
-
-The original Go server implementation. Being replaced by a Rust (Axum) server that shares `secrt-core` for protocol logic.
 
 ## Development
 
