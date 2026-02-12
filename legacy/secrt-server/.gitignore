@@ -1,0 +1,16 @@
+.DS_Store
+.env
+
+# Go build artifacts
+/secrt
+/secrt-server
+/secretctl
+/bin/
+/dist/
+*.test
+*.out
+
+# Coverage
+coverage.out
+coverage.html
+
