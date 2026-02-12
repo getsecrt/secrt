@@ -411,7 +411,11 @@ mod tests {
     fn format_expires_future_iso() {
         let result = format_expires("2099-12-31T23:59:59Z");
         assert!(result.starts_with("Expires in "), "result: {}", result);
-        assert!(result.contains("(2099-12-31 23:59 UTC)"), "result: {}", result);
+        assert!(
+            result.contains("(2099-12-31 23:59 UTC)"),
+            "result: {}",
+            result
+        );
     }
 
     #[test]
