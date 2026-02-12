@@ -23,7 +23,7 @@ All implementations live in the [secrt monorepo](https://github.com/getsecrt/sec
 
 - **Core library (Rust):** [`crates/secrt-core/`](https://github.com/getsecrt/secrt/tree/main/crates/secrt-core)
 - **CLI (Rust):** [`crates/secrt-cli/`](https://github.com/getsecrt/secrt/tree/main/crates/secrt-cli)
-- **Server (Go, legacy):** [`legacy/secrt-server/`](https://github.com/getsecrt/secrt/tree/main/legacy/secrt-server)
+- **Server (Rust):** [`crates/secrt-server/`](https://github.com/getsecrt/secrt/tree/main/crates/secrt-server)
 
 ## Versioning
 

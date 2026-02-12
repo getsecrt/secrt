@@ -44,4 +44,3 @@ Security fixes are applied to the latest release only. We recommend always runni
 |-----------|-----------|
 | secrt-cli (latest) | Yes |
 | secrt-server (latest) | Yes |
-| Legacy Go server | No — deprecated, use the Rust server |

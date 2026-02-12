@@ -34,18 +34,17 @@ secrt/
 │   │       ├── color.rs        # TTY-aware ANSI color
 │   │       ├── completion.rs   # shell completion scripts
 │   │       └── keychain.rs     # OS credential store (optional feature)
-│   └── secrt-server/           # Rust server (future, Axum)
-├── spec/                       # protocol specification (v1)
-│   └── v1/
-│       ├── envelope.md         # client-side crypto workflow
-│       ├── api.md              # HTTP API contract
-│       ├── cli.md              # CLI interface and TTL grammar
-│       ├── server.md           # server runtime behavior
-│       ├── openapi.yaml        # OpenAPI 3.1 schema
-│       ├── envelope.vectors.json   # crypto test vectors (7 vectors)
-│       └── cli.vectors.json    # TTL test vectors (17 valid + 17 invalid)
-└── legacy/
-    └── secrt-server/           # Go server (reference, being retired)
+│   └── secrt-server/           # Axum server + admin CLI
+├── web/                        # Web frontend (Vite + Preact + TypeScript)
+└── spec/                       # protocol specification (v1)
+    └── v1/
+        ├── envelope.md         # client-side crypto workflow
+        ├── api.md              # HTTP API contract
+        ├── cli.md              # CLI interface and TTL grammar
+        ├── server.md           # server runtime behavior
+        ├── openapi.yaml        # OpenAPI 3.1 schema
+        ├── envelope.vectors.json   # crypto test vectors (7 vectors)
+        └── cli.vectors.json    # TTL test vectors (17 valid + 17 invalid)
 ```
 
 ## Security non-negotiables
@@ -53,7 +52,7 @@ secrt/
 - **Zero-knowledge by default.** The server stores and serves ciphertext only. It must never require or have access to decryption keys.
 - **Never log secrets.** No request bodies, plaintext, passphrases, PINs, or URL fragments. Assume logs are retained and searchable.
 - **Atomic claim+delete.** The read path must return ciphertext at most once and delete it in the same atomic operation/transaction.
-- **Minimize crypto dependencies.** Use `ring` for Rust, Go stdlib for Go, WebCrypto in the browser. Never roll your own crypto.
+- **Minimize crypto dependencies.** Use `ring` for Rust, WebCrypto in the browser. Never roll your own crypto.
 - **No credentials in plaintext files.** Production credentials use systemd `EnvironmentFile=` with root-owned `0600` permissions. Never commit credentials to git.
 
 ## Specification

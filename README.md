@@ -66,9 +66,7 @@ secrt/
 │   ├── secrt-cli/          CLI binary (secrt send / secrt get / secrt gen)
 │   └── secrt-server/       Axum server + admin CLI (secrt-server / secrt-admin)
 ├── web/                    Web frontend (Vite + Preact + TypeScript)
-├── spec/                   Protocol specification, test vectors, OpenAPI schema
-└── legacy/
-    └── secrt-server/       Go server (deprecated)
+└── spec/                   Protocol specification, test vectors, OpenAPI schema
 ```
 
 ### [`secrt-core`](crates/secrt-core/)
