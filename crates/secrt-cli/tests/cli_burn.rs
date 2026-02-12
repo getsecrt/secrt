@@ -1,8 +1,8 @@
 mod helpers;
 
 use helpers::{args, TestDepsBuilder};
-use secrt::cli;
-use secrt::envelope::crypto::b64_encode;
+use secrt_cli::cli;
+use secrt_cli::envelope::crypto::b64_encode;
 
 /// Non-routable address to ensure API calls fail
 const DEAD_URL: &str = "http://127.0.0.1:19191";

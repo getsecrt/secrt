@@ -1,0 +1,32 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/secrt-core",
+    "crates/secrt-cli",
+    # "crates/secrt-server",   # uncomment when Axum server begins
+    # "crates/secrt-wasm",     # future
+]
+
+[workspace.package]
+version = "0.4.0"
+edition = "2021"
+license = "MIT"
+repository = "https://github.com/getsecrt/secrt"
+
+[workspace.dependencies]
+# Shared dependencies pinned at workspace level
+ring = "0.17"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+base64 = "0.22"
+chrono = { version = "0.4", default-features = false, features = ["clock"] }
+
+[profile.release]
+opt-level = "z"
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true
+
+[profile.release.package.ring]
+opt-level = 3

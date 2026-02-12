@@ -63,7 +63,7 @@ pub struct KdfPbkdf2 {
 }
 
 /// Internal representation after parsing KDF JSON.
-pub(crate) struct KdfParsed {
+pub struct KdfParsed {
     pub name: String,
     pub salt: Vec<u8>,
     pub iterations: u32,
@@ -82,7 +82,6 @@ pub struct SealParams<'a> {
 pub struct SealResult {
     pub envelope: serde_json::Value,
     pub url_key: Vec<u8>,
-    #[allow(dead_code)] // used by integration tests
     pub claim_token: Vec<u8>,
     pub claim_hash: String,
 }

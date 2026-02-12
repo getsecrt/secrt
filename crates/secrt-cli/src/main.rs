@@ -1,8 +1,8 @@
 use std::io::{self, Write};
 
-use secrt::cli;
-use secrt::client::ApiClient;
-use secrt::envelope;
+use secrt_cli::cli;
+use secrt_cli::client::ApiClient;
+use secrt_cli::envelope;
 
 fn main() {
     let mut deps = cli::Deps {
@@ -29,8 +29,8 @@ fn main() {
             w.flush()?;
             rpassword::read_password()
         }),
-        get_keychain_secret: Box::new(secrt::keychain::get_secret),
-        get_keychain_secret_list: Box::new(secrt::keychain::get_secret_list),
+        get_keychain_secret: Box::new(secrt_cli::keychain::get_secret),
+        get_keychain_secret_list: Box::new(secrt_cli::keychain::get_secret_list),
     };
 
     let args: Vec<String> = std::env::args().collect();

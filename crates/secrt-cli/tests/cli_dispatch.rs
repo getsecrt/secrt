@@ -3,8 +3,8 @@ mod helpers;
 use std::fs;
 
 use helpers::{args, TestDepsBuilder};
-use secrt::cli;
-use secrt::client::{InfoLimits, InfoRate, InfoResponse, InfoTTL, InfoTier};
+use secrt_cli::cli;
+use secrt_cli::client::{InfoLimits, InfoRate, InfoResponse, InfoTTL, InfoTier};
 
 #[test]
 fn no_args_exit_2() {

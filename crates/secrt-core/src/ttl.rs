@@ -1,4 +1,4 @@
-use crate::envelope::types::EnvelopeError;
+use crate::types::EnvelopeError;
 
 /// Maximum allowed TTL (1 year in seconds).
 pub const MAX_TTL_SECONDS: i64 = 31_536_000;

@@ -1,22 +1,27 @@
 [package]
-name = "secrt"
-version = "0.4.0"
-edition = "2021"
+name = "secrt-cli"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
 rust-version = "1.82"
-repository = "https://github.com/getsecrt/secrt-cli"
-license = "MIT"
+
+[[bin]]
+name = "secrt"
+path = "src/main.rs"
 
 [dependencies]
-ring = "0.17"
+secrt-core = { path = "../secrt-core", version = "0.4.0" }
+ring.workspace = true
 ureq = { version = "3", default-features = false, features = ["rustls"] }
-serde = { version = "1", features = ["derive"] }
-serde_json = "1"
-base64 = "0.22"
+serde.workspace = true
+serde_json.workspace = true
+base64.workspace = true
 is-terminal = "0.4"
 rpassword = "7"
 toml = "0.8"
 dirs = "6"
-chrono = { version = "0.4", default-features = false, features = ["clock"] }
+chrono.workspace = true
 keyring = { version = "3", optional = true, features = ["apple-native", "linux-native", "windows-native"] }
 
 [features]
@@ -25,13 +30,3 @@ keychain = ["keyring"]
 
 [dev-dependencies]
 serde = { version = "1", features = ["derive"] }
-
-[profile.release]
-opt-level = "z"
-lto = true
-codegen-units = 1
-panic = "abort"
-strip = true
-
-[profile.release.package.ring]
-opt-level = 3

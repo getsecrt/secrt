@@ -1,5 +1,5 @@
-use crate::envelope::crypto::{b64_decode, b64_encode};
-use crate::envelope::types::{EnvelopeError, URL_KEY_LEN};
+use crate::crypto::{b64_decode, b64_encode};
+use crate::types::{EnvelopeError, URL_KEY_LEN};
 
 /// Parse a share URL to extract ID and url_key.
 /// Accepts formats:

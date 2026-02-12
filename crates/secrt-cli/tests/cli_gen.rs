@@ -1,8 +1,8 @@
 mod helpers;
 
 use helpers::{args, TestDepsBuilder};
-use secrt::cli;
-use secrt::client::CreateResponse;
+use secrt_cli::cli;
+use secrt_cli::client::CreateResponse;
 
 #[test]
 fn gen_default() {

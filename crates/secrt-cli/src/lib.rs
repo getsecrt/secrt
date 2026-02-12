@@ -1,10 +1,11 @@
+pub use secrt_core as envelope;
+
 pub mod burn;
 pub mod cli;
 pub mod client;
 pub mod color;
 pub mod completion;
 pub mod config;
-pub mod envelope;
 pub mod fileutil;
 pub mod gen;
 pub mod get;

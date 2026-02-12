@@ -1,6 +1,6 @@
 use serde::Deserialize;
 
-use secrt::envelope;
+use secrt_cli::envelope;
 
 #[derive(Deserialize)]
 struct VectorFile {

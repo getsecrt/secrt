@@ -6,10 +6,10 @@ use std::sync::Mutex;
 use std::collections::HashMap;
 
 use helpers::{args, TestDepsBuilder};
-use secrt::cli;
-use secrt::client::ClaimResponse;
-use secrt::envelope::crypto::b64_encode;
-use secrt::envelope::{self, SealParams};
+use secrt_cli::cli;
+use secrt_cli::client::ClaimResponse;
+use secrt_cli::envelope::crypto::b64_encode;
+use secrt_cli::envelope::{self, SealParams};
 
 /// Non-routable address to ensure API calls fail
 const DEAD_URL: &str = "http://127.0.0.1:19191";
@@ -24,11 +24,11 @@ fn make_share_url(base: &str, id: &str) -> String {
     format!("{}/s/{}#{}", base, id, key_b64)
 }
 
-fn real_rand(buf: &mut [u8]) -> Result<(), secrt::envelope::EnvelopeError> {
+fn real_rand(buf: &mut [u8]) -> Result<(), secrt_cli::envelope::EnvelopeError> {
     use ring::rand::{SecureRandom, SystemRandom};
     SystemRandom::new()
         .fill(buf)
-        .map_err(|_| secrt::envelope::EnvelopeError::RngError("SystemRandom failed".into()))
+        .map_err(|_| secrt_cli::envelope::EnvelopeError::RngError("SystemRandom failed".into()))
 }
 
 /// Seal an envelope and return (share_link, seal_result)

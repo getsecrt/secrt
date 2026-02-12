@@ -1,0 +1,240 @@
+name: Release CLI
+
+on:
+  push:
+    tags: ["cli/v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  test:
+    name: Pre-release checks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo test --workspace
+      - run: cargo clippy --workspace -- -D warnings
+
+  build:
+    name: Build (${{ matrix.name }})
+    needs: test
+    runs-on: ${{ matrix.runner }}
+    env:
+      HAS_APPLE_CERT: ${{ secrets.APPLE_CERTIFICATE_P12 != '' }}
+      HAS_AZURE_SIGNING: ${{ secrets.AZURE_CLIENT_SECRET != '' }}
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - name: darwin-arm64
+            target: aarch64-apple-darwin
+            runner: macos-latest
+            tool: cargo
+            artifact: secrt-darwin-arm64
+          - name: darwin-amd64
+            target: x86_64-apple-darwin
+            runner: macos-latest
+            tool: cargo
+            artifact: secrt-darwin-amd64
+          - name: linux-amd64
+            target: x86_64-unknown-linux-musl
+            runner: ubuntu-latest
+            tool: cross
+            artifact: secrt-linux-amd64
+          - name: linux-arm64
+            target: aarch64-unknown-linux-musl
+            runner: ubuntu-latest
+            tool: cross
+            artifact: secrt-linux-arm64
+          - name: windows-amd64
+            target: x86_64-pc-windows-msvc
+            runner: windows-latest
+            tool: cargo
+            artifact: secrt-windows-amd64.exe
+          - name: windows-arm64
+            target: aarch64-pc-windows-msvc
+            runner: windows-latest
+            tool: cargo
+            artifact: secrt-windows-arm64.exe
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.target }}
+
+      # Install cross for musl builds (handles ring's C/asm compilation in Docker)
+      - name: Install cross
+        if: matrix.tool == 'cross'
+        run: cargo install cross --git https://github.com/cross-rs/cross
+
+      - name: Build
+        run: ${{ matrix.tool }} build --release -p secrt-cli --target ${{ matrix.target }}
+
+      # macOS code signing
+      - name: Import Apple certificate
+        if: runner.os == 'macOS' && env.HAS_APPLE_CERT == 'true'
+        env:
+          APPLE_CERTIFICATE_P12: ${{ secrets.APPLE_CERTIFICATE_P12 }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+        run: |
+          KEYCHAIN_PATH=$RUNNER_TEMP/app-signing.keychain-db
+          security create-keychain -p "" $KEYCHAIN_PATH
+          security set-keychain-settings -lut 21600 $KEYCHAIN_PATH
+          echo "$APPLE_CERTIFICATE_P12" | base64 --decode > $RUNNER_TEMP/cert.p12
+          security import $RUNNER_TEMP/cert.p12 -P "$APPLE_CERTIFICATE_PASSWORD" -A -t cert -f pkcs12 -k $KEYCHAIN_PATH
+          security set-key-partition-list -S apple-tool:,apple: -k "" $KEYCHAIN_PATH
+          security list-keychains -d user -s $KEYCHAIN_PATH login.keychain-db
+
+      - name: Codesign macOS binary
+        if: runner.os == 'macOS' && env.HAS_APPLE_CERT == 'true'
+        env:
+          APPLE_CERTIFICATE_P12: ${{ secrets.APPLE_CERTIFICATE_P12 }}
+        run: |
+          codesign --sign "Developer ID Application: Joseph Lien (A93Q7MKECL)" \
+            --options runtime --timestamp \
+            target/${{ matrix.target }}/release/secrt
+          codesign --verify --verbose target/${{ matrix.target }}/release/secrt
+
+      # Windows code signing via Azure Artifact Signing
+      - name: Sign Windows binary
+        if: runner.os == 'Windows' && env.HAS_AZURE_SIGNING == 'true'
+        uses: azure/trusted-signing-action@v0.5.0
+        with:
+          azure-tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          azure-client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          azure-client-secret: ${{ secrets.AZURE_CLIENT_SECRET }}
+          endpoint: https://wus.codesigning.azure.net/
+          trusted-signing-account-name: jdlien-signing
+          certificate-profile-name: jdlien-public-trust
+          files: ${{ github.workspace }}/target/${{ matrix.target }}/release/secrt.exe
+
+      - name: Rename binary (unix)
+        if: runner.os != 'Windows'
+        run: cp target/${{ matrix.target }}/release/secrt ${{ matrix.artifact }}
+
+      - name: Rename binary (windows)
+        if: runner.os == 'Windows'
+        run: cp target/${{ matrix.target }}/release/secrt.exe ${{ matrix.artifact }}
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: ${{ matrix.artifact }}
+
+  universal-macos:
+    name: Universal macOS binary
+    needs: build
+    runs-on: macos-latest
+    env:
+      HAS_APPLE_CERT: ${{ secrets.APPLE_CERTIFICATE_P12 != '' }}
+      HAS_APPLE_ID: ${{ secrets.APPLE_ID != '' }}
+    steps:
+      - name: Download macOS ARM binary
+        uses: actions/download-artifact@v4
+        with:
+          name: secrt-darwin-arm64
+
+      - name: Download macOS Intel binary
+        uses: actions/download-artifact@v4
+        with:
+          name: secrt-darwin-amd64
+
+      - name: Create universal binary
+        run: |
+          lipo -create secrt-darwin-arm64 secrt-darwin-amd64 -output secrt-darwin-universal
+          chmod +x secrt-darwin-universal
+          lipo -info secrt-darwin-universal
+
+      - name: Import Apple certificate
+        if: env.HAS_APPLE_CERT == 'true'
+        env:
+          APPLE_CERTIFICATE_P12: ${{ secrets.APPLE_CERTIFICATE_P12 }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+        run: |
+          KEYCHAIN_PATH=$RUNNER_TEMP/app-signing.keychain-db
+          security create-keychain -p "" $KEYCHAIN_PATH
+          security set-keychain-settings -lut 21600 $KEYCHAIN_PATH
+          echo "$APPLE_CERTIFICATE_P12" | base64 --decode > $RUNNER_TEMP/cert.p12
+          security import $RUNNER_TEMP/cert.p12 -P "$APPLE_CERTIFICATE_PASSWORD" -A -t cert -f pkcs12 -k $KEYCHAIN_PATH
+          security set-key-partition-list -S apple-tool:,apple: -k "" $KEYCHAIN_PATH
+          security list-keychains -d user -s $KEYCHAIN_PATH login.keychain-db
+
+      - name: Codesign universal binary
+        if: env.HAS_APPLE_CERT == 'true'
+        env:
+          APPLE_CERTIFICATE_P12: ${{ secrets.APPLE_CERTIFICATE_P12 }}
+        run: |
+          codesign --sign "Developer ID Application: Joseph Lien (A93Q7MKECL)" \
+            --force --options runtime --timestamp \
+            secrt-darwin-universal
+          codesign --verify --verbose secrt-darwin-universal
+
+      - name: Notarize macOS binaries
+        if: env.HAS_APPLE_ID == 'true'
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
+        run: |
+          zip secrt-notarize.zip secrt-darwin-arm64 secrt-darwin-amd64 secrt-darwin-universal
+          xcrun notarytool submit secrt-notarize.zip \
+            --apple-id "$APPLE_ID" \
+            --team-id "$APPLE_TEAM_ID" \
+            --password "$APPLE_APP_PASSWORD" \
+            --wait
+
+      - name: Upload universal binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: secrt-darwin-universal
+          path: secrt-darwin-universal
+
+  release:
+    name: Publish release
+    if: startsWith(github.ref, 'refs/tags/')
+    needs: [build, universal-macos]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - name: List artifacts
+        run: ls -la artifacts/
+
+      - name: Generate checksums
+        working-directory: artifacts
+        run: sha256sum secrt-darwin-* secrt-linux-* secrt-windows-* > secrt-checksums-sha256.txt
+
+      - name: Show checksums
+        run: cat artifacts/secrt-checksums-sha256.txt
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          files: |
+            artifacts/secrt-darwin-arm64
+            artifacts/secrt-darwin-amd64
+            artifacts/secrt-darwin-universal
+            artifacts/secrt-linux-amd64
+            artifacts/secrt-linux-arm64
+            artifacts/secrt-windows-amd64.exe
+            artifacts/secrt-windows-arm64.exe
+            artifacts/secrt-checksums-sha256.txt

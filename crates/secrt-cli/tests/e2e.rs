@@ -10,7 +10,7 @@
 mod helpers;
 
 use helpers::{args, TestDepsBuilder};
-use secrt::cli;
+use secrt_cli::cli;
 
 fn base_url() -> String {
     std::env::var("SECRET_E2E_BASE_URL").unwrap_or_default()
@@ -233,12 +233,12 @@ fn e2e_server_info_unauthenticated() {
     let url = base_url();
 
     // Use the API client directly to test info endpoint
-    let client = secrt::client::ApiClient {
+    let client = secrt_cli::client::ApiClient {
         base_url: url,
         api_key: String::new(),
     };
 
-    use secrt::client::SecretApi;
+    use secrt_cli::client::SecretApi;
     let info = client.info().expect("info() should succeed");
     assert!(
         !info.authenticated,
@@ -261,12 +261,12 @@ fn e2e_server_info_authenticated() {
     let url = base_url();
     let key = api_key();
 
-    let client = secrt::client::ApiClient {
+    let client = secrt_cli::client::ApiClient {
         base_url: url,
         api_key: key,
     };
 
-    use secrt::client::SecretApi;
+    use secrt_cli::client::SecretApi;
     let info = client.info().expect("info() should succeed");
     assert!(info.authenticated, "should be authenticated with valid key");
 }

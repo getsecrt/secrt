@@ -4,7 +4,7 @@ use serde::Deserialize;
 use std::collections::HashMap;
 
 // We need to access the crate's envelope module
-use secrt::envelope;
+use secrt_cli::envelope;
 
 #[allow(dead_code)]
 #[derive(Deserialize)]

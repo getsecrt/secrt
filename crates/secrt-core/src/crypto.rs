@@ -5,7 +5,7 @@ use ring::digest::{digest, SHA256};
 use ring::hkdf;
 use ring::pbkdf2;
 
-use crate::envelope::types::*;
+use crate::types::*;
 
 pub fn b64_encode(data: &[u8]) -> String {
     URL_SAFE_NO_PAD.encode(data)

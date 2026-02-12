@@ -4,11 +4,11 @@ use std::collections::HashMap;
 use std::io::{self, Cursor, Write};
 use std::sync::{Arc, Mutex};
 
-use secrt::cli::Deps;
-use secrt::client::{
+use secrt_cli::cli::Deps;
+use secrt_cli::client::{
     ApiClient, ClaimResponse, CreateRequest, CreateResponse, InfoResponse, SecretApi,
 };
-use secrt::envelope::EnvelopeError;
+use secrt_cli::envelope::EnvelopeError;
 
 /// A shared buffer that implements Write for capturing output.
 #[derive(Clone)]
