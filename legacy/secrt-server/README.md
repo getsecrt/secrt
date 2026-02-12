@@ -1,8 +1,8 @@
-# secrt.ca
+# secrt.ca — Go server (legacy)
 
-One-time secret sharing service (v1.0 planned backend: Go).
+> **This is the legacy Go server.** It is being replaced by a Rust (Axum) server. Active development continues in the [secrt monorepo](https://github.com/getsecrt/secrt).
 
-> **Repo:** [github.com/getsecrt/secrt](https://github.com/getsecrt/secrt)
+One-time secret sharing service.
 
 ## Specs
 
@@ -14,7 +14,7 @@ One-time secret sharing service (v1.0 planned backend: Go).
 
 ## CLI
 
-The CLI is implemented in Rust: [getsecrt/secrt-cli](https://github.com/getsecrt/secrt-cli)
+The CLI is implemented in Rust: [`crates/secrt-cli/`](../../crates/secrt-cli/)
 
 It implements the [v1 CLI spec](spec/v1/cli.md) and passes all [test vectors](spec/v1/envelope.vectors.json).
 

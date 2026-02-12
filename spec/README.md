@@ -2,7 +2,7 @@
 
 Normative specifications for the [secrt.ca](https://secrt.ca) one-time secret sharing protocol.
 
-This repo is intended to be consumed as a **git submodule** (mounted at `spec/`) by implementation repos so that all clients and servers share the same versioned contract.
+This spec lives in the [secrt monorepo](https://github.com/getsecrt/secrt) at `spec/` and is also available standalone at [getsecrt/spec](https://github.com/getsecrt/spec).
 
 ## Structure
 
@@ -17,20 +17,13 @@ v1/
   cli.vectors.json       # TTL parsing test vectors
 ```
 
-## Usage as a submodule
-
-```bash
-# Add to your project
-git submodule add git@github.com:getsecrt/spec.git spec
-
-# Update to latest
-git submodule update --remote spec
-```
-
 ## Implementations
 
-- **Server (Go):** [getsecrt/secrt](https://github.com/getsecrt/secrt)
-- **CLI (Rust):** [getsecrt/secrt-cli](https://github.com/getsecrt/secrt-cli)
+All implementations live in the [secrt monorepo](https://github.com/getsecrt/secrt):
+
+- **Core library (Rust):** [`crates/secrt-core/`](https://github.com/getsecrt/secrt/tree/main/crates/secrt-core)
+- **CLI (Rust):** [`crates/secrt-cli/`](https://github.com/getsecrt/secrt/tree/main/crates/secrt-cli)
+- **Server (Go, legacy):** [`legacy/secrt-server/`](https://github.com/getsecrt/secrt/tree/main/legacy/secrt-server)
 
 ## Versioning
 
