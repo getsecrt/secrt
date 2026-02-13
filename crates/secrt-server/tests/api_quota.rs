@@ -1,12 +1,21 @@
 mod helpers;
 
+use std::collections::HashMap;
 use std::sync::Arc;
+use std::sync::Mutex;
 
+use async_trait::async_trait;
 use axum::body::{to_bytes, Body};
 use axum::http::{Request, StatusCode};
 use base64::Engine;
+use chrono::{DateTime, Utc};
 use helpers::{create_api_key, test_app_with_store, test_config, with_proxy_ip, MemStore};
+use secrt_server::http::{build_router, AppState};
+use secrt_server::storage::{
+    ApiKeysStore, AuthStore, SecretRecord, SecretsStore, StorageError, StorageUsage,
+};
 use serde_json::Value;
+use tokio::sync::Barrier;
 use tower::ServiceExt;
 
 async fn body_json(resp: axum::response::Response) -> Value {
@@ -14,6 +23,109 @@ async fn body_json(resp: axum::response::Response) -> Value {
         .await
         .expect("body bytes");
     serde_json::from_slice(&bytes).expect("json")
+}
+
+struct QuotaRaceStore {
+    secrets: Mutex<HashMap<String, SecretRecord>>,
+    usage_barrier: Barrier,
+}
+
+impl QuotaRaceStore {
+    fn new(expected_concurrent_checks: usize) -> Self {
+        assert!(expected_concurrent_checks > 0);
+        Self {
+            secrets: Mutex::new(HashMap::new()),
+            usage_barrier: Barrier::new(expected_concurrent_checks),
+        }
+    }
+}
+
+#[async_trait]
+impl SecretsStore for QuotaRaceStore {
+    async fn create(&self, secret: SecretRecord) -> Result<(), StorageError> {
+        let mut m = self.secrets.lock().expect("secrets mutex poisoned");
+        if m.contains_key(&secret.id) {
+            return Err(StorageError::DuplicateId);
+        }
+        m.insert(secret.id.clone(), secret);
+        Ok(())
+    }
+
+    async fn claim_and_delete(
+        &self,
+        id: &str,
+        claim_hash: &str,
+        now: DateTime<Utc>,
+    ) -> Result<SecretRecord, StorageError> {
+        let mut m = self.secrets.lock().expect("secrets mutex poisoned");
+        let Some(s) = m.get(id).cloned() else {
+            return Err(StorageError::NotFound);
+        };
+
+        if s.claim_hash != claim_hash {
+            return Err(StorageError::NotFound);
+        }
+
+        if s.expires_at <= now {
+            m.remove(id);
+            return Err(StorageError::NotFound);
+        }
+
+        m.remove(id).ok_or(StorageError::NotFound)
+    }
+
+    async fn burn(&self, id: &str, owner_key: &str) -> Result<bool, StorageError> {
+        let mut m = self.secrets.lock().expect("secrets mutex poisoned");
+        let Some(s) = m.get(id) else {
+            return Ok(false);
+        };
+        if s.owner_key != owner_key {
+            return Ok(false);
+        }
+        m.remove(id);
+        Ok(true)
+    }
+
+    async fn delete_expired(&self, now: DateTime<Utc>) -> Result<i64, StorageError> {
+        let mut m = self.secrets.lock().expect("secrets mutex poisoned");
+        let before = m.len();
+        m.retain(|_, s| s.expires_at > now);
+        Ok((before - m.len()) as i64)
+    }
+
+    async fn get_usage(&self, owner_key: &str) -> Result<StorageUsage, StorageError> {
+        let usage = {
+            let m = self.secrets.lock().expect("secrets mutex poisoned");
+            let mut usage = StorageUsage {
+                secret_count: 0,
+                total_bytes: 0,
+            };
+
+            for s in m.values() {
+                if s.owner_key == owner_key {
+                    usage.secret_count += 1;
+                    usage.total_bytes += s.envelope.len() as i64;
+                }
+            }
+
+            usage
+        };
+
+        // Force all concurrent requests to complete usage checks before any insert path progresses.
+        self.usage_barrier.wait().await;
+        Ok(usage)
+    }
+}
+
+fn test_app_with_custom_secrets(
+    secrets: Arc<dyn SecretsStore>,
+    aux_store: Arc<MemStore>,
+    cfg: secrt_server::config::Config,
+) -> axum::Router {
+    let api_keys: Arc<dyn ApiKeysStore> = aux_store.clone();
+    let auth_store: Arc<dyn AuthStore> = aux_store;
+    let state = Arc::new(AppState::new(cfg, secrets, api_keys, auth_store));
+    build_router(state)
 }
 
 #[tokio::test]
@@ -76,6 +188,62 @@ async fn public_secret_count_quota_exceeded() {
         .as_str()
         .expect("error")
         .contains("secret limit exceeded"));
+}
+
+#[tokio::test]
+async fn public_secret_count_quota_is_atomic_under_concurrency() {
+    let mut cfg = test_config();
+    cfg.public_max_secrets = 1;
+    cfg.public_create_rate = 1_000_000.0;
+    cfg.public_create_burst = 1_000_000;
+
+    let concurrent_reqs = 8usize;
+    let secrets: Arc<dyn SecretsStore> = Arc::new(QuotaRaceStore::new(concurrent_reqs));
+    let app = test_app_with_custom_secrets(secrets, Arc::new(MemStore::default()), cfg);
+
+    let mut set = tokio::task::JoinSet::new();
+    for i in 0..concurrent_reqs {
+        let app = app.clone();
+        set.spawn(async move {
+            let claim =
+                base64::engine::general_purpose::URL_SAFE_NO_PAD.encode([30u8 + i as u8; 32]);
+            let claim_hash = secrt_core::hash_claim_token(&claim).expect("claim hash");
+            let req = Request::builder()
+                .method("POST")
+                .uri("/api/v1/public/secrets")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::json!({
+                        "envelope": {"ct":"quota-race"},
+                        "claim_hash": claim_hash,
+                    })
+                    .to_string(),
+                ))
+                .expect("request");
+
+            app.oneshot(with_proxy_ip(req, [127, 0, 0, 1], "203.0.113.55"))
+                .await
+                .expect("response")
+                .status()
+        });
+    }
+
+    let mut created = 0usize;
+    let mut limited = 0usize;
+    while let Some(result) = set.join_next().await {
+        let status = result.expect("join");
+        match status {
+            StatusCode::CREATED => created += 1,
+            StatusCode::TOO_MANY_REQUESTS => limited += 1,
+            other => panic!("unexpected status: {other}"),
+        }
+    }
+
+    assert_eq!(
+        created, 1,
+        "quota checks must be atomic with insert under concurrency"
+    );
+    assert_eq!(limited, concurrent_reqs - 1);
 }
 
 #[tokio::test]

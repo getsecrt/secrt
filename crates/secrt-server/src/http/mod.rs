@@ -1344,9 +1344,25 @@ pub async fn handle_index() -> Response {
     resp
 }
 
+fn escape_html(input: &str) -> String {
+    let mut out = String::with_capacity(input.len());
+    for ch in input.chars() {
+        match ch {
+            '&' => out.push_str("&amp;"),
+            '<' => out.push_str("&lt;"),
+            '>' => out.push_str("&gt;"),
+            '"' => out.push_str("&quot;"),
+            '\'' => out.push_str("&#39;"),
+            _ => out.push(ch),
+        }
+    }
+    out
+}
+
 pub async fn handle_secret_page(Path(id): Path<String>) -> Response {
+    let escaped_id = escape_html(&id);
     let body = format!(
-        "<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\"><title>Secret {id}</title></head><body><h1>Secret {id}</h1></body></html>"
+        "<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\"><title>Secret {escaped_id}</title></head><body><h1>Secret {escaped_id}</h1></body></html>"
     );
     let mut resp = Html(body).into_response();
     insert_header(resp.headers_mut(), "cache-control", "no-store");
@@ -1387,6 +1403,29 @@ mod tests {
     use std::sync::Arc;
     use std::sync::Mutex;
     use tower::ServiceExt;
+
+    struct EnvVarGuard {
+        key: &'static str,
+        prev: Option<String>,
+    }
+
+    impl EnvVarGuard {
+        fn set(key: &'static str, value: &str) -> Self {
+            let prev = std::env::var(key).ok();
+            std::env::set_var(key, value);
+            Self { key, prev }
+        }
+    }
+
+    impl Drop for EnvVarGuard {
+        fn drop(&mut self) {
+            if let Some(v) = &self.prev {
+                std::env::set_var(self.key, v);
+            } else {
+                std::env::remove_var(self.key);
+            }
+        }
+    }
 
     #[allow(dead_code)]
     #[derive(Default)]
@@ -1617,6 +1656,49 @@ mod tests {
         assert!(parse_socket_addr("127.0.0.1:8080").is_ok());
     }
 
+    #[tokio::test]
+    async fn build_router_prefers_env_static_dir() {
+        let _guard = EnvVarGuard::set("SECRT_WEB_DIST_DIR", "web/dist");
+        let app = build_router(test_state());
+        let req = Request::builder()
+            .method("GET")
+            .uri("/static/index.html")
+            .body(Body::empty())
+            .expect("request");
+        let resp = app.oneshot(req).await.expect("response");
+        assert!(matches!(
+            resp.status(),
+            StatusCode::OK | StatusCode::NOT_FOUND
+        ));
+    }
+
+    #[test]
+    fn session_token_parsing_and_hash_helpers() {
+        let mut wrong_scheme = HeaderMap::new();
+        wrong_scheme.insert(AUTHORIZATION, HeaderValue::from_static("Basic token"));
+        assert!(session_token_from_headers(&wrong_scheme).is_none());
+
+        let mut wrong_prefix = HeaderMap::new();
+        wrong_prefix.insert(
+            AUTHORIZATION,
+            HeaderValue::from_static("Bearer sk2_not-a-session"),
+        );
+        assert!(session_token_from_headers(&wrong_prefix).is_none());
+
+        let mut empty_sid = HeaderMap::new();
+        empty_sid.insert(
+            AUTHORIZATION,
+            HeaderValue::from_static("Bearer uss_.secret"),
+        );
+        assert!(session_token_from_headers(&empty_sid).is_none());
+
+        let mut empty_secret = HeaderMap::new();
+        empty_secret.insert(AUTHORIZATION, HeaderValue::from_static("Bearer uss_sid."));
+        assert!(session_token_from_headers(&empty_secret).is_none());
+
+        assert!(hash_session_token("", "sid", "secret").is_err());
+    }
+
     #[test]
     fn api_key_header_parse() {
         let mut h = HeaderMap::new();
@@ -1720,13 +1802,10 @@ mod tests {
             .header("content-type", "application/json")
             .body(Body::from(r#"{"claim":"abcdefghijklmnopqrstuvwxyz"}"#))
             .expect("request");
-        let resp =
-            match read_json_body::<ClaimSecretRequest>(req_custom, 8, Some("too large".into()))
-                .await
-            {
-                Ok(_) => panic!("expected too-large error"),
-                Err(resp) => resp,
-            };
+        let resp = read_json_body::<ClaimSecretRequest>(req_custom, 8, Some("too large".into()))
+            .await
+            .err()
+            .expect("expected too-large error");
         assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
         assert!(response_text(resp).await.contains("too large"));
 
@@ -1736,25 +1815,352 @@ mod tests {
             .header("content-type", "application/json")
             .body(Body::from(r#"{"claim":"abcdefghijklmnopqrstuvwxyz"}"#))
             .expect("request");
-        let resp2 = match read_json_body::<ClaimSecretRequest>(req_default, 8, None).await {
-            Ok(_) => panic!("expected too-large error"),
-            Err(resp) => resp,
-        };
+        let resp2 = read_json_body::<ClaimSecretRequest>(req_default, 8, None)
+            .await
+            .err()
+            .expect("expected too-large error");
         assert_eq!(resp2.status(), StatusCode::BAD_REQUEST);
         assert!(response_text(resp2).await.contains("invalid request body"));
     }
 
     #[tokio::test]
     async fn decode_error_maps_data_errors() {
-        let err = match serde_json::from_slice::<ClaimSecretRequest>(br#"{"claim":1}"#) {
-            Ok(_) => panic!("expected type mismatch"),
-            Err(err) => err,
-        };
+        let err = serde_json::from_slice::<ClaimSecretRequest>(br#"{"claim":1}"#)
+            .err()
+            .expect("expected type mismatch");
         let resp = map_decode_error(err);
         assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
         assert!(response_text(resp)
             .await
             .contains("invalid json field type"));
+    }
+
+    #[tokio::test]
+    async fn passkey_and_apikey_register_entry_method_and_validation_errors() {
+        let state = test_state();
+
+        let get_req = Request::builder()
+            .method("GET")
+            .uri("/x")
+            .body(Body::empty())
+            .expect("request");
+        assert_eq!(
+            handle_passkey_register_start_entry(State(state.clone()), get_req)
+                .await
+                .status(),
+            StatusCode::METHOD_NOT_ALLOWED
+        );
+
+        let non_json_start = Request::builder()
+            .method("POST")
+            .uri("/x")
+            .header("content-type", "text/plain")
+            .body(Body::from("x"))
+            .expect("request");
+        assert_eq!(
+            handle_passkey_register_start_entry(State(state.clone()), non_json_start)
+                .await
+                .status(),
+            StatusCode::BAD_REQUEST
+        );
+
+        let empty_name_start = Request::builder()
+            .method("POST")
+            .uri("/x")
+            .header("content-type", "application/json")
+            .body(Body::from(r#"{"display_name":"   "}"#))
+            .expect("request");
+        assert_eq!(
+            handle_passkey_register_start_entry(State(state.clone()), empty_name_start)
+                .await
+                .status(),
+            StatusCode::BAD_REQUEST
+        );
+
+        let ok_payload_unsupported_store = Request::builder()
+            .method("POST")
+            .uri("/x")
+            .header("content-type", "application/json")
+            .body(Body::from(r#"{"display_name":"Alice"}"#))
+            .expect("request");
+        assert_eq!(
+            handle_passkey_register_start_entry(State(state.clone()), ok_payload_unsupported_store)
+                .await
+                .status(),
+            StatusCode::INTERNAL_SERVER_ERROR
+        );
+
+        let get_finish_req = Request::builder()
+            .method("GET")
+            .uri("/x")
+            .body(Body::empty())
+            .expect("request");
+        assert_eq!(
+            handle_passkey_register_finish_entry(State(state.clone()), get_finish_req)
+                .await
+                .status(),
+            StatusCode::METHOD_NOT_ALLOWED
+        );
+
+        let non_json_finish = Request::builder()
+            .method("POST")
+            .uri("/x")
+            .header("content-type", "text/plain")
+            .body(Body::from("x"))
+            .expect("request");
+        assert_eq!(
+            handle_passkey_register_finish_entry(State(state.clone()), non_json_finish)
+                .await
+                .status(),
+            StatusCode::BAD_REQUEST
+        );
+
+        let missing_fields_finish = Request::builder()
+            .method("POST")
+            .uri("/x")
+            .header("content-type", "application/json")
+            .body(Body::from(
+                r#"{"challenge_id":"c1","credential_id":"","public_key":" "}"#,
+            ))
+            .expect("request");
+        assert_eq!(
+            handle_passkey_register_finish_entry(State(state.clone()), missing_fields_finish)
+                .await
+                .status(),
+            StatusCode::BAD_REQUEST
+        );
+
+        let bad_challenge_finish = Request::builder()
+            .method("POST")
+            .uri("/x")
+            .header("content-type", "application/json")
+            .body(Body::from(
+                r#"{"challenge_id":"missing","credential_id":"c1","public_key":"pk"}"#,
+            ))
+            .expect("request");
+        assert_eq!(
+            handle_passkey_register_finish_entry(State(state.clone()), bad_challenge_finish)
+                .await
+                .status(),
+            StatusCode::BAD_REQUEST
+        );
+
+        let get_login_start = Request::builder()
+            .method("GET")
+            .uri("/x")
+            .body(Body::empty())
+            .expect("request");
+        assert_eq!(
+            handle_passkey_login_start_entry(State(state.clone()), get_login_start)
+                .await
+                .status(),
+            StatusCode::METHOD_NOT_ALLOWED
+        );
+
+        let non_json_login_start = Request::builder()
+            .method("POST")
+            .uri("/x")
+            .header("content-type", "text/plain")
+            .body(Body::from("x"))
+            .expect("request");
+        assert_eq!(
+            handle_passkey_login_start_entry(State(state.clone()), non_json_login_start)
+                .await
+                .status(),
+            StatusCode::BAD_REQUEST
+        );
+
+        let unknown_credential = Request::builder()
+            .method("POST")
+            .uri("/x")
+            .header("content-type", "application/json")
+            .body(Body::from(r#"{"credential_id":"missing"}"#))
+            .expect("request");
+        assert_eq!(
+            handle_passkey_login_start_entry(State(state.clone()), unknown_credential)
+                .await
+                .status(),
+            StatusCode::BAD_REQUEST
+        );
+
+        let get_login_finish = Request::builder()
+            .method("GET")
+            .uri("/x")
+            .body(Body::empty())
+            .expect("request");
+        assert_eq!(
+            handle_passkey_login_finish_entry(State(state.clone()), get_login_finish)
+                .await
+                .status(),
+            StatusCode::METHOD_NOT_ALLOWED
+        );
+
+        let non_json_login_finish = Request::builder()
+            .method("POST")
+            .uri("/x")
+            .header("content-type", "text/plain")
+            .body(Body::from("x"))
+            .expect("request");
+        assert_eq!(
+            handle_passkey_login_finish_entry(State(state.clone()), non_json_login_finish)
+                .await
+                .status(),
+            StatusCode::BAD_REQUEST
+        );
+
+        let missing_challenge_login_finish = Request::builder()
+            .method("POST")
+            .uri("/x")
+            .header("content-type", "application/json")
+            .body(Body::from(
+                r#"{"challenge_id":"missing","credential_id":"cred"}"#,
+            ))
+            .expect("request");
+        assert_eq!(
+            handle_passkey_login_finish_entry(State(state.clone()), missing_challenge_login_finish)
+                .await
+                .status(),
+            StatusCode::BAD_REQUEST
+        );
+
+        let get_session_req = Request::builder()
+            .method("POST")
+            .uri("/x")
+            .body(Body::empty())
+            .expect("request");
+        assert_eq!(
+            handle_auth_session_entry(State(state.clone()), get_session_req)
+                .await
+                .status(),
+            StatusCode::METHOD_NOT_ALLOWED
+        );
+
+        let get_logout_req = Request::builder()
+            .method("GET")
+            .uri("/x")
+            .body(Body::empty())
+            .expect("request");
+        assert_eq!(
+            handle_auth_logout_entry(State(state.clone()), get_logout_req)
+                .await
+                .status(),
+            StatusCode::METHOD_NOT_ALLOWED
+        );
+
+        let missing_logout_token = Request::builder()
+            .method("POST")
+            .uri("/x")
+            .body(Body::empty())
+            .expect("request");
+        assert_eq!(
+            handle_auth_logout_entry(State(state.clone()), missing_logout_token)
+                .await
+                .status(),
+            StatusCode::UNAUTHORIZED
+        );
+
+        let get_apikey_register = Request::builder()
+            .method("GET")
+            .uri("/x")
+            .body(Body::empty())
+            .expect("request");
+        assert_eq!(
+            handle_apikey_register_entry(State(state), get_apikey_register)
+                .await
+                .status(),
+            StatusCode::METHOD_NOT_ALLOWED
+        );
+    }
+
+    #[tokio::test]
+    async fn memstore_auth_stub_methods_are_exercised() {
+        let store = MemStore::default();
+        let now = Utc::now();
+
+        assert!(matches!(
+            store.create_user("h", "d").await,
+            Err(StorageError::Other(_))
+        ));
+        assert!(matches!(
+            store.get_user_by_id(1).await,
+            Err(StorageError::NotFound)
+        ));
+        assert!(matches!(
+            store.insert_passkey(1, "c", "pk", 0).await,
+            Err(StorageError::Other(_))
+        ));
+        assert!(matches!(
+            store.get_passkey_by_credential_id("c").await,
+            Err(StorageError::NotFound)
+        ));
+        assert!(matches!(
+            store.update_passkey_sign_count("c", 1).await,
+            Err(StorageError::NotFound)
+        ));
+        assert!(matches!(
+            store.insert_session("sid", 1, "hash", now).await,
+            Err(StorageError::Other(_))
+        ));
+        assert!(matches!(
+            store.get_session_by_sid("sid").await,
+            Err(StorageError::NotFound)
+        ));
+        assert!(!store
+            .revoke_session_by_sid("sid")
+            .await
+            .expect("revoke should not fail"));
+        assert!(matches!(
+            store
+                .insert_challenge("cid", None, "p", "{}", now + chrono::Duration::minutes(1))
+                .await,
+            Err(StorageError::Other(_))
+        ));
+        assert!(matches!(
+            store.consume_challenge("cid", "p", now).await,
+            Err(StorageError::NotFound)
+        ));
+        assert_eq!(
+            store
+                .count_apikey_registrations_by_user_since(1, now - chrono::Duration::hours(1))
+                .await
+                .expect("count by user"),
+            0
+        );
+        assert_eq!(
+            store
+                .count_apikey_registrations_by_ip_since("ip", now - chrono::Duration::hours(1))
+                .await
+                .expect("count by ip"),
+            0
+        );
+        assert!(matches!(
+            store
+                .register_api_key(
+                    ApiKeyRecord {
+                        id: 0,
+                        prefix: "pref".into(),
+                        auth_hash: "a".repeat(64),
+                        scopes: String::new(),
+                        user_id: None,
+                        created_at: now,
+                        revoked_at: None,
+                    },
+                    "ip",
+                    now,
+                    ApiKeyRegistrationLimits {
+                        account_hour: 1,
+                        account_day: 1,
+                        ip_hour: 1,
+                        ip_day: 1,
+                    },
+                )
+                .await,
+            Err(StorageError::Other(_))
+        ));
+        store
+            .insert_apikey_registration_event(1, "ip", now)
+            .await
+            .expect("insert reg event");
     }
 
     fn test_state() -> Arc<AppState> {
@@ -1838,6 +2244,26 @@ mod tests {
         );
         let body = response_text(resp).await;
         assert!(body.contains("abc123"));
+    }
+
+    #[tokio::test]
+    async fn secret_page_rejects_or_escapes_html_in_id() {
+        let reflected = "<script>alert(1)</script>";
+        let resp = handle_secret_page(Path(reflected.to_string())).await;
+        let status = resp.status();
+        let body = response_text(resp).await;
+
+        assert!(
+            status.is_client_error() || !body.contains(reflected),
+            "id must not be reflected into HTML without escaping; status={status}, body={body}"
+        );
+
+        if status == StatusCode::OK {
+            assert!(
+                body.contains("&lt;script&gt;alert(1)&lt;/script&gt;"),
+                "expected escaped script tag in HTML body"
+            );
+        }
     }
 
     #[tokio::test]

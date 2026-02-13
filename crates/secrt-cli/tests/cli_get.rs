@@ -1380,6 +1380,77 @@ fn get_binary_no_hint_tty_auto_saves_secret_bin() {
     let _ = fs::remove_dir_all(&dir);
 }
 
+// --- --no-passphrase / -n flag tests ---
+
+#[test]
+fn get_no_passphrase_flag_skips_configured_passphrases() {
+    // BUG: Phase B unconditionally tries passphrase_default and decryption_passphrases
+    // even when -n/--no-passphrase is set.  The flag should suppress all configured
+    // passphrases so the get fails (or decrypts without one).
+    let plaintext = b"configured pass secret";
+    let (share_link, seal_result) = seal_test_secret(plaintext, "configured-pass");
+    let mock_resp = ClaimResponse {
+        envelope: seal_result.envelope,
+        expires_at: "2099-12-31T23:59:59Z".into(),
+    };
+
+    // Config has a decryption_passphrases list that would normally match
+    let cfg_dir = setup_config("decryption_passphrases = [\"configured-pass\"]\n");
+
+    let (mut deps, _stdout, stderr) = TestDepsBuilder::new()
+        .is_tty(false)
+        .mock_claim(Ok(mock_resp))
+        .env("XDG_CONFIG_HOME", cfg_dir.to_str().unwrap())
+        .build();
+
+    // -n means "no passphrase" — should NOT try the configured list
+    let code = cli::run(
+        &args(&["secrt", "get", &share_link, "--no-passphrase"]),
+        &mut deps,
+    );
+
+    // With -n the configured passphrase must be skipped, so decryption should fail
+    assert_eq!(
+        code, 1,
+        "--no-passphrase should prevent trying configured passphrases; stderr: {}",
+        stderr.to_string()
+    );
+
+    let _ = fs::remove_dir_all(&cfg_dir);
+}
+
+#[test]
+fn get_no_passphrase_short_flag_skips_default_passphrase() {
+    // Same bug via -n short flag and passphrase (default) in config
+    let plaintext = b"default pass secret";
+    let (share_link, seal_result) = seal_test_secret(plaintext, "my-default");
+    let mock_resp = ClaimResponse {
+        envelope: seal_result.envelope,
+        expires_at: "2099-12-31T23:59:59Z".into(),
+    };
+
+    let cfg_dir = setup_config("passphrase = \"my-default\"\n");
+
+    let (mut deps, _stdout, stderr) = TestDepsBuilder::new()
+        .is_tty(false)
+        .mock_claim(Ok(mock_resp))
+        .env("XDG_CONFIG_HOME", cfg_dir.to_str().unwrap())
+        .build();
+
+    let code = cli::run(
+        &args(&["secrt", "get", &share_link, "-n"]),
+        &mut deps,
+    );
+
+    assert_eq!(
+        code, 1,
+        "-n should prevent trying default passphrase; stderr: {}",
+        stderr.to_string()
+    );
+
+    let _ = fs::remove_dir_all(&cfg_dir);
+}
+
 #[test]
 fn get_tty_no_candidates_shows_notice() {
     // TTY, passphrase-protected, no configured passphrases (tried==0)

@@ -1,5 +1,8 @@
 use std::process::Command;
 
+use secrt_server::storage::migrations::migrate;
+use secrt_server::storage::postgres::PgStore;
+
 fn test_database_url() -> Option<String> {
     std::env::var("TEST_DATABASE_URL")
         .ok()
@@ -25,6 +28,14 @@ async fn create_schema(base_url: &str, schema: &str) {
         .expect("create schema");
 }
 
+async fn migrate_schema(base_url: &str, schema: &str) {
+    let url = schema_url(base_url, schema);
+    let store = PgStore::from_database_url(&url)
+        .await
+        .expect("connect schema database");
+    migrate(store.pool()).await.expect("apply migrations");
+}
+
 async fn insert_api_key(base_url: &str, schema: &str, prefix: &str) {
     let url = schema_url(base_url, schema);
     let (client, connection) = tokio_postgres::connect(&url, tokio_postgres::NoTls)
@@ -35,7 +46,7 @@ async fn insert_api_key(base_url: &str, schema: &str, prefix: &str) {
     });
     client
         .execute(
-            "INSERT INTO api_keys (prefix, auth_hash, scopes, created_at) VALUES ($1, $2, $3, now())",
+            "INSERT INTO api_keys (key_prefix, auth_hash, scopes) VALUES ($1, $2, $3)",
             &[&prefix, &"a".repeat(64), &""],
         )
         .await
@@ -56,6 +67,7 @@ async fn admin_revoke_api_key() {
             .as_nanos()
     );
     create_schema(&base, &schema).await;
+    migrate_schema(&base, &schema).await;
     let db_url = schema_url(&base, &schema);
     let prefix = "adminkey";
     insert_api_key(&base, &schema, prefix).await;

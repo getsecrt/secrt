@@ -169,13 +169,16 @@ pub fn run_get(args: &[String], deps: &mut Deps) -> i32 {
     // --- Phase B: Try configured passphrases (default + decryption list) ---
     {
         // Build candidate list: default passphrase first, then decryption_passphrases, deduped
+        // Skip when --no-passphrase / -n is set — the user explicitly opted out.
         let mut candidates: Vec<String> = Vec::new();
-        if !pa.passphrase_default.is_empty() {
-            candidates.push(pa.passphrase_default.clone());
-        }
-        for p in &pa.decryption_passphrases {
-            if !p.is_empty() && !candidates.contains(p) {
-                candidates.push(p.clone());
+        if !pa.no_passphrase {
+            if !pa.passphrase_default.is_empty() {
+                candidates.push(pa.passphrase_default.clone());
+            }
+            for p in &pa.decryption_passphrases {
+                if !p.is_empty() && !candidates.contains(p) {
+                    candidates.push(p.clone());
+                }
             }
         }
 

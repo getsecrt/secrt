@@ -112,6 +112,27 @@ async fn passkey_login_flow(app: &axum::Router, credential_id: &str) -> (String,
     )
 }
 
+async fn passkey_login_start_only(app: &axum::Router, credential_id: &str) -> String {
+    let start_req = Request::builder()
+        .method("POST")
+        .uri("/api/v1/auth/passkeys/login/start")
+        .header("content-type", "application/json")
+        .body(Body::from(
+            json!({
+                "credential_id": credential_id,
+            })
+            .to_string(),
+        ))
+        .expect("request");
+    let start_resp = app.clone().oneshot(start_req).await.expect("response");
+    assert_eq!(start_resp.status(), StatusCode::OK);
+    let start_json = response_json(start_resp).await;
+    start_json["challenge_id"]
+        .as_str()
+        .expect("challenge_id")
+        .to_string()
+}
+
 async fn register_apikey(
     app: &axum::Router,
     session_token: &str,
@@ -358,6 +379,271 @@ async fn register_apikey_ip_hourly_and_daily_caps_are_enforced() {
     )
     .await;
     assert_eq!(twenty_first.status(), StatusCode::TOO_MANY_REQUESTS);
+}
+
+#[tokio::test]
+async fn auth_session_rejects_tampered_token_secret() {
+    let store = Arc::new(MemStore::default());
+    let app = test_app_with_store(store, test_config());
+    let (session_token, _) = passkey_register_flow(&app, "Ivan", "ivan", "cred-i").await;
+    let mut parts = session_token.trim_start_matches("uss_").split('.');
+    let sid = parts.next().expect("sid");
+    let tampered = format!("uss_{sid}.tampered");
+
+    let req = Request::builder()
+        .method("GET")
+        .uri("/api/v1/auth/session")
+        .header("authorization", format!("Bearer {tampered}"))
+        .body(Body::empty())
+        .expect("request");
+    let resp = app.clone().oneshot(req).await.expect("response");
+    let body = response_json(resp).await;
+    assert_eq!(body["authenticated"].as_bool(), Some(false));
+}
+
+#[tokio::test]
+async fn passkey_login_start_rejects_revoked_passkey() {
+    let store = Arc::new(MemStore::default());
+    let app = test_app_with_store(store.clone(), test_config());
+    let _ = passkey_register_flow(&app, "Judy", "judy", "cred-j").await;
+    {
+        let mut passkeys = store.passkeys.lock().expect("passkeys mutex");
+        let p = passkeys.get_mut("cred-j").expect("passkey");
+        p.revoked_at = Some(Utc::now());
+    }
+
+    let req = Request::builder()
+        .method("POST")
+        .uri("/api/v1/auth/passkeys/login/start")
+        .header("content-type", "application/json")
+        .body(Body::from(json!({"credential_id":"cred-j"}).to_string()))
+        .expect("request");
+    let resp = app.clone().oneshot(req).await.expect("response");
+    assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
+}
+
+#[tokio::test]
+async fn passkey_finish_paths_cover_mismatch_revoked_and_bad_challenge_json() {
+    let store = Arc::new(MemStore::default());
+    let app = test_app_with_store(store.clone(), test_config());
+    let _ = passkey_register_flow(&app, "Kim", "kim", "cred-k").await;
+
+    let mismatch_challenge = passkey_login_start_only(&app, "cred-k").await;
+    let mismatch_req = Request::builder()
+        .method("POST")
+        .uri("/api/v1/auth/passkeys/login/finish")
+        .header("content-type", "application/json")
+        .body(Body::from(
+            json!({
+                "challenge_id": mismatch_challenge,
+                "credential_id": "cred-other"
+            })
+            .to_string(),
+        ))
+        .expect("request");
+    let mismatch_resp = app.clone().oneshot(mismatch_req).await.expect("response");
+    assert_eq!(mismatch_resp.status(), StatusCode::UNAUTHORIZED);
+
+    let revoked_challenge = passkey_login_start_only(&app, "cred-k").await;
+    {
+        let mut passkeys = store.passkeys.lock().expect("passkeys mutex");
+        let p = passkeys.get_mut("cred-k").expect("passkey");
+        p.revoked_at = Some(Utc::now());
+    }
+    let revoked_req = Request::builder()
+        .method("POST")
+        .uri("/api/v1/auth/passkeys/login/finish")
+        .header("content-type", "application/json")
+        .body(Body::from(
+            json!({
+                "challenge_id": revoked_challenge,
+                "credential_id": "cred-k"
+            })
+            .to_string(),
+        ))
+        .expect("request");
+    let revoked_resp = app.clone().oneshot(revoked_req).await.expect("response");
+    assert_eq!(revoked_resp.status(), StatusCode::UNAUTHORIZED);
+
+    {
+        let mut challenges = store.challenges.lock().expect("challenges mutex");
+        challenges.insert(
+            "bad-json-login".into(),
+            secrt_server::storage::ChallengeRecord {
+                id: 999,
+                challenge_id: "bad-json-login".into(),
+                user_id: None,
+                purpose: "passkey-login".into(),
+                challenge_json: "{not-json".into(),
+                expires_at: Utc::now() + Duration::minutes(10),
+                created_at: Utc::now(),
+            },
+        );
+    }
+    let bad_json_req = Request::builder()
+        .method("POST")
+        .uri("/api/v1/auth/passkeys/login/finish")
+        .header("content-type", "application/json")
+        .body(Body::from(
+            json!({
+                "challenge_id": "bad-json-login",
+                "credential_id": "cred-k"
+            })
+            .to_string(),
+        ))
+        .expect("request");
+    let bad_json_resp = app.clone().oneshot(bad_json_req).await.expect("response");
+    assert_eq!(bad_json_resp.status(), StatusCode::INTERNAL_SERVER_ERROR);
+}
+
+#[tokio::test]
+async fn passkey_register_finish_bad_challenge_json_and_session_pepper_error() {
+    let store_bad_json = Arc::new(MemStore::default());
+    let app_bad_json = test_app_with_store(store_bad_json.clone(), test_config());
+    {
+        let mut challenges = store_bad_json
+            .challenges
+            .lock()
+            .expect("challenges mutex");
+        challenges.insert(
+            "bad-json-register".into(),
+            secrt_server::storage::ChallengeRecord {
+                id: 1001,
+                challenge_id: "bad-json-register".into(),
+                user_id: None,
+                purpose: "passkey-register".into(),
+                challenge_json: "{not-json".into(),
+                expires_at: Utc::now() + Duration::minutes(10),
+                created_at: Utc::now(),
+            },
+        );
+    }
+    let bad_json_finish = Request::builder()
+        .method("POST")
+        .uri("/api/v1/auth/passkeys/register/finish")
+        .header("content-type", "application/json")
+        .body(Body::from(
+            json!({
+                "challenge_id": "bad-json-register",
+                "credential_id": "cred-rj",
+                "public_key": "pk-rj"
+            })
+            .to_string(),
+        ))
+        .expect("request");
+    let bad_json_resp = app_bad_json
+        .clone()
+        .oneshot(bad_json_finish)
+        .await
+        .expect("response");
+    assert_eq!(bad_json_resp.status(), StatusCode::INTERNAL_SERVER_ERROR);
+
+    let mut cfg = test_config();
+    cfg.session_token_pepper = String::new();
+    let app_bad_pepper = test_app_with_store(Arc::new(MemStore::default()), cfg);
+    let start_req = Request::builder()
+        .method("POST")
+        .uri("/api/v1/auth/passkeys/register/start")
+        .header("content-type", "application/json")
+        .body(Body::from(
+            json!({
+                "display_name": "Liam",
+                "handle": "liam",
+            })
+            .to_string(),
+        ))
+        .expect("request");
+    let start_resp = app_bad_pepper
+        .clone()
+        .oneshot(start_req)
+        .await
+        .expect("response");
+    assert_eq!(start_resp.status(), StatusCode::OK);
+    let start_json = response_json(start_resp).await;
+    let challenge_id = start_json["challenge_id"].as_str().expect("challenge id");
+
+    let finish_req = Request::builder()
+        .method("POST")
+        .uri("/api/v1/auth/passkeys/register/finish")
+        .header("content-type", "application/json")
+        .body(Body::from(
+            json!({
+                "challenge_id": challenge_id,
+                "credential_id": "cred-liam",
+                "public_key": "pk-liam",
+            })
+            .to_string(),
+        ))
+        .expect("request");
+    let finish_resp = app_bad_pepper
+        .clone()
+        .oneshot(finish_req)
+        .await
+        .expect("response");
+    assert_eq!(finish_resp.status(), StatusCode::INTERNAL_SERVER_ERROR);
+}
+
+#[tokio::test]
+async fn logout_unknown_sid_and_apikey_register_rate_limit_and_validation() {
+    let app = test_app_with_store(Arc::new(MemStore::default()), test_config());
+    let logout_req = Request::builder()
+        .method("POST")
+        .uri("/api/v1/auth/logout")
+        .header("authorization", "Bearer uss_missing.secret")
+        .body(Body::empty())
+        .expect("request");
+    let logout_resp = app.clone().oneshot(logout_req).await.expect("response");
+    assert_eq!(logout_resp.status(), StatusCode::UNAUTHORIZED);
+
+    let mut cfg_rate = test_config();
+    cfg_rate.apikey_register_rate = 0.0;
+    cfg_rate.apikey_register_burst = 0;
+    let app_rate = test_app_with_store(Arc::new(MemStore::default()), cfg_rate);
+    let (session_token, _) = passkey_register_flow(&app_rate, "Mia", "mia", "cred-mia").await;
+    let auth_token = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode([2u8; 32]);
+    let limited = register_apikey(&app_rate, &session_token, &auth_token).await;
+    assert_eq!(limited.status(), StatusCode::TOO_MANY_REQUESTS);
+
+    let app_validation = test_app_with_store(Arc::new(MemStore::default()), test_config());
+    let (session_token_validation, _) =
+        passkey_register_flow(&app_validation, "Nia", "nia", "cred-nia").await;
+    let bad_ct_req = Request::builder()
+        .method("POST")
+        .uri("/api/v1/apikeys/register")
+        .header("authorization", format!("Bearer {session_token_validation}"))
+        .header("content-type", "text/plain")
+        .body(Body::from("bad"))
+        .expect("request");
+    let bad_ct_resp = app_validation
+        .clone()
+        .oneshot(with_remote(bad_ct_req, [198, 51, 100, 42], 4242))
+        .await
+        .expect("response");
+    assert_eq!(bad_ct_resp.status(), StatusCode::BAD_REQUEST);
+
+    let mut cfg_pepper = test_config();
+    cfg_pepper.api_key_pepper = String::new();
+    let app_bad_pepper = test_app_with_store(Arc::new(MemStore::default()), cfg_pepper);
+    let (session_token_bad_pepper, _) =
+        passkey_register_flow(&app_bad_pepper, "Omar", "omar", "cred-omar").await;
+    let req = Request::builder()
+        .method("POST")
+        .uri("/api/v1/apikeys/register")
+        .header("authorization", format!("Bearer {session_token_bad_pepper}"))
+        .header("content-type", "application/json")
+        .body(Body::from(
+            json!({
+                "auth_token": base64::engine::general_purpose::URL_SAFE_NO_PAD.encode([3u8; 32]),
+            })
+            .to_string(),
+        ))
+        .expect("request");
+    let resp = app_bad_pepper
+        .clone()
+        .oneshot(with_remote(req, [198, 51, 100, 43], 4343))
+        .await
+        .expect("response");
+    assert_eq!(resp.status(), StatusCode::INTERNAL_SERVER_ERROR);
 }
 
 #[tokio::test]

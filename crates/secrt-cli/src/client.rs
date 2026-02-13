@@ -225,6 +225,79 @@ impl SecretApi for ApiClient {
 mod tests {
     use super::*;
     use base64::Engine;
+    use std::io::{Read, Write};
+    use std::net::TcpListener;
+    use std::time::Duration;
+
+    fn read_http_request(stream: &mut std::net::TcpStream) -> String {
+        stream
+            .set_read_timeout(Some(Duration::from_secs(2)))
+            .expect("set timeout");
+        let mut buf = Vec::new();
+        let mut tmp = [0u8; 1024];
+        let mut header_end = None;
+        let mut content_len = 0usize;
+
+        loop {
+            let n = stream.read(&mut tmp).expect("read request");
+            if n == 0 {
+                break;
+            }
+            buf.extend_from_slice(&tmp[..n]);
+
+            if header_end.is_none() {
+                if let Some(pos) = buf.windows(4).position(|w| w == b"\r\n\r\n") {
+                    header_end = Some(pos + 4);
+                    let headers = String::from_utf8_lossy(&buf[..pos + 4]).to_ascii_lowercase();
+                    for line in headers.lines() {
+                        if let Some(v) = line.strip_prefix("content-length:") {
+                            content_len = v.trim().parse::<usize>().unwrap_or(0);
+                        }
+                    }
+                }
+            }
+
+            if let Some(end) = header_end {
+                if buf.len() >= end + content_len {
+                    break;
+                }
+            }
+        }
+
+        String::from_utf8_lossy(&buf).into_owned()
+    }
+
+    fn json_response(status: &str, body: &str) -> Vec<u8> {
+        format!(
+            "HTTP/1.1 {status}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+            body.len()
+        )
+        .into_bytes()
+    }
+
+    fn spawn_one_shot_server<F>(handler: F) -> (String, std::thread::JoinHandle<()>)
+    where
+        F: FnOnce(String) -> Vec<u8> + Send + 'static,
+    {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("bind");
+        let addr = listener.local_addr().expect("addr");
+        let h = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().expect("accept");
+            let req = read_http_request(&mut stream);
+            let resp = handler(req);
+            stream.write_all(&resp).expect("write response");
+            stream.flush().expect("flush response");
+        });
+        (format!("http://{}", addr), h)
+    }
+
+    fn sample_create_request() -> CreateRequest {
+        CreateRequest {
+            envelope: serde_json::json!({"ciphertext":"abc"}),
+            claim_hash: "claimhash".to_string(),
+            ttl_seconds: Some(60),
+        }
+    }
 
     // --- format_status_error: friendly fallback messages ---
 
@@ -413,5 +486,166 @@ mod tests {
             let wire = client.api_key_for_wire().expect("derive").expect("api key");
             assert_eq!(wire, case.wire_key);
         }
+    }
+
+    #[test]
+    fn handle_ureq_error_tls_dns_timeout_branches() {
+        let client = ApiClient {
+            base_url: "https://example.com".into(),
+            api_key: String::new(),
+        };
+
+        let tls = client.handle_ureq_error(ureq::Error::Tls("certificate verify failed"));
+        assert!(tls.contains("TLS error connecting to"));
+
+        let dns = client.handle_ureq_error(ureq::Error::Io(std::io::Error::new(
+            std::io::ErrorKind::NotFound,
+            "No such host",
+        )));
+        assert!(dns.contains("cannot resolve host"));
+
+        let timeout = client.handle_ureq_error(ureq::Error::Io(std::io::Error::new(
+            std::io::ErrorKind::TimedOut,
+            "timed out",
+        )));
+        assert!(timeout.contains("timed out"));
+    }
+
+    #[test]
+    fn create_public_success_uses_public_endpoint_without_header() {
+        let (base_url, server) = spawn_one_shot_server(|req| {
+            assert!(req.starts_with("POST /api/v1/public/secrets "));
+            assert!(!req.to_ascii_lowercase().contains("\r\nx-api-key:"));
+            json_response(
+                "201 Created",
+                r#"{"id":"s1","share_url":"https://example.com/s/s1","expires_at":"2026-01-01T00:00:00Z"}"#,
+            )
+        });
+
+        let client = ApiClient {
+            base_url,
+            api_key: String::new(),
+        };
+        let got = client.create(sample_create_request()).expect("create");
+        assert_eq!(got.id, "s1");
+        server.join().expect("server join");
+    }
+
+    #[test]
+    fn create_authed_non_201_returns_server_error() {
+        let auth = [7u8; 32];
+        let wire = secrt_core::format_wire_api_key("abcdef", &auth).expect("wire");
+        let wire_check = wire.clone();
+        let (base_url, server) = spawn_one_shot_server(move |req| {
+            assert!(req.starts_with("POST /api/v1/secrets "));
+            let req_l = req.to_ascii_lowercase();
+            assert!(req_l.contains(&format!(
+                "x-api-key: {}\r\n",
+                wire_check.to_ascii_lowercase()
+            )));
+            json_response("401 Unauthorized", r#"{"error":"unauthorized"}"#)
+        });
+
+        let client = ApiClient {
+            base_url,
+            api_key: wire,
+        };
+        let err = client
+            .create(sample_create_request())
+            .err()
+            .expect("non-201");
+        assert!(err.contains("unauthorized"));
+        server.join().expect("server join");
+    }
+
+    #[test]
+    fn create_201_with_invalid_json_fails_decode() {
+        let (base_url, server) =
+            spawn_one_shot_server(|_| json_response("201 Created", "{not valid json"));
+        let client = ApiClient {
+            base_url,
+            api_key: String::new(),
+        };
+        let err = client
+            .create(sample_create_request())
+            .err()
+            .expect("decode fail");
+        assert!(err.contains("decode response"));
+        server.join().expect("server join");
+    }
+
+    #[test]
+    fn claim_success_and_error_paths() {
+        let (base_ok, server_ok) = spawn_one_shot_server(|req| {
+            assert!(req.starts_with("POST /api/v1/secrets/abc/claim "));
+            json_response(
+                "200 OK",
+                r#"{"envelope":{"ciphertext":"x"},"expires_at":"2026-01-01T00:00:00Z"}"#,
+            )
+        });
+        let client_ok = ApiClient {
+            base_url: base_ok,
+            api_key: String::new(),
+        };
+        let ok = client_ok.claim("abc", &[1, 2, 3]).expect("claim");
+        assert_eq!(ok.envelope["ciphertext"], "x");
+        server_ok.join().expect("server join");
+
+        let (base_bad, server_bad) =
+            spawn_one_shot_server(|_| json_response("404 Not Found", r#"{"error":"not found"}"#));
+        let client_bad = ApiClient {
+            base_url: base_bad,
+            api_key: String::new(),
+        };
+        let err = client_bad
+            .claim("abc", &[1, 2, 3])
+            .err()
+            .expect("claim fail");
+        assert!(err.contains("not found"));
+        server_bad.join().expect("server join");
+
+        let (base_decode, server_decode) =
+            spawn_one_shot_server(|_| json_response("200 OK", r#"{"envelope":1}"#));
+        let client_decode = ApiClient {
+            base_url: base_decode,
+            api_key: String::new(),
+        };
+        let err = client_decode
+            .claim("abc", &[1, 2, 3])
+            .err()
+            .expect("claim decode fail");
+        assert!(err.contains("decode response"));
+        server_decode.join().expect("server join");
+    }
+
+    #[test]
+    fn burn_success_and_error_paths() {
+        let auth = [9u8; 32];
+        let wire = secrt_core::format_wire_api_key("abcdef", &auth).expect("wire");
+        let wire_ok = wire.clone();
+        let (base_ok, server_ok) = spawn_one_shot_server(move |req| {
+            assert!(req.starts_with("POST /api/v1/secrets/xyz/burn "));
+            let req_l = req.to_ascii_lowercase();
+            assert!(req_l.contains(&format!("x-api-key: {}\r\n", wire_ok.to_ascii_lowercase())));
+            json_response("200 OK", r#"{"ok":true}"#)
+        });
+        let client_ok = ApiClient {
+            base_url: base_ok,
+            api_key: wire.clone(),
+        };
+        client_ok.burn("xyz").expect("burn");
+        server_ok.join().expect("server join");
+
+        let wire_bad = wire;
+        let (base_bad, server_bad) = spawn_one_shot_server(move |_| {
+            json_response("403 Forbidden", r#"{"error":"forbidden"}"#)
+        });
+        let client_bad = ApiClient {
+            base_url: base_bad,
+            api_key: wire_bad,
+        };
+        let err = client_bad.burn("xyz").expect_err("burn fail");
+        assert!(err.contains("forbidden"));
+        server_bad.join().expect("server join");
     }
 }

@@ -38,3 +38,40 @@ pub async fn serve_embedded(axum::extract::Path(path): axum::extract::Path<Strin
 pub fn has_embedded_assets() -> bool {
     WebAssets::iter().next().is_some()
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use axum::body::to_bytes;
+
+    #[tokio::test]
+    async fn serve_embedded_returns_not_found_for_missing_asset() {
+        let resp = serve_embedded(axum::extract::Path("missing-file".to_string())).await;
+        assert_eq!(resp.status(), StatusCode::NOT_FOUND);
+    }
+
+    #[tokio::test]
+    async fn serve_embedded_returns_cached_body_for_existing_asset() {
+        let path = WebAssets::iter()
+            .next()
+            .expect("at least one embedded asset")
+            .to_string();
+        let resp = serve_embedded(axum::extract::Path(path)).await;
+        assert_eq!(resp.status(), StatusCode::OK);
+        let cache = resp
+            .headers()
+            .get(header::CACHE_CONTROL)
+            .expect("cache-control header");
+        assert_eq!(cache, "public, max-age=31536000, immutable");
+
+        let bytes = to_bytes(resp.into_body(), usize::MAX)
+            .await
+            .expect("body bytes");
+        assert!(!bytes.is_empty());
+    }
+
+    #[test]
+    fn has_embedded_assets_is_callable() {
+        let _ = has_embedded_assets();
+    }
+}
