@@ -1411,7 +1411,8 @@ fn get_no_passphrase_flag_skips_configured_passphrases() {
 
     // With -n the configured passphrase must be skipped, so decryption should fail
     assert_eq!(
-        code, 1,
+        code,
+        1,
         "--no-passphrase should prevent trying configured passphrases; stderr: {}",
         stderr.to_string()
     );
@@ -1437,13 +1438,11 @@ fn get_no_passphrase_short_flag_skips_default_passphrase() {
         .env("XDG_CONFIG_HOME", cfg_dir.to_str().unwrap())
         .build();
 
-    let code = cli::run(
-        &args(&["secrt", "get", &share_link, "-n"]),
-        &mut deps,
-    );
+    let code = cli::run(&args(&["secrt", "get", &share_link, "-n"]), &mut deps);
 
     assert_eq!(
-        code, 1,
+        code,
+        1,
         "-n should prevent trying default passphrase; stderr: {}",
         stderr.to_string()
     );

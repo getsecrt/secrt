@@ -501,10 +501,7 @@ async fn passkey_register_finish_bad_challenge_json_and_session_pepper_error() {
     let store_bad_json = Arc::new(MemStore::default());
     let app_bad_json = test_app_with_store(store_bad_json.clone(), test_config());
     {
-        let mut challenges = store_bad_json
-            .challenges
-            .lock()
-            .expect("challenges mutex");
+        let mut challenges = store_bad_json.challenges.lock().expect("challenges mutex");
         challenges.insert(
             "bad-json-register".into(),
             secrt_server::storage::ChallengeRecord {
@@ -610,7 +607,10 @@ async fn logout_unknown_sid_and_apikey_register_rate_limit_and_validation() {
     let bad_ct_req = Request::builder()
         .method("POST")
         .uri("/api/v1/apikeys/register")
-        .header("authorization", format!("Bearer {session_token_validation}"))
+        .header(
+            "authorization",
+            format!("Bearer {session_token_validation}"),
+        )
         .header("content-type", "text/plain")
         .body(Body::from("bad"))
         .expect("request");
@@ -629,7 +629,10 @@ async fn logout_unknown_sid_and_apikey_register_rate_limit_and_validation() {
     let req = Request::builder()
         .method("POST")
         .uri("/api/v1/apikeys/register")
-        .header("authorization", format!("Bearer {session_token_bad_pepper}"))
+        .header(
+            "authorization",
+            format!("Bearer {session_token_bad_pepper}"),
+        )
         .header("content-type", "application/json")
         .body(Body::from(
             json!({
