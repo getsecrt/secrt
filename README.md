@@ -122,6 +122,42 @@ cargo clippy --workspace -- -D warnings
 cargo fmt --all
 ```
 
+### Local web + server dev
+
+Run backend and frontend in separate terminals.
+
+1. Start Postgres (or point `DATABASE_URL` at an existing dev DB).
+2. Create `crates/secrt-server/.env` (or export env vars directly), for example:
+
+```sh
+ENV=development
+LISTEN_ADDR=127.0.0.1:8080
+PUBLIC_BASE_URL=http://127.0.0.1:8080
+DATABASE_URL=postgres://secrt_app:password@127.0.0.1:5432/secrt?sslmode=disable
+API_KEY_PEPPER=dev-pepper
+SESSION_TOKEN_PEPPER=dev-session-pepper
+```
+
+3. Terminal A: run the API/server
+
+```sh
+cargo run -p secrt-server
+```
+
+4. Terminal B: run Vite (with API proxy to `secrt-server`)
+
+```sh
+pnpm -C web install --frozen-lockfile
+SECRT_API_ORIGIN=http://127.0.0.1:8080 pnpm -C web dev
+```
+
+5. Open `http://127.0.0.1:5173` for live frontend dev.
+
+Notes:
+
+- WebAuthn passkeys work on `localhost`/`127.0.0.1` in modern browsers.
+- Production-style static build path remains `/static/*`; the Vite build emits `/static/assets/*`.
+
 ## License
 
 MIT

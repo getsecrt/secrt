@@ -6,6 +6,14 @@ All notable changes to the secrt monorepo are documented here. Individual crate 
 - [secrt-core](crates/secrt-core/CHANGELOG.md)
 - [secrt-server](crates/secrt-server/CHANGELOG.md)
 
+## 0.6.1 — 2026-02-13
+
+### Fixed
+
+- **Web static asset base path:** frontend bundles now resolve under `/static/assets/*`, matching server static routing and preventing blank-page loads caused by `/assets/*` 404s.
+- **Server operator ergonomics:** `secrt-server --version` and `secrt-server --help` now return immediately without touching config/DB startup paths.
+- **Web package manager enforcement:** web workspace now requires `pnpm`, with updated docs and ignore rules for web-local env/log/store artifacts.
+
 ## 0.6.0 — 2026-02-13
 
 ### Changed

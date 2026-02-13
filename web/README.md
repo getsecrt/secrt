@@ -12,9 +12,9 @@ This is the Preact frontend foundation for the Rust server.
 
 ```sh
 cd web
-npm install
-npm run dev
-npm run build
+pnpm install
+pnpm run dev
+pnpm run build
 ```
 
 ## Serving with `secrt-server`

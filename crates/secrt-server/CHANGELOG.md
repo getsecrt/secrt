@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.6.1 — 2026-02-13
+
+### Fixed
+
+- **Static web bundle routing:** frontend bundles now load from `/static/assets/*` (instead of root `/assets/*`), aligning Vite output with server static routing.
+- **No-side-effects CLI flags:** `secrt-server --version` and `secrt-server --help` now exit before config, DB connection, and migration startup paths.
+
 ## 0.6.0 — 2026-02-13
 
 ### Added
