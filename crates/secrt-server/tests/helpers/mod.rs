@@ -6,18 +6,28 @@ use std::sync::{Arc, Mutex};
 use async_trait::async_trait;
 use axum::extract::ConnectInfo;
 use axum::http::{HeaderValue, Request};
+use base64::Engine;
 use chrono::{DateTime, Utc};
+use secrt_core::{derive_auth_token, format_wire_api_key};
 use secrt_server::config::Config;
-use secrt_server::domain::auth::{generate_api_key, hash_api_key_secret};
+use secrt_server::domain::auth::{generate_api_key_prefix, hash_api_key_auth_token};
 use secrt_server::http::{build_router, AppState};
 use secrt_server::storage::{
-    ApiKeyRecord, ApiKeysStore, SecretRecord, SecretsStore, StorageError, StorageUsage,
+    ApiKeyRecord, ApiKeyRegistrationLimits, ApiKeysStore, AuthStore, ChallengeRecord,
+    PasskeyRecord, SecretRecord, SecretsStore, SessionRecord, StorageError, StorageUsage,
+    UserRecord,
 };
 
 #[derive(Default)]
 pub struct MemStore {
     pub secrets: Mutex<HashMap<String, SecretRecord>>,
     pub keys: Mutex<HashMap<String, ApiKeyRecord>>,
+    pub users: Mutex<HashMap<i64, UserRecord>>,
+    pub passkeys: Mutex<HashMap<String, PasskeyRecord>>,
+    pub sessions: Mutex<HashMap<String, SessionRecord>>,
+    pub challenges: Mutex<HashMap<String, ChallengeRecord>>,
+    pub apikey_regs: Mutex<Vec<(i64, String, DateTime<Utc>)>>,
+    pub ids: Mutex<i64>,
 }
 
 #[async_trait]
@@ -123,6 +133,270 @@ impl ApiKeysStore for MemStore {
     }
 }
 
+#[async_trait]
+impl AuthStore for MemStore {
+    async fn create_user(
+        &self,
+        handle: &str,
+        display_name: &str,
+    ) -> Result<UserRecord, StorageError> {
+        let mut ids = self.ids.lock().expect("ids mutex poisoned");
+        *ids += 1;
+        let u = UserRecord {
+            id: *ids,
+            handle: handle.to_string(),
+            display_name: display_name.to_string(),
+            created_at: Utc::now(),
+        };
+        self.users
+            .lock()
+            .expect("users mutex poisoned")
+            .insert(u.id, u.clone());
+        Ok(u)
+    }
+
+    async fn get_user_by_id(&self, user_id: i64) -> Result<UserRecord, StorageError> {
+        self.users
+            .lock()
+            .expect("users mutex poisoned")
+            .get(&user_id)
+            .cloned()
+            .ok_or(StorageError::NotFound)
+    }
+
+    async fn insert_passkey(
+        &self,
+        user_id: i64,
+        credential_id: &str,
+        public_key: &str,
+        sign_count: i64,
+    ) -> Result<PasskeyRecord, StorageError> {
+        let mut ids = self.ids.lock().expect("ids mutex poisoned");
+        *ids += 1;
+        let p = PasskeyRecord {
+            id: *ids,
+            user_id,
+            credential_id: credential_id.to_string(),
+            public_key: public_key.to_string(),
+            sign_count,
+            created_at: Utc::now(),
+            revoked_at: None,
+        };
+        self.passkeys
+            .lock()
+            .expect("passkeys mutex poisoned")
+            .insert(credential_id.to_string(), p.clone());
+        Ok(p)
+    }
+
+    async fn get_passkey_by_credential_id(
+        &self,
+        credential_id: &str,
+    ) -> Result<PasskeyRecord, StorageError> {
+        self.passkeys
+            .lock()
+            .expect("passkeys mutex poisoned")
+            .get(credential_id)
+            .cloned()
+            .ok_or(StorageError::NotFound)
+    }
+
+    async fn update_passkey_sign_count(
+        &self,
+        credential_id: &str,
+        sign_count: i64,
+    ) -> Result<(), StorageError> {
+        let mut m = self.passkeys.lock().expect("passkeys mutex poisoned");
+        let Some(p) = m.get_mut(credential_id) else {
+            return Err(StorageError::NotFound);
+        };
+        p.sign_count = sign_count;
+        Ok(())
+    }
+
+    async fn insert_session(
+        &self,
+        sid: &str,
+        user_id: i64,
+        token_hash: &str,
+        expires_at: DateTime<Utc>,
+    ) -> Result<SessionRecord, StorageError> {
+        let mut ids = self.ids.lock().expect("ids mutex poisoned");
+        *ids += 1;
+        let s = SessionRecord {
+            id: *ids,
+            sid: sid.to_string(),
+            user_id,
+            token_hash: token_hash.to_string(),
+            expires_at,
+            created_at: Utc::now(),
+            revoked_at: None,
+        };
+        self.sessions
+            .lock()
+            .expect("sessions mutex poisoned")
+            .insert(sid.to_string(), s.clone());
+        Ok(s)
+    }
+
+    async fn get_session_by_sid(&self, sid: &str) -> Result<SessionRecord, StorageError> {
+        self.sessions
+            .lock()
+            .expect("sessions mutex poisoned")
+            .get(sid)
+            .cloned()
+            .ok_or(StorageError::NotFound)
+    }
+
+    async fn revoke_session_by_sid(&self, sid: &str) -> Result<bool, StorageError> {
+        let mut m = self.sessions.lock().expect("sessions mutex poisoned");
+        let Some(s) = m.get_mut(sid) else {
+            return Ok(false);
+        };
+        if s.revoked_at.is_some() {
+            return Ok(false);
+        }
+        s.revoked_at = Some(Utc::now());
+        Ok(true)
+    }
+
+    async fn insert_challenge(
+        &self,
+        challenge_id: &str,
+        user_id: Option<i64>,
+        purpose: &str,
+        challenge_json: &str,
+        expires_at: DateTime<Utc>,
+    ) -> Result<ChallengeRecord, StorageError> {
+        let mut ids = self.ids.lock().expect("ids mutex poisoned");
+        *ids += 1;
+        let c = ChallengeRecord {
+            id: *ids,
+            challenge_id: challenge_id.to_string(),
+            user_id,
+            purpose: purpose.to_string(),
+            challenge_json: challenge_json.to_string(),
+            expires_at,
+            created_at: Utc::now(),
+        };
+        self.challenges
+            .lock()
+            .expect("challenges mutex poisoned")
+            .insert(challenge_id.to_string(), c.clone());
+        Ok(c)
+    }
+
+    async fn consume_challenge(
+        &self,
+        challenge_id: &str,
+        purpose: &str,
+        now: DateTime<Utc>,
+    ) -> Result<ChallengeRecord, StorageError> {
+        let mut m = self.challenges.lock().expect("challenges mutex poisoned");
+        let Some(c) = m.remove(challenge_id) else {
+            return Err(StorageError::NotFound);
+        };
+        if c.purpose != purpose || c.expires_at <= now {
+            return Err(StorageError::NotFound);
+        }
+        Ok(c)
+    }
+
+    async fn count_apikey_registrations_by_user_since(
+        &self,
+        user_id: i64,
+        since: DateTime<Utc>,
+    ) -> Result<i64, StorageError> {
+        let regs = self.apikey_regs.lock().expect("apikey_regs mutex poisoned");
+        Ok(regs
+            .iter()
+            .filter(|(uid, _, t)| *uid == user_id && *t > since)
+            .count() as i64)
+    }
+
+    async fn count_apikey_registrations_by_ip_since(
+        &self,
+        ip_hash: &str,
+        since: DateTime<Utc>,
+    ) -> Result<i64, StorageError> {
+        let regs = self.apikey_regs.lock().expect("apikey_regs mutex poisoned");
+        Ok(regs
+            .iter()
+            .filter(|(_, ip, t)| ip == ip_hash && *t > since)
+            .count() as i64)
+    }
+
+    async fn register_api_key(
+        &self,
+        key: ApiKeyRecord,
+        ip_hash: &str,
+        now: DateTime<Utc>,
+        limits: ApiKeyRegistrationLimits,
+    ) -> Result<(), StorageError> {
+        let user_id = key
+            .user_id
+            .ok_or_else(|| StorageError::Other("api key registration requires user_id".into()))?;
+
+        let since_hour = now - chrono::Duration::hours(1);
+        let since_day = now - chrono::Duration::hours(24);
+        let mut regs = self.apikey_regs.lock().expect("apikey_regs mutex poisoned");
+
+        let account_hour = regs
+            .iter()
+            .filter(|(uid, _, t)| *uid == user_id && *t > since_hour)
+            .count() as i64;
+        if limits.account_hour > 0 && account_hour >= limits.account_hour {
+            return Err(StorageError::QuotaExceeded("account/hour".into()));
+        }
+
+        let account_day = regs
+            .iter()
+            .filter(|(uid, _, t)| *uid == user_id && *t > since_day)
+            .count() as i64;
+        if limits.account_day > 0 && account_day >= limits.account_day {
+            return Err(StorageError::QuotaExceeded("account/day".into()));
+        }
+
+        let ip_hour = regs
+            .iter()
+            .filter(|(_, ip, t)| ip == ip_hash && *t > since_hour)
+            .count() as i64;
+        if limits.ip_hour > 0 && ip_hour >= limits.ip_hour {
+            return Err(StorageError::QuotaExceeded("ip/hour".into()));
+        }
+
+        let ip_day = regs
+            .iter()
+            .filter(|(_, ip, t)| ip == ip_hash && *t > since_day)
+            .count() as i64;
+        if limits.ip_day > 0 && ip_day >= limits.ip_day {
+            return Err(StorageError::QuotaExceeded("ip/day".into()));
+        }
+
+        let mut keys = self.keys.lock().expect("keys mutex poisoned");
+        if keys.contains_key(&key.prefix) {
+            return Err(StorageError::DuplicateId);
+        }
+        keys.insert(key.prefix.clone(), key);
+
+        regs.push((user_id, ip_hash.to_string(), now));
+        Ok(())
+    }
+
+    async fn insert_apikey_registration_event(
+        &self,
+        user_id: i64,
+        ip_hash: &str,
+        now: DateTime<Utc>,
+    ) -> Result<(), StorageError> {
+        self.apikey_regs
+            .lock()
+            .expect("apikey_regs mutex poisoned")
+            .push((user_id, ip_hash.to_string(), now));
+        Ok(())
+    }
+}
+
 pub fn test_config() -> Config {
     Config {
         env: "test".into(),
@@ -140,6 +414,7 @@ pub fn test_config() -> Config {
         db_sslrootcert: String::new(),
 
         api_key_pepper: "pepper".into(),
+        session_token_pepper: "session-pepper".into(),
 
         public_max_envelope_bytes: 256 * 1024,
         authed_max_envelope_bytes: 1024 * 1024,
@@ -154,32 +429,45 @@ pub fn test_config() -> Config {
         claim_burst: 10,
         authed_create_rate: 2.0,
         authed_create_burst: 20,
+        apikey_register_rate: 0.5,
+        apikey_register_burst: 6,
+        apikey_register_account_max_per_hour: 5,
+        apikey_register_account_max_per_day: 20,
+        apikey_register_ip_max_per_hour: 5,
+        apikey_register_ip_max_per_day: 20,
     }
 }
 
 pub fn test_app_with_store(store: Arc<MemStore>, cfg: Config) -> axum::Router {
     let secrets: Arc<dyn SecretsStore> = store.clone();
-    let api_keys: Arc<dyn ApiKeysStore> = store;
-    let state = Arc::new(AppState::new(cfg, secrets, api_keys));
+    let api_keys: Arc<dyn ApiKeysStore> = store.clone();
+    let auth_store: Arc<dyn AuthStore> = store;
+    let state = Arc::new(AppState::new(cfg, secrets, api_keys, auth_store));
     build_router(state)
 }
 
 pub fn test_state_and_app(store: Arc<MemStore>, cfg: Config) -> (Arc<AppState>, axum::Router) {
     let secrets: Arc<dyn SecretsStore> = store.clone();
-    let api_keys: Arc<dyn ApiKeysStore> = store;
-    let state = Arc::new(AppState::new(cfg, secrets, api_keys));
+    let api_keys: Arc<dyn ApiKeysStore> = store.clone();
+    let auth_store: Arc<dyn AuthStore> = store;
+    let state = Arc::new(AppState::new(cfg, secrets, api_keys, auth_store));
     let app = build_router(state.clone());
     (state, app)
 }
 
 pub async fn create_api_key(store: &Arc<MemStore>, pepper: &str) -> (String, String) {
-    let (api_key, prefix, hash) = generate_api_key(pepper).expect("generate api key");
+    let prefix = generate_api_key_prefix().expect("generate api key prefix");
+    let root = [42u8; 32];
+    let auth = derive_auth_token(&root).expect("derive auth token");
+    let api_key = format_wire_api_key(&prefix, &auth).expect("format wire api key");
+    let auth_hash = hash_api_key_auth_token(pepper, &prefix, &auth).expect("hash auth token");
     store
         .insert(ApiKeyRecord {
             id: 1,
             prefix: prefix.clone(),
-            hash,
+            auth_hash,
             scopes: String::new(),
+            user_id: None,
             created_at: Utc::now(),
             revoked_at: None,
         })
@@ -192,16 +480,20 @@ pub async fn insert_api_key_with_secret(
     store: &Arc<MemStore>,
     pepper: &str,
     prefix: &str,
-    secret: &str,
+    auth_b64: &str,
 ) -> String {
-    let hash = hash_api_key_secret(pepper, prefix, secret).expect("hash key");
-    let key = format!("sk_{prefix}.{secret}");
+    let auth = base64::engine::general_purpose::URL_SAFE_NO_PAD
+        .decode(auth_b64)
+        .expect("decode auth");
+    let hash = hash_api_key_auth_token(pepper, prefix, &auth).expect("hash key");
+    let key = format!("ak2_{prefix}.{auth_b64}");
     store
         .insert(ApiKeyRecord {
             id: 1,
             prefix: prefix.to_string(),
-            hash,
+            auth_hash: hash,
             scopes: String::new(),
+            user_id: None,
             created_at: Utc::now(),
             revoked_at: None,
         })

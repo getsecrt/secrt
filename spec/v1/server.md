@@ -6,12 +6,12 @@ This document describes how the v1 server behaves at runtime. Unlike the API spe
 
 Source-of-truth code paths:
 
-- `cmd/secrt-server/main.go`
-- `internal/api/server.go`
-- `internal/api/middleware.go`
-- `internal/secrets/secrets.go`
-- `internal/storage/postgres/postgres.go`
-- `internal/database/migrations/001_initial.sql`
+- `crates/secrt-server/src/main.rs`
+- `crates/secrt-server/src/http/mod.rs`
+- `crates/secrt-server/src/domain/auth.rs`
+- `crates/secrt-server/src/storage/postgres.rs`
+- `crates/secrt-server/migrations/001_initial.sql`
+- `crates/secrt-server/migrations/002_auth_apikey_v2.sql`
 
 ## 1. Scope
 
@@ -36,7 +36,7 @@ On startup, the server:
 
 1. Creates a root context canceled by `SIGINT` / `SIGTERM`.
 2. Loads `.env` automatically when `ENV != production`.
-3. Loads config and initializes JSON logging (`slog`).
+3. Loads config and initializes JSON logging (`tracing`).
 4. Opens Postgres and pings it.
 5. Runs DB migrations before serving requests.
 6. Starts HTTP server.
@@ -53,7 +53,7 @@ On shutdown, the server performs graceful HTTP shutdown with a 10s timeout.
 
 ## 3. Database and Schema
 
-Runtime database is Postgres (via `pgx` stdlib driver through `database/sql`).
+Runtime database is Postgres (via `tokio-postgres` + `deadpool-postgres`).
 
 Connection pool settings:
 
@@ -64,12 +64,19 @@ Connection pool settings:
 Primary tables:
 
 - `secrets(id, claim_hash, envelope, expires_at, created_at, owner_key)`
-- `api_keys(id, key_prefix, key_hash, scopes, created_at, revoked_at)`
+- `api_keys(id, key_prefix, auth_hash, scopes, user_id, created_at, revoked_at)`
+- `users(id, handle, display_name, created_at)`
+- `passkeys(id, user_id, credential_id, public_key, sign_count, created_at, revoked_at)`
+- `sessions(id, sid, user_id, token_hash, expires_at, created_at, revoked_at)`
+- `webauthn_challenges(id, challenge_id, user_id, purpose, challenge_json, expires_at, created_at)`
+- `api_key_registrations(id, user_id, ip_hash, created_at)`
 
 Indexes:
 
 - `secrets_expires_at_idx` for expiry-related queries
 - `secrets_owner_key_idx` for owner-scoped usage queries
+- `api_key_registrations_user_created_idx` for account window quotas
+- `api_key_registrations_ip_created_idx` for IP window quotas
 
 ## 4. Middleware and Request Processing
 
@@ -133,6 +140,13 @@ The header is an internal signal between the reverse proxy and the application a
 - `POST /api/v1/secrets`
 - `POST /api/v1/secrets/{id}/claim`
 - `POST /api/v1/secrets/{id}/burn`
+- `POST /api/v1/auth/passkeys/register/start`
+- `POST /api/v1/auth/passkeys/register/finish`
+- `POST /api/v1/auth/passkeys/login/start`
+- `POST /api/v1/auth/passkeys/login/finish`
+- `GET /api/v1/auth/session`
+- `POST /api/v1/auth/logout`
+- `POST /api/v1/apikeys/register`
 
 ## 6. Auth and Authorization
 
@@ -140,6 +154,7 @@ Authenticated endpoints:
 
 - `POST /api/v1/secrets`
 - `POST /api/v1/secrets/{id}/burn`
+- `POST /api/v1/apikeys/register` (session-authenticated)
 
 Credential sources:
 
@@ -148,12 +163,18 @@ Credential sources:
 
 API key format:
 
-- `sk_<prefix>.<secret>`
+- local: `sk2_<prefix>.<root_b64>` (client storage only)
+- wire: `ak2_<prefix>.<auth_b64>` (request header value)
+
+Legacy `sk_` credentials are rejected.
 
 Verification model:
 
-1. Parse prefix+secret.
-2. Compute `HMAC-SHA256(pepper, prefix + ":" + secret)` (hex encoded).
+1. Parse `ak2_<prefix>.<auth_b64>`.
+2. Decode `auth_b64` to 32-byte auth token.
+3. Build verifier message:
+   - `"secrt-apikey-v2-verifier" || u16be(len(prefix)) || prefix_utf8 || auth_token_bytes`
+4. Compute `HMAC-SHA256(API_KEY_PEPPER, message)` (hex encoded).
 3. Lookup by prefix.
 4. Reject revoked keys.
 5. Constant-time compare stored hash vs computed hash.
@@ -163,6 +184,7 @@ Notes:
 - Missing or invalid keys return `401 unauthorized`.
 - If `API_KEY_PEPPER` is unset, API-key auth cannot succeed.
 - API key `scopes` are stored but not currently enforced by runtime handlers.
+- Passkey session tokens use `Authorization: Bearer uss_<sid>.<secret>` and are valid for 24h.
 
 ## 7. Ownership and Quota Model
 
@@ -194,6 +216,7 @@ Configured limits:
 - Public create: `0.5 rps`, burst `6` (about 30/min, burst 6) keyed by client IP hash.
 - Claim: `1.0 rps`, burst `10` keyed by client IP hash.
 - Authenticated create: `2.0 rps`, burst `20` keyed by API key prefix.
+- API-key registration: `0.5 rps`, burst `6` keyed by client IP.
 - Burn: no dedicated limiter in v1 (API key auth + owner checks apply).
 
 Important runtime property:
@@ -220,6 +243,19 @@ Create request (`POST /api/v1/public/secrets`, `POST /api/v1/secrets`):
   - active stored bytes limit -> `413` (`"storage quota exceeded (limit <size>)"`)
 
 All size and quota limits are configurable per server instance via environment variables. See the Policy Tiers section of the API spec.
+
+API-key registration request (`POST /api/v1/apikeys/register`):
+
+- Requires `Authorization: Bearer uss_<sid>.<secret>`
+- Requires `Content-Type: application/json`
+- Body field `auth_token` MUST decode as base64url to 32 bytes
+- Registration quotas are evaluated on both dimensions:
+  - account/hour, account/day
+  - ip/hour, ip/day
+- Quota checks + `api_keys` insert + `api_key_registrations` insert execute atomically in one DB transaction
+- Default limits:
+  - account: `5/hour`, `20/day`
+  - IP: `5/hour`, `20/day`
 
 Claim request (`POST /api/v1/secrets/{id}/claim`):
 

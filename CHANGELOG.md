@@ -6,6 +6,15 @@ All notable changes to the secrt monorepo are documented here. Individual crate 
 - [secrt-core](crates/secrt-core/CHANGELOG.md)
 - [secrt-server](crates/secrt-server/CHANGELOG.md)
 
+## 0.6.0 — 2026-02-13
+
+### Changed
+
+- **Breaking API-key auth format:** authenticated API calls now use v2 wire credentials (`ak2_<prefix>.<auth_b64>`), with local client keys in `sk2_<prefix>.<root_b64>`.
+- **Passkey-gated API-key registration:** API-key registration moved to `POST /api/v1/apikeys/register` and now requires a passkey-backed session bearer token (`uss_<sid>.<secret>`).
+- **Registration quotas:** dual quota enforcement is now active and configurable per account and per IP, with defaults of `5/hour` and `20/day`.
+- **Legacy API key compatibility:** legacy `sk_` authentication paths are removed from server runtime (no backward compatibility).
+
 ## 0.5.1 — 2026-02-12
 
 ### Fixed

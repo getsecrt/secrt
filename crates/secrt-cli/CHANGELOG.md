@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.6.0 — 2026-02-13
+
+### Changed
+
+- **API key v2 compatibility:** CLI now accepts local `sk2_<prefix>.<root_b64>` keys and derives wire credentials (`ak2_<prefix>.<auth_b64>`) automatically for authenticated requests.
+- **Validation behavior:** malformed `sk2_` / `ak2_` values now fail fast with clear `invalid --api-key` errors.
+- **Config/help updates:** config template and help examples now document `sk2_` keys.
+
+### Added
+
+- **Deterministic vectors:** CLI test suite now validates key derivation against `spec/v1/apikey.vectors.json`.
+
 ## 0.5.2 — 2026-02-12
 
 No CLI changes — version bump to unify with workspace at 0.5.2.

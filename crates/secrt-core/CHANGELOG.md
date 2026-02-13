@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.6.0 — 2026-02-13
+
+### Added
+
+- **API key v2 primitives:** new `apikey` module with `sk2_`/`ak2_` parsing, HKDF derivation (`auth_token`, `enc_key`), wire formatting, and structured verifier-message hashing.
+- **Spec vectors:** `secrt-core` now validates API-key derivation and verifier outputs against `spec/v1/apikey.vectors.json`.
+
 ## 0.5.1 — 2026-02-12
 
 No changes to secrt-core in this release.

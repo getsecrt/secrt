@@ -40,10 +40,27 @@ The stored `claim_hash` must match for the claim to succeed.
 
 ## Authentication and Ownership
 
-Authentication is API-key based:
+Authenticated secret endpoints are API-key based and accept only v2 wire credentials:
 
-- `X-API-Key: sk_<prefix>.<secret>`
-- `Authorization: Bearer sk_<prefix>.<secret>`
+- `X-API-Key: ak2_<prefix>.<auth_b64>`
+- `Authorization: Bearer ak2_<prefix>.<auth_b64>`
+
+Local key format (client storage only):
+
+- `sk2_<prefix>.<root_b64>`
+
+Derivation contract:
+
+- `ROOT_SALT = SHA256("secrt-apikey-v2-root-salt")`
+- `auth_token = HKDF-SHA256(root_key, ROOT_SALT, "secrt-auth", 32)`
+- `enc_key = HKDF-SHA256(root_key, ROOT_SALT, "secrt-meta-encrypt", 32)`
+
+Verifier contract:
+
+- `msg = "secrt-apikey-v2-verifier" || u16be(len(prefix)) || prefix_utf8 || auth_token_bytes`
+- `auth_hash = hex(HMAC_SHA256(API_KEY_PEPPER, msg))`
+
+Legacy `sk_` credentials are not accepted in v1 runtime.
 
 Ownership is tracked server-side for policy and management actions:
 
@@ -163,7 +180,7 @@ Policy notes:
 
 Headers:
 
-- `X-API-Key: sk_<prefix>.<secret>` (or `Authorization: Bearer ...`)
+- `X-API-Key: ak2_<prefix>.<auth_b64>` (or `Authorization: Bearer ...`)
 
 Body is the same as the public endpoint.
 
@@ -211,12 +228,62 @@ Response (`200`):
 { "ok": true }
 ```
 
+### Passkey Registration and Login
+
+Passkey endpoints establish a short-lived authenticated browser session used for API-key registration:
+
+- `POST /api/v1/auth/passkeys/register/start`
+- `POST /api/v1/auth/passkeys/register/finish`
+- `POST /api/v1/auth/passkeys/login/start`
+- `POST /api/v1/auth/passkeys/login/finish`
+- `GET /api/v1/auth/session`
+- `POST /api/v1/auth/logout`
+
+Session bearer token format:
+
+- `Authorization: Bearer uss_<sid>.<secret>`
+- Session TTL is fixed at 24h in v1 (no refresh flow).
+
+### API-Key Registration (Passkey Session Required)
+
+`POST /api/v1/apikeys/register`
+
+Headers:
+
+- `Authorization: Bearer uss_<sid>.<secret>`
+
+Request:
+
+```json
+{
+  "auth_token": "<base64url 32-byte auth token>",
+  "scopes": ""
+}
+```
+
+Response (`201`):
+
+```json
+{
+  "prefix": "abcdef",
+  "created_at": "2026-02-13T00:00:00Z"
+}
+```
+
+Policy notes:
+
+- Registration is allowed only for authenticated passkey sessions.
+- Quotas are enforced on both dimensions:
+  - account: default `5/hour`, `20/day`
+  - IP: default `5/hour`, `20/day`
+- Quota checks and registration writes execute atomically in one DB transaction.
+
 ## Error Semantics
 
 Common responses:
 
 - `400` invalid request JSON, content type, or field validation
-- `401` missing or invalid API key (authenticated endpoints)
+- `401` missing or invalid API key/session token (authenticated endpoints)
 - `404` not found / expired / already claimed / invalid claim token / burn not owned
 - `413` storage quota exceeded
 - `429` request rate limited or secret-count quota exceeded

@@ -1,16 +1,13 @@
 use std::process::ExitCode;
 use std::sync::Arc;
 
-use chrono::Utc;
 use secrt_server::config::Config;
-use secrt_server::domain::auth::generate_api_key;
 use secrt_server::runtime::load_dotenv_if_present;
 use secrt_server::storage::migrations::migrate;
 use secrt_server::storage::postgres::PgStore;
-use secrt_server::storage::{ApiKeyRecord, ApiKeysStore};
+use secrt_server::storage::ApiKeysStore;
 
 enum Action {
-    Create { scopes: String },
     Revoke { prefix: String },
 }
 
@@ -61,37 +58,6 @@ async fn main() -> ExitCode {
     }
 
     match action {
-        Action::Create { scopes } => {
-            if cfg.api_key_pepper.is_empty() {
-                eprintln!("API_KEY_PEPPER is required to create API keys");
-                return ExitCode::FAILURE;
-            }
-
-            let (api_key, prefix, hash) = match generate_api_key(&cfg.api_key_pepper) {
-                Ok(v) => v,
-                Err(err) => {
-                    eprintln!("generate api key: {err}");
-                    return ExitCode::FAILURE;
-                }
-            };
-
-            let rec = ApiKeyRecord {
-                id: 0,
-                prefix,
-                hash,
-                scopes,
-                created_at: Utc::now(),
-                revoked_at: None,
-            };
-
-            if let Err(err) = store.insert(rec).await {
-                eprintln!("insert api key: {err}");
-                return ExitCode::FAILURE;
-            }
-
-            println!("{api_key}");
-            ExitCode::SUCCESS
-        }
         Action::Revoke { prefix } => match store.revoke_by_prefix(&prefix).await {
             Ok(true) => {
                 println!("revoked");
@@ -114,14 +80,6 @@ fn parse_action(args: &[String]) -> Option<Action> {
         return None;
     }
     match args[2].as_str() {
-        "create" => {
-            let scopes = if args.len() >= 4 {
-                args[3].trim().to_string()
-            } else {
-                String::new()
-            };
-            Some(Action::Create { scopes })
-        }
         "revoke" => {
             if args.len() < 4 {
                 return None;
@@ -136,6 +94,5 @@ fn parse_action(args: &[String]) -> Option<Action> {
 
 fn usage() {
     eprintln!("Usage:");
-    eprintln!("  secrt-admin apikey create [scopes]");
     eprintln!("  secrt-admin apikey revoke <prefix>");
 }

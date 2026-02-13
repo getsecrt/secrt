@@ -1211,7 +1211,7 @@ pub fn print_burn_help(deps: &mut Deps) {
     let _ = writeln!(w, "\n{}", c(HEADING, "EXAMPLES"));
     let _ = writeln!(
         w,
-        "  {} {} test-id {} sk_prefix.secret",
+        "  {} {} test-id {} sk2_prefix.root",
         c(CMD, "secrt"),
         c(CMD, "burn"),
         c(OPT, "--api-key")

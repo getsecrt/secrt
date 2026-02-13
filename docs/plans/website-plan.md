@@ -1,0 +1,534 @@
+# Website Plan for secrt.ca
+
+Status: Draft implementation plan (updated for Rust server + current monorepo)
+
+This document defines how we move from the current placeholder pages to a full web product while preserving the zero-knowledge model and spec compatibility.
+
+## 1. Context and Current State
+
+Current status in repo:
+
+- Rust server is live and stable for v1 API (`/api/v1/*`).
+- `/` and `/s/{id}` are placeholder server-rendered pages.
+- A Preact + TypeScript frontend exists in `web/` but is only a foundation UI.
+- Server can serve frontend assets from:
+  - `SECRT_WEB_DIST_DIR` override, or
+  - embedded `web/dist` assets (`rust-embed`).
+
+Implication:
+
+- We should now ship the browser UX as the primary client-facing interface while keeping CLI compatibility as a hard requirement.
+
+## 2. Product Goals
+
+### Primary goals (must ship first)
+
+1. Create secret flow in browser:
+   - Paste/type plaintext in textarea.
+   - Optional file drag-and-drop (with filename/mime hint metadata).
+   - Optional passphrase.
+   - Copyable share link output.
+2. Claim flow in browser:
+   - Parse `/s/{id}#<fragment>` links.
+   - Claim once via API and decrypt client-side.
+   - Safe reveal UX (masked by default, copy button, download option).
+3. Protocol compatibility:
+   - Full compatibility with `spec/v1/envelope.md` and `spec/v1/api.md`.
+   - Do not diverge from CLI envelope/test vectors.
+4. Product navigation:
+   - Links to GitHub and binary downloads.
+   - Position CLI/apps as preferred power-user path.
+
+### Secondary goals (phase 2+)
+
+1. Passwordless accounts (passkeys only, no email).
+2. Passkey management:
+   - add additional passkeys
+   - revoke passkeys
+3. API key lifecycle in web:
+   - create API keys
+   - revoke API keys
+4. Secret dashboard:
+   - list unclaimed/active owned secrets
+   - sort by created/expiry
+   - burn owned secrets
+5. Optional encrypted metadata for notes/names (privacy-preserving).
+
+### Nice-to-have goals
+
+- Architecture whitepaper + FAQ links.
+- Public “how sharing works” page.
+- Secret naming UX backed by encrypted metadata.
+
+## 3. Security and Privacy Invariants (Non-Negotiable)
+
+1. Server never sees plaintext or URL fragment key material.
+2. Server stores envelope + claim hash only (per existing v1 contract).
+3. Claim remains atomic claim+delete server-side.
+4. Browser app must never log plaintext, passphrases, claim tokens, or fragments.
+5. Any analytics/telemetry must be opt-in and strictly metadata-only.
+6. New account/dashboard features must not weaken zero-knowledge secret handling.
+
+## 4. Recommended Tech Stack
+
+Use the existing web foundation and keep dependencies minimal:
+
+- UI framework: `Preact` + TypeScript (already in repo).
+- Build tool: `Vite` (already in repo).
+- Crypto in browser: native `WebCrypto` APIs only.
+  - AES-GCM
+  - HKDF/SHA-256
+  - PBKDF2-HMAC-SHA-256
+- Routing: lightweight client-side router (or simple route switch) for:
+  - `/` (create flow)
+  - `/s/:id` (claim flow)
+  - future `/dashboard`, `/settings`
+- State/data:
+  - minimal local state for MVP
+  - add typed API module and strict runtime guards for envelope/API parsing
+- Testing:
+  - `Vitest` for unit/integration/vector tests
+  - `Playwright` for end-to-end browser coverage
+- Styling:
+  - keep handcrafted CSS for now (no heavyweight CSS framework).
+
+Why this stack:
+
+- Matches current repo direction.
+- Keeps bundle small and auditable.
+- Uses browser-native crypto primitives as intended by spec.
+- Avoids introducing a large dependency graph before MVP proves UX.
+
+### Shared with CLI vs Separate
+
+Decision:
+
+- Keep crypto implementations separate:
+  - CLI/core: Rust + `ring`
+  - Web: native `WebCrypto`
+- Share protocol contracts and compatibility gates:
+  - `spec/v1/envelope.md`
+  - `spec/v1/envelope.vectors.json`
+  - `spec/v1/api.md` and OpenAPI schema
+
+Rationale:
+
+- Separate implementations fit each platform and reduce browser complexity.
+- Shared vectors/specs prevent behavioral drift between clients.
+
+## 5. Architecture Plan
+
+### Frontend module layout (proposed)
+
+`web/src/`:
+
+- `app/`
+  - route shell/layout
+- `features/send/`
+  - textarea + file input + TTL + passphrase controls
+  - create API call
+  - share-link result UI
+- `features/claim/`
+  - parse URL + claim API call
+  - passphrase entry + decrypt + reveal/download
+- `crypto/`
+  - WebCrypto implementation of envelope create/open
+  - strict validation against envelope spec
+- `lib/api/`
+  - typed API client for v1 endpoints
+- `lib/url/`
+  - share URL parse/format helpers (aligned with `secrt-core` behavior)
+- `components/`
+  - reusable primitives (buttons, inputs, cards, alerts)
+- `styles/`
+  - tokens + component styles
+
+### Server/frontend integration
+
+1. Keep server as same-origin API + static asset host.
+2. Replace placeholder handlers for `/` and `/s/{id}` to serve web app shell, not ad hoc HTML.
+3. Preserve `no-store` and security headers on secret routes.
+
+## 6. Delivery Phases
+
+### Phase 0: Foundation hardening (short)
+
+1. Route integration:
+   - Serve SPA shell for `/` and `/s/{id}`.
+2. Add robust API client wrappers for:
+   - `GET /api/v1/info`
+   - `POST /api/v1/public/secrets`
+   - `POST /api/v1/secrets/{id}/claim`
+3. Add shared binary/text utilities:
+   - UTF-8 detection
+   - base64url encode/decode
+   - safe filename handling for downloads.
+4. Add Vitest test harness and vector-driven crypto tests using `spec/v1/envelope.vectors.json`.
+5. Add Playwright harness with baseline E2E flows for send/claim.
+
+Exit criteria:
+
+- Browser crypto passes all spec vectors.
+- Vitest coverage gate is configured at `100%` for statements/branches/functions/lines.
+- Playwright baseline E2E suite is running in CI.
+- Placeholder pages removed for `/` and `/s/{id}`.
+
+### Phase 1: MVP web experience (public)
+
+1. Send page (`/`)
+   - plaintext textarea
+   - file drop/select
+   - optional passphrase
+   - TTL presets + custom seconds (validated to API bounds)
+   - create secret + show share link + copy button
+2. Claim page (`/s/:id`)
+   - parse fragment key
+   - claim secret
+   - passphrase prompt only when envelope indicates KDF != none
+   - masked reveal + copy + download
+3. Content/marketing essentials
+   - clear trust model explanation
+   - GitHub + Downloads links
+   - pointer to CLI and future apps
+4. Error UX
+   - generic unavailable message for 404 claim outcomes
+   - explicit guidance for bad fragment/malformed link/passphrase mismatch.
+
+Exit criteria:
+
+- End-to-end create/claim works for text and file payloads.
+- CLI-created secrets can be claimed/decrypted in browser and vice versa.
+
+### Phase 2: Authenticated product surface (accounts + keys + dashboard)
+
+Note: requires new backend/API work not in current v1 runtime.
+
+1. Passkey-only account system
+   - WebAuthn registration/authentication
+   - display name only (no email)
+   - generated default handle (e.g. adjective-animal)
+2. Passkey management
+   - list credentials
+   - add credential
+   - revoke credential
+3. API key management UI
+   - create API key
+   - list/revoke keys
+4. Secrets dashboard
+   - list owned active secrets
+   - sort/filter
+   - burn action
+   - optional pagination/cursoring.
+
+Exit criteria:
+
+- User can fully manage passkeys and API keys in browser.
+- Dashboard reflects owned secrets without exposing any decryption material.
+
+### Phase 3: Encrypted metadata and trust docs
+
+1. Add encrypted notes/names for owned secrets.
+2. Publish architecture whitepaper + FAQ.
+3. Add sharing education page for safer secret handling.
+
+## 7. Required API and Schema Additions for Phase 2+
+
+Current v1 API is intentionally minimal. To support accounts/dashboard:
+
+Versioning decision for alpha:
+
+- Keep API routes under `/api/v1` for this phase.
+- Do not introduce an `/api/v2` namespace yet.
+- Treat any auth/key redesign as an internal contract change while the product is still pre-adoption.
+- Backward compatibility with pre-alpha API key/auth credential formats is not required.
+
+### Authentication model change (alpha)
+
+Target: server must never see user root metadata keys.
+
+1. Browser generates `api_key_root` locally (32 random bytes).
+2. Browser derives:
+   - `auth_token = HKDF(api_key_root, "secrt-auth")`
+   - `meta_key = HKDF(api_key_root, "secrt-meta-encrypt")`
+3. Browser sends only verifier/auth material derived from `auth_token` to server.
+4. Server never receives `api_key_root` or `meta_key`.
+
+### New API groups (proposed)
+
+1. `auth/webauthn/*`
+   - registration start/finish
+   - authentication start/finish
+2. `account/*`
+   - profile (name/handle)
+   - passkey list/add/revoke
+3. `apikeys/*`
+   - create/list/revoke using derived auth credentials (no root key on server)
+4. metadata list endpoints for owned secrets:
+   - `GET /api/v1/secrets` (owner scoped)
+   - `GET /api/v1/secrets/{id}` (owner scoped metadata only)
+   - `PUT /api/v1/secrets/{id}/meta` (owner scoped encrypted metadata upsert)
+
+### API key issuance/auth flow (proposed)
+
+Provisioning:
+
+1. Client generates `api_key_root` locally.
+2. Client derives `auth_token` and `meta_key`.
+3. Client submits a key-registration request with derived verifier material.
+4. Server stores verifier material and returns key identifier/prefix.
+5. Client assembles local key string (example: `sk2_<prefix>.<root_b64>`) for export/backup.
+
+Authenticated request flow:
+
+1. Client parses local key string and derives `auth_token`.
+2. Client sends auth credential derived from `auth_token` (bearer token format for alpha is acceptable).
+3. Server verifies against stored verifier material.
+
+Operational constraints:
+
+1. Do not log auth credentials or verifier material.
+2. Continue using `X-API-Key`/`Authorization` headers, but credential semantics/format may change.
+3. Since this is pre-adoption, old key shapes may be dropped without migration support.
+
+### Owner-scoped secrets list contract (dashboard)
+
+Primary endpoint:
+
+- `GET /api/v1/secrets?cursor=<cursor>&limit=<n>&sort=created_at|expires_at&state=active|expired|claimed`
+
+Response shape (proposed):
+
+```json
+{
+  "items": [
+    {
+      "id": "sec_...",
+      "share_url": "https://secrt.ca/s/sec_...",
+      "created_at": "2026-02-12T16:00:00Z",
+      "expires_at": "2026-02-13T16:00:00Z",
+      "state": "active",
+      "meta_key_version": 1,
+      "enc_meta": {
+        "v": 1,
+        "alg": "A256GCM",
+        "nonce": "<base64url>",
+        "ciphertext": "<base64url>"
+      }
+    }
+  ],
+  "next_cursor": "..."
+}
+```
+
+Contract requirements:
+
+1. Owner-scoped only; no cross-user visibility.
+2. Metadata-only surface; no envelope plaintext output.
+3. Never return URL fragment keys, claim tokens, or raw `claim_hash`.
+4. Client decrypts `enc_meta` locally and performs keyword search locally (zero-knowledge preserved).
+5. Server-side filtering is limited to non-sensitive fields (`state`, `created_at`, `expires_at`).
+
+### Metadata search model (dashboard)
+
+1. Server returns encrypted metadata blobs only (`enc_meta`).
+2. Browser decrypts metadata in memory using locally derived `meta_key`.
+3. Keyword search runs client-side over decrypted metadata.
+4. Server-side search over secret titles/descriptions is intentionally out of scope to preserve zero-knowledge.
+
+### Schema additions (proposed)
+
+- `users`
+- `passkeys` (credential id, public key, counter, transports, revoked_at)
+- `sessions` (if using cookie-based auth)
+- `api_keys` extension for user ownership
+- `secrets` metadata extension (`meta_key_version`, `enc_meta`) or a dedicated `secret_meta` table for encrypted per-secret metadata blobs
+
+### API client changes required
+
+Affected components and required changes:
+
+1. Web API client (`web/src/lib/api.ts`):
+   - add authenticated methods for key management and dashboard metadata endpoints
+   - add auth-header provider for derived auth credentials
+   - add typed request/response models for `enc_meta`
+2. Rust shared API types (`crates/secrt-core/src/api.rs`):
+   - add request/response structs for list/detail/meta upsert/key management endpoints
+   - extend API trait for new methods (or add a secondary trait if staged rollout is preferred)
+3. CLI HTTP client (`crates/secrt-cli/src/client.rs`):
+   - parse/support new API key credential format
+   - derive auth credential before authenticated calls
+   - optionally implement list/meta endpoints if dashboard or automation features are exposed in CLI
+4. CLI test harness (`crates/secrt-cli/tests/helpers.rs` and related tests):
+   - expand mock API surface for new methods
+   - add tests for new auth credential format parsing and derived-auth requests
+
+### Implementation impact map (codebase)
+
+Server/API:
+
+1. `crates/secrt-server/src/http/mod.rs`
+   - add routes/handlers for key management and metadata endpoints
+   - add auth parsing/verification path for derived-auth credentials
+2. `crates/secrt-server/src/domain/auth.rs`
+   - add new key-format parsing and derived-verifier validation
+   - remove legacy key-format assumptions from parsing/verification paths
+3. `crates/secrt-server/src/storage/mod.rs`
+   - extend store traits for owner-scoped list/detail/meta upsert and API key management by account
+4. `crates/secrt-server/src/storage/postgres.rs`
+   - implement SQL for new store methods (pagination, sorting, meta upsert, key lifecycle)
+5. `crates/secrt-server/migrations/*`
+   - add schema changes for account/passkey/key metadata support
+6. `crates/secrt-server/tests/*.rs`
+   - add route/auth/storage behavior tests for new endpoints and credential scheme
+
+Shared client contract:
+
+1. `crates/secrt-core/src/api.rs`
+   - add new API types and trait methods for dashboard + key endpoints
+
+CLI client/tests:
+
+1. `crates/secrt-cli/src/client.rs`
+   - implement new request paths and auth derivation behavior
+2. `crates/secrt-cli/tests/helpers.rs`
+   - expand mock interface and canned responses for new methods
+3. `crates/secrt-cli/tests/*`
+   - add regression tests for auth format and new API operations as needed
+
+Web client:
+
+1. `web/src/lib/api.ts`
+   - implement typed endpoint methods and auth header plumbing
+2. `web/src/crypto/*` (new)
+   - implement local root-key generation, derivation, and metadata decrypt helpers
+3. `web/src/features/dashboard/*` (new)
+   - implement list/decrypt/search/update metadata flows
+
+## 8. Metadata Encryption Direction (for notes/names)
+
+Preferred direction (Phase 2 baseline): HKDF-from-root-secret using API key material.
+
+### API key as client-held root secret
+
+Proposed derivation model:
+
+```text
+auth_token = HKDF(api_key_root, info="secrt-auth")
+meta_key   = HKDF(api_key_root, info="secrt-meta-encrypt")
+```
+
+Rules:
+
+1. `api_key_root` is generated client-side only and is never sent to the server.
+2. Client sends only `auth_token` (or a verifier/signature derived from it) for API auth.
+3. Server stores/verifies only hashed auth material; it never receives `meta_key`.
+4. Client encrypts metadata (`title`, `description`, optional tags) with `meta_key` before upload.
+5. Dashboard list endpoints return only ciphertext metadata blobs (`enc_meta`), which are decrypted in-browser.
+
+Recovery and device-sync implications:
+
+1. If users lose all copies of `api_key_root`, metadata becomes undecryptable.
+2. Product must provide one of:
+   - explicit user-managed key export/backup flow, or
+   - passkey-assisted unwrap flow (where supported), plus fallback.
+3. This tradeoff should be explicit in UX copy before enabling metadata encryption.
+
+API key issuance/auth changes required:
+
+1. Redefine API key issuance so raw root secret material is never present on the wire.
+2. Update auth verification flow and storage schema to use derived auth credentials.
+3. If needed, add an internal key-credential format marker for transition logic while keeping API endpoints on `/api/v1`.
+4. Because API keys have not been used in production yet, this is a safe time for a one-time breaking redesign before broader adoption.
+
+### Passkey-assisted future option
+
+Passkeys may later act as an additional root/unwrap mechanism, but this should remain a follow-on design item after API-key-root flow is stable.
+
+Important caveats:
+
+- Standard WebAuthn signatures alone do not provide a stable symmetric root secret.
+- If we rely on PRF extension support, we need compatibility fallback strategy for browsers/authenticators that do not implement it.
+- Therefore passkey-root derivation should be gated behind a concrete cross-browser design doc.
+
+## 9. Testing Strategy
+
+### Test tooling (required)
+
+- `Vitest`: unit + integration + vector tests.
+- `Playwright`: browser E2E tests against real running app/server.
+
+### Vitest coverage requirements (strict)
+
+1. Coverage thresholds are mandatory and blocking:
+   - statements: `100`
+   - branches: `100`
+   - functions: `100`
+   - lines: `100`
+2. Thresholds apply to app source under `web/src/**`.
+3. Any exclusion from coverage must be explicit and justified in config comments (for example generated files only).
+4. Required Vitest suites:
+   - URL parse/format
+   - envelope validation
+   - WebCrypto create/open and claim derivation
+   - vector suite covering all `spec/v1/envelope.vectors.json` entries
+   - API client behavior and error mapping
+   - key UI state transitions using mocked API responses
+
+### Playwright E2E requirements (comprehensive)
+
+Comprehensive means covering all critical user workflows and security-sensitive error paths, not just smoke tests.
+
+Minimum required E2E scenarios:
+
+1. Send plaintext (no passphrase) -> share link generated.
+2. Claim/decrypt plaintext from generated share link.
+3. Send with passphrase -> wrong passphrase fails -> correct passphrase succeeds (same claimed envelope, no second API claim).
+4. File upload send flow -> claim -> download with expected filename/mime behavior.
+5. Invalid/missing fragment handling on `/s/:id`.
+6. Claimed/expired/invalid-claim-token generic unavailable UX (`404` path).
+7. Copy-to-clipboard actions for share link and revealed secret.
+8. Responsive sanity checks for mobile and desktop breakpoints.
+9. Navigation and route boot correctness for `/` and `/s/:id`.
+10. Basic no-regression checks for security-sensitive UI messaging (no leakage of claim-token semantics).
+11. Browser matrix execution in CI (at minimum Chromium + WebKit; add Firefox when stable in pipeline).
+
+### Cross-client compatibility tests
+
+1. Browser-created secret claimable via CLI.
+2. CLI-created secret claimable via browser.
+3. File hint metadata interop (`filename`, `mime`, `type`).
+
+## 10. Operational and Release Plan
+
+1. CI adds web checks:
+   - `pnpm -C web check`
+   - `pnpm -C web build`
+   - `pnpm -C web test:unit --coverage` (Vitest with enforced 100% gate)
+   - `pnpm -C web test:e2e` (Playwright)
+2. Coverage and E2E failures are release-blocking.
+3. Server release pipeline continues embedding `web/dist`.
+4. Rollout:
+   - canary on `secrt.ca`
+   - monitor claim success/error rates and frontend JS error budget
+   - full cutover after stability window.
+
+## 11. Risks and Mitigations
+
+1. Crypto drift between CLI and web.
+   - Mitigation: vectors as release gate.
+2. Browser crypto API inconsistencies.
+   - Mitigation: strict compatibility matrix and fallback messaging.
+3. Passkey UX complexity.
+   - Mitigation: keep accounts out of MVP; ship core send/get first.
+4. Over-scoping before real usage data.
+   - Mitigation: phase-gated execution with explicit exit criteria.
+
+## 12. Immediate Next Steps
+
+1. Approve this phased scope and stack.
+2. Open implementation tasks:
+   - A: route integration (`/` and `/s/:id` app shell)
+   - B: WebCrypto envelope module + vector tests
+   - C: send UI + create flow
+   - D: claim UI + decrypt/reveal/download flow
+3. Ship MVP before starting passkey/account backend expansion.

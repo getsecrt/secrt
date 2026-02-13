@@ -1,0 +1,40 @@
+{
+  "version": 1,
+  "root_salt_label": "secrt-apikey-v2-root-salt",
+  "verifier_domain_tag": "secrt-apikey-v2-verifier",
+  "cases": [
+    {
+      "name": "zero-root",
+      "prefix": "abcdef",
+      "pepper": "pepper-1",
+      "root_b64": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+      "auth_b64": "mi8UWYIToiXqXO7NvOuSeerr7JVjFCldnOEWGy2Quy4",
+      "enc_b64": "Twbmm54YULrzv_ALVZNoPkEJ-TSNBUJSedd3JK-LLeY",
+      "local_key": "sk2_abcdef.AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+      "wire_key": "ak2_abcdef.mi8UWYIToiXqXO7NvOuSeerr7JVjFCldnOEWGy2Quy4",
+      "auth_hash_hex": "5edc72fe9ca34a4b2ad292fe7071680506ccac5c4a37feea486556b189396f04"
+    },
+    {
+      "name": "ascending-root",
+      "prefix": "pfx777",
+      "pepper": "pepper-1",
+      "root_b64": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8",
+      "auth_b64": "1ghr32thqniorZP1dgX2m9r5nhrVd89yWa6z_AdUpII",
+      "enc_b64": "Sc98Q1bsW6N8JXb8sOA1ygI7FSne0AxFP8Lnb2iLxcc",
+      "local_key": "sk2_pfx777.AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8",
+      "wire_key": "ak2_pfx777.1ghr32thqniorZP1dgX2m9r5nhrVd89yWa6z_AdUpII",
+      "auth_hash_hex": "9fd5f5e03b63c032a3f682630ab624f78ba6bb150fa913f20a5177e238f90026"
+    },
+    {
+      "name": "descending-root",
+      "prefix": "Z9_Z9_",
+      "pepper": "pepper-1",
+      "root_b64": "__79_Pv6-fj39vX08_Lx8O_u7ezr6uno5-bl5OPi4eA",
+      "auth_b64": "Uljlvl-pw-sqT76uNDXaMKUS7BJS5PJiNeiGcMJFWWs",
+      "enc_b64": "BBZkaB2Saj_8lFn8bPTRyKdQdc4d0_L3yrqZ_99D5mA",
+      "local_key": "sk2_Z9_Z9_.__79_Pv6-fj39vX08_Lx8O_u7ezr6uno5-bl5OPi4eA",
+      "wire_key": "ak2_Z9_Z9_.Uljlvl-pw-sqT76uNDXaMKUS7BJS5PJiNeiGcMJFWWs",
+      "auth_hash_hex": "81f4c7ab6fdea87e26d64ee5b580773fb993f3183dd3069fe5d9c3bb256dbe14"
+    }
+  ]
+}

@@ -26,10 +26,60 @@ pub struct StorageUsage {
 pub struct ApiKeyRecord {
     pub id: i64,
     pub prefix: String,
-    pub hash: String,
+    pub auth_hash: String,
     pub scopes: String,
+    pub user_id: Option<i64>,
     pub created_at: DateTime<Utc>,
     pub revoked_at: Option<DateTime<Utc>>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct UserRecord {
+    pub id: i64,
+    pub handle: String,
+    pub display_name: String,
+    pub created_at: DateTime<Utc>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct PasskeyRecord {
+    pub id: i64,
+    pub user_id: i64,
+    pub credential_id: String,
+    pub public_key: String,
+    pub sign_count: i64,
+    pub created_at: DateTime<Utc>,
+    pub revoked_at: Option<DateTime<Utc>>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct SessionRecord {
+    pub id: i64,
+    pub sid: String,
+    pub user_id: i64,
+    pub token_hash: String,
+    pub expires_at: DateTime<Utc>,
+    pub created_at: DateTime<Utc>,
+    pub revoked_at: Option<DateTime<Utc>>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct ChallengeRecord {
+    pub id: i64,
+    pub challenge_id: String,
+    pub user_id: Option<i64>,
+    pub purpose: String,
+    pub challenge_json: String,
+    pub expires_at: DateTime<Utc>,
+    pub created_at: DateTime<Utc>,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub struct ApiKeyRegistrationLimits {
+    pub account_hour: i64,
+    pub account_day: i64,
+    pub ip_hour: i64,
+    pub ip_day: i64,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -38,6 +88,8 @@ pub enum StorageError {
     NotFound,
     #[error("duplicate id")]
     DuplicateId,
+    #[error("quota exceeded: {0}")]
+    QuotaExceeded(String),
     #[error("storage error: {0}")]
     Other(String),
 }
@@ -94,6 +146,82 @@ pub trait ApiKeysStore: Send + Sync {
 }
 
 #[async_trait]
+pub trait AuthStore: Send + Sync {
+    async fn create_user(
+        &self,
+        handle: &str,
+        display_name: &str,
+    ) -> Result<UserRecord, StorageError>;
+    async fn get_user_by_id(&self, user_id: i64) -> Result<UserRecord, StorageError>;
+
+    async fn insert_passkey(
+        &self,
+        user_id: i64,
+        credential_id: &str,
+        public_key: &str,
+        sign_count: i64,
+    ) -> Result<PasskeyRecord, StorageError>;
+    async fn get_passkey_by_credential_id(
+        &self,
+        credential_id: &str,
+    ) -> Result<PasskeyRecord, StorageError>;
+    async fn update_passkey_sign_count(
+        &self,
+        credential_id: &str,
+        sign_count: i64,
+    ) -> Result<(), StorageError>;
+
+    async fn insert_session(
+        &self,
+        sid: &str,
+        user_id: i64,
+        token_hash: &str,
+        expires_at: DateTime<Utc>,
+    ) -> Result<SessionRecord, StorageError>;
+    async fn get_session_by_sid(&self, sid: &str) -> Result<SessionRecord, StorageError>;
+    async fn revoke_session_by_sid(&self, sid: &str) -> Result<bool, StorageError>;
+
+    async fn insert_challenge(
+        &self,
+        challenge_id: &str,
+        user_id: Option<i64>,
+        purpose: &str,
+        challenge_json: &str,
+        expires_at: DateTime<Utc>,
+    ) -> Result<ChallengeRecord, StorageError>;
+    async fn consume_challenge(
+        &self,
+        challenge_id: &str,
+        purpose: &str,
+        now: DateTime<Utc>,
+    ) -> Result<ChallengeRecord, StorageError>;
+
+    async fn count_apikey_registrations_by_user_since(
+        &self,
+        user_id: i64,
+        since: DateTime<Utc>,
+    ) -> Result<i64, StorageError>;
+    async fn count_apikey_registrations_by_ip_since(
+        &self,
+        ip_hash: &str,
+        since: DateTime<Utc>,
+    ) -> Result<i64, StorageError>;
+    async fn register_api_key(
+        &self,
+        key: ApiKeyRecord,
+        ip_hash: &str,
+        now: DateTime<Utc>,
+        limits: ApiKeyRegistrationLimits,
+    ) -> Result<(), StorageError>;
+    async fn insert_apikey_registration_event(
+        &self,
+        user_id: i64,
+        ip_hash: &str,
+        now: DateTime<Utc>,
+    ) -> Result<(), StorageError>;
+}
+
+#[async_trait]
 impl<T> SecretsStore for Arc<T>
 where
     T: SecretsStore + ?Sized,
@@ -139,6 +267,136 @@ where
 
     async fn revoke_by_prefix(&self, prefix: &str) -> Result<bool, StorageError> {
         (**self).revoke_by_prefix(prefix).await
+    }
+}
+
+#[async_trait]
+impl<T> AuthStore for Arc<T>
+where
+    T: AuthStore + ?Sized,
+{
+    async fn create_user(
+        &self,
+        handle: &str,
+        display_name: &str,
+    ) -> Result<UserRecord, StorageError> {
+        (**self).create_user(handle, display_name).await
+    }
+
+    async fn get_user_by_id(&self, user_id: i64) -> Result<UserRecord, StorageError> {
+        (**self).get_user_by_id(user_id).await
+    }
+
+    async fn insert_passkey(
+        &self,
+        user_id: i64,
+        credential_id: &str,
+        public_key: &str,
+        sign_count: i64,
+    ) -> Result<PasskeyRecord, StorageError> {
+        (**self)
+            .insert_passkey(user_id, credential_id, public_key, sign_count)
+            .await
+    }
+
+    async fn get_passkey_by_credential_id(
+        &self,
+        credential_id: &str,
+    ) -> Result<PasskeyRecord, StorageError> {
+        (**self).get_passkey_by_credential_id(credential_id).await
+    }
+
+    async fn update_passkey_sign_count(
+        &self,
+        credential_id: &str,
+        sign_count: i64,
+    ) -> Result<(), StorageError> {
+        (**self)
+            .update_passkey_sign_count(credential_id, sign_count)
+            .await
+    }
+
+    async fn insert_session(
+        &self,
+        sid: &str,
+        user_id: i64,
+        token_hash: &str,
+        expires_at: DateTime<Utc>,
+    ) -> Result<SessionRecord, StorageError> {
+        (**self)
+            .insert_session(sid, user_id, token_hash, expires_at)
+            .await
+    }
+
+    async fn get_session_by_sid(&self, sid: &str) -> Result<SessionRecord, StorageError> {
+        (**self).get_session_by_sid(sid).await
+    }
+
+    async fn revoke_session_by_sid(&self, sid: &str) -> Result<bool, StorageError> {
+        (**self).revoke_session_by_sid(sid).await
+    }
+
+    async fn insert_challenge(
+        &self,
+        challenge_id: &str,
+        user_id: Option<i64>,
+        purpose: &str,
+        challenge_json: &str,
+        expires_at: DateTime<Utc>,
+    ) -> Result<ChallengeRecord, StorageError> {
+        (**self)
+            .insert_challenge(challenge_id, user_id, purpose, challenge_json, expires_at)
+            .await
+    }
+
+    async fn consume_challenge(
+        &self,
+        challenge_id: &str,
+        purpose: &str,
+        now: DateTime<Utc>,
+    ) -> Result<ChallengeRecord, StorageError> {
+        (**self).consume_challenge(challenge_id, purpose, now).await
+    }
+
+    async fn count_apikey_registrations_by_user_since(
+        &self,
+        user_id: i64,
+        since: DateTime<Utc>,
+    ) -> Result<i64, StorageError> {
+        (**self)
+            .count_apikey_registrations_by_user_since(user_id, since)
+            .await
+    }
+
+    async fn count_apikey_registrations_by_ip_since(
+        &self,
+        ip_hash: &str,
+        since: DateTime<Utc>,
+    ) -> Result<i64, StorageError> {
+        (**self)
+            .count_apikey_registrations_by_ip_since(ip_hash, since)
+            .await
+    }
+
+    async fn register_api_key(
+        &self,
+        key: ApiKeyRecord,
+        ip_hash: &str,
+        now: DateTime<Utc>,
+        limits: ApiKeyRegistrationLimits,
+    ) -> Result<(), StorageError> {
+        (**self).register_api_key(key, ip_hash, now, limits).await
+    }
+
+    async fn insert_apikey_registration_event(
+        &self,
+        user_id: i64,
+        ip_hash: &str,
+        now: DateTime<Utc>,
+    ) -> Result<(), StorageError> {
+        (**self)
+            .insert_apikey_registration_event(user_id, ip_hash, now)
+            .await
     }
 }
 

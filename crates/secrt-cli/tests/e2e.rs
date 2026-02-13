@@ -5,7 +5,7 @@
 //!   SECRET_E2E_BASE_URL=https://secrt.ca cargo test e2e -- --ignored
 //!
 //! For burn/api-key tests:
-//!   SECRET_E2E_BASE_URL=https://secrt.ca SECRET_E2E_API_KEY=sk_... cargo test e2e -- --ignored
+//!   SECRET_E2E_BASE_URL=https://secrt.ca SECRET_E2E_API_KEY=sk2_... cargo test e2e -- --ignored
 
 mod helpers;
 

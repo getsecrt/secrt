@@ -1,14 +1,13 @@
-use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use base64::Engine;
-use ring::hmac;
 use ring::rand::{SecureRandom, SystemRandom};
+use secrt_core::{
+    compute_auth_hash_hex, parse_wire_api_key, ParsedWireApiKey, API_KEY_PREFIX_BYTES,
+    WIRE_API_KEY_PREFIX,
+};
 
 use crate::storage::{ApiKeyRecord, ApiKeysStore, StorageError};
 
-pub const API_KEY_PREFIX: &str = "sk_";
-const API_KEY_SEPARATOR: &str = ".";
-const API_KEY_PREFIX_BYTES: usize = 6;
-const API_KEY_SECRET_BYTES: usize = 32;
+pub const API_KEY_PREFIX: &str = WIRE_API_KEY_PREFIX;
 
 #[derive(Debug, thiserror::Error)]
 pub enum AuthError {
@@ -23,7 +22,7 @@ pub enum AuthError {
 #[derive(Clone, Debug)]
 pub struct ParsedApiKey {
     pub prefix: String,
-    pub secret: String,
+    pub auth_token: Vec<u8>,
 }
 
 #[derive(Clone)]
@@ -45,7 +44,7 @@ where
 
     pub async fn authenticate(&self, raw_key: &str) -> Result<ApiKeyRecord, AuthError> {
         let parsed = parse_api_key(raw_key)?;
-        let expected = hash_api_key_secret(&self.pepper, &parsed.prefix, &parsed.secret)?;
+        let expected = hash_api_key_auth_token(&self.pepper, &parsed.prefix, &parsed.auth_token)?;
 
         let key = self
             .store
@@ -60,7 +59,7 @@ where
             return Err(AuthError::InvalidApiKey);
         }
 
-        if !secure_equals_hex(&key.hash, &expected) {
+        if !secure_equals_hex(&key.auth_hash, &expected) {
             return Err(AuthError::InvalidApiKey);
         }
 
@@ -69,37 +68,21 @@ where
 }
 
 pub fn parse_api_key(key: &str) -> Result<ParsedApiKey, AuthError> {
-    let key = key.trim();
-    if !key.starts_with(API_KEY_PREFIX) {
-        return Err(AuthError::InvalidApiKey);
-    }
-
-    let rest = &key[API_KEY_PREFIX.len()..];
-    let Some((prefix, secret)) = rest.split_once(API_KEY_SEPARATOR) else {
-        return Err(AuthError::InvalidApiKey);
-    };
-
-    if prefix.len() < API_KEY_PREFIX_BYTES || secret.is_empty() {
-        return Err(AuthError::InvalidApiKey);
-    }
-
-    Ok(ParsedApiKey {
-        prefix: prefix.to_string(),
-        secret: secret.to_string(),
-    })
+    let ParsedWireApiKey {
+        prefix, auth_token, ..
+    } = parse_wire_api_key(key).map_err(|_| AuthError::InvalidApiKey)?;
+    Ok(ParsedApiKey { prefix, auth_token })
 }
 
-pub fn hash_api_key_secret(pepper: &str, prefix: &str, secret: &str) -> Result<String, AuthError> {
-    if pepper.is_empty() {
-        return Err(AuthError::MissingPepper);
-    }
-    let key = hmac::Key::new(hmac::HMAC_SHA256, pepper.as_bytes());
-    let mut msg = Vec::with_capacity(prefix.len() + secret.len() + 1);
-    msg.extend_from_slice(prefix.as_bytes());
-    msg.push(b':');
-    msg.extend_from_slice(secret.as_bytes());
-    let sum = hmac::sign(&key, &msg);
-    Ok(hex::encode(sum.as_ref()))
+pub fn hash_api_key_auth_token(
+    pepper: &str,
+    prefix: &str,
+    auth_token: &[u8],
+) -> Result<String, AuthError> {
+    compute_auth_hash_hex(pepper, prefix, auth_token).map_err(|e| match e {
+        secrt_core::ApiKeyError::MissingPepper => AuthError::MissingPepper,
+        _ => AuthError::InvalidApiKey,
+    })
 }
 
 pub fn secure_equals_hex(a: &str, b: &str) -> bool {
@@ -124,66 +107,70 @@ fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
     diff == 0
 }
 
-pub fn generate_api_key(pepper: &str) -> Result<(String, String, String), AuthError> {
+pub fn generate_api_key_prefix() -> Result<String, AuthError> {
     let rng = SystemRandom::new();
     let mut prefix_bytes = [0u8; API_KEY_PREFIX_BYTES];
-    let mut secret_bytes = [0u8; API_KEY_SECRET_BYTES];
     rng.fill(&mut prefix_bytes)
         .map_err(|_| AuthError::Storage("generate api key prefix".into()))?;
-    rng.fill(&mut secret_bytes)
-        .map_err(|_| AuthError::Storage("generate api key secret".into()))?;
-
-    let prefix = URL_SAFE_NO_PAD.encode(prefix_bytes);
-    let secret = URL_SAFE_NO_PAD.encode(secret_bytes);
-    let api_key = format!("{API_KEY_PREFIX}{prefix}{API_KEY_SEPARATOR}{secret}");
-    let hash = hash_api_key_secret(pepper, &prefix, &secret)?;
-
-    Ok((api_key, prefix, hash))
+    Ok(base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(prefix_bytes))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use base64::engine::general_purpose::URL_SAFE_NO_PAD;
+    use base64::Engine;
+    use secrt_core::{derive_auth_token, format_wire_api_key};
 
     #[test]
     fn parse_key_shape() {
-        let k = format!("{API_KEY_PREFIX}abcdef.123");
+        let auth = URL_SAFE_NO_PAD.encode([7u8; 32]);
+        let k = format!("{API_KEY_PREFIX}abcdef.{auth}");
         let p = parse_api_key(&k).unwrap();
         assert_eq!(p.prefix, "abcdef");
-        assert_eq!(p.secret, "123");
+        assert_eq!(p.auth_token.len(), 32);
         assert!(parse_api_key("bad").is_err());
     }
 
     #[test]
     fn hash_and_compare() {
-        let h1 = hash_api_key_secret("pepper", "prefix", "secret").unwrap();
-        let h2 = hash_api_key_secret("pepper", "prefix", "secret").unwrap();
+        let auth = [1u8; 32];
+        let h1 = hash_api_key_auth_token("pepper", "prefix", &auth).unwrap();
+        let h2 = hash_api_key_auth_token("pepper", "prefix", &auth).unwrap();
         assert!(secure_equals_hex(&h1, &h2));
         assert!(!secure_equals_hex(&h1, "deadbeef"));
     }
 
     #[test]
-    fn generate_key() {
-        let (api, prefix, hash) = generate_api_key("pepper").unwrap();
-        assert!(api.starts_with(API_KEY_PREFIX));
-        assert!(api.contains('.'));
+    fn generate_prefix() {
+        let prefix = generate_api_key_prefix().unwrap();
         assert!(!prefix.is_empty());
-        assert_eq!(hash.len(), 64);
+        assert!(prefix.len() >= API_KEY_PREFIX_BYTES);
     }
 
     #[test]
     fn parse_key_invalid_shapes() {
-        assert!(parse_api_key("sk_short.a").is_err());
-        assert!(parse_api_key("sk_missingdot").is_err());
-        assert!(parse_api_key("sk_abcdef.").is_err());
+        assert!(parse_api_key("ak2_short.a").is_err());
+        assert!(parse_api_key("ak2_missingdot").is_err());
+        assert!(parse_api_key("ak2_abcdef.").is_err());
         assert!(parse_api_key("  ").is_err());
     }
 
     #[test]
     fn hash_requires_pepper() {
         assert!(matches!(
-            hash_api_key_secret("", "abcdef", "secret"),
+            hash_api_key_auth_token("", "abcdef", &[7u8; 32]),
             Err(AuthError::MissingPepper)
         ));
+    }
+
+    #[test]
+    fn local_to_wire_roundtrip_hashes() {
+        let root = [3u8; 32];
+        let auth = derive_auth_token(&root).expect("derive");
+        let wire = format_wire_api_key("abcdef", &auth).expect("wire");
+        let parsed = parse_api_key(&wire).expect("parse");
+        assert_eq!(parsed.prefix, "abcdef");
+        assert_eq!(parsed.auth_token, auth);
     }
 }

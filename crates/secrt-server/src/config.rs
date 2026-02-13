@@ -19,6 +19,7 @@ pub struct Config {
     pub db_sslrootcert: String,
 
     pub api_key_pepper: String,
+    pub session_token_pepper: String,
 
     pub public_max_envelope_bytes: i64,
     pub authed_max_envelope_bytes: i64,
@@ -33,6 +34,12 @@ pub struct Config {
     pub claim_burst: usize,
     pub authed_create_rate: f64,
     pub authed_create_burst: usize,
+    pub apikey_register_rate: f64,
+    pub apikey_register_burst: usize,
+    pub apikey_register_account_max_per_hour: i64,
+    pub apikey_register_account_max_per_day: i64,
+    pub apikey_register_ip_max_per_hour: i64,
+    pub apikey_register_ip_max_per_day: i64,
 }
 
 #[derive(Debug, Error)]
@@ -45,6 +52,8 @@ pub enum ConfigError {
     InvalidPublicBaseUrl,
     #[error("API_KEY_PEPPER is required in production")]
     MissingApiKeyPepper,
+    #[error("SESSION_TOKEN_PEPPER is required in production")]
+    MissingSessionTokenPepper,
     #[error("missing env vars: {0}")]
     MissingEnvVars(String),
 }
@@ -79,6 +88,13 @@ impl Config {
         if env_name == "production" && api_key_pepper.is_empty() {
             return Err(ConfigError::MissingApiKeyPepper);
         }
+        let session_token_pepper = env::var("SESSION_TOKEN_PEPPER")
+            .unwrap_or_default()
+            .trim()
+            .to_string();
+        if env_name == "production" && session_token_pepper.is_empty() {
+            return Err(ConfigError::MissingSessionTokenPepper);
+        }
 
         Ok(Self {
             env: env_name,
@@ -102,6 +118,7 @@ impl Config {
                 .to_string(),
 
             api_key_pepper,
+            session_token_pepper,
 
             public_max_envelope_bytes: getenv_i64_default("PUBLIC_MAX_ENVELOPE_BYTES", 256 * 1024),
             authed_max_envelope_bytes: getenv_i64_default("AUTHED_MAX_ENVELOPE_BYTES", 1024 * 1024),
@@ -116,6 +133,24 @@ impl Config {
             claim_burst: getenv_usize_default("CLAIM_BURST", 10),
             authed_create_rate: getenv_f64_default("AUTHED_CREATE_RATE", 2.0),
             authed_create_burst: getenv_usize_default("AUTHED_CREATE_BURST", 20),
+            apikey_register_rate: getenv_f64_default("APIKEY_REGISTER_RATE", 0.5),
+            apikey_register_burst: getenv_usize_default("APIKEY_REGISTER_BURST", 6),
+            apikey_register_account_max_per_hour: getenv_i64_default(
+                "APIKEY_REGISTER_ACCOUNT_MAX_PER_HOUR",
+                5,
+            ),
+            apikey_register_account_max_per_day: getenv_i64_default(
+                "APIKEY_REGISTER_ACCOUNT_MAX_PER_DAY",
+                20,
+            ),
+            apikey_register_ip_max_per_hour: getenv_i64_default(
+                "APIKEY_REGISTER_IP_MAX_PER_HOUR",
+                5,
+            ),
+            apikey_register_ip_max_per_day: getenv_i64_default(
+                "APIKEY_REGISTER_IP_MAX_PER_DAY",
+                20,
+            ),
         })
     }
 
@@ -234,6 +269,7 @@ mod tests {
             EnvGuard::clear("DB_SSLMODE"),
             EnvGuard::clear("DB_SSLROOTCERT"),
             EnvGuard::clear("API_KEY_PEPPER"),
+            EnvGuard::clear("SESSION_TOKEN_PEPPER"),
         ]
     }
 
@@ -286,10 +322,25 @@ mod tests {
         let _guards = [
             EnvGuard::set("ENV", "production"),
             EnvGuard::clear("API_KEY_PEPPER"),
+            EnvGuard::set("SESSION_TOKEN_PEPPER", "ok"),
         ];
         assert!(matches!(
             Config::load(),
             Err(ConfigError::MissingApiKeyPepper)
+        ));
+    }
+
+    #[test]
+    fn production_requires_session_pepper() {
+        let _lock = ENV_LOCK.lock().expect("env lock");
+        let _guards = [
+            EnvGuard::set("ENV", "production"),
+            EnvGuard::set("API_KEY_PEPPER", "ok"),
+            EnvGuard::clear("SESSION_TOKEN_PEPPER"),
+        ];
+        assert!(matches!(
+            Config::load(),
+            Err(ConfigError::MissingSessionTokenPepper)
         ));
     }
 

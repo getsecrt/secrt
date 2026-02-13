@@ -8,10 +8,14 @@ info:
 
     ## Authentication
 
-    Authenticated endpoints accept API keys via either header:
+    Authenticated secret endpoints accept v2 wire API keys via either header:
 
-    - `X-API-Key: sk_<prefix>.<secret>`
-    - `Authorization: Bearer sk_<prefix>.<secret>`
+    - `X-API-Key: ak2_<prefix>.<auth_b64>`
+    - `Authorization: Bearer ak2_<prefix>.<auth_b64>`
+
+    API-key registration requires passkey session bearer tokens:
+
+    - `Authorization: Bearer uss_<sid>.<secret>`
 
     ## Policy Tiers
 
@@ -238,17 +242,182 @@ paths:
         "500":
           $ref: "#/components/responses/InternalError"
 
+  /api/v1/auth/passkeys/register/start:
+    post:
+      operationId: passkeyRegisterStart
+      summary: Start passkey registration
+      tags: [auth]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PasskeyRegisterStartRequest"
+      responses:
+        "200":
+          description: Registration challenge issued
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PasskeyStartResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /api/v1/auth/passkeys/register/finish:
+    post:
+      operationId: passkeyRegisterFinish
+      summary: Complete passkey registration and create session
+      tags: [auth]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PasskeyRegisterFinishRequest"
+      responses:
+        "200":
+          description: Session created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuthFinishResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /api/v1/auth/passkeys/login/start:
+    post:
+      operationId: passkeyLoginStart
+      summary: Start passkey login
+      tags: [auth]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PasskeyLoginStartRequest"
+      responses:
+        "200":
+          description: Login challenge issued
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PasskeyStartResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /api/v1/auth/passkeys/login/finish:
+    post:
+      operationId: passkeyLoginFinish
+      summary: Complete passkey login and create session
+      tags: [auth]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PasskeyLoginFinishRequest"
+      responses:
+        "200":
+          description: Session created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuthFinishResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /api/v1/auth/session:
+    get:
+      operationId: authSession
+      summary: Get current passkey session status
+      tags: [auth]
+      security:
+        - {}
+        - sessionBearer: []
+      responses:
+        "200":
+          description: Session status
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SessionResponse"
+
+  /api/v1/auth/logout:
+    post:
+      operationId: authLogout
+      summary: Revoke current passkey session
+      tags: [auth]
+      security:
+        - sessionBearer: []
+      responses:
+        "200":
+          description: Logged out
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BurnResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /api/v1/apikeys/register:
+    post:
+      operationId: registerApiKey
+      summary: Register a v2 API key auth token
+      description: |
+        Requires passkey session auth.
+        Enforces account/IP registration quotas.
+      tags: [apikeys]
+      security:
+        - sessionBearer: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RegisterApiKeyRequest"
+      responses:
+        "201":
+          description: API key registration accepted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RegisterApiKeyResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
 components:
   securitySchemes:
     apiKey:
       type: apiKey
       in: header
       name: X-API-Key
-      description: "API key in format: sk_<prefix>.<secret>"
+      description: "Wire API key format: ak2_<prefix>.<auth_b64>"
     bearerAuth:
       type: http
       scheme: bearer
-      description: "API key as Bearer token: sk_<prefix>.<secret>"
+      description: "Wire API key bearer format: ak2_<prefix>.<auth_b64>"
+    sessionBearer:
+      type: http
+      scheme: bearer
+      description: "Passkey session bearer format: uss_<sid>.<secret>"
 
   parameters:
     secretId:
@@ -340,6 +509,108 @@ components:
         ok:
           type: boolean
           description: Always `true` on success
+
+    PasskeyRegisterStartRequest:
+      type: object
+      required: [display_name]
+      additionalProperties: false
+      properties:
+        display_name:
+          type: string
+        handle:
+          type: string
+
+    PasskeyRegisterFinishRequest:
+      type: object
+      required: [challenge_id, credential_id, public_key]
+      additionalProperties: false
+      properties:
+        challenge_id:
+          type: string
+        credential_id:
+          type: string
+        public_key:
+          type: string
+
+    PasskeyLoginStartRequest:
+      type: object
+      required: [credential_id]
+      additionalProperties: false
+      properties:
+        credential_id:
+          type: string
+
+    PasskeyLoginFinishRequest:
+      type: object
+      required: [challenge_id, credential_id]
+      additionalProperties: false
+      properties:
+        challenge_id:
+          type: string
+        credential_id:
+          type: string
+
+    PasskeyStartResponse:
+      type: object
+      properties:
+        challenge_id:
+          type: string
+        challenge:
+          type: string
+        expires_at:
+          type: string
+          format: date-time
+
+    AuthFinishResponse:
+      type: object
+      properties:
+        session_token:
+          type: string
+        user_id:
+          type: integer
+          format: int64
+        handle:
+          type: string
+        expires_at:
+          type: string
+          format: date-time
+
+    SessionResponse:
+      type: object
+      properties:
+        authenticated:
+          type: boolean
+        user_id:
+          type: integer
+          format: int64
+          nullable: true
+        handle:
+          type: string
+          nullable: true
+        expires_at:
+          type: string
+          format: date-time
+          nullable: true
+
+    RegisterApiKeyRequest:
+      type: object
+      required: [auth_token]
+      additionalProperties: false
+      properties:
+        auth_token:
+          type: string
+          description: base64url-encoded 32-byte auth token
+        scopes:
+          type: string
+
+    RegisterApiKeyResponse:
+      type: object
+      properties:
+        prefix:
+          type: string
+        created_at:
+          type: string
+          format: date-time
 
     HealthResponse:
       type: object
@@ -437,7 +708,7 @@ components:
           $ref: "#/components/headers/X-Request-Id"
 
     Unauthorized:
-      description: Missing or invalid API key
+      description: Missing or invalid API key or session token
       content:
         application/json:
           schema:
@@ -508,3 +779,7 @@ tags:
     description: Server info and operational limits
   - name: secrets
     description: One-time secret creation, claim, and burn operations
+  - name: auth
+    description: Passkey registration/login and browser session management
+  - name: apikeys
+    description: API key registration endpoints

@@ -73,7 +73,7 @@ Operational/admin API-key management commands are implementation-specific and ou
 All commands SHOULD support:
 
 - `--base-url <url>`: base service URL (default: `https://secrt.ca`).
-- `--api-key <key>`: API key when using authenticated API endpoints.
+- `--api-key <key>`: local API key (`sk2_<prefix>.<root_b64>`) for authenticated API endpoints.
 - `--json`: machine-readable output mode.
 - `--silent`: suppress non-essential stderr output (prompts, status, labels). Errors are never suppressed.
 - `--help`, `-h`: print usage for current command and exit.
@@ -104,7 +104,7 @@ Supported keys:
 
 | Key | Type | Description |
 |---|---|---|
-| `api_key` | string | API key for authenticated endpoints |
+| `api_key` | string | local API key (`sk2_<prefix>.<root_b64>`) for authenticated endpoints |
 | `base_url` | string | Base service URL |
 | `default_ttl` | string | Default TTL for secrets (e.g., `5m`, `2h`, `1d`, `1w`) |
 | `passphrase` | string | Default passphrase for encryption/decryption |
@@ -119,7 +119,7 @@ Supported keys:
 Example:
 
 ```toml
-api_key = "sk_live_abc123"
+api_key = "sk2_abcdef.AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
 base_url = "https://my-server.example.com"
 default_ttl = "24h"
 passphrase = "my-default-passphrase"
@@ -209,6 +209,15 @@ In `--json` mode, the JSON object is printed to stdout. Errors in `--json` mode 
 ## Authenticated Mode
 
 Supplying `--api-key` is RECOMMENDED for automation and high-volume usage.
+
+Credential handling rules:
+
+1. CLI accepts local keys in `sk2_<prefix>.<root_b64>` format.
+2. For authenticated requests, CLI derives:
+   - `ROOT_SALT = SHA256("secrt-apikey-v2-root-salt")`
+   - `auth_token = HKDF-SHA256(root_key, ROOT_SALT, "secrt-auth", 32)`
+3. CLI sends wire credentials as `ak2_<prefix>.<auth_b64>` in `X-API-Key` / bearer headers.
+4. Malformed `sk2_` values MUST fail fast with a clear user-facing error.
 
 Authenticated mode enables:
 

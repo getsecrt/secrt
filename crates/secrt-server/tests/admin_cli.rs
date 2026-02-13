@@ -25,8 +25,25 @@ async fn create_schema(base_url: &str, schema: &str) {
         .expect("create schema");
 }
 
+async fn insert_api_key(base_url: &str, schema: &str, prefix: &str) {
+    let url = schema_url(base_url, schema);
+    let (client, connection) = tokio_postgres::connect(&url, tokio_postgres::NoTls)
+        .await
+        .expect("connect postgres");
+    tokio::spawn(async move {
+        let _ = connection.await;
+    });
+    client
+        .execute(
+            "INSERT INTO api_keys (prefix, auth_hash, scopes, created_at) VALUES ($1, $2, $3, now())",
+            &[&prefix, &"a".repeat(64), &""],
+        )
+        .await
+        .expect("insert api key");
+}
+
 #[tokio::test]
-async fn admin_create_and_revoke_api_key() {
+async fn admin_revoke_api_key() {
     let Some(base) = test_database_url() else {
         eprintln!("skipping: TEST_DATABASE_URL not set");
         return;
@@ -40,33 +57,10 @@ async fn admin_create_and_revoke_api_key() {
     );
     create_schema(&base, &schema).await;
     let db_url = schema_url(&base, &schema);
+    let prefix = "adminkey";
+    insert_api_key(&base, &schema, prefix).await;
 
     let bin = env!("CARGO_BIN_EXE_secrt-admin");
-
-    let create = Command::new(bin)
-        .arg("apikey")
-        .arg("create")
-        .env("ENV", "development")
-        .env("DATABASE_URL", &db_url)
-        .env("PUBLIC_BASE_URL", "https://example.com")
-        .env("API_KEY_PEPPER", "pepper")
-        .output()
-        .expect("run create command");
-
-    assert!(
-        create.status.success(),
-        "stderr={}",
-        String::from_utf8_lossy(&create.stderr)
-    );
-    let api_key = String::from_utf8(create.stdout).expect("utf8 stdout");
-    let api_key = api_key.trim();
-    assert!(api_key.starts_with("sk_"));
-
-    let prefix = api_key
-        .trim_start_matches("sk_")
-        .split('.')
-        .next()
-        .expect("prefix");
 
     let revoke = Command::new(bin)
         .arg("apikey")
@@ -115,7 +109,7 @@ fn admin_usage_on_missing_apikey_action() {
 }
 
 #[tokio::test]
-async fn admin_create_requires_pepper() {
+async fn admin_create_subcommand_is_removed() {
     let Some(base) = test_database_url() else {
         eprintln!("skipping: TEST_DATABASE_URL not set");
         return;
@@ -137,11 +131,10 @@ async fn admin_create_requires_pepper() {
         .env("ENV", "development")
         .env("DATABASE_URL", &db_url)
         .env("PUBLIC_BASE_URL", "https://example.com")
-        .env_remove("API_KEY_PEPPER")
         .output()
         .expect("run create command");
 
-    assert!(!out.status.success());
+    assert_eq!(out.status.code(), Some(2));
 }
 
 #[test]
@@ -171,11 +164,11 @@ fn admin_bad_database_url_exits_non_zero() {
     let bin = env!("CARGO_BIN_EXE_secrt-admin");
     let out = Command::new(bin)
         .arg("apikey")
-        .arg("create")
+        .arg("revoke")
+        .arg("prefix")
         .env("ENV", "development")
         .env("DATABASE_URL", "postgres://invalid:%zz")
         .env("PUBLIC_BASE_URL", "https://example.com")
-        .env("API_KEY_PEPPER", "pepper")
         .output()
         .expect("run command");
     assert!(!out.status.success());
@@ -186,11 +179,11 @@ fn admin_config_error_exits_non_zero() {
     let bin = env!("CARGO_BIN_EXE_secrt-admin");
     let out = Command::new(bin)
         .arg("apikey")
-        .arg("create")
+        .arg("revoke")
+        .arg("prefix")
         .env("ENV", "development")
         .env("PUBLIC_BASE_URL", "://bad-url")
         .env("DATABASE_URL", "postgres://localhost/test")
-        .env("API_KEY_PEPPER", "pepper")
         .output()
         .expect("run command");
     assert!(!out.status.success());
@@ -202,7 +195,8 @@ fn admin_db_url_error_exits_non_zero() {
     let bin = env!("CARGO_BIN_EXE_secrt-admin");
     let out = Command::new(bin)
         .arg("apikey")
-        .arg("create")
+        .arg("revoke")
+        .arg("prefix")
         .env("ENV", "development")
         .env("PUBLIC_BASE_URL", "https://example.com")
         .env_remove("DATABASE_URL")
@@ -210,7 +204,6 @@ fn admin_db_url_error_exits_non_zero() {
         .env("DB_NAME", "")
         .env("DB_USER", "")
         .env("DB_SSLMODE", "")
-        .env("API_KEY_PEPPER", "pepper")
         .output()
         .expect("run command");
     assert!(!out.status.success());

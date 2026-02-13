@@ -7,9 +7,12 @@ use axum::http::{Request, StatusCode};
 use base64::Engine;
 use chrono::{DateTime, Utc};
 use secrt_server::config::Config;
+use secrt_server::domain::auth::hash_api_key_auth_token;
 use secrt_server::http::{build_router, AppState};
 use secrt_server::storage::{
-    ApiKeyRecord, ApiKeysStore, SecretRecord, SecretsStore, StorageError, StorageUsage,
+    ApiKeyRecord, ApiKeyRegistrationLimits, ApiKeysStore, AuthStore, ChallengeRecord,
+    PasskeyRecord, SecretRecord, SecretsStore, SessionRecord, StorageError, StorageUsage,
+    UserRecord,
 };
 use tower::ServiceExt;
 
@@ -30,6 +33,7 @@ fn cfg() -> Config {
         db_sslrootcert: String::new(),
 
         api_key_pepper: "pepper".into(),
+        session_token_pepper: "session-pepper".into(),
 
         public_max_envelope_bytes: 64,
         authed_max_envelope_bytes: 128,
@@ -44,6 +48,12 @@ fn cfg() -> Config {
         claim_burst: 1000,
         authed_create_rate: 1000.0,
         authed_create_burst: 1000,
+        apikey_register_rate: 1000.0,
+        apikey_register_burst: 1000,
+        apikey_register_account_max_per_hour: 5,
+        apikey_register_account_max_per_day: 20,
+        apikey_register_ip_max_per_hour: 5,
+        apikey_register_ip_max_per_day: 20,
     }
 }
 
@@ -161,10 +171,124 @@ impl ApiKeysStore for ErrStore {
     }
 }
 
+#[async_trait]
+impl AuthStore for ErrStore {
+    async fn create_user(
+        &self,
+        _handle: &str,
+        _display_name: &str,
+    ) -> Result<UserRecord, StorageError> {
+        Err(StorageError::Other("unsupported".into()))
+    }
+
+    async fn get_user_by_id(&self, _user_id: i64) -> Result<UserRecord, StorageError> {
+        Err(StorageError::NotFound)
+    }
+
+    async fn insert_passkey(
+        &self,
+        _user_id: i64,
+        _credential_id: &str,
+        _public_key: &str,
+        _sign_count: i64,
+    ) -> Result<PasskeyRecord, StorageError> {
+        Err(StorageError::Other("unsupported".into()))
+    }
+
+    async fn get_passkey_by_credential_id(
+        &self,
+        _credential_id: &str,
+    ) -> Result<PasskeyRecord, StorageError> {
+        Err(StorageError::NotFound)
+    }
+
+    async fn update_passkey_sign_count(
+        &self,
+        _credential_id: &str,
+        _sign_count: i64,
+    ) -> Result<(), StorageError> {
+        Err(StorageError::NotFound)
+    }
+
+    async fn insert_session(
+        &self,
+        _sid: &str,
+        _user_id: i64,
+        _token_hash: &str,
+        _expires_at: DateTime<Utc>,
+    ) -> Result<SessionRecord, StorageError> {
+        Err(StorageError::Other("unsupported".into()))
+    }
+
+    async fn get_session_by_sid(&self, _sid: &str) -> Result<SessionRecord, StorageError> {
+        Err(StorageError::NotFound)
+    }
+
+    async fn revoke_session_by_sid(&self, _sid: &str) -> Result<bool, StorageError> {
+        Ok(false)
+    }
+
+    async fn insert_challenge(
+        &self,
+        _challenge_id: &str,
+        _user_id: Option<i64>,
+        _purpose: &str,
+        _challenge_json: &str,
+        _expires_at: DateTime<Utc>,
+    ) -> Result<ChallengeRecord, StorageError> {
+        Err(StorageError::Other("unsupported".into()))
+    }
+
+    async fn consume_challenge(
+        &self,
+        _challenge_id: &str,
+        _purpose: &str,
+        _now: DateTime<Utc>,
+    ) -> Result<ChallengeRecord, StorageError> {
+        Err(StorageError::NotFound)
+    }
+
+    async fn count_apikey_registrations_by_user_since(
+        &self,
+        _user_id: i64,
+        _since: DateTime<Utc>,
+    ) -> Result<i64, StorageError> {
+        Ok(0)
+    }
+
+    async fn count_apikey_registrations_by_ip_since(
+        &self,
+        _ip_hash: &str,
+        _since: DateTime<Utc>,
+    ) -> Result<i64, StorageError> {
+        Ok(0)
+    }
+
+    async fn register_api_key(
+        &self,
+        _key: ApiKeyRecord,
+        _ip_hash: &str,
+        _now: DateTime<Utc>,
+        _limits: ApiKeyRegistrationLimits,
+    ) -> Result<(), StorageError> {
+        Err(StorageError::Other("unsupported".into()))
+    }
+
+    async fn insert_apikey_registration_event(
+        &self,
+        _user_id: i64,
+        _ip_hash: &str,
+        _now: DateTime<Utc>,
+    ) -> Result<(), StorageError> {
+        Ok(())
+    }
+}
+
 fn app_with_store(store: Arc<ErrStore>) -> axum::Router {
     let secrets: Arc<dyn SecretsStore> = store.clone();
-    let api_keys: Arc<dyn ApiKeysStore> = store;
-    let state = Arc::new(AppState::new(cfg(), secrets, api_keys));
+    let api_keys: Arc<dyn ApiKeysStore> = store.clone();
+    let auth_store: Arc<dyn AuthStore> = store;
+    let state = Arc::new(AppState::new(cfg(), secrets, api_keys, auth_store));
     build_router(state)
 }
 
@@ -286,15 +410,17 @@ async fn claim_store_error_is_500() {
 
 #[tokio::test]
 async fn burn_store_error_is_500() {
-    let hash = secrt_server::domain::auth::hash_api_key_secret("pepper", "abcdef", "secret")
-        .expect("hash");
+    let auth = [1u8; 32];
+    let auth_b64 = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(auth);
+    let hash = hash_api_key_auth_token("pepper", "abcdef", &auth).expect("hash");
     let app = app_with_store(Arc::new(ErrStore {
         fail_burn: true,
         key: Some(ApiKeyRecord {
             id: 1,
             prefix: "abcdef".into(),
-            hash,
+            auth_hash: hash,
             scopes: String::new(),
+            user_id: None,
             created_at: Utc::now(),
             revoked_at: None,
         }),
@@ -304,7 +430,7 @@ async fn burn_store_error_is_500() {
     let req = Request::builder()
         .method("POST")
         .uri("/api/v1/secrets/id/burn")
-        .header("x-api-key", "sk_abcdef.secret")
+        .header("x-api-key", format!("ak2_abcdef.{auth_b64}"))
         .body(Body::empty())
         .unwrap();
     let resp = app.clone().oneshot(req).await.unwrap();
@@ -338,7 +464,7 @@ async fn info_with_invalid_api_key_returns_authenticated_false() {
     let req = Request::builder()
         .method("GET")
         .uri("/api/v1/info")
-        .header("x-api-key", "sk_invalid.invalid")
+        .header("x-api-key", "ak2_invalid.invalid")
         .body(Body::empty())
         .unwrap();
     let resp = app.clone().oneshot(req).await.unwrap();
@@ -488,8 +614,9 @@ async fn info_rate_limited_path() {
     c.claim_burst = 1;
     let store = Arc::new(ErrStore::default());
     let secrets: Arc<dyn SecretsStore> = store.clone();
-    let api_keys: Arc<dyn ApiKeysStore> = store;
-    let state = Arc::new(AppState::new(c, secrets, api_keys));
+    let api_keys: Arc<dyn ApiKeysStore> = store.clone();
+    let auth_store: Arc<dyn AuthStore> = store;
+    let state = Arc::new(AppState::new(c, secrets, api_keys, auth_store));
     let app = build_router(state);
 
     let req1 = Request::builder()
@@ -513,22 +640,25 @@ async fn authed_create_rate_limited_path() {
     let mut c = cfg();
     c.authed_create_rate = 0.0;
     c.authed_create_burst = 1;
-    let hash = secrt_server::domain::auth::hash_api_key_secret("pepper", "abcdef", "secret")
-        .expect("hash");
+    let auth = [2u8; 32];
+    let auth_b64 = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(auth);
+    let hash = hash_api_key_auth_token("pepper", "abcdef", &auth).expect("hash");
     let store = Arc::new(ErrStore {
         key: Some(ApiKeyRecord {
             id: 1,
             prefix: "abcdef".into(),
-            hash,
+            auth_hash: hash,
             scopes: String::new(),
+            user_id: None,
             created_at: Utc::now(),
             revoked_at: None,
         }),
         ..Default::default()
     });
     let secrets: Arc<dyn SecretsStore> = store.clone();
-    let api_keys: Arc<dyn ApiKeysStore> = store;
-    let state = Arc::new(AppState::new(c, secrets, api_keys));
+    let api_keys: Arc<dyn ApiKeysStore> = store.clone();
+    let auth_store: Arc<dyn AuthStore> = store;
+    let state = Arc::new(AppState::new(c, secrets, api_keys, auth_store));
     let app = build_router(state);
 
     let claim = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode([31u8; 32]);
@@ -542,7 +672,7 @@ async fn authed_create_rate_limited_path() {
     let req1 = Request::builder()
         .method("POST")
         .uri("/api/v1/secrets")
-        .header("x-api-key", "sk_abcdef.secret")
+        .header("x-api-key", format!("ak2_abcdef.{auth_b64}"))
         .header("content-type", "application/json")
         .body(Body::from(payload.clone()))
         .unwrap();
@@ -551,7 +681,7 @@ async fn authed_create_rate_limited_path() {
     let req2 = Request::builder()
         .method("POST")
         .uri("/api/v1/secrets")
-        .header("x-api-key", "sk_abcdef.secret")
+        .header("x-api-key", format!("ak2_abcdef.{auth_b64}"))
         .header("content-type", "application/json")
         .body(Body::from(payload))
         .unwrap();

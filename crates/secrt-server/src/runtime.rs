@@ -54,7 +54,13 @@ where
 
     let secrets: Arc<dyn SecretsStore> = pg_store.clone();
     let api_keys: Arc<dyn ApiKeysStore> = pg_store.clone();
-    let state = Arc::new(AppState::new(cfg.clone(), secrets.clone(), api_keys));
+    let auth_store = pg_store.clone();
+    let state = Arc::new(AppState::new(
+        cfg.clone(),
+        secrets.clone(),
+        api_keys,
+        auth_store,
+    ));
     state.start_limiter_gc();
 
     let reaper_stop = start_expiry_reaper(secrets);

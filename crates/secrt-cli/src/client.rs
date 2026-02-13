@@ -45,6 +45,28 @@ impl ApiClient {
         let body = resp.into_body().read_to_string().unwrap_or_default();
         format_api_error(status, &body)
     }
+
+    fn api_key_for_wire(&self) -> Result<Option<String>, String> {
+        let key = self.api_key.trim();
+        if key.is_empty() {
+            return Ok(None);
+        }
+
+        if key.starts_with(secrt_core::LOCAL_API_KEY_PREFIX) {
+            return secrt_core::derive_wire_api_key(key)
+                .map(Some)
+                .map_err(|e| format!("invalid --api-key: {}", e));
+        }
+
+        if key.starts_with(secrt_core::WIRE_API_KEY_PREFIX) {
+            return secrt_core::parse_wire_api_key(key)
+                .map(|_| Some(key.to_string()))
+                .map_err(|e| format!("invalid --api-key: {}", e));
+        }
+
+        // Keep pass-through for non-v2 formats during alpha transition.
+        Ok(Some(key.to_string()))
+    }
 }
 
 /// Friendly fallback error message for HTTP status codes when the server
@@ -78,7 +100,8 @@ fn format_api_error(status: u16, body: &str) -> String {
 
 impl SecretApi for ApiClient {
     fn create(&self, req: CreateRequest) -> Result<CreateResponse, String> {
-        let endpoint = if self.api_key.is_empty() {
+        let wire_api_key = self.api_key_for_wire()?;
+        let endpoint = if wire_api_key.is_none() {
             format!("{}/api/v1/public/secrets", self.base_url)
         } else {
             format!("{}/api/v1/secrets", self.base_url)
@@ -91,8 +114,8 @@ impl SecretApi for ApiClient {
             .post(&endpoint)
             .header("Content-Type", "application/json");
 
-        if !self.api_key.is_empty() {
-            request = request.header("X-API-Key", &self.api_key);
+        if let Some(key) = wire_api_key.as_ref() {
+            request = request.header("X-API-Key", key);
         }
 
         let resp = request
@@ -142,14 +165,15 @@ impl SecretApi for ApiClient {
 
     fn burn(&self, secret_id: &str) -> Result<(), String> {
         let endpoint = format!("{}/api/v1/secrets/{}/burn", self.base_url, secret_id);
+        let wire_api_key = self.api_key_for_wire()?;
 
         let mut request = self
             .agent()
             .post(&endpoint)
             .header("Content-Type", "application/json");
 
-        if !self.api_key.is_empty() {
-            request = request.header("X-API-Key", &self.api_key);
+        if let Some(key) = wire_api_key.as_ref() {
+            request = request.header("X-API-Key", key);
         }
 
         let resp = request
@@ -165,6 +189,7 @@ impl SecretApi for ApiClient {
 
     fn info(&self) -> Result<InfoResponse, String> {
         let endpoint = format!("{}/api/v1/info", self.base_url);
+        let wire_api_key = self.api_key_for_wire()?;
 
         let agent = ureq::Agent::new_with_config(
             ureq::config::Config::builder()
@@ -175,8 +200,8 @@ impl SecretApi for ApiClient {
 
         let mut request = agent.get(&endpoint);
 
-        if !self.api_key.is_empty() {
-            request = request.header("X-API-Key", &self.api_key);
+        if let Some(key) = wire_api_key.as_ref() {
+            request = request.header("X-API-Key", key);
         }
 
         let resp = request.call().map_err(|e| self.handle_ureq_error(e))?;
@@ -199,6 +224,7 @@ impl SecretApi for ApiClient {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use base64::Engine;
 
     // --- format_status_error: friendly fallback messages ---
 
@@ -323,5 +349,69 @@ mod tests {
         let body = r#"{"error":"custom server message"}"#;
         let msg = format_api_error(500, body);
         assert_eq!(msg, "server error (500): custom server message");
+    }
+
+    #[test]
+    fn local_sk2_derives_wire_ak2() {
+        let root = [9u8; 32];
+        let local = format!(
+            "sk2_abcdef.{}",
+            base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(root)
+        );
+        let client = ApiClient {
+            base_url: "https://example.com".into(),
+            api_key: local,
+        };
+        let wire = client.api_key_for_wire().expect("derive").expect("api key");
+        assert!(wire.starts_with("ak2_abcdef."));
+        assert!(secrt_core::parse_wire_api_key(&wire).is_ok());
+    }
+
+    #[test]
+    fn malformed_sk2_is_rejected() {
+        let client = ApiClient {
+            base_url: "https://example.com".into(),
+            api_key: "sk2_bad.invalid".into(),
+        };
+        let err = client.api_key_for_wire().expect_err("should fail");
+        assert!(err.contains("invalid --api-key"));
+    }
+
+    #[test]
+    fn valid_ak2_is_accepted() {
+        let auth = [3u8; 32];
+        let wire = secrt_core::format_wire_api_key("abcdef", &auth).expect("wire");
+        let client = ApiClient {
+            base_url: "https://example.com".into(),
+            api_key: wire.clone(),
+        };
+        let got = client.api_key_for_wire().expect("ok").expect("some");
+        assert_eq!(got, wire);
+    }
+
+    #[test]
+    fn sk2_vectors_derive_expected_wire_keys() {
+        #[derive(Deserialize)]
+        struct Vectors {
+            cases: Vec<VectorCase>,
+        }
+        #[derive(Deserialize)]
+        struct VectorCase {
+            local_key: String,
+            wire_key: String,
+        }
+
+        let vectors: Vectors =
+            serde_json::from_str(include_str!("../../../spec/v1/apikey.vectors.json"))
+                .expect("valid vectors");
+
+        for case in vectors.cases {
+            let client = ApiClient {
+                base_url: "https://example.com".into(),
+                api_key: case.local_key,
+            };
+            let wire = client.api_key_for_wire().expect("derive").expect("api key");
+            assert_eq!(wire, case.wire_key);
+        }
     }
 }

@@ -111,7 +111,7 @@ pub const CONFIG_TEMPLATE: &str = "\
 # base_url = \"https://secrt.ca\"
 
 # API key for authenticated access
-# api_key = \"sk_...\"
+# api_key = \"sk2_...\"
 
 # Default TTL for secrets (e.g., 5m, 2h, 1d, 1w)
 # default_ttl = \"24h\"
@@ -164,7 +164,7 @@ pub fn init_config_at(config_path: Option<PathBuf>, force: bool) -> Result<PathB
 }
 
 /// Mask a secret value for display. Shows a prefix then dots.
-/// For API keys (typically prefixed like "sk_abc123..."), show first 8 chars.
+/// For API keys (typically prefixed like "sk2_abc123..."), show first 8 chars.
 /// For passphrases, show only dots.
 pub fn mask_secret(value: &str, is_api_key: bool) -> String {
     if value.is_empty() {
@@ -218,11 +218,11 @@ mod tests {
         let path = dir.join("config.toml");
         fs::write(
             &path,
-            "api_key = \"sk_test_123\"\nbase_url = \"https://example.com\"\n",
+            "api_key = \"sk2_test_123\"\nbase_url = \"https://example.com\"\n",
         )
         .unwrap();
         let config = load_config_from_path(&path, &mut Vec::new());
-        assert_eq!(config.api_key.as_deref(), Some("sk_test_123"));
+        assert_eq!(config.api_key.as_deref(), Some("sk2_test_123"));
         assert_eq!(config.base_url.as_deref(), Some("https://example.com"));
         assert!(config.passphrase.is_none());
         let _ = fs::remove_dir_all(&dir);
@@ -261,7 +261,7 @@ mod tests {
         let path = dir.join("config.toml");
         fs::write(
             &path,
-            "api_key = \"sk_secret\"\nbase_url = \"https://ok.com\"\npassphrase = \"hunter2\"\n",
+            "api_key = \"sk2_secret\"\nbase_url = \"https://ok.com\"\npassphrase = \"hunter2\"\n",
         )
         .unwrap();
         let config = load_config_filtered(&path, &mut Vec::new());
@@ -281,7 +281,7 @@ mod tests {
         let path = dir.join("config.toml");
         fs::write(
             &path,
-            "api_key = \"sk_secret\"\nbase_url = \"https://ok.com\"\n",
+            "api_key = \"sk2_secret\"\nbase_url = \"https://ok.com\"\n",
         )
         .unwrap();
 
@@ -304,16 +304,16 @@ mod tests {
 
     #[test]
     fn mask_api_key_shows_prefix() {
-        let masked = mask_secret("sk_live_abc123xyz789", true);
-        assert!(masked.starts_with("sk_live_"));
+        let masked = mask_secret("sk2_live_abc123xyz789", true);
+        assert!(masked.starts_with("sk2_live"));
         assert!(masked.contains('\u{2022}'));
         assert!(!masked.contains("xyz789"));
     }
 
     #[test]
     fn mask_api_key_short() {
-        let masked = mask_secret("sk_ab", true);
-        assert!(masked.starts_with("sk_ab"));
+        let masked = mask_secret("sk2_ab", true);
+        assert!(masked.starts_with("sk2_ab"));
         assert!(masked.contains('\u{2022}'));
     }
 
@@ -459,7 +459,7 @@ mod tests {
         let path = secrt_dir.join("config.toml");
         fs::write(
             &path,
-            "api_key = \"sk_secret\"\nbase_url = \"https://ok.com\"\npassphrase = \"hunter2\"\n",
+            "api_key = \"sk2_secret\"\nbase_url = \"https://ok.com\"\npassphrase = \"hunter2\"\n",
         )
         .unwrap();
         fs::set_permissions(&path, fs::Permissions::from_mode(0o644)).unwrap();

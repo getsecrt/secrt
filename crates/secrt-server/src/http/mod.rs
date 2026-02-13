@@ -12,7 +12,11 @@ use axum::middleware::{self, Next};
 use axum::response::{Html, IntoResponse, Response};
 use axum::routing::{any, get};
 use axum::{Json, Router};
+use base64::engine::general_purpose::URL_SAFE_NO_PAD;
+use base64::Engine;
 use chrono::{DateTime, Utc};
+use ring::hmac;
+use ring::rand::{SecureRandom, SystemRandom};
 use serde::{Deserialize, Serialize};
 use serde_json::value::RawValue;
 use tower_http::catch_panic::CatchPanicLayer;
@@ -25,17 +29,22 @@ use crate::domain::limiter::Limiter;
 use crate::domain::secret_rules::{
     format_bytes, generate_id, validate_envelope, OwnerHasher, SecretRuleError,
 };
-use crate::storage::{ApiKeyRecord, ApiKeysStore, SecretRecord, SecretsStore, StorageError};
+use crate::storage::{
+    ApiKeyRecord, ApiKeyRegistrationLimits, ApiKeysStore, AuthStore, SecretRecord, SecretsStore,
+    StorageError,
+};
 
 #[derive(Clone)]
 pub struct AppState {
     pub cfg: Config,
     pub secrets: Arc<dyn SecretsStore>,
     pub api_keys: Arc<dyn ApiKeysStore>,
+    pub auth_store: Arc<dyn AuthStore>,
     pub auth: Authenticator<Arc<dyn ApiKeysStore>>,
     pub public_create_limiter: Limiter,
     pub claim_limiter: Limiter,
     pub api_limiter: Limiter,
+    pub apikey_register_limiter: Limiter,
     pub owner_hasher: OwnerHasher,
     pub privacy_checked: Arc<AtomicBool>,
 }
@@ -45,14 +54,20 @@ impl AppState {
         cfg: Config,
         secrets: Arc<dyn SecretsStore>,
         api_keys: Arc<dyn ApiKeysStore>,
+        auth_store: Arc<dyn AuthStore>,
     ) -> Self {
         Self {
             public_create_limiter: Limiter::new(cfg.public_create_rate, cfg.public_create_burst),
             claim_limiter: Limiter::new(cfg.claim_rate, cfg.claim_burst),
             api_limiter: Limiter::new(cfg.authed_create_rate, cfg.authed_create_burst),
+            apikey_register_limiter: Limiter::new(
+                cfg.apikey_register_rate,
+                cfg.apikey_register_burst,
+            ),
             owner_hasher: OwnerHasher::new(),
             privacy_checked: Arc::new(AtomicBool::new(false)),
             auth: Authenticator::new(cfg.api_key_pepper.clone(), api_keys.clone()),
+            auth_store,
             cfg,
             secrets,
             api_keys,
@@ -65,12 +80,14 @@ impl AppState {
         self.public_create_limiter.start_gc(interval, max_idle);
         self.claim_limiter.start_gc(interval, max_idle);
         self.api_limiter.start_gc(interval, max_idle);
+        self.apikey_register_limiter.start_gc(interval, max_idle);
     }
 
     pub fn stop_limiter_gc(&self) {
         self.public_create_limiter.stop();
         self.claim_limiter.stop();
         self.api_limiter.stop();
+        self.apikey_register_limiter.stop();
     }
 }
 
@@ -146,6 +163,70 @@ struct InfoRate {
     burst: i64,
 }
 
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct PasskeyRegisterStartRequest {
+    display_name: String,
+    handle: Option<String>,
+}
+
+#[derive(Serialize)]
+struct PasskeyStartResponse {
+    challenge_id: String,
+    challenge: String,
+    expires_at: DateTime<Utc>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct PasskeyRegisterFinishRequest {
+    challenge_id: String,
+    credential_id: String,
+    public_key: String,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct PasskeyLoginStartRequest {
+    credential_id: String,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct PasskeyLoginFinishRequest {
+    challenge_id: String,
+    credential_id: String,
+}
+
+#[derive(Serialize)]
+struct SessionResponse {
+    authenticated: bool,
+    user_id: Option<i64>,
+    handle: Option<String>,
+    expires_at: Option<DateTime<Utc>>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RegisterApiKeyRequest {
+    auth_token: String,
+    scopes: Option<String>,
+}
+
+#[derive(Serialize)]
+struct RegisterApiKeyResponse {
+    prefix: String,
+    created_at: DateTime<Utc>,
+}
+
+#[derive(Serialize)]
+struct AuthFinishResponse {
+    session_token: String,
+    user_id: i64,
+    handle: String,
+    expires_at: DateTime<Utc>,
+}
+
 pub fn build_router(state: Arc<AppState>) -> Router {
     let router = Router::new()
         .route("/healthz", get(handle_healthz))
@@ -168,6 +249,28 @@ pub fn build_router(state: Arc<AppState>) -> Router {
         .route("/api/v1/secrets", any(handle_create_authed_entry))
         .route("/api/v1/secrets/{id}/claim", any(handle_claim_entry))
         .route("/api/v1/secrets/{id}/burn", any(handle_burn_entry))
+        .route(
+            "/api/v1/auth/passkeys/register/start",
+            any(handle_passkey_register_start_entry),
+        )
+        .route(
+            "/api/v1/auth/passkeys/register/finish",
+            any(handle_passkey_register_finish_entry),
+        )
+        .route(
+            "/api/v1/auth/passkeys/login/start",
+            any(handle_passkey_login_start_entry),
+        )
+        .route(
+            "/api/v1/auth/passkeys/login/finish",
+            any(handle_passkey_login_finish_entry),
+        )
+        .route("/api/v1/auth/session", any(handle_auth_session_entry))
+        .route("/api/v1/auth/logout", any(handle_auth_logout_entry))
+        .route(
+            "/api/v1/apikeys/register",
+            any(handle_apikey_register_entry),
+        )
         .layer(CatchPanicLayer::custom(handle_panic))
         .route_layer(middleware::from_fn_with_state(
             state.clone(),
@@ -666,6 +769,507 @@ pub async fn handle_burn_entry(
     json_response(StatusCode::OK, serde_json::json!({ "ok": true }))
 }
 
+const SESSION_TOKEN_PREFIX: &str = "uss_";
+const SESSION_SID_LEN: usize = 12;
+const SESSION_SECRET_LEN: usize = 32;
+const CHALLENGE_LEN: usize = 32;
+
+#[derive(Serialize, Deserialize)]
+struct RegisterChallengePayload {
+    display_name: String,
+    handle: String,
+}
+
+#[derive(Serialize, Deserialize)]
+struct LoginChallengePayload {
+    credential_id: String,
+}
+
+struct ParsedSessionToken {
+    sid: String,
+    secret: String,
+}
+
+fn random_b64(len: usize) -> Result<String, ()> {
+    let rng = SystemRandom::new();
+    let mut b = vec![0u8; len];
+    rng.fill(&mut b).map_err(|_| ())?;
+    Ok(URL_SAFE_NO_PAD.encode(b))
+}
+
+fn session_token_from_headers(headers: &HeaderMap) -> Option<ParsedSessionToken> {
+    let authz = headers.get(AUTHORIZATION).and_then(|v| v.to_str().ok())?;
+    if authz.len() < 7 || !authz[..7].eq_ignore_ascii_case("Bearer ") {
+        return None;
+    }
+    let token = authz[7..].trim();
+    if !token.starts_with(SESSION_TOKEN_PREFIX) {
+        return None;
+    }
+    let rest = &token[SESSION_TOKEN_PREFIX.len()..];
+    let (sid, secret) = rest.split_once('.')?;
+    if sid.is_empty() || secret.is_empty() {
+        return None;
+    }
+    Some(ParsedSessionToken {
+        sid: sid.to_string(),
+        secret: secret.to_string(),
+    })
+}
+
+fn hash_session_token(pepper: &str, sid: &str, secret: &str) -> Result<String, ()> {
+    if pepper.is_empty() {
+        return Err(());
+    }
+    let key = hmac::Key::new(hmac::HMAC_SHA256, pepper.as_bytes());
+    let mut msg = Vec::with_capacity(sid.len() + 1 + secret.len());
+    msg.extend_from_slice(sid.as_bytes());
+    msg.push(b':');
+    msg.extend_from_slice(secret.as_bytes());
+    Ok(hex::encode(hmac::sign(&key, &msg).as_ref()))
+}
+
+async fn require_session_user(
+    state: &Arc<AppState>,
+    headers: &HeaderMap,
+) -> Result<(i64, String, DateTime<Utc>), Response> {
+    let parsed = session_token_from_headers(headers).ok_or_else(unauthorized)?;
+    let token_hash =
+        hash_session_token(&state.cfg.session_token_pepper, &parsed.sid, &parsed.secret)
+            .map_err(|_| internal_server_error())?;
+
+    let sess = state
+        .auth_store
+        .get_session_by_sid(&parsed.sid)
+        .await
+        .map_err(|_| unauthorized())?;
+
+    if sess.revoked_at.is_some() || sess.expires_at <= Utc::now() {
+        return Err(unauthorized());
+    }
+    if !crate::domain::auth::secure_equals_hex(&sess.token_hash, &token_hash) {
+        return Err(unauthorized());
+    }
+
+    let user = state
+        .auth_store
+        .get_user_by_id(sess.user_id)
+        .await
+        .map_err(|_| unauthorized())?;
+    Ok((user.id, user.handle, sess.expires_at))
+}
+
+async fn issue_session_token(
+    state: &Arc<AppState>,
+    user_id: i64,
+) -> Result<(String, DateTime<Utc>), Response> {
+    let sid = random_b64(SESSION_SID_LEN).map_err(|_| internal_server_error())?;
+    let secret = random_b64(SESSION_SECRET_LEN).map_err(|_| internal_server_error())?;
+    let token = format!("{SESSION_TOKEN_PREFIX}{sid}.{secret}");
+    let token_hash = hash_session_token(&state.cfg.session_token_pepper, &sid, &secret)
+        .map_err(|_| internal_server_error())?;
+    let expires_at = Utc::now() + chrono::Duration::hours(24);
+    state
+        .auth_store
+        .insert_session(&sid, user_id, &token_hash, expires_at)
+        .await
+        .map_err(|_| internal_server_error())?;
+    Ok((token, expires_at))
+}
+
+pub async fn handle_passkey_register_start_entry(
+    State(state): State<Arc<AppState>>,
+    req: Request,
+) -> Response {
+    if req.method() != Method::POST {
+        return method_not_allowed();
+    }
+    let payload: PasskeyRegisterStartRequest = match read_json_body(req, 8 * 1024, None).await {
+        Ok(v) => v,
+        Err(resp) => return resp,
+    };
+    if payload.display_name.trim().is_empty() {
+        return bad_request("display_name is required");
+    }
+    let challenge_id = match random_b64(CHALLENGE_LEN) {
+        Ok(v) => v,
+        Err(_) => return internal_server_error(),
+    };
+    let challenge = match random_b64(CHALLENGE_LEN) {
+        Ok(v) => v,
+        Err(_) => return internal_server_error(),
+    };
+    let handle = payload.handle.unwrap_or_else(|| {
+        let short = challenge_id.get(..8).unwrap_or("user");
+        format!("user-{short}")
+    });
+    let challenge_json = match serde_json::to_string(&RegisterChallengePayload {
+        display_name: payload.display_name,
+        handle,
+    }) {
+        Ok(v) => v,
+        Err(_) => return internal_server_error(),
+    };
+    let expires_at = Utc::now() + chrono::Duration::minutes(10);
+    if state
+        .auth_store
+        .insert_challenge(
+            &challenge_id,
+            None,
+            "passkey-register",
+            &challenge_json,
+            expires_at,
+        )
+        .await
+        .is_err()
+    {
+        return internal_server_error();
+    }
+    json_response(
+        StatusCode::OK,
+        PasskeyStartResponse {
+            challenge_id,
+            challenge,
+            expires_at,
+        },
+    )
+}
+
+pub async fn handle_passkey_register_finish_entry(
+    State(state): State<Arc<AppState>>,
+    req: Request,
+) -> Response {
+    if req.method() != Method::POST {
+        return method_not_allowed();
+    }
+    let payload: PasskeyRegisterFinishRequest = match read_json_body(req, 16 * 1024, None).await {
+        Ok(v) => v,
+        Err(resp) => return resp,
+    };
+    if payload.credential_id.trim().is_empty() || payload.public_key.trim().is_empty() {
+        return bad_request("credential_id and public_key are required");
+    }
+
+    let challenge = match state
+        .auth_store
+        .consume_challenge(&payload.challenge_id, "passkey-register", Utc::now())
+        .await
+    {
+        Ok(v) => v,
+        Err(_) => return bad_request("invalid or expired challenge"),
+    };
+    let parsed: RegisterChallengePayload = match serde_json::from_str(&challenge.challenge_json) {
+        Ok(v) => v,
+        Err(_) => return internal_server_error(),
+    };
+
+    let user = match state
+        .auth_store
+        .create_user(parsed.handle.trim(), parsed.display_name.trim())
+        .await
+    {
+        Ok(v) => v,
+        Err(_) => return internal_server_error(),
+    };
+    if state
+        .auth_store
+        .insert_passkey(
+            user.id,
+            payload.credential_id.trim(),
+            payload.public_key.trim(),
+            0,
+        )
+        .await
+        .is_err()
+    {
+        return internal_server_error();
+    }
+    let (token, expires_at) = match issue_session_token(&state, user.id).await {
+        Ok(v) => v,
+        Err(resp) => return resp,
+    };
+    json_response(
+        StatusCode::OK,
+        AuthFinishResponse {
+            session_token: token,
+            user_id: user.id,
+            handle: user.handle,
+            expires_at,
+        },
+    )
+}
+
+pub async fn handle_passkey_login_start_entry(
+    State(state): State<Arc<AppState>>,
+    req: Request,
+) -> Response {
+    if req.method() != Method::POST {
+        return method_not_allowed();
+    }
+    let payload: PasskeyLoginStartRequest = match read_json_body(req, 8 * 1024, None).await {
+        Ok(v) => v,
+        Err(resp) => return resp,
+    };
+    let passkey = match state
+        .auth_store
+        .get_passkey_by_credential_id(payload.credential_id.trim())
+        .await
+    {
+        Ok(v) => v,
+        Err(_) => return bad_request("unknown credential"),
+    };
+    if passkey.revoked_at.is_some() {
+        return unauthorized();
+    }
+    let challenge_id = match random_b64(CHALLENGE_LEN) {
+        Ok(v) => v,
+        Err(_) => return internal_server_error(),
+    };
+    let challenge = match random_b64(CHALLENGE_LEN) {
+        Ok(v) => v,
+        Err(_) => return internal_server_error(),
+    };
+    let challenge_json = match serde_json::to_string(&LoginChallengePayload {
+        credential_id: payload.credential_id.trim().to_string(),
+    }) {
+        Ok(v) => v,
+        Err(_) => return internal_server_error(),
+    };
+    let expires_at = Utc::now() + chrono::Duration::minutes(10);
+    if state
+        .auth_store
+        .insert_challenge(
+            &challenge_id,
+            Some(passkey.user_id),
+            "passkey-login",
+            &challenge_json,
+            expires_at,
+        )
+        .await
+        .is_err()
+    {
+        return internal_server_error();
+    }
+    json_response(
+        StatusCode::OK,
+        PasskeyStartResponse {
+            challenge_id,
+            challenge,
+            expires_at,
+        },
+    )
+}
+
+pub async fn handle_passkey_login_finish_entry(
+    State(state): State<Arc<AppState>>,
+    req: Request,
+) -> Response {
+    if req.method() != Method::POST {
+        return method_not_allowed();
+    }
+    let payload: PasskeyLoginFinishRequest = match read_json_body(req, 8 * 1024, None).await {
+        Ok(v) => v,
+        Err(resp) => return resp,
+    };
+    let challenge = match state
+        .auth_store
+        .consume_challenge(&payload.challenge_id, "passkey-login", Utc::now())
+        .await
+    {
+        Ok(v) => v,
+        Err(_) => return bad_request("invalid or expired challenge"),
+    };
+    let c: LoginChallengePayload = match serde_json::from_str(&challenge.challenge_json) {
+        Ok(v) => v,
+        Err(_) => return internal_server_error(),
+    };
+    if c.credential_id.trim() != payload.credential_id.trim() {
+        return unauthorized();
+    }
+    let passkey = match state
+        .auth_store
+        .get_passkey_by_credential_id(payload.credential_id.trim())
+        .await
+    {
+        Ok(v) => v,
+        Err(_) => return unauthorized(),
+    };
+    if passkey.revoked_at.is_some() {
+        return unauthorized();
+    }
+    if state
+        .auth_store
+        .update_passkey_sign_count(payload.credential_id.trim(), passkey.sign_count + 1)
+        .await
+        .is_err()
+    {
+        return internal_server_error();
+    }
+    let user = match state.auth_store.get_user_by_id(passkey.user_id).await {
+        Ok(v) => v,
+        Err(_) => return internal_server_error(),
+    };
+    let (token, expires_at) = match issue_session_token(&state, user.id).await {
+        Ok(v) => v,
+        Err(resp) => return resp,
+    };
+    json_response(
+        StatusCode::OK,
+        AuthFinishResponse {
+            session_token: token,
+            user_id: user.id,
+            handle: user.handle,
+            expires_at,
+        },
+    )
+}
+
+pub async fn handle_auth_session_entry(
+    State(state): State<Arc<AppState>>,
+    req: Request,
+) -> Response {
+    if req.method() != Method::GET {
+        return method_not_allowed();
+    }
+    let (user_id, handle, expires_at) = match require_session_user(&state, req.headers()).await {
+        Ok(v) => v,
+        Err(_) => {
+            return json_response(
+                StatusCode::OK,
+                SessionResponse {
+                    authenticated: false,
+                    user_id: None,
+                    handle: None,
+                    expires_at: None,
+                },
+            )
+        }
+    };
+    json_response(
+        StatusCode::OK,
+        SessionResponse {
+            authenticated: true,
+            user_id: Some(user_id),
+            handle: Some(handle),
+            expires_at: Some(expires_at),
+        },
+    )
+}
+
+pub async fn handle_auth_logout_entry(
+    State(state): State<Arc<AppState>>,
+    req: Request,
+) -> Response {
+    if req.method() != Method::POST {
+        return method_not_allowed();
+    }
+    let parsed = match session_token_from_headers(req.headers()) {
+        Some(v) => v,
+        None => return unauthorized(),
+    };
+    let revoked = match state.auth_store.revoke_session_by_sid(&parsed.sid).await {
+        Ok(v) => v,
+        Err(_) => return internal_server_error(),
+    };
+    if !revoked {
+        return unauthorized();
+    }
+    json_response(StatusCode::OK, serde_json::json!({ "ok": true }))
+}
+
+pub async fn handle_apikey_register_entry(
+    State(state): State<Arc<AppState>>,
+    req: Request,
+) -> Response {
+    if req.method() != Method::POST {
+        return method_not_allowed();
+    }
+    let (user_id, _, _) = match require_session_user(&state, req.headers()).await {
+        Ok(v) => v,
+        Err(resp) => return resp,
+    };
+
+    let ip = get_client_ip(req.headers(), request_connect_addr(&req));
+    if !state.apikey_register_limiter.allow(&ip) {
+        return rate_limited();
+    }
+
+    let payload: RegisterApiKeyRequest = match read_json_body(req, 8 * 1024, None).await {
+        Ok(v) => v,
+        Err(resp) => return resp,
+    };
+    let auth_token = match URL_SAFE_NO_PAD.decode(payload.auth_token.trim()) {
+        Ok(v) if v.len() == secrt_core::API_KEY_AUTH_LEN => v,
+        _ => return bad_request("auth_token must be base64url for 32 bytes"),
+    };
+
+    let now = Utc::now();
+    let ip_hash = state.owner_hasher.hash_ip(&ip);
+
+    let scopes = payload.scopes.unwrap_or_default();
+    let mut prefix = String::new();
+    for _ in 0..=3 {
+        prefix = match crate::domain::auth::generate_api_key_prefix() {
+            Ok(v) => v,
+            Err(_) => return internal_server_error(),
+        };
+        let auth_hash = match crate::domain::auth::hash_api_key_auth_token(
+            &state.cfg.api_key_pepper,
+            &prefix,
+            &auth_token,
+        ) {
+            Ok(v) => v,
+            Err(_) => return internal_server_error(),
+        };
+        let rec = ApiKeyRecord {
+            id: 0,
+            prefix: prefix.clone(),
+            auth_hash,
+            scopes: scopes.clone(),
+            user_id: Some(user_id),
+            created_at: now,
+            revoked_at: None,
+        };
+        match state
+            .auth_store
+            .register_api_key(
+                rec,
+                &ip_hash,
+                now,
+                ApiKeyRegistrationLimits {
+                    account_hour: state.cfg.apikey_register_account_max_per_hour,
+                    account_day: state.cfg.apikey_register_account_max_per_day,
+                    ip_hour: state.cfg.apikey_register_ip_max_per_hour,
+                    ip_day: state.cfg.apikey_register_ip_max_per_day,
+                },
+            )
+            .await
+        {
+            Ok(_) => break,
+            Err(StorageError::DuplicateId) => continue,
+            Err(StorageError::QuotaExceeded(scope)) => {
+                let detail = match scope.as_str() {
+                    "account/hour" => "api key registration limit exceeded (account/hour)",
+                    "account/day" => "api key registration limit exceeded (account/day)",
+                    "ip/hour" => "api key registration limit exceeded (ip/hour)",
+                    "ip/day" => "api key registration limit exceeded (ip/day)",
+                    _ => "api key registration limit exceeded",
+                };
+                return error_response(StatusCode::TOO_MANY_REQUESTS, detail);
+            }
+            Err(_) => return internal_server_error(),
+        }
+    }
+
+    json_response(
+        StatusCode::CREATED,
+        RegisterApiKeyResponse {
+            prefix,
+            created_at: now,
+        },
+    )
+}
+
 pub async fn handle_info_entry(State(state): State<Arc<AppState>>, req: Request) -> Response {
     if req.method() != Method::GET {
         return method_not_allowed();
@@ -772,7 +1376,10 @@ pub fn parse_socket_addr(addr: &str) -> Result<SocketAddr, std::net::AddrParseEr
 mod tests {
     use super::*;
     use crate::config::Config;
-    use crate::storage::{ApiKeyRecord, StorageUsage};
+    use crate::storage::{
+        ApiKeyRecord, ApiKeyRegistrationLimits, AuthStore, ChallengeRecord, PasskeyRecord,
+        SessionRecord, StorageUsage, UserRecord,
+    };
     use async_trait::async_trait;
     use axum::body::Body;
     use axum::http::Request;
@@ -882,6 +1489,119 @@ mod tests {
         }
     }
 
+    #[async_trait]
+    impl AuthStore for MemStore {
+        async fn create_user(
+            &self,
+            _handle: &str,
+            _display_name: &str,
+        ) -> Result<UserRecord, StorageError> {
+            Err(StorageError::Other("unsupported".into()))
+        }
+
+        async fn get_user_by_id(&self, _user_id: i64) -> Result<UserRecord, StorageError> {
+            Err(StorageError::NotFound)
+        }
+
+        async fn insert_passkey(
+            &self,
+            _user_id: i64,
+            _credential_id: &str,
+            _public_key: &str,
+            _sign_count: i64,
+        ) -> Result<PasskeyRecord, StorageError> {
+            Err(StorageError::Other("unsupported".into()))
+        }
+
+        async fn get_passkey_by_credential_id(
+            &self,
+            _credential_id: &str,
+        ) -> Result<PasskeyRecord, StorageError> {
+            Err(StorageError::NotFound)
+        }
+
+        async fn update_passkey_sign_count(
+            &self,
+            _credential_id: &str,
+            _sign_count: i64,
+        ) -> Result<(), StorageError> {
+            Err(StorageError::NotFound)
+        }
+
+        async fn insert_session(
+            &self,
+            _sid: &str,
+            _user_id: i64,
+            _token_hash: &str,
+            _expires_at: DateTime<Utc>,
+        ) -> Result<SessionRecord, StorageError> {
+            Err(StorageError::Other("unsupported".into()))
+        }
+
+        async fn get_session_by_sid(&self, _sid: &str) -> Result<SessionRecord, StorageError> {
+            Err(StorageError::NotFound)
+        }
+
+        async fn revoke_session_by_sid(&self, _sid: &str) -> Result<bool, StorageError> {
+            Ok(false)
+        }
+
+        async fn insert_challenge(
+            &self,
+            _challenge_id: &str,
+            _user_id: Option<i64>,
+            _purpose: &str,
+            _challenge_json: &str,
+            _expires_at: DateTime<Utc>,
+        ) -> Result<ChallengeRecord, StorageError> {
+            Err(StorageError::Other("unsupported".into()))
+        }
+
+        async fn consume_challenge(
+            &self,
+            _challenge_id: &str,
+            _purpose: &str,
+            _now: DateTime<Utc>,
+        ) -> Result<ChallengeRecord, StorageError> {
+            Err(StorageError::NotFound)
+        }
+
+        async fn count_apikey_registrations_by_user_since(
+            &self,
+            _user_id: i64,
+            _since: DateTime<Utc>,
+        ) -> Result<i64, StorageError> {
+            Ok(0)
+        }
+
+        async fn count_apikey_registrations_by_ip_since(
+            &self,
+            _ip_hash: &str,
+            _since: DateTime<Utc>,
+        ) -> Result<i64, StorageError> {
+            Ok(0)
+        }
+
+        async fn register_api_key(
+            &self,
+            _key: ApiKeyRecord,
+            _ip_hash: &str,
+            _now: DateTime<Utc>,
+            _limits: ApiKeyRegistrationLimits,
+        ) -> Result<(), StorageError> {
+            Err(StorageError::Other("unsupported".into()))
+        }
+
+        async fn insert_apikey_registration_event(
+            &self,
+            _user_id: i64,
+            _ip_hash: &str,
+            _now: DateTime<Utc>,
+        ) -> Result<(), StorageError> {
+            Ok(())
+        }
+    }
+
     #[test]
     fn json_content_type() {
         let mut h = HeaderMap::new();
@@ -900,8 +1620,8 @@ mod tests {
     #[test]
     fn api_key_header_parse() {
         let mut h = HeaderMap::new();
-        h.insert("x-api-key", HeaderValue::from_static("sk_a.b"));
-        assert_eq!(api_key_from_headers(&h).unwrap(), "sk_a.b");
+        h.insert("x-api-key", HeaderValue::from_static("ak2_a.b"));
+        assert_eq!(api_key_from_headers(&h).unwrap(), "ak2_a.b");
     }
 
     #[test]
@@ -917,9 +1637,9 @@ mod tests {
         let mut h = HeaderMap::new();
         h.insert(
             AUTHORIZATION,
-            HeaderValue::from_static("Bearer sk_token.value"),
+            HeaderValue::from_static("Bearer ak2_token.value"),
         );
-        assert_eq!(api_key_from_headers(&h).as_deref(), Some("sk_token.value"));
+        assert_eq!(api_key_from_headers(&h).as_deref(), Some("ak2_token.value"));
 
         let mut blank = HeaderMap::new();
         blank.insert("x-api-key", HeaderValue::from_static("   "));
@@ -1052,6 +1772,7 @@ mod tests {
             db_sslmode: "disable".into(),
             db_sslrootcert: String::new(),
             api_key_pepper: "pepper".into(),
+            session_token_pepper: "session-pepper".into(),
             public_max_envelope_bytes: 1024,
             authed_max_envelope_bytes: 2048,
             public_max_secrets: 10,
@@ -1064,11 +1785,18 @@ mod tests {
             claim_burst: 2,
             authed_create_rate: 1.0,
             authed_create_burst: 2,
+            apikey_register_rate: 0.5,
+            apikey_register_burst: 6,
+            apikey_register_account_max_per_hour: 5,
+            apikey_register_account_max_per_day: 20,
+            apikey_register_ip_max_per_hour: 5,
+            apikey_register_ip_max_per_day: 20,
         };
         let store = Arc::new(MemStore::default());
         let secrets: Arc<dyn SecretsStore> = store.clone();
-        let keys: Arc<dyn ApiKeysStore> = store;
-        Arc::new(AppState::new(cfg, secrets, keys))
+        let keys: Arc<dyn ApiKeysStore> = store.clone();
+        let auth_store: Arc<dyn AuthStore> = store;
+        Arc::new(AppState::new(cfg, secrets, keys, auth_store))
     }
 
     #[test]
@@ -1176,8 +1904,9 @@ mod tests {
         let key = ApiKeyRecord {
             id: 1,
             prefix: "pref".into(),
-            hash: "h".repeat(64),
+            auth_hash: "h".repeat(64),
             scopes: String::new(),
+            user_id: None,
             created_at: now,
             revoked_at: None,
         };

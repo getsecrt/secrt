@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.6.0 — 2026-02-13
+
+### Added
+
+- **Passkey auth/session endpoints:** `register/start`, `register/finish`, `login/start`, `login/finish`, `auth/session`, and `auth/logout` with 24h bearer sessions (`uss_<sid>.<secret>`).
+- **API-key registration endpoint:** `POST /api/v1/apikeys/register` requiring session auth.
+- **Registration controls:** configurable account/IP quotas (`5/hour`, `20/day` defaults) and registration limiter settings.
+- **Auth schema expansion:** new DB tables for users, passkeys, sessions, challenges, and API-key registration events.
+
+### Changed
+
+- **Breaking API-key auth format:** authenticated routes now accept only `ak2_<prefix>.<auth_b64>`; legacy `sk_` auth is removed.
+- **Verifier contract update:** API key hashes now use structured v2 verifier input (`"secrt-apikey-v2-verifier" || u16be(prefix_len) || prefix || auth_token_bytes`).
+- **Atomic registration write path:** quota checks + API-key insert + registration event insert execute in one transaction.
+- **Admin CLI surface:** removed `secrt-admin apikey create`; kept `secrt-admin apikey revoke <prefix>`.
+
 ## 0.5.2 — 2026-02-12
 
 ### Added

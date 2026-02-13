@@ -213,8 +213,9 @@ async fn postgres_secret_lifecycle_and_api_keys() {
     let key = ApiKeyRecord {
         id: 0,
         prefix: "pfx1".into(),
-        hash: "a".repeat(64),
+        auth_hash: "a".repeat(64),
         scopes: "secrets:write".into(),
+        user_id: None,
         created_at: now,
         revoked_at: None,
     };
