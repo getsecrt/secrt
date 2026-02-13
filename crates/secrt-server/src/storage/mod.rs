@@ -22,6 +22,12 @@ pub struct StorageUsage {
     pub total_bytes: i64,
 }
 
+#[derive(Clone, Copy, Debug)]
+pub struct SecretQuotaLimits {
+    pub max_secrets: i64,
+    pub max_total_bytes: i64,
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ApiKeyRecord {
     pub id: i64,
@@ -127,6 +133,28 @@ fn format_error_chain(err: &dyn std::error::Error) -> String {
 #[async_trait]
 pub trait SecretsStore: Send + Sync {
     async fn create(&self, secret: SecretRecord) -> Result<(), StorageError>;
+    async fn create_with_quota(
+        &self,
+        secret: SecretRecord,
+        limits: SecretQuotaLimits,
+        _now: DateTime<Utc>,
+    ) -> Result<(), StorageError> {
+        if limits.max_secrets > 0 || limits.max_total_bytes > 0 {
+            let usage = self.get_usage(&secret.owner_key).await?;
+
+            if limits.max_secrets > 0 && usage.secret_count >= limits.max_secrets {
+                return Err(StorageError::QuotaExceeded("secret_count".into()));
+            }
+
+            if limits.max_total_bytes > 0
+                && usage.total_bytes + secret.envelope.len() as i64 > limits.max_total_bytes
+            {
+                return Err(StorageError::QuotaExceeded("total_bytes".into()));
+            }
+        }
+
+        self.create(secret).await
+    }
     async fn claim_and_delete(
         &self,
         id: &str,
@@ -228,6 +256,15 @@ where
 {
     async fn create(&self, secret: SecretRecord) -> Result<(), StorageError> {
         (**self).create(secret).await
+    }
+
+    async fn create_with_quota(
+        &self,
+        secret: SecretRecord,
+        limits: SecretQuotaLimits,
+        now: DateTime<Utc>,
+    ) -> Result<(), StorageError> {
+        (**self).create_with_quota(secret, limits, now).await
     }
 
     async fn claim_and_delete(

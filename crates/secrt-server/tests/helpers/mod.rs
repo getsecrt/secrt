@@ -14,8 +14,8 @@ use secrt_server::domain::auth::{generate_api_key_prefix, hash_api_key_auth_toke
 use secrt_server::http::{build_router, AppState};
 use secrt_server::storage::{
     ApiKeyRecord, ApiKeyRegistrationLimits, ApiKeysStore, AuthStore, ChallengeRecord,
-    PasskeyRecord, SecretRecord, SecretsStore, SessionRecord, StorageError, StorageUsage,
-    UserRecord,
+    PasskeyRecord, SecretQuotaLimits, SecretRecord, SecretsStore, SessionRecord, StorageError,
+    StorageUsage, UserRecord,
 };
 
 #[derive(Default)]
@@ -34,6 +34,43 @@ pub struct MemStore {
 impl SecretsStore for MemStore {
     async fn create(&self, secret: SecretRecord) -> Result<(), StorageError> {
         let mut m = self.secrets.lock().expect("secrets mutex poisoned");
+        if m.contains_key(&secret.id) {
+            return Err(StorageError::DuplicateId);
+        }
+        m.insert(secret.id.clone(), secret);
+        Ok(())
+    }
+
+    async fn create_with_quota(
+        &self,
+        secret: SecretRecord,
+        limits: SecretQuotaLimits,
+        now: DateTime<Utc>,
+    ) -> Result<(), StorageError> {
+        let mut m = self.secrets.lock().expect("secrets mutex poisoned");
+        if limits.max_secrets > 0 || limits.max_total_bytes > 0 {
+            let mut usage = StorageUsage {
+                secret_count: 0,
+                total_bytes: 0,
+            };
+            for s in m.values() {
+                if s.owner_key == secret.owner_key && s.expires_at > now {
+                    usage.secret_count += 1;
+                    usage.total_bytes += s.envelope.len() as i64;
+                }
+            }
+
+            if limits.max_secrets > 0 && usage.secret_count >= limits.max_secrets {
+                return Err(StorageError::QuotaExceeded("secret_count".into()));
+            }
+
+            if limits.max_total_bytes > 0
+                && usage.total_bytes + secret.envelope.len() as i64 > limits.max_total_bytes
+            {
+                return Err(StorageError::QuotaExceeded("total_bytes".into()));
+            }
+        }
+
         if m.contains_key(&secret.id) {
             return Err(StorageError::DuplicateId);
         }

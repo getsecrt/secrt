@@ -30,8 +30,8 @@ use crate::domain::secret_rules::{
     format_bytes, generate_id, validate_envelope, OwnerHasher, SecretRuleError,
 };
 use crate::storage::{
-    ApiKeyRecord, ApiKeyRegistrationLimits, ApiKeysStore, AuthStore, SecretRecord, SecretsStore,
-    StorageError,
+    ApiKeyRecord, ApiKeyRegistrationLimits, ApiKeysStore, AuthStore, SecretQuotaLimits,
+    SecretRecord, SecretsStore, StorageError,
 };
 
 #[derive(Clone)]
@@ -591,22 +591,10 @@ async fn create_secret(
         )
     };
 
-    if max_secrets > 0 || max_bytes > 0 {
-        let usage = match state.secrets.get_usage(&owner_key).await {
-            Ok(u) => u,
-            Err(_) => return internal_server_error(),
-        };
-
-        if max_secrets > 0 && usage.secret_count >= max_secrets {
-            let msg = format!("secret limit exceeded (max {max_secrets} active secrets)");
-            return error_response(StatusCode::TOO_MANY_REQUESTS, msg);
-        }
-
-        if max_bytes > 0 && usage.total_bytes + payload.envelope.get().len() as i64 > max_bytes {
-            let msg = format!("storage quota exceeded (limit {})", format_bytes(max_bytes));
-            return error_response(StatusCode::PAYLOAD_TOO_LARGE, msg);
-        }
-    }
+    let limits = SecretQuotaLimits {
+        max_secrets,
+        max_total_bytes: max_bytes,
+    };
 
     let mut id = String::new();
     for attempt in 0..=3 {
@@ -624,9 +612,24 @@ async fn create_secret(
             owner_key: owner_key.clone(),
         };
 
-        match state.secrets.create(rec).await {
+        match state
+            .secrets
+            .create_with_quota(rec, limits, Utc::now())
+            .await
+        {
             Ok(_) => break,
             Err(StorageError::DuplicateId) if attempt < 3 => continue,
+            Err(StorageError::QuotaExceeded(scope)) if scope == "secret_count" => {
+                let msg = format!("secret limit exceeded (max {max_secrets} active secrets)");
+                return error_response(StatusCode::TOO_MANY_REQUESTS, msg);
+            }
+            Err(StorageError::QuotaExceeded(scope)) if scope == "total_bytes" => {
+                let msg = format!("storage quota exceeded (limit {})", format_bytes(max_bytes));
+                return error_response(StatusCode::PAYLOAD_TOO_LARGE, msg);
+            }
+            Err(StorageError::QuotaExceeded(_)) => {
+                return error_response(StatusCode::TOO_MANY_REQUESTS, "quota exceeded");
+            }
             Err(_) => return internal_server_error(),
         }
     }

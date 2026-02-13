@@ -5,8 +5,8 @@ use tokio_postgres::error::SqlState;
 
 use super::{
     ApiKeyRecord, ApiKeyRegistrationLimits, ApiKeysStore, AuthStore, ChallengeRecord,
-    PasskeyRecord, SecretRecord, SecretsStore, SessionRecord, StorageError, StorageUsage,
-    UserRecord,
+    PasskeyRecord, SecretQuotaLimits, SecretRecord, SecretsStore, SessionRecord, StorageError,
+    StorageUsage, UserRecord,
 };
 
 #[derive(Clone)]
@@ -82,6 +82,69 @@ impl SecretsStore for PgStore {
             return Err(e.into());
         }
 
+        Ok(())
+    }
+
+    async fn create_with_quota(
+        &self,
+        secret: SecretRecord,
+        limits: SecretQuotaLimits,
+        now: DateTime<Utc>,
+    ) -> Result<(), StorageError> {
+        let mut client = self.pool.get().await?;
+        let tx = client.transaction().await?;
+
+        if limits.max_secrets > 0 || limits.max_total_bytes > 0 {
+            tx.query_one(
+                "SELECT pg_advisory_xact_lock(hashtext($1)::bigint)",
+                &[&secret.owner_key],
+            )
+            .await?;
+
+            let row = tx
+                .query_one(
+                    "SELECT COUNT(*), COALESCE(SUM(LENGTH(envelope::text)), 0) \
+                     FROM secrets WHERE owner_key = $1 AND expires_at > $2",
+                    &[&secret.owner_key, &now],
+                )
+                .await?;
+
+            let secret_count: i64 = row.try_get(0)?;
+            let total_bytes: i64 = row.try_get(1)?;
+
+            if limits.max_secrets > 0 && secret_count >= limits.max_secrets {
+                return Err(StorageError::QuotaExceeded("secret_count".into()));
+            }
+
+            if limits.max_total_bytes > 0
+                && total_bytes + secret.envelope.len() as i64 > limits.max_total_bytes
+            {
+                return Err(StorageError::QuotaExceeded("total_bytes".into()));
+            }
+        }
+
+        let envelope: serde_json::Value = serde_json::from_str(secret.envelope.as_ref())
+            .map_err(|e| StorageError::Other(format!("decode envelope json: {e}")))?;
+
+        let err = tx
+            .execute(
+                "INSERT INTO secrets (id, claim_hash, envelope, expires_at, owner_key) \
+                 VALUES ($1, $2, $3::jsonb, $4, $5)",
+                &[
+                    &secret.id,
+                    &secret.claim_hash,
+                    &envelope,
+                    &secret.expires_at,
+                    &secret.owner_key,
+                ],
+            )
+            .await
+            .err();
+        if let Some(err) = err {
+            return Err(map_write_error(err));
+        }
+
+        tx.commit().await?;
         Ok(())
     }
 

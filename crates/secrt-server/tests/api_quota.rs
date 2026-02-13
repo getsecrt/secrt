@@ -12,7 +12,8 @@ use chrono::{DateTime, Utc};
 use helpers::{create_api_key, test_app_with_store, test_config, with_proxy_ip, MemStore};
 use secrt_server::http::{build_router, AppState};
 use secrt_server::storage::{
-    ApiKeysStore, AuthStore, SecretRecord, SecretsStore, StorageError, StorageUsage,
+    ApiKeysStore, AuthStore, SecretQuotaLimits, SecretRecord, SecretsStore, StorageError,
+    StorageUsage,
 };
 use serde_json::Value;
 use tokio::sync::Barrier;
@@ -44,6 +45,46 @@ impl QuotaRaceStore {
 impl SecretsStore for QuotaRaceStore {
     async fn create(&self, secret: SecretRecord) -> Result<(), StorageError> {
         let mut m = self.secrets.lock().expect("secrets mutex poisoned");
+        if m.contains_key(&secret.id) {
+            return Err(StorageError::DuplicateId);
+        }
+        m.insert(secret.id.clone(), secret);
+        Ok(())
+    }
+
+    async fn create_with_quota(
+        &self,
+        secret: SecretRecord,
+        limits: SecretQuotaLimits,
+        now: DateTime<Utc>,
+    ) -> Result<(), StorageError> {
+        // Keep requests aligned so contention is deterministic.
+        self.usage_barrier.wait().await;
+
+        let mut m = self.secrets.lock().expect("secrets mutex poisoned");
+        if limits.max_secrets > 0 || limits.max_total_bytes > 0 {
+            let mut usage = StorageUsage {
+                secret_count: 0,
+                total_bytes: 0,
+            };
+            for s in m.values() {
+                if s.owner_key == secret.owner_key && s.expires_at > now {
+                    usage.secret_count += 1;
+                    usage.total_bytes += s.envelope.len() as i64;
+                }
+            }
+
+            if limits.max_secrets > 0 && usage.secret_count >= limits.max_secrets {
+                return Err(StorageError::QuotaExceeded("secret_count".into()));
+            }
+
+            if limits.max_total_bytes > 0
+                && usage.total_bytes + secret.envelope.len() as i64 > limits.max_total_bytes
+            {
+                return Err(StorageError::QuotaExceeded("total_bytes".into()));
+            }
+        }
+
         if m.contains_key(&secret.id) {
             return Err(StorageError::DuplicateId);
         }
@@ -110,9 +151,6 @@ impl SecretsStore for QuotaRaceStore {
 
             usage
         };
-
-        // Force all concurrent requests to complete usage checks before any insert path progresses.
-        self.usage_barrier.wait().await;
         Ok(usage)
     }
 }
