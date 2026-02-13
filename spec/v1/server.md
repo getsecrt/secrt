@@ -184,6 +184,7 @@ Notes:
 - If `API_KEY_PEPPER` is unset, API-key auth cannot succeed.
 - API key `scopes` are stored but not currently enforced by runtime handlers.
 - Passkey session tokens use `Authorization: Bearer uss_<sid>.<secret>` and are valid for 24h.
+- Passkey `/finish` handlers in v1 are challenge-id bearer flows: they consume a valid, unexpired `challenge_id` and verify credential linkage, but do not verify WebAuthn signatures.
 
 ## 7. Ownership and Quota Model
 

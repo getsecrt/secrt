@@ -239,6 +239,14 @@ Passkey endpoints establish a short-lived authenticated browser session used for
 - `GET /api/v1/auth/session`
 - `POST /api/v1/auth/logout`
 
+v1 passkey model note:
+
+- v1 does **not** perform WebAuthn cryptographic assertion verification in the `/finish` endpoints.
+- The `/start` endpoint issues a random `challenge_id` and opaque `challenge` value.
+- The `/finish` endpoint authorizes using a valid, unexpired `challenge_id` plus expected credential linkage.
+- Security of this flow depends on `challenge_id` entropy and confidentiality.
+- Full WebAuthn signature verification is planned for a future version.
+
 Session bearer token format:
 
 - `Authorization: Bearer uss_<sid>.<secret>`

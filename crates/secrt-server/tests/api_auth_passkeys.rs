@@ -402,6 +402,37 @@ async fn auth_session_rejects_tampered_token_secret() {
 }
 
 #[tokio::test]
+async fn logout_rejects_tampered_token_secret_and_preserves_session() {
+    let store = Arc::new(MemStore::default());
+    let app = test_app_with_store(store, test_config());
+    let (session_token, user_id) = passkey_register_flow(&app, "Ivy", "ivy", "cred-ivy").await;
+
+    let mut parts = session_token.trim_start_matches("uss_").split('.');
+    let sid = parts.next().expect("sid");
+    let tampered = format!("uss_{sid}.tampered");
+
+    let logout_req = Request::builder()
+        .method("POST")
+        .uri("/api/v1/auth/logout")
+        .header("authorization", format!("Bearer {tampered}"))
+        .body(Body::empty())
+        .expect("request");
+    let logout_resp = app.clone().oneshot(logout_req).await.expect("response");
+    assert_eq!(logout_resp.status(), StatusCode::UNAUTHORIZED);
+
+    let session_req = Request::builder()
+        .method("GET")
+        .uri("/api/v1/auth/session")
+        .header("authorization", format!("Bearer {session_token}"))
+        .body(Body::empty())
+        .expect("request");
+    let session_resp = app.clone().oneshot(session_req).await.expect("response");
+    let body = response_json(session_resp).await;
+    assert_eq!(body["authenticated"].as_bool(), Some(true));
+    assert_eq!(body["user_id"].as_i64(), Some(user_id));
+}
+
+#[tokio::test]
 async fn passkey_login_start_rejects_revoked_passkey() {
     let store = Arc::new(MemStore::default());
     let app = test_app_with_store(store.clone(), test_config());
@@ -420,6 +451,46 @@ async fn passkey_login_start_rejects_revoked_passkey() {
         .expect("request");
     let resp = app.clone().oneshot(req).await.expect("response");
     assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
+}
+
+#[tokio::test]
+async fn passkey_login_finish_uses_challenge_id_bearer_semantics_in_v1() {
+    let store = Arc::new(MemStore::default());
+    let app = test_app_with_store(store, test_config());
+    let _ = passkey_register_flow(&app, "Kara", "kara", "cred-kara").await;
+
+    // v1 semantics are challenge-id bearer based: unknown challenge_id fails even
+    // when credential_id is valid.
+    let missing_req = Request::builder()
+        .method("POST")
+        .uri("/api/v1/auth/passkeys/login/finish")
+        .header("content-type", "application/json")
+        .body(Body::from(
+            json!({
+                "challenge_id": "missing",
+                "credential_id": "cred-kara"
+            })
+            .to_string(),
+        ))
+        .expect("request");
+    let missing_resp = app.clone().oneshot(missing_req).await.expect("response");
+    assert_eq!(missing_resp.status(), StatusCode::BAD_REQUEST);
+
+    let challenge_id = passkey_login_start_only(&app, "cred-kara").await;
+    let ok_req = Request::builder()
+        .method("POST")
+        .uri("/api/v1/auth/passkeys/login/finish")
+        .header("content-type", "application/json")
+        .body(Body::from(
+            json!({
+                "challenge_id": challenge_id,
+                "credential_id": "cred-kara"
+            })
+            .to_string(),
+        ))
+        .expect("request");
+    let ok_resp = app.clone().oneshot(ok_req).await.expect("response");
+    assert_eq!(ok_resp.status(), StatusCode::OK);
 }
 
 #[tokio::test]

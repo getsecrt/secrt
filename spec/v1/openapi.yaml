@@ -17,6 +17,10 @@ info:
 
     - `Authorization: Bearer uss_<sid>.<secret>`
 
+    v1 passkey auth currently uses challenge-id bearer semantics in `/finish`
+    endpoints (valid, unexpired `challenge_id` + credential linkage). WebAuthn
+    cryptographic assertion verification is out of scope for v1.
+
     ## Policy Tiers
 
     | Limit                  | Public (anonymous)    | Authenticated (API key) |
@@ -246,6 +250,8 @@ paths:
     post:
       operationId: passkeyRegisterStart
       summary: Start passkey registration
+      description: |
+        Issues a random challenge_id and opaque challenge value.
       tags: [auth]
       requestBody:
         required: true
@@ -269,6 +275,9 @@ paths:
     post:
       operationId: passkeyRegisterFinish
       summary: Complete passkey registration and create session
+      description: |
+        v1 consumes a valid, unexpired challenge_id and does not perform
+        cryptographic WebAuthn assertion verification.
       tags: [auth]
       requestBody:
         required: true
@@ -292,6 +301,8 @@ paths:
     post:
       operationId: passkeyLoginStart
       summary: Start passkey login
+      description: |
+        Issues a random challenge_id and opaque challenge value.
       tags: [auth]
       requestBody:
         required: true
@@ -317,6 +328,9 @@ paths:
     post:
       operationId: passkeyLoginFinish
       summary: Complete passkey login and create session
+      description: |
+        v1 consumes a valid, unexpired challenge_id and does not perform
+        cryptographic WebAuthn assertion verification.
       tags: [auth]
       requestBody:
         required: true
@@ -528,6 +542,7 @@ components:
       properties:
         challenge_id:
           type: string
+          description: Opaque challenge identifier issued by register/start
         credential_id:
           type: string
         public_key:
@@ -548,6 +563,7 @@ components:
       properties:
         challenge_id:
           type: string
+          description: Opaque challenge identifier issued by login/start
         credential_id:
           type: string
 
@@ -556,8 +572,10 @@ components:
       properties:
         challenge_id:
           type: string
+          description: Opaque bearer challenge identifier consumed by /finish
         challenge:
           type: string
+          description: Opaque challenge payload for client flow coordination
         expires_at:
           type: string
           format: date-time

@@ -31,7 +31,7 @@ use crate::domain::secret_rules::{
 };
 use crate::storage::{
     ApiKeyRecord, ApiKeyRegistrationLimits, ApiKeysStore, AuthStore, SecretQuotaLimits,
-    SecretRecord, SecretsStore, StorageError,
+    SecretRecord, SecretsStore, SessionRecord, StorageError,
 };
 
 #[derive(Clone)]
@@ -836,6 +836,20 @@ async fn require_session_user(
     state: &Arc<AppState>,
     headers: &HeaderMap,
 ) -> Result<(i64, String, DateTime<Utc>), Response> {
+    let sess = require_valid_session(state, headers).await?;
+
+    let user = state
+        .auth_store
+        .get_user_by_id(sess.user_id)
+        .await
+        .map_err(|_| unauthorized())?;
+    Ok((user.id, user.handle, sess.expires_at))
+}
+
+async fn require_valid_session(
+    state: &Arc<AppState>,
+    headers: &HeaderMap,
+) -> Result<SessionRecord, Response> {
     let parsed = session_token_from_headers(headers).ok_or_else(unauthorized)?;
     let token_hash =
         hash_session_token(&state.cfg.session_token_pepper, &parsed.sid, &parsed.secret)
@@ -854,12 +868,7 @@ async fn require_session_user(
         return Err(unauthorized());
     }
 
-    let user = state
-        .auth_store
-        .get_user_by_id(sess.user_id)
-        .await
-        .map_err(|_| unauthorized())?;
-    Ok((user.id, user.handle, sess.expires_at))
+    Ok(sess)
 }
 
 async fn issue_session_token(
@@ -1166,11 +1175,11 @@ pub async fn handle_auth_logout_entry(
     if req.method() != Method::POST {
         return method_not_allowed();
     }
-    let parsed = match session_token_from_headers(req.headers()) {
-        Some(v) => v,
-        None => return unauthorized(),
+    let sess = match require_valid_session(&state, req.headers()).await {
+        Ok(v) => v,
+        Err(resp) => return resp,
     };
-    let revoked = match state.auth_store.revoke_session_by_sid(&parsed.sid).await {
+    let revoked = match state.auth_store.revoke_session_by_sid(&sess.sid).await {
         Ok(v) => v,
         Err(_) => return internal_server_error(),
     };
