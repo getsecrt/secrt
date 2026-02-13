@@ -8,13 +8,15 @@
 
 ## Summary
 
-| Severity | Count |
-|----------|-------|
-| Critical | 1 |
-| High | 2 |
-| Medium | 6 |
-| Low | 5 |
-| **Total** | **14** |
+| Severity | Count | Resolved |
+|----------|-------|----------|
+| Critical | 1 | 1 |
+| High | 2 | 2 |
+| Medium | 6 | 0 |
+| Low | 5 | 0 |
+| **Total** | **14** | **3** |
+
+The top 3 issues (1 critical, 2 high) were already fixed in the current codebase at the time of verification. 11 open issues remain (6 medium, 5 low).
 
 The **API key v2 authentication system** (derivation chain, wire protocol, storage, timing resistance) was audited thoroughly and found to be correct. All test vectors pass across Rust core, CLI client, and TypeScript frontend.
 
@@ -22,67 +24,30 @@ The **API key v2 authentication system** (derivation chain, wire protocol, stora
 
 ## Critical
 
-### 1. Reflected XSS in `/s/{id}` page
+### ~~1. Reflected XSS in `/s/{id}` page~~ — RESOLVED
 
-- **File:** `secrt-server/src/http/mod.rs` ~line 1347
+- **File:** `secrt-server/src/http/mod.rs` ~line 1365
 - **Component:** Server
-
-The `id` path parameter is interpolated directly into HTML without any escaping:
-
-```rust
-let body = format!(
-    "<!doctype html>...Secret {id}</title>...<h1>Secret {id}</h1>..."
-);
-```
-
-A crafted URL like `/s/<script>alert(1)</script>` produces a valid XSS payload. The response Content-Type is `text/html`, so the script executes in all browsers. This is a textbook reflected XSS vulnerability on a security-focused application.
-
-**Fix:** HTML-escape `id` before interpolation, or validate it against the expected base64url alphabet (`[A-Za-z0-9_-]`) and reject anything that doesn't match.
+- **Status:** Already fixed. `handle_secret_page` uses `escape_html(&id)` with a proper entity-escaping function (`&`, `<`, `>`, `"`, `'`). Verified at lines 1350-1368.
 
 ---
 
 ## High
 
-### 2. TOCTOU race in secret creation quota enforcement
+### ~~2. TOCTOU race in secret creation quota enforcement~~ — RESOLVED
 
-- **File:** `secrt-server/src/http/mod.rs` ~lines 594-632
+- **File:** `secrt-server/src/http/mod.rs` ~line 617, `storage/postgres.rs` ~line 88
 - **Component:** Server
-
-The quota check (`get_usage`) and the secret insert (`create`) are two separate, non-transactional operations:
-
-```rust
-// Step 1: Check quota (separate query)
-let usage = state.secrets.get_usage(&owner_key).await;
-if usage.secret_count >= max_secrets { return 429; }
-
-// Step 2: Insert secret (separate query, possibly later)
-state.secrets.create(rec).await;
-```
-
-Concurrent requests from the same owner can all pass the quota check before any insert commits. For the public tier (`max_secrets = 10`), this is trivially exploitable with ~10 parallel requests. Note that the API key registration flow correctly wraps quota check + insert in a single transaction — the secret creation flow should do the same.
-
-**Fix:** Wrap the quota check and insert in a single database transaction.
+- **Status:** Already fixed. The handler calls `create_with_quota()` which wraps quota check + insert in a single Postgres transaction with `pg_advisory_xact_lock` for per-owner serialization. Verified at `postgres.rs` lines 88-149.
 
 ---
 
-### 3. `--no-passphrase` / `-n` ignored during `get`
+### ~~3. `--no-passphrase` / `-n` ignored during `get`~~ — RESOLVED
 
-- **File:** `secrt-cli/src/get.rs` ~lines 104-231
+- **File:** `secrt-cli/src/get.rs` ~line 174
 - **Component:** CLI
 - **Spec:** cli.md, line 345
-
-The spec says `-n`/`--no-passphrase` skips the configured `decryption_passphrases` list and proceeds directly to interactive prompt (or error if non-TTY).
-
-In `get.rs`, Phase B unconditionally builds and tries the candidate list from `pa.passphrase_default` and `pa.decryption_passphrases` without any guard for `pa.no_passphrase`. The flag is effectively a no-op during `get`.
-
-For comparison, `send` correctly handles this via `resolve_passphrase_for_send` in `passphrase.rs` line 34:
-```rust
-if !args.no_passphrase && !args.passphrase_default.is_empty() { ... }
-```
-
-A user running `secrt get <url> -n` expecting to bypass configured passphrases and enter one interactively will instead have the CLI silently try all configured passphrases first. If one matches, the secret decrypts without prompting — contrary to user intent.
-
-**Fix:** In `get.rs` Phase B, guard with `if !pa.no_passphrase { ... }` to skip the configured candidate list when the flag is set.
+- **Status:** Already fixed. Phase B guards candidate list construction with `if !pa.no_passphrase { ... }` at line 174, with an explanatory comment at line 172.
 
 ---
 
