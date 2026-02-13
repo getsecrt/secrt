@@ -360,7 +360,7 @@ All encryption happens **client-side** before any data leaves your machine. The 
 - **PBKDF2-HMAC-SHA256** (600,000 iterations) — optional passphrase-based key stretching
 - **CSPRNG** — all random values from the OS
 
-Envelope format: `v1-pbkdf2-hkdf-aes256gcm` — see the [spec](https://github.com/getsecrt/secrt/tree/main/spec/v1) for full details.
+Envelope format: `v1-pbkdf2-hkdf-aes256gcm-sealed-payload` — see the [spec](https://github.com/getsecrt/secrt/tree/main/spec/v1) for full details.
 
 ## TTL format
 

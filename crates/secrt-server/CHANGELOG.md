@@ -15,6 +15,10 @@
 - **Verifier contract update:** API key hashes now use structured v2 verifier input (`"secrt-apikey-v2-verifier" || u16be(prefix_len) || prefix || auth_token_bytes`).
 - **Atomic registration write path:** quota checks + API-key insert + registration event insert execute in one transaction.
 - **Admin CLI surface:** removed `secrt-admin apikey create`; kept `secrt-admin apikey revoke <prefix>`.
+- **Envelope privacy contract alignment:** runtime/spec now explicitly treat all metadata as encrypted payload content; plaintext metadata fields are not part of the accepted envelope contract.
+- **Legacy envelope compatibility policy:** 0.6.0 documents a hard-cut expectation for sealed-payload envelopes; compatibility with prior envelope internals is intentionally out of scope.
+- **Compression policy visibility:** docs now reflect client-side compression defaults (`threshold=2048`, `min_savings=64`, `min_savings_ratio=10%`, `zstd level=3`, decode cap `100 MiB`).
+- **OpenAPI/API text alignment:** server-facing contract docs now explicitly describe envelope JSON as opaque ciphertext metadata, with advisory metadata accessible only client-side after decrypt.
 
 ## 0.5.2 — 2026-02-12
 

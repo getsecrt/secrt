@@ -7,10 +7,16 @@
 - **API key v2 compatibility:** CLI now accepts local `sk2_<prefix>.<root_b64>` keys and derives wire credentials (`ak2_<prefix>.<auth_b64>`) automatically for authenticated requests.
 - **Validation behavior:** malformed `sk2_` / `ak2_` values now fail fast with clear `invalid --api-key` errors.
 - **Config/help updates:** config template and help examples now document `sk2_` keys.
+- **Breaking envelope hard-cut:** CLI now produces/consumes only the sealed-payload envelope format (`v1-pbkdf2-hkdf-aes256gcm-sealed-payload`); legacy envelope payloads are not supported.
+- **Encrypted metadata handling:** file metadata is now read from decrypted payload metadata, not plaintext envelope fields.
+- **Compression policy defaults:** `send` now applies zstd compression policy defaults (`threshold=2048`, `min_savings=64`, `min_savings_ratio=10%`, `level=3`) and `get` decodes framed payloads with a 100 MiB safety cap.
+- **JSON output metadata source:** `get --json` file fields are now derived from decrypted payload metadata (`type=file`, `filename`, `mime`) instead of plaintext envelope hints.
+- **No legacy envelope compatibility:** prior plaintext `hint` envelope behavior is intentionally removed in 0.6.0.
 
 ### Added
 
 - **Deterministic vectors:** CLI test suite now validates key derivation against `spec/v1/apikey.vectors.json`.
+- **Sealed-envelope vectors:** CLI envelope fixtures now track rewritten `spec/v1/envelope.vectors.json`, including `codec=none/zstd` and encrypted metadata cases.
 
 ## 0.5.2 — 2026-02-12
 

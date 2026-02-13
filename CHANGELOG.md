@@ -14,6 +14,11 @@ All notable changes to the secrt monorepo are documented here. Individual crate 
 - **Passkey-gated API-key registration:** API-key registration moved to `POST /api/v1/apikeys/register` and now requires a passkey-backed session bearer token (`uss_<sid>.<secret>`).
 - **Registration quotas:** dual quota enforcement is now active and configurable per account and per IP, with defaults of `5/hour` and `20/day`.
 - **Legacy API key compatibility:** legacy `sk_` authentication paths are removed from server runtime (no backward compatibility).
+- **Breaking envelope hard-cut:** v1 envelope internals now use the sealed-payload suite (`v1-pbkdf2-hkdf-aes256gcm-sealed-payload`) with updated AAD/HKDF labels; legacy envelope payloads are intentionally unsupported.
+- **Encrypted metadata contract:** advisory metadata (`type`, `filename`, `mime`) moved from plaintext envelope fields into encrypted payload-frame bytes; server operators can no longer read metadata.
+- **Compression policy defaults:** client envelope creation now supports zstd framing with defaults `threshold=2048`, `min_savings=64`, `min_savings_ratio=10%`, `level=3`, and `decompress_cap=100 MiB`.
+- **Spec contract rewrite:** `spec/v1/envelope.md`, `spec/v1/api.md`, `spec/v1/openapi.yaml`, `spec/v1/server.md`, and `spec/v1/cli.md` are now aligned to sealed payload framing, encrypted metadata-only visibility, and hard-cut non-compatibility semantics.
+- **Envelope vectors refresh:** `spec/v1/envelope.vectors.json` now covers `codec=none` and `codec=zstd` flows, passphrase + zstd, encrypted file metadata, and pre-compressed signature skip behavior.
 
 ## 0.5.1 — 2026-02-12
 
