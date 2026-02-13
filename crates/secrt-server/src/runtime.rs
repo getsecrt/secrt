@@ -3,9 +3,19 @@ use std::future::Future;
 use std::net::SocketAddr;
 use std::path::Path;
 use std::sync::Arc;
+use std::time::Duration;
 
+use axum::http::StatusCode;
+use hyper_util::rt::{TokioExecutor, TokioIo, TokioTimer};
+use hyper_util::server::graceful::GracefulShutdown;
+use hyper_util::service::TowerToHyperService;
 use tokio::net::TcpListener;
+use tokio::net::TcpStream;
 use tokio::signal;
+use tokio::sync::Notify;
+use tokio_io_timeout::TimeoutStream;
+use tower::Service;
+use tower_http::timeout::TimeoutLayer;
 use tracing::{error, info};
 
 use crate::config::{Config, ConfigError};
@@ -28,6 +38,29 @@ pub enum RuntimeError {
     #[error("serve: {0}")]
     Serve(String),
 }
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct HttpTimeouts {
+    read_header_timeout: Duration,
+    request_timeout: Duration,
+    write_timeout: Duration,
+    idle_timeout: Duration,
+    graceful_shutdown_timeout: Duration,
+}
+
+impl HttpTimeouts {
+    const fn production() -> Self {
+        Self {
+            read_header_timeout: Duration::from_secs(5),
+            request_timeout: Duration::from_secs(15),
+            write_timeout: Duration::from_secs(15),
+            idle_timeout: Duration::from_secs(60),
+            graceful_shutdown_timeout: Duration::from_secs(10),
+        }
+    }
+}
+
+const PRODUCTION_HTTP_TIMEOUTS: HttpTimeouts = HttpTimeouts::production();
 
 pub async fn run_server() -> Result<(), RuntimeError> {
     run_server_with_shutdown(shutdown_signal()).await
@@ -65,20 +98,18 @@ where
 
     let reaper_stop = start_expiry_reaper(secrets);
 
-    let app = build_router(state.clone());
+    let timeouts = PRODUCTION_HTTP_TIMEOUTS;
+    let app = build_router(state.clone()).layer(TimeoutLayer::with_status_code(
+        StatusCode::REQUEST_TIMEOUT,
+        timeouts.request_timeout,
+    ));
     let listener = TcpListener::bind(addr)
         .await
         .map_err(|e| RuntimeError::Bind(e.to_string()))?;
 
     info!(addr = %addr, "listening");
 
-    let server = axum::serve(
-        listener,
-        app.into_make_service_with_connect_info::<SocketAddr>(),
-    )
-    .with_graceful_shutdown(shutdown);
-
-    let result = server.await;
+    let result = serve_with_timeouts(listener, app, shutdown, timeouts).await;
 
     let _ = reaper_stop.send(());
     state.stop_limiter_gc();
@@ -89,6 +120,87 @@ where
     }
 
     Ok(())
+}
+
+async fn serve_with_timeouts<F>(
+    listener: TcpListener,
+    app: axum::Router,
+    shutdown: F,
+    timeouts: HttpTimeouts,
+) -> Result<(), RuntimeError>
+where
+    F: Future<Output = ()> + Send + 'static,
+{
+    let mut make_service = app.into_make_service_with_connect_info::<SocketAddr>();
+    let mut conn_builder = hyper_util::server::conn::auto::Builder::new(TokioExecutor::new());
+    conn_builder
+        .http1()
+        .timer(TokioTimer::new())
+        .header_read_timeout(Some(timeouts.read_header_timeout));
+    let graceful = GracefulShutdown::new();
+    let shutdown_notify = Arc::new(Notify::new());
+    let shutdown_trigger = shutdown_notify.clone();
+    tokio::spawn(async move {
+        shutdown.await;
+        shutdown_trigger.notify_waiters();
+    });
+
+    loop {
+        tokio::select! {
+            _ = shutdown_notify.notified() => {
+                break;
+            }
+            accept_result = listener.accept() => {
+                let (stream, remote_addr) = match accept_result {
+                    Ok(v) => v,
+                    Err(err) => {
+                        error!(err = %err, "accept failed");
+                        continue;
+                    }
+                };
+                let service = match make_service.call(remote_addr).await {
+                    Ok(v) => v,
+                    Err(_) => {
+                        error!("make_service failed");
+                        continue;
+                    }
+                };
+
+                let io = TokioIo::new(Box::pin(configure_stream_timeouts(stream, timeouts)));
+                let service = TowerToHyperService::new(service);
+                let conn = conn_builder.serve_connection(io, service);
+                let conn = graceful.watch(conn.into_owned());
+
+                tokio::spawn(async move {
+                    if let Err(err) = conn.await {
+                        error!(err = %err, peer = %remote_addr, "connection error");
+                    }
+                });
+            }
+        }
+    }
+
+    drop(listener);
+
+    match tokio::time::timeout(timeouts.graceful_shutdown_timeout, graceful.shutdown()).await {
+        Ok(_) => Ok(()),
+        Err(_) => Err(RuntimeError::Serve(format!(
+            "graceful shutdown timed out after {}s",
+            timeouts.graceful_shutdown_timeout.as_secs()
+        ))),
+    }
+}
+
+fn configure_stream_timeouts(
+    stream: TcpStream,
+    timeouts: HttpTimeouts,
+) -> TimeoutStream<TcpStream> {
+    let mut stream = TimeoutStream::new(stream);
+    // Read timeout on the raw stream enforces keepalive-idle behavior.
+    // Per-request read/write budget is enforced by the request timeout layer.
+    stream.set_read_timeout(Some(timeouts.idle_timeout));
+    stream.set_write_timeout(Some(timeouts.write_timeout));
+    stream
 }
 
 async fn shutdown_signal() {
@@ -161,7 +273,10 @@ pub fn init_logging(log_level: &str) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use axum::routing::{get, post};
     use std::sync::Mutex;
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    use tokio::sync::oneshot;
 
     static ENV_LOCK: Mutex<()> = Mutex::new(());
 
@@ -201,6 +316,30 @@ mod tests {
     #[test]
     fn parse_log_level_does_not_panic() {
         init_logging("info");
+    }
+
+    #[test]
+    fn http_timeout_constants_match_spec() {
+        assert_eq!(
+            PRODUCTION_HTTP_TIMEOUTS.read_header_timeout,
+            std::time::Duration::from_secs(5)
+        );
+        assert_eq!(
+            PRODUCTION_HTTP_TIMEOUTS.request_timeout,
+            std::time::Duration::from_secs(15)
+        );
+        assert_eq!(
+            PRODUCTION_HTTP_TIMEOUTS.write_timeout,
+            std::time::Duration::from_secs(15)
+        );
+        assert_eq!(
+            PRODUCTION_HTTP_TIMEOUTS.idle_timeout,
+            std::time::Duration::from_secs(60)
+        );
+        assert_eq!(
+            PRODUCTION_HTTP_TIMEOUTS.graceful_shutdown_timeout,
+            std::time::Duration::from_secs(10)
+        );
     }
 
     #[test]
@@ -275,6 +414,225 @@ mod tests {
             Some("before")
         );
         std::env::remove_var("SECRT_RUNTIME_GUARD");
+    }
+
+    fn short_test_timeouts() -> HttpTimeouts {
+        HttpTimeouts {
+            read_header_timeout: std::time::Duration::from_millis(60),
+            request_timeout: std::time::Duration::from_millis(120),
+            write_timeout: std::time::Duration::from_millis(250),
+            idle_timeout: std::time::Duration::from_millis(150),
+            graceful_shutdown_timeout: std::time::Duration::from_millis(120),
+        }
+    }
+
+    async fn spawn_timeout_test_server(
+        app: axum::Router,
+        timeouts: HttpTimeouts,
+    ) -> (
+        std::net::SocketAddr,
+        oneshot::Sender<()>,
+        tokio::task::JoinHandle<Result<(), RuntimeError>>,
+    ) {
+        let listener = TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("bind test listener");
+        let addr = listener.local_addr().expect("listener local addr");
+        let app = app.layer(TimeoutLayer::with_status_code(
+            StatusCode::REQUEST_TIMEOUT,
+            timeouts.request_timeout,
+        ));
+        let (shutdown_tx, shutdown_rx) = oneshot::channel::<()>();
+        let handle = tokio::spawn(async move {
+            serve_with_timeouts(
+                listener,
+                app,
+                async move {
+                    let _ = shutdown_rx.await;
+                },
+                timeouts,
+            )
+            .await
+        });
+        (addr, shutdown_tx, handle)
+    }
+
+    fn assert_read_closed(result: std::io::Result<usize>) {
+        match result {
+            Ok(0) => {}
+            Ok(n) => panic!("expected closed stream, read {n} bytes"),
+            Err(err)
+                if matches!(
+                    err.kind(),
+                    std::io::ErrorKind::BrokenPipe
+                        | std::io::ErrorKind::ConnectionReset
+                        | std::io::ErrorKind::ConnectionAborted
+                        | std::io::ErrorKind::UnexpectedEof
+                        | std::io::ErrorKind::NotConnected
+                ) => {}
+            Err(err) => panic!("expected closed stream, got error: {err}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn header_read_timeout_closes_slow_connections() {
+        let timeouts = short_test_timeouts();
+        let app = axum::Router::new().route("/", get(|| async { StatusCode::NO_CONTENT }));
+        let (addr, shutdown_tx, handle) = spawn_timeout_test_server(app, timeouts).await;
+        let mut stream = TcpStream::connect(addr).await.expect("connect");
+        stream
+            .write_all(b"GET / HTTP/1.1\r\nHost: localhost\r\n")
+            .await
+            .expect("write partial request");
+
+        tokio::time::sleep(timeouts.read_header_timeout + std::time::Duration::from_millis(40))
+            .await;
+
+        let mut buf = [0_u8; 64];
+        let read_result =
+            tokio::time::timeout(std::time::Duration::from_millis(500), stream.read(&mut buf))
+                .await
+                .expect("read wait timeout");
+        assert_read_closed(read_result);
+
+        let _ = shutdown_tx.send(());
+        let result = handle.await.expect("join server task");
+        assert!(result.is_ok(), "{result:?}");
+    }
+
+    #[tokio::test]
+    async fn request_timeout_returns_408_for_stalled_body_reads() {
+        let timeouts = HttpTimeouts {
+            idle_timeout: std::time::Duration::from_secs(2),
+            write_timeout: std::time::Duration::from_secs(2),
+            ..short_test_timeouts()
+        };
+        let app = axum::Router::new().route(
+            "/slow-body",
+            post(|_body: String| async { StatusCode::NO_CONTENT }),
+        );
+        let (addr, shutdown_tx, handle) = spawn_timeout_test_server(app, timeouts).await;
+        let mut stream = TcpStream::connect(addr).await.expect("connect");
+
+        stream
+            .write_all(
+                b"POST /slow-body HTTP/1.1\r\nHost: localhost\r\nContent-Type: text/plain\r\nContent-Length: 4\r\n\r\na",
+            )
+            .await
+            .expect("write partial body request");
+
+        tokio::time::sleep(timeouts.request_timeout + std::time::Duration::from_millis(40)).await;
+
+        let mut buf = [0_u8; 1024];
+        let n = tokio::time::timeout(std::time::Duration::from_secs(1), stream.read(&mut buf))
+            .await
+            .expect("read response timeout")
+            .expect("read response");
+        assert!(n > 0, "expected timeout response bytes");
+        let response = String::from_utf8_lossy(&buf[..n]);
+        assert!(
+            response.contains("408 Request Timeout") || response.contains(" 408 "),
+            "expected 408 timeout response, got: {response}"
+        );
+
+        let _ = shutdown_tx.send(());
+        let result = handle.await.expect("join server task");
+        assert!(result.is_ok(), "{result:?}");
+    }
+
+    #[tokio::test]
+    async fn idle_timeout_closes_keepalive_connection() {
+        let timeouts = short_test_timeouts();
+        let app = axum::Router::new().route("/", get(|| async { StatusCode::NO_CONTENT }));
+        let (addr, shutdown_tx, handle) = spawn_timeout_test_server(app, timeouts).await;
+        let mut stream = TcpStream::connect(addr).await.expect("connect");
+        let request = b"GET / HTTP/1.1\r\nHost: localhost\r\nConnection: keep-alive\r\n\r\n";
+        stream
+            .write_all(request)
+            .await
+            .expect("write first request");
+
+        let mut first_buf = [0_u8; 512];
+        let n = tokio::time::timeout(
+            std::time::Duration::from_secs(1),
+            stream.read(&mut first_buf),
+        )
+        .await
+        .expect("read first response timeout")
+        .expect("read first response");
+        assert!(n > 0, "expected first response bytes");
+        let first_response = String::from_utf8_lossy(&first_buf[..n]);
+        assert!(
+            first_response.contains("204 No Content"),
+            "expected 204 response, got: {first_response}"
+        );
+
+        tokio::time::sleep(timeouts.idle_timeout + std::time::Duration::from_millis(40)).await;
+
+        let second_write = stream.write_all(request).await;
+        if let Err(err) = second_write {
+            assert!(
+                matches!(
+                    err.kind(),
+                    std::io::ErrorKind::BrokenPipe
+                        | std::io::ErrorKind::ConnectionReset
+                        | std::io::ErrorKind::ConnectionAborted
+                        | std::io::ErrorKind::NotConnected
+                ),
+                "expected closed write error, got: {err}"
+            );
+        } else {
+            let mut buf = [0_u8; 64];
+            let read_result =
+                tokio::time::timeout(std::time::Duration::from_millis(500), stream.read(&mut buf))
+                    .await
+                    .expect("read after idle timeout");
+            assert_read_closed(read_result);
+        }
+
+        let _ = shutdown_tx.send(());
+        let result = handle.await.expect("join server task");
+        assert!(result.is_ok(), "{result:?}");
+    }
+
+    #[tokio::test]
+    async fn graceful_shutdown_times_out_when_inflight_request_hangs() {
+        let timeouts = HttpTimeouts {
+            read_header_timeout: std::time::Duration::from_millis(100),
+            request_timeout: std::time::Duration::from_secs(5),
+            write_timeout: std::time::Duration::from_secs(5),
+            idle_timeout: std::time::Duration::from_secs(5),
+            graceful_shutdown_timeout: std::time::Duration::from_millis(120),
+        };
+        let app = axum::Router::new().route(
+            "/hold",
+            get(|| async {
+                tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+                StatusCode::NO_CONTENT
+            }),
+        );
+        let (addr, shutdown_tx, handle) = spawn_timeout_test_server(app, timeouts).await;
+        let mut stream = TcpStream::connect(addr).await.expect("connect");
+        stream
+            .write_all(b"GET /hold HTTP/1.1\r\nHost: localhost\r\n\r\n")
+            .await
+            .expect("write hold request");
+        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+
+        let _ = shutdown_tx.send(());
+        let result = tokio::time::timeout(std::time::Duration::from_secs(2), handle)
+            .await
+            .expect("join timeout")
+            .expect("join server task");
+        match result {
+            Err(RuntimeError::Serve(msg)) => {
+                assert!(
+                    msg.contains("graceful shutdown timed out"),
+                    "unexpected graceful shutdown error: {msg}"
+                );
+            }
+            other => panic!("expected graceful shutdown timeout error, got: {other:?}"),
+        }
     }
 
     #[tokio::test]
