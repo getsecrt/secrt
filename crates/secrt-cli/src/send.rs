@@ -15,6 +15,16 @@ fn is_gen_mode(pa: &ParsedArgs) -> bool {
         .unwrap_or(false)
 }
 
+fn trim_plaintext_utf8(plaintext: &[u8]) -> Result<Vec<u8>, String> {
+    let text = std::str::from_utf8(plaintext)
+        .map_err(|_| "--trim requires valid UTF-8 input".to_string())?;
+    let trimmed = text.trim();
+    if trimmed.is_empty() {
+        return Err("input is empty after trimming".to_string());
+    }
+    Ok(trimmed.as_bytes().to_vec())
+}
+
 pub fn run_send(args: &[String], deps: &mut Deps) -> i32 {
     let mut pa = match parse_flags(args) {
         Ok(pa) => pa,
@@ -47,18 +57,13 @@ pub fn run_send(args: &[String], deps: &mut Deps) -> i32 {
 
     // Apply --trim if requested
     if pa.trim {
-        let trimmed = String::from_utf8_lossy(&plaintext);
-        let trimmed = trimmed.trim();
-        if trimmed.is_empty() {
-            write_error(
-                &mut deps.stderr,
-                pa.json,
-                (deps.is_tty)(),
-                "input is empty after trimming",
-            );
-            return 2;
-        }
-        plaintext = trimmed.as_bytes().to_vec();
+        plaintext = match trim_plaintext_utf8(&plaintext) {
+            Ok(v) => v,
+            Err(e) => {
+                write_error(&mut deps.stderr, pa.json, (deps.is_tty)(), &e);
+                return 2;
+            }
+        };
     }
 
     // Parse TTL

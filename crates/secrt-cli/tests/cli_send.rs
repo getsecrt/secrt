@@ -346,6 +346,39 @@ fn send_trim_makes_empty_errors() {
 }
 
 #[test]
+fn send_trim_non_utf8_stdin_errors() {
+    let (mut deps, _stdout, stderr) = TestDepsBuilder::new().stdin(b"\xFF\xFE\xFD").build();
+    let code = cli::run(&args(&["secrt", "send", "--trim"]), &mut deps);
+    assert_eq!(code, 2, "stderr: {}", stderr.to_string());
+    assert!(
+        stderr.to_string().contains("UTF-8"),
+        "expected UTF-8 error: {}",
+        stderr.to_string()
+    );
+}
+
+#[test]
+fn send_trim_non_utf8_file_errors() {
+    let dir = std::env::temp_dir();
+    let path = dir.join("secrt_test_create_trim_non_utf8.bin");
+    std::fs::write(&path, [0xFF, 0x00, 0xFE]).unwrap();
+
+    let (mut deps, _stdout, stderr) = TestDepsBuilder::new().build();
+    let code = cli::run(
+        &args(&["secrt", "send", "--file", path.to_str().unwrap(), "--trim"]),
+        &mut deps,
+    );
+    assert_eq!(code, 2, "stderr: {}", stderr.to_string());
+    assert!(
+        stderr.to_string().contains("UTF-8"),
+        "expected UTF-8 error: {}",
+        stderr.to_string()
+    );
+
+    let _ = std::fs::remove_file(&path);
+}
+
+#[test]
 fn send_multi_line_with_trim() {
     let (mut deps, stdout, stderr) = TestDepsBuilder::new()
         .stdin(b"\n  line 1\n  line 2  \n\n")
