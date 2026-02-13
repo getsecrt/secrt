@@ -4,16 +4,10 @@ use deadpool_postgres::Pool;
 
 use super::StorageError;
 
-const MIGRATIONS: &[(&str, &str)] = &[
-    (
-        "001_initial.sql",
-        include_str!("../../migrations/001_initial.sql"),
-    ),
-    (
-        "002_auth_apikey_v2.sql",
-        include_str!("../../migrations/002_auth_apikey_v2.sql"),
-    ),
-];
+const MIGRATIONS: &[(&str, &str)] = &[(
+    "001_initial.sql",
+    include_str!("../../migrations/001_initial.sql"),
+)];
 
 pub async fn migrate(pool: &Pool) -> Result<Vec<String>, StorageError> {
     let mut client = pool.get().await?;
