@@ -12,11 +12,11 @@
 |----------|-------|----------|
 | Critical | 1 | 1 |
 | High | 2 | 2 |
-| Medium | 6 | 0 |
-| Low | 5 | 0 |
-| **Total** | **14** | **3** |
+| Medium | 6 | 6 |
+| Low | 5 | 5 |
+| **Total** | **14** | **14** |
 
-The top 3 issues (1 critical, 2 high) were already fixed in the current codebase at the time of verification. 11 open issues remain (6 medium, 5 low).
+The top 3 issues (1 critical, 2 high) were already fixed in the current codebase at the time of verification. The remaining 11 issues (6 medium, 5 low) are now remediated in code and covered by tests (including DB-gated integration tests where applicable).
 
 The **API key v2 authentication system** (derivation chain, wire protocol, storage, timing resistance) was audited thoroughly and found to be correct. All test vectors pass across Rust core, CLI client, and TypeScript frontend.
 
@@ -53,174 +53,141 @@ The **API key v2 authentication system** (derivation chain, wire protocol, stora
 
 ## Medium
 
-### 4. No graceful shutdown timeout (spec requires 10s)
+### ~~4. No graceful shutdown timeout (spec requires 10s)~~ — RESOLVED
 
 - **File:** `secrt-server/src/runtime.rs` ~lines 75-81
 - **Component:** Server
 - **Spec:** server.md, section 2
 
-`axum::serve(...).with_graceful_shutdown(shutdown)` waits indefinitely for in-flight connections to drain. There is no 10-second deadline as required by the spec. If a client holds a connection open, the server hangs forever on shutdown.
+**Status:** Fixed in `secrt-server/src/runtime.rs` by explicit connection orchestration and a hard shutdown deadline (`HttpTimeouts::production().graceful_shutdown_timeout = 10s`) around `graceful.shutdown()`.
 
-**Fix:** Wrap the server future in `tokio::time::timeout(Duration::from_secs(10), server)` or use `tokio::select!` with a sleep after the shutdown signal fires.
+**Coverage:** `runtime::tests::graceful_shutdown_times_out_when_inflight_request_hangs`; binary-level path in `tests/server_bin.rs::server_sigterm_honors_shutdown_deadline_with_stalled_request_body` (DB-gated).
 
 ---
 
-### 5. No HTTP read/idle timeouts (slowloris vulnerability)
+### ~~5. No HTTP read/idle timeouts (slowloris vulnerability)~~ — RESOLVED
 
 - **File:** `secrt-server/src/runtime.rs`
 - **Component:** Server
 - **Spec:** server.md, section 2
 
-The spec requires:
-- ReadHeaderTimeout: 5s
-- ReadTimeout: 15s
-- WriteTimeout: 15s
-- IdleTimeout: 60s
+**Status:** Fixed in `secrt-server/src/runtime.rs`:
+- `ReadHeaderTimeout: 5s` via Hyper HTTP/1 `header_read_timeout`
+- `Read/Write budget: 15s` via request timeout middleware (`TimeoutLayer` returning 408)
+- `WriteTimeout: 15s` and `IdleTimeout: 60s` via `TimeoutStream` socket configuration
 
-None are configured. Axum's `serve()` does not set any by default. Without read/idle timeouts, a slowloris-style attacker can exhaust the server's connection limit by opening connections and sending data slowly.
-
-**Fix:** Configure timeouts via `tower-http` middleware or Hyper's server builder.
+**Coverage:** `runtime::tests::http_timeout_constants_match_spec`, `runtime::tests::header_read_timeout_closes_slow_connections`, `runtime::tests::request_timeout_returns_408_for_stalled_body_reads`, `runtime::tests::idle_timeout_closes_keepalive_connection`.
 
 ---
 
-### 6. Logout revokes session by SID without verifying token hash
+### ~~6. Logout revokes session by SID without verifying token hash~~ — RESOLVED
 
 - **File:** `secrt-server/src/http/mod.rs` ~lines 1159-1178
 - **Component:** Server
 
-The logout handler extracts the SID from the session token and revokes by SID alone, without verifying the token hash:
+**Status:** Fixed in `secrt-server/src/http/mod.rs` by centralizing full session-token validation into `require_valid_session(...)` and reusing it in both session auth and logout paths before revoke.
 
-```rust
-let parsed = session_token_from_headers(req.headers());
-state.auth_store.revoke_session_by_sid(&parsed.sid).await;
-```
-
-Compare with `require_session_user` (~line 832-860), which correctly computes and verifies the token hash before granting access. An attacker who knows only the SID (but not the full secret) could revoke someone else's session. The SID is 12 random bytes (16 base64url chars), so brute-forcing is impractical, but the design violates defense-in-depth — possession of the full token should be required for any session mutation.
-
-**Fix:** Verify the token hash against the stored hash before revoking, consistent with `require_session_user`.
+**Coverage:** `tests/api_auth_passkeys.rs::logout_rejects_tampered_token_secret_and_preserves_session`.
 
 ---
 
-### 7. Stale rows never cleaned up (challenges, sessions, registrations)
+### ~~7. Stale rows never cleaned up (challenges, sessions, registrations)~~ — RESOLVED
 
 - **Files:** `secrt-server/src/reaper.rs`, `migrations/001_initial.sql`
 - **Component:** Server
 
-The reaper only cleans expired rows in the `secrets` table. Three other tables accumulate rows indefinitely:
+**Status:** Fixed in `secrt-server/src/storage/postgres.rs`; `delete_expired()` now runs transactional cleanup across:
+- `secrets` (expired)
+- `webauthn_challenges` (expired)
+- `sessions` (expired or revoked)
+- `api_key_registrations` (older than 24h retention)
 
-| Table | Issue |
-|-------|-------|
-| `webauthn_challenges` | Has `expires_at` column; expired challenges never deleted |
-| `sessions` | Expired and revoked sessions never deleted |
-| `api_key_registrations` | Only used for 1h/24h quota windows; old rows never purged |
-
-Over time these tables grow unbounded, degrading query performance.
-
-**Fix:** Extend the reaper to clean expired rows from all three tables.
+**Coverage:** `tests/postgres_integration.rs::postgres_delete_expired_cleans_stale_auth_and_quota_rows` (DB-gated).
 
 ---
 
-### 8. `seal()` doesn't enforce minimum PBKDF2 iteration count
+### ~~8. `seal()` doesn't enforce minimum PBKDF2 iteration count~~ — RESOLVED
 
 - **File:** `secrt-core/src/crypto.rs` ~line 84
 - **Component:** Core
 - **Spec:** envelope.md, lines 101-105
 
-The spec requires `kdf.iterations >= 300,000`. When `seal()` is called with a passphrase and a nonzero `iterations` value below `MIN_PBKDF2_ITERATIONS`, it uses that value directly:
+**Status:** Fixed in `secrt-core/src/crypto.rs` by enforcing minimum passphrase iterations in `seal()` through `resolve_pbkdf2_iterations()`.
 
-```rust
-let iterations = if p.iterations == 0 {
-    DEFAULT_PBKDF2_ITERATIONS  // 600,000
-} else {
-    p.iterations  // no minimum check
-};
-```
-
-This allows producing envelopes with dangerously weak KDF parameters (e.g., 1 iteration). The `open()` path correctly validates `>= 300,000`.
-
-**Fix:** Add `if p.iterations > 0 && p.iterations < MIN_PBKDF2_ITERATIONS { return Err(...); }` before using the value.
+**Coverage:** `crypto::tests::seal_passphrase_rejects_iterations_below_minimum`, `crypto::tests::seal_passphrase_accepts_minimum_iterations`.
 
 ---
 
-### 9. `--trim` silently corrupts binary data
+### ~~9. `--trim` silently corrupts binary data~~ — RESOLVED
 
 - **File:** `secrt-cli/src/send.rs` ~lines 49-62
 - **Component:** CLI
 
-```rust
-if pa.trim {
-    let trimmed = String::from_utf8_lossy(&plaintext);
-    let trimmed = trimmed.trim();
-    plaintext = trimmed.as_bytes().to_vec();
-}
-```
+**Status:** Fixed in `secrt-cli/src/send.rs` by replacing lossy conversion with strict UTF-8 validation (`std::str::from_utf8`) and explicit erroring for invalid input when `--trim` is set.
 
-`String::from_utf8_lossy` replaces every invalid UTF-8 byte with U+FFFD (the 3-byte sequence `EF BF BD`). If binary data is piped through stdin with `--trim`, the plaintext is silently corrupted before encryption. The user won't notice until decryption, by which point the original data is lost.
-
-**Fix:** Use `std::str::from_utf8()` and return an error if the input is not valid UTF-8 when `--trim` is set.
+**Coverage:** `tests/cli_send.rs::send_trim_non_utf8_stdin_errors`, `tests/cli_send.rs::send_trim_non_utf8_file_errors`.
 
 ---
 
 ## Low
 
-### 10. `kdf.name == "none"` with extra fields accepted instead of rejected
+### ~~10. `kdf.name == "none"` with extra fields accepted instead of rejected~~ — RESOLVED
 
 - **File:** `secrt-core/src/crypto.rs` ~line 326
 - **Component:** Core
 - **Spec:** envelope.md, lines 107-109
 
-The spec says: for `kdf.name == "none"`, `kdf` MUST NOT include `salt`, `iterations`, or `length`. The `parse_kdf` function ignores extra fields silently when `name` is `"none"`. An envelope with `{"name":"none","salt":"AAAA","iterations":600000}` is accepted without error.
+**Status:** Fixed in `secrt-core/src/crypto.rs`; `parse_kdf("none")` now rejects `salt`, `iterations`, and `length` extras via explicit field checks.
 
-**Fix:** Reject envelopes where `kdf.name == "none"` but extra fields are present.
+**Coverage:** `crypto::tests::open_kdf_none_rejects_extra_salt_field`, `crypto::tests::open_kdf_none_rejects_extra_iterations_field`.
 
 ---
 
-### 11. Short boolean flag stacking silently drops flags
+### ~~11. Short boolean flag stacking silently drops flags~~ — RESOLVED
 
 - **File:** `secrt-cli/src/cli.rs` ~lines 230-237
 - **Component:** CLI
 
-The arg parser handles short flags with inline values: `-X<value>` splits into flag `-X` with value `<value>`. For boolean flags (e.g., `-S`, `-N`, `-G`), the inline value is silently discarded.
+**Status:** Fixed in `secrt-cli/src/cli.rs` by rejecting inline suffixes on boolean short flags (`-SNG`, `-mfoo`) with explicit parse errors; inline suffixes remain allowed for value flags (e.g., `-L20`, `-oout.txt`).
 
-This means `-SNG` parses as `-S` with unused inline value `"NG"` — only `--no-symbols` is set. Users expecting `tar`-style flag stacking (common Unix convention) will get wrong password generation results with no warning.
-
-**Fix:** For boolean flags that receive an unexpected inline value, either emit an error or support flag clustering for boolean-only short flags.
+**Coverage:** `cli::tests::flags_short_bool_stack_errors`, `cli::tests::flags_short_bool_with_inline_suffix_errors`; CLI contract updated in `spec/v1/cli.md`.
 
 ---
 
-### 12. Passkey challenge is never cryptographically verified
+### ~~12. Passkey challenge is never cryptographically verified~~ — RESOLVED (DOCUMENTED FOR V1)
 
 - **File:** `secrt-server/src/http/mod.rs` ~lines 880-999, 1063-1125
 - **Component:** Server
 
-In the passkey register/login flows, the server generates a random `challenge` and sends it to the client. In the finish step, the server only checks that the `challenge_id` exists and hasn't expired — it never verifies any cryptographic signature over the challenge. The `challenge` value itself is unused in the finish step.
+**Status:** Addressed per scope decision (documentation + behavior lock only). Specs now explicitly describe v1 finish flow as challenge-id bearer semantics and mark cryptographic WebAuthn assertion verification as out-of-scope for v1.
 
-This is a challenge-ID-based bearer-token flow, not WebAuthn. The protocol is sound if `challenge_id` stays secret (32 random bytes), but it is misleadingly named and will need rework if real WebAuthn verification is expected.
-
-**Fix:** Document this as intentional or implement actual WebAuthn signature verification.
+**Coverage:** `tests/api_auth_passkeys.rs::passkey_login_finish_uses_challenge_id_bearer_semantics_in_v1`; docs updated in `spec/v1/api.md`, `spec/v1/server.md`, and `spec/v1/openapi.yaml`.
 
 ---
 
-### 13. Missing connection pool max lifetime per spec
+### ~~13. Missing connection pool max lifetime per spec~~ — RESOLVED
 
 - **File:** `secrt-server/src/storage/postgres.rs` ~lines 27-35
 - **Component:** Server
 - **Spec:** server.md, section 3
 
-The spec calls for `conn max lifetime: 30m`. The pool configuration only sets `max_size: 10` and leaves everything else at defaults. `deadpool-postgres` does not impose a max connection lifetime by default. Long-lived connections can accumulate server-side state and fail to pick up Postgres configuration changes or failovers.
+**Status:** Fixed in `secrt-server/src/storage/postgres.rs`:
+- centralized pool sizing and lifetime constants
+- added 30m max-lifetime enforcement via Deadpool `post_recycle` hook (connection age check)
+- exposed `from_database_url_with_max_lifetime(...)` for deterministic test override paths
 
-**Fix:** Configure `manager.recycling_method` or add a connection age check.
+**Coverage:** `storage::postgres::tests::connection_max_lifetime_check` and integration construction paths in `tests/postgres_integration.rs`.
 
 ---
 
-### 14. Reaper double-fires at startup
+### ~~14. Reaper double-fires at startup~~ — RESOLVED
 
 - **File:** `secrt-server/src/reaper.rs` ~lines 16-18
 - **Component:** Server
 
-The reaper calls `run_expiry_reaper_once` explicitly, then creates `tokio::time::interval` whose first tick fires immediately (documented Tokio behavior). This causes two back-to-back reaper runs at startup. Harmless (idempotent) but wasteful.
+**Status:** Fixed in `secrt-server/src/reaper.rs` by consuming the interval's immediate first tick after the explicit startup run.
 
-**Fix:** Remove the explicit first call, or consume the initial tick with `ticker.tick().await` before entering the loop.
+**Coverage:** `tests/reaper_runtime.rs::reaper_runs_once_immediately_before_first_interval_tick`.
 
 ---
 
