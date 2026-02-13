@@ -1,6 +1,8 @@
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
-use deadpool_postgres::{Config as PgPoolConfig, ManagerConfig, Pool, RecyclingMethod, Runtime};
+use deadpool_postgres::{
+    Config as PgPoolConfig, Hook, HookError, Manager, ManagerConfig, Pool, RecyclingMethod, Runtime,
+};
 use tokio_postgres::error::SqlState;
 
 use super::{
@@ -8,6 +10,18 @@ use super::{
     PasskeyRecord, SecretQuotaLimits, SecretRecord, SecretsStore, SessionRecord, StorageError,
     StorageUsage, UserRecord,
 };
+
+const POOL_MAX_SIZE: usize = 10;
+const POOL_MAX_LIFETIME: std::time::Duration = std::time::Duration::from_secs(30 * 60);
+const APIKEY_REGISTRATION_RETENTION_HOURS: i64 = 24;
+
+const DELETE_EXPIRED_SECRETS_SQL: &str = "DELETE FROM secrets WHERE expires_at <= $1";
+const DELETE_EXPIRED_CHALLENGES_SQL: &str =
+    "DELETE FROM webauthn_challenges WHERE expires_at <= $1";
+const DELETE_STALE_SESSIONS_SQL: &str =
+    "DELETE FROM sessions WHERE expires_at <= $1 OR revoked_at IS NOT NULL";
+const DELETE_OLD_REGISTRATIONS_SQL: &str =
+    "DELETE FROM api_key_registrations WHERE created_at <= $1";
 
 #[derive(Clone)]
 pub struct PgStore {
@@ -24,22 +38,54 @@ impl PgStore {
     }
 
     pub async fn from_database_url(database_url: &str) -> Result<Self, StorageError> {
+        Self::from_database_url_with_max_lifetime(database_url, POOL_MAX_LIFETIME).await
+    }
+
+    pub async fn from_database_url_with_max_lifetime(
+        database_url: &str,
+        max_lifetime: std::time::Duration,
+    ) -> Result<Self, StorageError> {
         let mut pool_cfg = PgPoolConfig::new();
         pool_cfg.url = Some(database_url.to_string());
         pool_cfg.manager = Some(ManagerConfig {
             recycling_method: RecyclingMethod::Fast,
         });
         pool_cfg.pool = Some(deadpool_postgres::PoolConfig {
-            max_size: 10,
+            max_size: POOL_MAX_SIZE,
             ..Default::default()
         });
-        let pool = pool_cfg.create_pool(Some(Runtime::Tokio1), tokio_postgres::NoTls)?;
+        let pg_config = pool_cfg
+            .get_pg_config()
+            .map_err(|e| StorageError::Other(e.to_string()))?;
+        let manager = Manager::from_config(
+            pg_config,
+            tokio_postgres::NoTls,
+            pool_cfg.get_manager_config(),
+        );
+        let pool = Pool::builder(manager)
+            .config(pool_cfg.get_pool_config())
+            .runtime(Runtime::Tokio1)
+            .post_recycle(Hook::sync_fn(move |_client, metrics| {
+                if connection_exceeds_max_lifetime(metrics.age(), max_lifetime) {
+                    return Err(HookError::message("connection max lifetime exceeded"));
+                }
+                Ok(())
+            }))
+            .build()
+            .map_err(|e| StorageError::Other(e.to_string()))?;
 
         // Verify connectivity on startup.
         let _ = pool.get().await?;
 
         Ok(Self { pool })
     }
+}
+
+fn connection_exceeds_max_lifetime(
+    age: std::time::Duration,
+    max_lifetime: std::time::Duration,
+) -> bool {
+    age >= max_lifetime
 }
 
 fn map_write_error(err: tokio_postgres::Error) -> StorageError {
@@ -198,11 +244,24 @@ impl SecretsStore for PgStore {
     }
 
     async fn delete_expired(&self, now: DateTime<Utc>) -> Result<i64, StorageError> {
-        let client = self.pool.get().await?;
-        let n = client
-            .execute("DELETE FROM secrets WHERE expires_at <= $1", &[&now])
+        let mut client = self.pool.get().await?;
+        let tx = client.transaction().await?;
+        let registration_cutoff =
+            now - chrono::Duration::hours(APIKEY_REGISTRATION_RETENTION_HOURS);
+
+        let deleted_secrets = tx.execute(DELETE_EXPIRED_SECRETS_SQL, &[&now]).await?;
+        let deleted_challenges = tx.execute(DELETE_EXPIRED_CHALLENGES_SQL, &[&now]).await?;
+        let deleted_sessions = tx.execute(DELETE_STALE_SESSIONS_SQL, &[&now]).await?;
+        let deleted_registrations = tx
+            .execute(DELETE_OLD_REGISTRATIONS_SQL, &[&registration_cutoff])
             .await?;
-        Ok(n as i64)
+
+        tx.commit().await?;
+
+        Ok(
+            (deleted_secrets + deleted_challenges + deleted_sessions + deleted_registrations)
+                as i64,
+        )
     }
 
     async fn get_usage(&self, owner_key: &str) -> Result<StorageUsage, StorageError> {
@@ -220,6 +279,28 @@ impl SecretsStore for PgStore {
             secret_count,
             total_bytes,
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::connection_exceeds_max_lifetime;
+
+    #[test]
+    fn connection_max_lifetime_check() {
+        let max = std::time::Duration::from_secs(1800);
+        assert!(!connection_exceeds_max_lifetime(
+            std::time::Duration::from_secs(1799),
+            max
+        ));
+        assert!(connection_exceeds_max_lifetime(
+            std::time::Duration::from_secs(1800),
+            max
+        ));
+        assert!(connection_exceeds_max_lifetime(
+            std::time::Duration::from_secs(1801),
+            max
+        ));
     }
 }
 

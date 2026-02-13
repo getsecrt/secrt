@@ -1,5 +1,5 @@
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Duration as StdDuration, SystemTime, UNIX_EPOCH};
 
 use chrono::{Duration, Utc};
 use secrt_server::storage::migrations::migrate;
@@ -261,6 +261,194 @@ async fn postgres_invalid_url_errors() {
         Err(err) => err,
     };
     assert!(matches!(err, StorageError::Other(_)));
+}
+
+#[tokio::test]
+async fn postgres_pool_recycles_connection_when_age_exceeds_max_lifetime() {
+    let Some(base_url) = test_database_url() else {
+        eprintln!("skipping: TEST_DATABASE_URL not set");
+        return;
+    };
+
+    let schema = test_schema_name();
+    create_schema(&base_url, &schema).await;
+
+    let db_url = with_search_path(&base_url, &schema);
+    let store = PgStore::from_database_url_with_max_lifetime(&db_url, StdDuration::from_millis(1))
+        .await
+        .expect("connect schema database");
+    migrate(store.pool()).await.expect("migrate");
+
+    let first_pid = {
+        let client = store.pool().get().await.expect("get first client");
+        let row = client
+            .query_one("SELECT pg_backend_pid()", &[])
+            .await
+            .expect("query first backend pid");
+        row.get::<_, i32>(0)
+    };
+
+    let mut observed_new_pid = false;
+    for _ in 0..5 {
+        tokio::time::sleep(StdDuration::from_millis(20)).await;
+        let next_pid = {
+            let client = store.pool().get().await.expect("get next client");
+            let row = client
+                .query_one("SELECT pg_backend_pid()", &[])
+                .await
+                .expect("query next backend pid");
+            row.get::<_, i32>(0)
+        };
+        if next_pid != first_pid {
+            observed_new_pid = true;
+            break;
+        }
+    }
+
+    assert!(
+        observed_new_pid,
+        "expected pool to recycle aged connection and allocate a new backend pid"
+    );
+}
+
+#[tokio::test]
+async fn postgres_delete_expired_cleans_stale_auth_and_quota_rows() {
+    let Some(base_url) = test_database_url() else {
+        eprintln!("skipping: TEST_DATABASE_URL not set");
+        return;
+    };
+
+    let schema = test_schema_name();
+    create_schema(&base_url, &schema).await;
+
+    let db_url = with_search_path(&base_url, &schema);
+    let store = PgStore::from_database_url(&db_url)
+        .await
+        .expect("connect schema database");
+    migrate(store.pool()).await.expect("migrate");
+
+    let now = Utc::now();
+    let user = store
+        .create_user("cleanup-user", "Cleanup User")
+        .await
+        .expect("create user");
+
+    store
+        .create(SecretRecord {
+            id: "cleanup-secret-expired".into(),
+            claim_hash: "cleanup-claim-expired".into(),
+            envelope: "{\"ciphertext\":\"x\"}".to_string().into_boxed_str(),
+            expires_at: now - Duration::minutes(1),
+            created_at: now,
+            owner_key: "apikey:cleanup".into(),
+        })
+        .await
+        .expect("insert expired secret");
+
+    store
+        .insert_session(
+            "cleanup-session-expired",
+            user.id,
+            "tokenhash-cleanup-expired",
+            now - Duration::minutes(1),
+        )
+        .await
+        .expect("insert expired session");
+    store
+        .insert_session(
+            "cleanup-session-revoked",
+            user.id,
+            "tokenhash-cleanup-revoked",
+            now + Duration::hours(1),
+        )
+        .await
+        .expect("insert revoked session");
+    store
+        .revoke_session_by_sid("cleanup-session-revoked")
+        .await
+        .expect("revoke session");
+    store
+        .insert_session(
+            "cleanup-session-active",
+            user.id,
+            "tokenhash-cleanup-active",
+            now + Duration::hours(1),
+        )
+        .await
+        .expect("insert active session");
+
+    store
+        .insert_challenge(
+            "cleanup-challenge-expired",
+            Some(user.id),
+            "login",
+            "{\"challenge\":\"expired\"}",
+            now - Duration::minutes(1),
+        )
+        .await
+        .expect("insert expired challenge");
+    store
+        .insert_challenge(
+            "cleanup-challenge-active",
+            Some(user.id),
+            "login",
+            "{\"challenge\":\"active\"}",
+            now + Duration::minutes(10),
+        )
+        .await
+        .expect("insert active challenge");
+
+    store
+        .insert_apikey_registration_event(user.id, "cleanup-ip", now - Duration::hours(25))
+        .await
+        .expect("insert stale registration");
+    store
+        .insert_apikey_registration_event(user.id, "cleanup-ip", now - Duration::minutes(30))
+        .await
+        .expect("insert fresh registration");
+
+    let deleted = store.delete_expired(now).await.expect("delete expired");
+    assert_eq!(deleted, 5);
+
+    assert!(matches!(
+        store.get_session_by_sid("cleanup-session-expired").await,
+        Err(StorageError::NotFound)
+    ));
+    assert!(matches!(
+        store.get_session_by_sid("cleanup-session-revoked").await,
+        Err(StorageError::NotFound)
+    ));
+    assert!(store
+        .get_session_by_sid("cleanup-session-active")
+        .await
+        .is_ok());
+
+    assert!(matches!(
+        store
+            .consume_challenge("cleanup-challenge-expired", "login", now)
+            .await,
+        Err(StorageError::NotFound)
+    ));
+    assert!(store
+        .consume_challenge("cleanup-challenge-active", "login", now)
+        .await
+        .is_ok());
+
+    let since = now - Duration::hours(48);
+    assert_eq!(
+        store
+            .count_apikey_registrations_by_user_since(user.id, since)
+            .await
+            .expect("count user registrations"),
+        1
+    );
+    assert_eq!(
+        store
+            .count_apikey_registrations_by_ip_since("cleanup-ip", since)
+            .await
+            .expect("count ip registrations"),
+        1
+    );
 }
 
 #[tokio::test]
