@@ -1,65 +1,60 @@
 # Envelope Specification (v1)
 
-Status: Draft v1 (normative for client interoperability once accepted)
+Status: Active (normative).
 
-This document defines the client-side envelope format and crypto workflow used by `secrt.ca`.
+This document defines the client-side envelope format and cryptographic workflow for `secrt`.
 
-The server must treat `envelope` as opaque JSON and store/return it exactly once. The server must not need decryption keys.
+The server treats `envelope` as opaque JSON and stores/returns it unchanged. Decryption keys are never sent to the server.
 
-## Why This Exists
+## Normative language
 
-We need one contract that both client types implement:
+The keywords MUST, MUST NOT, SHOULD, SHOULD NOT, and MAY are interpreted as in RFC 2119.
 
-- Browser UI (future)
-- CLI client (planned)
+## Security model
 
-If both clients follow this spec and pass the same test vectors, they are interoperable even if implemented in different languages.
+- Encryption and decryption happen only on clients.
+- The server stores ciphertext envelope JSON plus claim verifier material.
+- URL fragments carry the `url_key`; fragments are not sent in normal HTTP requests.
+- Optional passphrases are shared out of band.
+- Metadata (`filename`, `mime`, `type`, etc.) is encrypted inside ciphertext payload bytes.
 
-## Normative Language
+## Encoding rules
 
-The keywords MUST, MUST NOT, SHOULD, SHOULD NOT, and MAY are used as defined in RFC 2119.
-
-## Security Model
-
-- Plaintext encryption/decryption happens only in clients.
-- The server stores ciphertext envelope + `claim_hash`.
-- Decryption key material is carried in the URL fragment (not sent to server in normal HTTP requests).
-- Optional passphrase/PIN is shared out-of-band and never included in API payloads.
-
-## Encoding Rules
-
-- Strings are UTF-8.
-- Binary fields use base64url without padding (RFC 4648, URL-safe alphabet, no `=`).
+- JSON strings are UTF-8.
+- Binary values use base64url without padding (`RFC 4648`, URL-safe alphabet, no `=`).
 - JSON field names are case-sensitive.
-- Clients MUST reject malformed base64url.
+- Clients MUST reject malformed base64url values.
 
-## Cryptographic Suite (v1)
+## Cryptographic suite (v1 sealed payload)
 
 Required primitives:
 
-- AES-256-GCM for authenticated encryption
-- HKDF-SHA-256 for key expansion
-- SHA-256 for `claim_hash`
-- Optional passphrase KDF: PBKDF2-HMAC-SHA-256
+- AES-256-GCM
+- HKDF-SHA-256
+- SHA-256
+- Optional PBKDF2-HMAC-SHA-256
 
 Constants:
 
-- `URL_KEY_LEN = 32` bytes
-- `PASS_KEY_LEN = 32` bytes
-- `HKDF_LEN = 32` bytes
-- `GCM_NONCE_LEN = 12` bytes
-- `AAD = "secrt.ca/envelope/v1"` (ASCII bytes)
-- `HKDF_INFO_ENC = "secret:v1:enc"` (ASCII bytes)
-- `HKDF_INFO_CLAIM = "secret:v1:claim"` (ASCII bytes)
+- `URL_KEY_LEN = 32`
+- `PASS_KEY_LEN = 32`
+- `HKDF_LEN = 32`
+- `GCM_NONCE_LEN = 12`
+- `HKDF_SALT_LEN = 32`
+- `KDF_SALT_LEN = 16`
+- `AAD = "secrt.ca/envelope/v1-sealed-payload"`
+- `HKDF_INFO_ENC = "secrt:v1:enc:sealed-payload"`
+- `HKDF_INFO_CLAIM = "secrt:v1:claim:sealed-payload"`
+- `CLAIM_SALT = SHA256("secrt-envelope-v1-claim-salt")`
 
-## Envelope JSON Shape
+## Envelope JSON shape
 
 `envelope` MUST be a JSON object with this structure:
 
 ```json
 {
   "v": 1,
-  "suite": "v1-pbkdf2-hkdf-aes256gcm",
+  "suite": "v1-pbkdf2-hkdf-aes256gcm-sealed-payload",
   "enc": {
     "alg": "A256GCM",
     "nonce": "<base64url 12 bytes>",
@@ -71,21 +66,9 @@ Constants:
   "hkdf": {
     "hash": "SHA-256",
     "salt": "<base64url 32 bytes>",
-    "enc_info": "secret:v1:enc",
-    "claim_info": "secret:v1:claim",
+    "enc_info": "secrt:v1:enc:sealed-payload",
+    "claim_info": "secrt:v1:claim:sealed-payload",
     "length": 32
-  }
-}
-```
-
-Clients MAY include optional advisory metadata for UX:
-
-```json
-{
-  "hint": {
-    "type": "file",
-    "mime": "text/plain",
-    "filename": "credentials.txt"
   }
 }
 ```
@@ -101,173 +84,170 @@ If a passphrase is used, `kdf` MUST be:
 }
 ```
 
-Field requirements:
+Field validation:
 
-- `v`: MUST be integer `1`.
-- `suite`: MUST be exactly `v1-pbkdf2-hkdf-aes256gcm`.
-- `enc.alg`: MUST be `A256GCM`.
-- `enc.nonce`: MUST decode to 12 bytes.
-- `enc.ciphertext`: MUST decode to at least 16 bytes (GCM tag).
-- `kdf.name`: MUST be `none` or `PBKDF2-SHA256`.
-- `hkdf.hash`: MUST be `SHA-256`.
-- `hkdf.salt`: MUST decode to exactly 32 bytes.
-- `hkdf.enc_info`: MUST be `secret:v1:enc`.
-- `hkdf.claim_info`: MUST be `secret:v1:claim`.
-- `hkdf.length`: MUST be `32`.
+- `v` MUST be integer `1`.
+- `suite` MUST equal `v1-pbkdf2-hkdf-aes256gcm-sealed-payload`.
+- `enc.alg` MUST equal `A256GCM`.
+- `enc.nonce` MUST decode to 12 bytes.
+- `enc.ciphertext` MUST decode to at least 16 bytes.
+- `kdf.name` MUST be `none` or `PBKDF2-SHA256`.
+- `hkdf.hash` MUST equal `SHA-256`.
+- `hkdf.salt` MUST decode to exactly 32 bytes.
+- `hkdf.enc_info` MUST equal `secrt:v1:enc:sealed-payload`.
+- `hkdf.claim_info` MUST equal `secrt:v1:claim:sealed-payload`.
+- `hkdf.length` MUST equal `32`.
 
 For `kdf.name == "PBKDF2-SHA256"`:
 
-- `kdf.salt` MUST decode to >= 16 bytes (16 recommended minimum; 16 or 32 preferred).
-- `kdf.iterations` MUST be >= 300000.
-- `kdf.length` MUST be `32`.
+- `kdf.salt` MUST decode to at least 16 bytes.
+- `kdf.iterations` MUST be `>= 300000`.
+- `kdf.length` MUST equal `32`.
 
 For `kdf.name == "none"`:
 
 - `kdf` MUST NOT include `salt`, `iterations`, or `length`.
 
-For optional `hint` metadata:
+Plaintext metadata prohibition:
 
-- `hint` is optional and MAY be omitted entirely.
-- `hint` fields are optional and MUST NOT affect key derivation, claim token derivation, or AEAD inputs.
-- `hint` is advisory only and MUST NOT be used for authorization or other security decisions.
-- Clients SHOULD sanitize `hint.filename` and `hint.mime` before display/use.
-- If `hint.mime` is absent for file download UX, clients SHOULD default to `application/octet-stream`.
+- Envelope top-level metadata keys (`hint`, `filename`, `mime`, `type`, and similar advisory fields) MUST NOT appear in plaintext envelope JSON.
+- Metadata is only valid inside the encrypted payload frame.
 
 Unknown fields:
 
-- Clients SHOULD ignore unknown fields for forward compatibility.
-- Clients MUST validate all required fields strictly.
+- Clients MAY ignore unknown fields for forward compatibility.
+- Clients MUST strictly validate required fields.
 
-## URL Fragment Format
+## URL fragment format
 
-The shared link format is:
+Share links use:
 
 `https://<host>/s/<id>#<url_key_b64>`
 
-- `<url_key_b64>` MUST decode to exactly 32 random bytes.
-- The fragment MUST NOT include passphrase/PIN.
-- Passphrase/PIN, when used, MUST be shared via a separate channel.
+- `<url_key_b64>` MUST decode to 32 bytes.
+- Fragment MUST NOT include passphrase.
 
-## Claim Token Derivation
+## Claim token derivation
 
-The claim token is derived from `url_key` alone, independent of passphrase and envelope contents:
+Claim token derivation is independent of passphrase and envelope body:
 
-`claim_token_bytes = HKDF-SHA-256(url_key, nil, "secret:v1:claim", 32)`
+`claim_token = HKDF-SHA-256(url_key, CLAIM_SALT, "secrt:v1:claim:sealed-payload", 32)`
 
-This separation ensures:
+Create API sends:
 
-- **Claim authorization = link possession.** Anyone with the share URL can claim (consume) the secret.
-- **Decryption = passphrase knowledge.** Only someone with the passphrase (when used) can decrypt the claimed envelope.
-- **No circular dependency.** The claim token can be computed before the envelope is retrieved, since it does not depend on `hkdf.salt` (which is inside the envelope).
+`claim_hash = base64url(SHA-256(claim_token))`
 
-The claim hash sent during create is: `claim_hash = base64url(SHA-256(claim_token_bytes))`.
+## Encrypted payload frame (normative)
 
-## Create Flow (Normative)
+The decrypted plaintext bytes are a framed payload with metadata and body:
+
+1. `magic` (4 bytes): ASCII `SCRT`
+2. `frame_version` (u8): `1`
+3. `codec` (u8): `0 = none`, `1 = zstd`
+4. `reserved` (u16be): `0`
+5. `meta_len` (u32be)
+6. `raw_len` (u32be)
+7. `meta_json` (`meta_len` bytes UTF-8 JSON object)
+8. `body` (raw bytes or zstd-compressed bytes per `codec`)
+
+`meta_json` requirements:
+
+- `type` is required and MUST be one of: `text`, `file`, `binary`.
+- `filename` is optional string.
+- `mime` is optional string.
+- Unknown keys are allowed.
+
+Decode validation rules:
+
+- `magic` MUST equal `SCRT`.
+- `frame_version` MUST equal `1`.
+- `reserved` MUST equal `0`.
+- Length fields MUST be in-bounds and non-overflowing.
+- `raw_len <= 104857600` (100 MiB).
+- If `codec=none`, then `len(body) == raw_len`.
+- If `codec=zstd`, decompressed length MUST equal `raw_len` and MUST NOT exceed 100 MiB.
+
+## Compression policy (normative create behavior)
+
+Clients MUST follow this default policy:
+
+- Attempt compression only when `raw_len >= 2048`.
+- Skip compression attempt when content signature indicates pre-compressed/media data:
+  - png, jpg/jpeg, gif, webp, zip, gz, bz2, xz, zst, 7z, pdf, mp4, mp3.
+- Compression codec: zstd level `3`.
+- Use compressed form only if both are true:
+  - `raw_len - compressed_len >= 64`
+  - `(raw_len - compressed_len) / raw_len >= 0.10`
+- Otherwise store `codec=none`.
+
+## Create flow (normative)
 
 Inputs:
 
-- Plaintext bytes (`plaintext`)
-- Optional passphrase string (`passphrase`)
+- plaintext content bytes
+- metadata object (`type`, optional `filename`/`mime`/extra)
+- optional passphrase
 
 Steps:
 
-1. Generate `url_key` as 32 random bytes.
+1. Generate `url_key` (32 random bytes).
 2. Build `kdf`:
-   - If no passphrase: `kdf.name = "none"`.
-   - If passphrase is used:
-     - Generate random `kdf.salt`.
-     - Compute `pass_key = PBKDF2-HMAC-SHA-256(passphrase_utf8, kdf.salt, kdf.iterations, 32)`.
-3. Build input keying material (`ikm`):
-   - No passphrase: `ikm = url_key`.
-   - With passphrase: `ikm = SHA-256(url_key || pass_key)`.
-4. Generate random `hkdf.salt` (32 bytes).
-5. Derive encryption key:
-   - `enc_key = HKDF-SHA-256(ikm, hkdf.salt, "secret:v1:enc", 32)`
-6. Derive claim token (from `url_key` alone, not `ikm`):
-   - `claim_token_bytes = HKDF-SHA-256(url_key, nil, "secret:v1:claim", 32)`
-7. Generate random `nonce` (12 bytes).
-8. Encrypt:
-   - `ciphertext = AES-256-GCM-Seal(enc_key, nonce, plaintext, AAD)`
-   - `ciphertext` is encoded as a single byte string that includes GCM tag (`ciphertext||tag`).
-9. Build envelope JSON with fields above.
-   - Optional: include `hint` metadata for UX (`type`, `mime`, `filename`), if available.
-10. Compute `claim_hash` for create API:
-    - `claim_hash = base64url( SHA-256(claim_token_bytes) )`
-11. Send API create request:
-    - `envelope` (JSON object from step 8)
-    - `claim_hash` (step 10)
-12. Share:
-    - URL with fragment `#<base64url(url_key)>`
-    - passphrase separately if used
+   - no passphrase: `kdf.name = "none"`, `ikm = url_key`
+   - passphrase:
+     - generate `kdf.salt`
+     - derive `pass_key = PBKDF2-HMAC-SHA256(passphrase, kdf.salt, iterations, 32)`
+     - `ikm = SHA-256(url_key || pass_key)`
+3. Generate random `hkdf.salt` (32 bytes).
+4. Derive `enc_key = HKDF-SHA-256(ikm, hkdf.salt, HKDF_INFO_ENC, 32)`.
+5. Derive `claim_token = HKDF-SHA-256(url_key, CLAIM_SALT, HKDF_INFO_CLAIM, 32)`.
+6. Build framed payload bytes from metadata + content using compression policy.
+7. Generate nonce (12 random bytes).
+8. Encrypt framed payload with `AES-256-GCM(enc_key, nonce, AAD)`.
+9. Build envelope JSON.
+10. Compute `claim_hash = base64url(SHA-256(claim_token))`.
+11. Send create request with `{ envelope, claim_hash, ttl_seconds? }`.
+12. Share link with fragment `#<base64url(url_key)>`.
 
-## Claim + Decrypt Flow (Normative)
+## Claim + decrypt flow (normative)
 
-Inputs:
+1. Parse `url_key` from URL fragment and enforce 32 bytes.
+2. Derive claim token using fixed claim salt.
+3. `POST /api/v1/secrets/{id}/claim` with `{ "claim": base64url(claim_token) }`.
+4. Validate envelope structure.
+5. Recompute `ikm` from `url_key` + envelope `kdf`.
+6. Derive `enc_key` with envelope `hkdf.salt`.
+7. Decrypt ciphertext with AES-256-GCM + `AAD`.
+8. Decode payload frame and validate frame invariants.
+9. Return plaintext content bytes + decrypted metadata to caller.
 
-- URL fragment `#<url_key_b64>`
-- Optional passphrase
-
-Steps:
-
-1. Decode `url_key_b64` from the URL fragment and enforce 32 bytes.
-2. Derive claim token (from `url_key` alone):
-   - `claim_token_bytes = HKDF-SHA-256(url_key, nil, "secret:v1:claim", 32)`
-3. Claim API call:
-   - `POST /api/v1/secrets/{id}/claim`
-   - Body: `{ "claim": base64url(claim_token_bytes) }`
-4. On `200`, parse and validate envelope fields from response.
-5. Recompute `ikm` using the `kdf` params from the envelope:
-   - No passphrase (`kdf.name == "none"`): `ikm = url_key`.
-   - With passphrase (`kdf.name == "PBKDF2-SHA256"`): compute `pass_key`, then `ikm = SHA-256(url_key || pass_key)`.
-6. Derive encryption key:
-   - `enc_key = HKDF-SHA-256(ikm, hkdf.salt, "secret:v1:enc", 32)`
-7. Decrypt:
-   - `plaintext = AES-256-GCM-Open(enc_key, nonce, ciphertext, AAD)`
-8. If decryption fails, treat as invalid link/passphrase or tampering.
-9. Optional UX behavior:
-   - If `hint` is present, clients MAY use it to choose display/download defaults.
-   - If `hint.mime` is missing and bytes are downloaded as a file, use `application/octet-stream`.
-
-## API Mapping
-
-This spec maps to `spec/v1/api.md`:
-
-- Create request:
-  - `claim_hash = base64url(sha256(claim_token_bytes))`
-- Claim request:
-  - `claim = base64url(claim_token_bytes)`
-
-Important:
-
-- `claim` is not the hash; it is raw derived bytes encoded as base64url.
-- Server hashes claim bytes and compares with stored `claim_hash`.
-
-## Validation and Rejection Rules
+## Validation and rejection rules
 
 Clients MUST fail closed for:
 
-- Unsupported `v` or `suite`
-- Unsupported `kdf.name` or `enc.alg`
-- Any required field missing or wrong type
-- Base64url decoding errors
-- Invalid lengths (nonce/salts/keys)
-- `kdf.iterations < 300000` when PBKDF2 is used
-- AEAD authentication failure during decrypt
+- unsupported `v`, `suite`, `enc.alg`, `kdf.name`, `hkdf` constants
+- missing or malformed required fields
+- invalid base64url encodings
+- invalid nonce/salt lengths
+- PBKDF2 iterations below minimum
+- AEAD authentication failure
+- invalid payload frame (bad magic/version/lengths/codec)
+- decompressed payload exceeding 100 MiB cap
 
-Servers SHOULD reject envelopes over service size limits. Default limits are 256 KB (public) and 1 MB (authenticated), configurable per instance via `PUBLIC_MAX_ENVELOPE_BYTES` and `AUTHED_MAX_ENVELOPE_BYTES`.
+Server-side behavior:
 
-## Interoperability Test Vectors
+- The server still treats `envelope` as opaque JSON and cannot read metadata.
+- Server envelope size limits still apply to the serialized envelope bytes.
 
-Before freezing v1, add machine-readable vectors (recommended path: `spec/v1/envelope.vectors.json`) that include:
+## Interoperability vectors
 
-- URL key bytes
-- passphrase (if any)
-- kdf params
-- hkdf salt
-- nonce
-- plaintext
-- expected envelope
-- expected claim token and claim hash
-- optional hint metadata (when present)
+Canonical vectors live at:
 
-Both CLI and browser implementations MUST pass these vectors.
+- `spec/v1/envelope.vectors.json`
+
+All clients MUST pass vectors, including:
+
+- no-passphrase + `codec=none`
+- no-passphrase + `codec=zstd`
+- passphrase + `codec=zstd`
+- file metadata encrypted in payload frame
+- pre-compressed signature skip (`codec=none`)

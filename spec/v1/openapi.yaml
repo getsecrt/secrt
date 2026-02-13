@@ -446,8 +446,9 @@ components:
           type: object
           description: |
             Opaque JSON object produced by the client containing ciphertext,
-            nonce, KDF params, and optional advisory metadata (e.g. `hint.mime`,
-            `hint.filename`). The server stores and returns this unchanged.
+            nonce, and KDF/HKDF parameters. Advisory metadata is encrypted in
+            the sealed payload frame and is not present as plaintext fields in
+            envelope JSON. The server stores and returns this unchanged.
 
             Max size depends on policy tier (256 KB public, 1 MB authenticated by default).
         claim_hash:

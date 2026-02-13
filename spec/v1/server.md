@@ -11,7 +11,6 @@ Source-of-truth code paths:
 - `crates/secrt-server/src/domain/auth.rs`
 - `crates/secrt-server/src/storage/postgres.rs`
 - `crates/secrt-server/migrations/001_initial.sql`
-- `crates/secrt-server/migrations/002_auth_apikey_v2.sql`
 
 ## 1. Scope
 
@@ -233,6 +232,7 @@ Create request (`POST /api/v1/public/secrets`, `POST /api/v1/secrets`):
   - Authenticated: `AUTHED_MAX_ENVELOPE_BYTES + 16KiB` (default `1MiB + 16KiB`)
 - JSON unknown fields rejected
 - Must contain valid `envelope` object JSON
+- Server treats envelope internals as opaque ciphertext and cannot read payload metadata (`type`, `filename`, `mime`), which is encrypted client-side
 - Envelope size checked against per-tier limit -> `400` with human-readable limit in message
 - Must contain valid `claim_hash` (`base64url(sha256(...))` format)
 - `ttl_seconds` rules:

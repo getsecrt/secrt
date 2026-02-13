@@ -288,7 +288,7 @@ Behavior:
    - When stdin is piped or redirected (non-TTY), the CLI MUST read all bytes until EOF regardless of flags.
    - Empty input MUST be rejected.
 2. CLI performs envelope creation per `spec/v1/envelope.md`.
-   - When `--file` is used, implementations SHOULD populate the envelope `hint` field with file metadata (`type: "file"`, `filename`, `mime`) as defined in `spec/v1/envelope.md`. This enables file-aware behavior on `get`.
+   - When `--file` is used, implementations SHOULD populate encrypted payload metadata with `type: "file"`, `filename`, and `mime` (inside the sealed payload frame). No plaintext metadata fields are allowed in envelope JSON.
 3. CLI computes `claim_hash = base64url(sha256(claim_token_bytes))`.
 4. CLI sends create request:
    - Anonymous: `POST /api/v1/public/secrets`
@@ -346,15 +346,15 @@ After claiming the envelope from the server, implementations SHOULD inspect the 
 
 Output:
 
-Output behavior follows a decision matrix based on flags, envelope hints, and terminal state:
+Output behavior follows a decision matrix based on flags, decrypted payload metadata, and terminal state:
 
-1. `--json`: JSON output to stdout. When the envelope contains a file `hint`, include `filename`, `mime`, and `type` fields. For non-UTF-8 binary data, use `plaintext_base64` (standard base64) instead of `plaintext`.
+1. `--json`: JSON output to stdout. When decrypted metadata indicates `type: "file"`, include `filename`, `mime`, and `type` fields. For non-UTF-8 binary data, use `plaintext_base64` (standard base64) instead of `plaintext`.
 2. `--output -` (or `-o -`): write raw decrypted bytes to stdout with no label or framing.
 3. `--output <path>` (or `-o <path>`): write decrypted bytes to the specified file path. Print a success message to stderr (e.g., `✓ Saved to <path> (mime, N bytes)`).
-4. File hint present + stdout is TTY: auto-save to `./<hint.filename>` in the current directory. If the filename already exists, implementations SHOULD deconflict (e.g., `file (1).ext`). Print a success message to stderr. Implementations MUST sanitize `hint.filename` before use (strip path separators, control characters, leading dots; limit length).
-5. No file hint + stdout is TTY + plaintext is non-UTF-8 binary: auto-save to a default filename (e.g., `secret.bin`) and print a success message to stderr. Implementations MUST NOT dump raw binary bytes to a TTY, as the secret is already burned and cannot be re-claimed.
+4. File metadata present + stdout is TTY: auto-save to `./<filename>` in the current directory. If the filename already exists, implementations SHOULD deconflict (e.g., `file (1).ext`). Print a success message to stderr. Implementations MUST sanitize decrypted filenames before use (strip path separators, control characters, leading dots; limit length).
+5. No file metadata + stdout is TTY + plaintext is non-UTF-8 binary: auto-save to a default filename (e.g., `secret.bin`) and print a success message to stderr. Implementations MUST NOT dump raw binary bytes to a TTY, as the secret is already burned and cannot be re-claimed.
 6. Stdout is piped or redirected: write raw decrypted bytes exactly as-is with no label or modification, to preserve secret integrity for binary secrets or downstream consumers.
-7. No hint + stdout is TTY + plaintext is valid UTF-8: print a brief label (e.g., `"Secret:"`) to stderr, then print plaintext to stdout. If the plaintext does not end with a newline (`\n`), implementations SHOULD append a trailing newline for clean terminal display.
+7. No file metadata + stdout is TTY + plaintext is valid UTF-8: print a brief label (e.g., `"Secret:"`) to stderr, then print plaintext to stdout. If the plaintext does not end with a newline (`\n`), implementations SHOULD append a trailing newline for clean terminal display.
 
 ## `burn` (optional)
 

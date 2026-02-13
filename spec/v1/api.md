@@ -24,7 +24,7 @@ Server-side runtime behavior (atomic claim semantics, reaper cadence, middleware
 
 `envelope` is an opaque JSON object produced by the client (ciphertext, nonce, KDF params, etc.). The backend treats it as a blob and does not inspect its contents beyond basic validation.
 
-Clients MAY include optional advisory metadata inside the envelope (for example `hint.mime` / `hint.filename`). The server stores and returns this unchanged; it is not trusted for security decisions.
+Advisory metadata (`type`, `filename`, `mime`, and similar fields) is encrypted inside the payload frame ciphertext. It MUST NOT be present in plaintext envelope JSON. The server stores the envelope unchanged and cannot read metadata values.
 
 Normative envelope format and crypto workflow are defined in:
 
