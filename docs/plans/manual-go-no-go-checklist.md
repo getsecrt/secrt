@@ -124,3 +124,17 @@ Use this checklist before promoting staging to production.
 - [ ] `cargo test --workspace` passes.
 - [ ] Manual checks above are complete with no open P0/P1 issues.
 - [ ] Decision logged: `GO` or `NO-GO`, with owner and timestamp.
+
+## 14. Audit Remediation Spot Checks (2026-02-13)
+
+- [ ] `secrt send --trim` rejects non-UTF-8 stdin/file input with clear error (exit code `2`).
+- [ ] Short boolean flag suffixes are rejected (for example `secrt gen -SNG`, `secrt send -mfoo`).
+- [ ] Valid short flags with inline values still work (for example `secrt gen -L20`, `secrt get -oout.txt`).
+- [ ] Tampered session token secret is rejected on logout (`POST /api/v1/auth/logout` -> `401`) and does not revoke valid session.
+- [ ] Passkey `/finish` rejects unknown/expired `challenge_id` and accepts valid `challenge_id` + credential linkage.
+- [ ] Slow header connection is closed around 5s (`ReadHeaderTimeout` behavior).
+- [ ] Stalled request body receives `408 Request Timeout` around 15s budget.
+- [ ] Idle keepalive connection is closed around 60s of inactivity.
+- [ ] Server shutdown completes under held in-flight connection and does not hang past ~10s graceful deadline.
+- [ ] Reaper performs one immediate startup cleanup run (no duplicate immediate second run).
+- [ ] `delete_expired()` cleanup removes stale `webauthn_challenges`, expired/revoked `sessions`, and `api_key_registrations` older than 24h.
