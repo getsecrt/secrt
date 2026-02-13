@@ -62,6 +62,34 @@ pub fn compute_claim_hash(claim_token: &[u8]) -> String {
     b64_encode(hash.as_ref())
 }
 
+fn resolve_pbkdf2_iterations(iterations: u32) -> Result<u32, EnvelopeError> {
+    if iterations == 0 {
+        return Ok(DEFAULT_PBKDF2_ITERATIONS);
+    }
+    if iterations < MIN_PBKDF2_ITERATIONS {
+        return Err(EnvelopeError::InvalidEnvelope(format!(
+            "kdf.iterations must be >= {}",
+            MIN_PBKDF2_ITERATIONS
+        )));
+    }
+    Ok(iterations)
+}
+
+fn ensure_kdf_none_has_no_extra_fields(raw: &serde_json::Value) -> Result<(), EnvelopeError> {
+    let obj = raw
+        .as_object()
+        .ok_or_else(|| EnvelopeError::InvalidEnvelope("invalid kdf".into()))?;
+    for forbidden in ["salt", "iterations", "length"] {
+        if obj.contains_key(forbidden) {
+            return Err(EnvelopeError::InvalidEnvelope(format!(
+                "kdf.name=none must not include {}",
+                forbidden
+            )));
+        }
+    }
+    Ok(())
+}
+
 /// Create an encrypted envelope from content bytes and metadata.
 pub fn seal(p: SealParams<'_>) -> Result<SealResult, EnvelopeError> {
     if p.content.is_empty() {
@@ -82,11 +110,7 @@ pub fn seal(p: SealParams<'_>) -> Result<SealResult, EnvelopeError> {
         let mut kdf_salt = vec![0u8; KDF_SALT_LEN];
         (p.rand_bytes)(&mut kdf_salt)?;
 
-        let iterations = if p.iterations == 0 {
-            DEFAULT_PBKDF2_ITERATIONS
-        } else {
-            p.iterations
-        };
+        let iterations = resolve_pbkdf2_iterations(p.iterations)?;
 
         let mut pass_key = vec![0u8; PASS_KEY_LEN];
         pbkdf2::derive(
@@ -323,11 +347,14 @@ fn parse_kdf(raw: &serde_json::Value) -> Result<KdfParsed, EnvelopeError> {
         .ok_or_else(|| EnvelopeError::InvalidEnvelope("invalid kdf".into()))?;
 
     match name {
-        "none" => Ok(KdfParsed {
-            name: "none".into(),
-            salt: Vec::new(),
-            iterations: 0,
-        }),
+        "none" => {
+            ensure_kdf_none_has_no_extra_fields(raw)?;
+            Ok(KdfParsed {
+                name: "none".into(),
+                salt: Vec::new(),
+                iterations: 0,
+            })
+        }
         "PBKDF2-SHA256" => {
             let k: KdfPbkdf2 = serde_json::from_value(raw.clone())
                 .map_err(|_| EnvelopeError::InvalidEnvelope("invalid kdf".into()))?;
@@ -499,6 +526,36 @@ mod tests {
             iterations: 0,
         });
         assert!(matches!(err, Err(EnvelopeError::RngError(_))));
+    }
+
+    #[test]
+    fn seal_passphrase_rejects_iterations_below_minimum() {
+        let err = seal(SealParams {
+            content: b"secret".to_vec(),
+            passphrase: "passphrase".into(),
+            rand_bytes: &real_rand,
+            metadata: PayloadMeta::text(),
+            compression_policy: CompressionPolicy::default(),
+            iterations: MIN_PBKDF2_ITERATIONS - 1,
+        });
+        assert!(matches!(err, Err(EnvelopeError::InvalidEnvelope(_))));
+    }
+
+    #[test]
+    fn seal_passphrase_accepts_minimum_iterations() {
+        let result = seal(SealParams {
+            content: b"secret".to_vec(),
+            passphrase: "passphrase".into(),
+            rand_bytes: &real_rand,
+            metadata: PayloadMeta::text(),
+            compression_policy: CompressionPolicy::default(),
+            iterations: MIN_PBKDF2_ITERATIONS,
+        })
+        .expect("seal should accept minimum iterations");
+        assert_eq!(
+            result.envelope["kdf"]["iterations"].as_u64(),
+            Some(MIN_PBKDF2_ITERATIONS as u64)
+        );
     }
 
     #[test]
@@ -693,6 +750,44 @@ mod tests {
             &result.envelope,
             &["kdf"],
             serde_json::json!({"name": "argon2"}),
+        );
+        let err = open(OpenParams {
+            envelope: env,
+            url_key: result.url_key,
+            passphrase: String::new(),
+        });
+        assert!(matches!(err, Err(EnvelopeError::InvalidEnvelope(_))));
+    }
+
+    #[test]
+    fn open_kdf_none_rejects_extra_salt_field() {
+        let (result, _) = seal_valid();
+        let env = mutate_envelope(
+            &result.envelope,
+            &["kdf"],
+            serde_json::json!({
+                "name": "none",
+                "salt": "AAAA"
+            }),
+        );
+        let err = open(OpenParams {
+            envelope: env,
+            url_key: result.url_key,
+            passphrase: String::new(),
+        });
+        assert!(matches!(err, Err(EnvelopeError::InvalidEnvelope(_))));
+    }
+
+    #[test]
+    fn open_kdf_none_rejects_extra_iterations_field() {
+        let (result, _) = seal_valid();
+        let env = mutate_envelope(
+            &result.envelope,
+            &["kdf"],
+            serde_json::json!({
+                "name": "none",
+                "iterations": 600000
+            }),
         );
         let err = open(OpenParams {
             envelope: env,
