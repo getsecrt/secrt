@@ -5,6 +5,7 @@ use ring::digest::{digest, SHA256};
 use ring::hkdf;
 use ring::pbkdf2;
 
+use crate::payload::{decode_payload, encode_payload};
 use crate::types::*;
 
 pub fn b64_encode(data: &[u8]) -> String {
@@ -46,14 +47,13 @@ impl hkdf::KeyType for HkdfLen {
 }
 
 /// Derive claim token from url_key alone.
-/// claim_token = HKDF-SHA-256(url_key, empty_salt, "secret:v1:claim", 32)
+/// claim_token = HKDF-SHA-256(url_key, claim_salt, "secrt:v1:claim:sealed-payload", 32)
 pub fn derive_claim_token(url_key: &[u8]) -> Result<Vec<u8>, EnvelopeError> {
     if url_key.len() != URL_KEY_LEN {
         return Err(EnvelopeError::InvalidUrlKey);
     }
-    // Go's HKDF with nil salt uses an all-zero salt of hash length (32 bytes for SHA-256)
-    let empty_salt = [0u8; 32];
-    derive_hkdf(url_key, &empty_salt, HKDF_INFO_CLAIM, HKDF_LEN)
+    let claim_salt = digest(&SHA256, CLAIM_SALT_LABEL.as_bytes());
+    derive_hkdf(url_key, claim_salt.as_ref(), HKDF_INFO_CLAIM, HKDF_LEN)
 }
 
 /// Compute claim_hash = base64url(SHA-256(claim_token)).
@@ -62,9 +62,9 @@ pub fn compute_claim_hash(claim_token: &[u8]) -> String {
     b64_encode(hash.as_ref())
 }
 
-/// Create an encrypted envelope from plaintext.
+/// Create an encrypted envelope from content bytes and metadata.
 pub fn seal(p: SealParams<'_>) -> Result<SealResult, EnvelopeError> {
-    if p.plaintext.is_empty() {
+    if p.content.is_empty() {
         return Err(EnvelopeError::EmptyPlaintext);
     }
 
@@ -127,21 +127,22 @@ pub fn seal(p: SealParams<'_>) -> Result<SealResult, EnvelopeError> {
     let mut nonce_bytes = vec![0u8; GCM_NONCE_LEN];
     (p.rand_bytes)(&mut nonce_bytes)?;
 
-    // 7. Encrypt (AES-256-GCM)
+    // 7. Build encrypted payload frame
+    let (payload_bytes, _codec) = encode_payload(&p.content, &p.metadata, p.compression_policy)?;
+
+    // 8. Encrypt (AES-256-GCM)
     let unbound_key = UnboundKey::new(&AES_256_GCM, &enc_key)
         .map_err(|_| EnvelopeError::InvalidEnvelope("AES key creation failed".into()))?;
     let key = LessSafeKey::new(unbound_key);
     let nonce = Nonce::try_assume_unique_for_key(&nonce_bytes)
         .map_err(|_| EnvelopeError::InvalidEnvelope("invalid nonce".into()))?;
 
-    let mut in_out = p.plaintext.clone();
+    let mut in_out = payload_bytes;
     key.seal_in_place_append_tag(nonce, Aad::from(AAD), &mut in_out)
         .map_err(|_| EnvelopeError::InvalidEnvelope("encryption failed".into()))?;
     let ciphertext = in_out;
 
-    // 8. Build envelope
-    let hint = p.hint.filter(|h| !h.is_empty());
-
+    // 9. Build envelope
     let env = Envelope {
         v: 1,
         suite: SUITE.into(),
@@ -158,7 +159,6 @@ pub fn seal(p: SealParams<'_>) -> Result<SealResult, EnvelopeError> {
             claim_info: HKDF_INFO_CLAIM.into(),
             length: HKDF_LEN as u32,
         },
-        hint,
     };
 
     let env_json = serde_json::to_value(&env)
@@ -181,10 +181,21 @@ pub fn requires_passphrase(envelope: &serde_json::Value) -> bool {
         .is_some_and(|name| name != "none")
 }
 
-/// Decrypt an envelope, returning plaintext.
-pub fn open(p: OpenParams) -> Result<Vec<u8>, EnvelopeError> {
+/// Decrypt an envelope and decode the sealed payload frame.
+pub fn open(p: OpenParams) -> Result<OpenResult, EnvelopeError> {
     if p.url_key.len() != URL_KEY_LEN {
         return Err(EnvelopeError::InvalidUrlKey);
+    }
+
+    if let Some(obj) = p.envelope.as_object() {
+        for key in ["hint", "filename", "mime", "type"] {
+            if obj.contains_key(key) {
+                return Err(EnvelopeError::InvalidEnvelope(format!(
+                    "plaintext metadata field '{}' is not allowed in envelope",
+                    key
+                )));
+            }
+        }
     }
 
     // Parse envelope
@@ -234,7 +245,7 @@ pub fn open(p: OpenParams) -> Result<Vec<u8>, EnvelopeError> {
         .open_in_place(nonce, Aad::from(AAD), &mut ciphertext)
         .map_err(|_| EnvelopeError::DecryptionFailed)?;
 
-    Ok(plaintext.to_vec())
+    decode_payload(plaintext, MAX_DECOMPRESSED_BYTES_DEFAULT)
 }
 
 fn validate_envelope(env: &Envelope) -> Result<(), EnvelopeError> {
@@ -367,10 +378,11 @@ mod tests {
     fn seal_valid() -> (SealResult, Vec<u8>) {
         let plaintext = b"test data".to_vec();
         let result = seal(SealParams {
-            plaintext: plaintext.clone(),
+            content: plaintext.clone(),
             passphrase: String::new(),
             rand_bytes: &real_rand,
-            hint: None,
+            metadata: PayloadMeta::text(),
+            compression_policy: CompressionPolicy::default(),
             iterations: 0,
         })
         .unwrap();
@@ -395,10 +407,11 @@ mod tests {
     #[test]
     fn seal_empty_plaintext() {
         let err = seal(SealParams {
-            plaintext: Vec::new(),
+            content: Vec::new(),
             passphrase: String::new(),
             rand_bytes: &real_rand,
-            hint: None,
+            metadata: PayloadMeta::text(),
+            compression_policy: CompressionPolicy::default(),
             iterations: 0,
         });
         assert!(matches!(err, Err(EnvelopeError::EmptyPlaintext)));
@@ -410,10 +423,11 @@ mod tests {
             Err(EnvelopeError::RngError("fail".into()))
         };
         let err = seal(SealParams {
-            plaintext: b"x".to_vec(),
+            content: b"x".to_vec(),
             passphrase: String::new(),
             rand_bytes: &fail_rand,
-            hint: None,
+            metadata: PayloadMeta::text(),
+            compression_policy: CompressionPolicy::default(),
             iterations: 0,
         });
         assert!(matches!(err, Err(EnvelopeError::RngError(_))));
@@ -431,10 +445,11 @@ mod tests {
             real_rand(buf)
         };
         let err = seal(SealParams {
-            plaintext: b"x".to_vec(),
+            content: b"x".to_vec(),
             passphrase: "pass".into(),
             rand_bytes: &fail_on_second,
-            hint: None,
+            metadata: PayloadMeta::text(),
+            compression_policy: CompressionPolicy::default(),
             iterations: 300_000,
         });
         assert!(matches!(err, Err(EnvelopeError::RngError(_))));
@@ -453,10 +468,11 @@ mod tests {
             real_rand(buf)
         };
         let err = seal(SealParams {
-            plaintext: b"x".to_vec(),
+            content: b"x".to_vec(),
             passphrase: String::new(),
             rand_bytes: &fail_on_second,
-            hint: None,
+            metadata: PayloadMeta::text(),
+            compression_policy: CompressionPolicy::default(),
             iterations: 0,
         });
         assert!(matches!(err, Err(EnvelopeError::RngError(_))));
@@ -475,10 +491,11 @@ mod tests {
             real_rand(buf)
         };
         let err = seal(SealParams {
-            plaintext: b"x".to_vec(),
+            content: b"x".to_vec(),
             passphrase: String::new(),
             rand_bytes: &fail_on_third,
-            hint: None,
+            metadata: PayloadMeta::text(),
+            compression_policy: CompressionPolicy::default(),
             iterations: 0,
         });
         assert!(matches!(err, Err(EnvelopeError::RngError(_))));
@@ -777,19 +794,66 @@ mod tests {
     }
 
     #[test]
-    fn seal_with_hint() {
-        let mut hint = std::collections::HashMap::new();
-        hint.insert("type".to_string(), "text".to_string());
+    fn sealed_envelope_has_no_plaintext_metadata() {
         let result = seal(SealParams {
-            plaintext: b"with hint".to_vec(),
+            content: b"with hint".to_vec(),
+            metadata: PayloadMeta::file("credentials.txt".into(), "text/plain".into()),
             passphrase: String::new(),
             rand_bytes: &real_rand,
-            hint: Some(hint.clone()),
+            compression_policy: CompressionPolicy::default(),
             iterations: 0,
         })
         .unwrap();
-        let env_hint = result.envelope.get("hint").unwrap();
-        assert_eq!(env_hint["type"], "text");
+        assert!(result.envelope.get("hint").is_none());
+        assert!(result.envelope.get("filename").is_none());
+        assert!(result.envelope.get("mime").is_none());
+        assert!(result.envelope.get("type").is_none());
+    }
+
+    #[test]
+    fn open_rejects_plaintext_hint_field() {
+        let result = seal(SealParams {
+            content: b"with hint".to_vec(),
+            metadata: PayloadMeta::text(),
+            passphrase: String::new(),
+            rand_bytes: &real_rand,
+            compression_policy: CompressionPolicy::default(),
+            iterations: 0,
+        })
+        .unwrap();
+        let env = mutate_envelope(
+            &result.envelope,
+            &["hint"],
+            serde_json::json!({"type":"file","filename":"x.txt"}),
+        );
+        let err = open(OpenParams {
+            envelope: env,
+            url_key: result.url_key,
+            passphrase: String::new(),
+        });
+        assert!(matches!(err, Err(EnvelopeError::InvalidEnvelope(_))));
+    }
+
+    #[test]
+    fn open_returns_metadata_and_content() {
+        let meta = PayloadMeta::file("credentials.txt".into(), "text/plain".into());
+        let result = seal(SealParams {
+            content: b"payload body".to_vec(),
+            metadata: meta.clone(),
+            passphrase: String::new(),
+            rand_bytes: &real_rand,
+            compression_policy: CompressionPolicy::default(),
+            iterations: 0,
+        })
+        .unwrap();
+        let opened = open(OpenParams {
+            envelope: result.envelope,
+            url_key: result.url_key,
+            passphrase: String::new(),
+        })
+        .unwrap();
+        assert_eq!(opened.content, b"payload body");
+        assert_eq!(opened.metadata, meta);
     }
 
     #[test]
@@ -798,24 +862,22 @@ mod tests {
         let _ = format!("{}", EnvelopeError::EmptyPlaintext);
         let _ = format!("{}", EnvelopeError::InvalidEnvelope("x".into()));
         let _ = format!("{}", EnvelopeError::DecryptionFailed);
+        let _ = format!("{}", EnvelopeError::InvalidFrame("x".into()));
+        let _ = format!("{}", EnvelopeError::UnsupportedCodec(9));
+        let _ = format!(
+            "{}",
+            EnvelopeError::DecompressedTooLarge {
+                max: 1,
+                requested: 2
+            }
+        );
+        let _ = format!("{}", EnvelopeError::FrameLengthMismatch("x".into()));
+        let _ = format!("{}", EnvelopeError::CompressionFailed("x".into()));
+        let _ = format!("{}", EnvelopeError::DecompressionFailed("x".into()));
         let _ = format!("{}", EnvelopeError::InvalidFragment("x".into()));
         let _ = format!("{}", EnvelopeError::InvalidUrlKey);
         let _ = format!("{}", EnvelopeError::InvalidTtl("x".into()));
         let _ = format!("{}", EnvelopeError::RngError("x".into()));
-    }
-
-    #[test]
-    fn seal_with_empty_hint_omitted() {
-        let hint = std::collections::HashMap::new();
-        let result = seal(SealParams {
-            plaintext: b"no hint".to_vec(),
-            passphrase: String::new(),
-            rand_bytes: &real_rand,
-            hint: Some(hint),
-            iterations: 0,
-        })
-        .unwrap();
-        assert!(result.envelope.get("hint").is_none());
     }
 
     #[test]
@@ -864,10 +926,11 @@ mod tests {
     fn requires_passphrase_sealed_with_passphrase() {
         // Test with a real sealed envelope (with passphrase)
         let result = seal(SealParams {
-            plaintext: b"secret".to_vec(),
+            content: b"secret".to_vec(),
             passphrase: "test".to_string(),
             rand_bytes: &real_rand,
-            hint: None,
+            metadata: PayloadMeta::text(),
+            compression_policy: CompressionPolicy::default(),
             iterations: 300_000,
         })
         .unwrap();

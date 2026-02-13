@@ -1,5 +1,5 @@
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 use std::fmt;
 
 // Crypto constants from spec/v1/envelope.md.
@@ -9,13 +9,23 @@ pub const HKDF_LEN: usize = 32;
 pub const GCM_NONCE_LEN: usize = 12;
 pub const HKDF_SALT_LEN: usize = 32;
 pub const KDF_SALT_LEN: usize = 16;
-pub const AAD: &[u8] = b"secrt.ca/envelope/v1";
-pub const HKDF_INFO_ENC: &str = "secret:v1:enc";
-pub const HKDF_INFO_CLAIM: &str = "secret:v1:claim";
-pub const SUITE: &str = "v1-pbkdf2-hkdf-aes256gcm";
+pub const AAD: &[u8] = b"secrt.ca/envelope/v1-sealed-payload";
+pub const HKDF_INFO_ENC: &str = "secrt:v1:enc:sealed-payload";
+pub const HKDF_INFO_CLAIM: &str = "secrt:v1:claim:sealed-payload";
+pub const CLAIM_SALT_LABEL: &str = "secrt-envelope-v1-claim-salt";
+pub const SUITE: &str = "v1-pbkdf2-hkdf-aes256gcm-sealed-payload";
 
 pub const DEFAULT_PBKDF2_ITERATIONS: u32 = 600_000;
 pub const MIN_PBKDF2_ITERATIONS: u32 = 300_000;
+
+pub const PAYLOAD_MAGIC: &[u8; 4] = b"SCRT";
+pub const PAYLOAD_FRAME_VERSION: u8 = 1;
+
+pub const MAX_DECOMPRESSED_BYTES_DEFAULT: usize = 100 * 1024 * 1024;
+pub const COMPRESSION_THRESHOLD_BYTES_DEFAULT: usize = 2048;
+pub const COMPRESSION_MIN_SAVINGS_BYTES_DEFAULT: usize = 64;
+pub const COMPRESSION_MIN_SAVINGS_RATIO_DEFAULT: f64 = 0.10;
+pub const ZSTD_LEVEL_DEFAULT: i32 = 3;
 
 /// Envelope is the JSON structure stored on the server.
 #[derive(Debug, Serialize, Deserialize)]
@@ -25,8 +35,6 @@ pub struct Envelope {
     pub enc: EncBlock,
     pub kdf: serde_json::Value,
     pub hkdf: HkdfBlock,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub hint: Option<HashMap<String, String>>,
 }
 
 /// EncBlock holds the AES-GCM ciphertext.
@@ -69,13 +77,95 @@ pub struct KdfParsed {
     pub iterations: u32,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum PayloadType {
+    Text,
+    File,
+    Binary,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PayloadMeta {
+    #[serde(rename = "type")]
+    pub payload_type: PayloadType,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub filename: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub mime: Option<String>,
+    #[serde(flatten, default)]
+    pub extra: BTreeMap<String, serde_json::Value>,
+}
+
+impl PayloadMeta {
+    pub fn text() -> Self {
+        Self {
+            payload_type: PayloadType::Text,
+            filename: None,
+            mime: None,
+            extra: BTreeMap::new(),
+        }
+    }
+
+    pub fn binary() -> Self {
+        Self {
+            payload_type: PayloadType::Binary,
+            filename: None,
+            mime: None,
+            extra: BTreeMap::new(),
+        }
+    }
+
+    pub fn file(filename: String, mime: String) -> Self {
+        Self {
+            payload_type: PayloadType::File,
+            filename: Some(filename),
+            mime: Some(mime),
+            extra: BTreeMap::new(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PayloadCodec {
+    None,
+    Zstd,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct CompressionPolicy {
+    pub threshold_bytes: usize,
+    pub min_savings_bytes: usize,
+    pub min_savings_ratio: f64,
+    pub zstd_level: i32,
+}
+
+impl Default for CompressionPolicy {
+    fn default() -> Self {
+        Self {
+            threshold_bytes: COMPRESSION_THRESHOLD_BYTES_DEFAULT,
+            min_savings_bytes: COMPRESSION_MIN_SAVINGS_BYTES_DEFAULT,
+            min_savings_ratio: COMPRESSION_MIN_SAVINGS_RATIO_DEFAULT,
+            zstd_level: ZSTD_LEVEL_DEFAULT,
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct OpenResult {
+    pub content: Vec<u8>,
+    pub metadata: PayloadMeta,
+    pub codec: PayloadCodec,
+}
+
 /// Parameters for creating an encrypted envelope.
 pub struct SealParams<'a> {
-    pub plaintext: Vec<u8>,
+    pub content: Vec<u8>,
+    pub metadata: PayloadMeta,
     pub passphrase: String,
     pub rand_bytes: &'a dyn Fn(&mut [u8]) -> Result<(), EnvelopeError>,
-    pub hint: Option<HashMap<String, String>>,
     pub iterations: u32,
+    pub compression_policy: CompressionPolicy,
 }
 
 /// Outputs from creating an encrypted envelope.
@@ -98,6 +188,12 @@ pub enum EnvelopeError {
     EmptyPlaintext,
     InvalidEnvelope(String),
     DecryptionFailed,
+    InvalidFrame(String),
+    UnsupportedCodec(u8),
+    DecompressedTooLarge { max: usize, requested: usize },
+    FrameLengthMismatch(String),
+    CompressionFailed(String),
+    DecompressionFailed(String),
     InvalidFragment(String),
     InvalidUrlKey,
     InvalidTtl(String),
@@ -110,6 +206,18 @@ impl fmt::Display for EnvelopeError {
             EnvelopeError::EmptyPlaintext => write!(f, "plaintext must not be empty"),
             EnvelopeError::InvalidEnvelope(msg) => write!(f, "invalid envelope: {}", msg),
             EnvelopeError::DecryptionFailed => write!(f, "decryption failed"),
+            EnvelopeError::InvalidFrame(msg) => write!(f, "invalid payload frame: {}", msg),
+            EnvelopeError::UnsupportedCodec(v) => write!(f, "unsupported payload codec id {}", v),
+            EnvelopeError::DecompressedTooLarge { max, requested } => write!(
+                f,
+                "decompressed payload too large: {} bytes (max {})",
+                requested, max
+            ),
+            EnvelopeError::FrameLengthMismatch(msg) => {
+                write!(f, "payload frame length mismatch: {}", msg)
+            }
+            EnvelopeError::CompressionFailed(msg) => write!(f, "compression failed: {}", msg),
+            EnvelopeError::DecompressionFailed(msg) => write!(f, "decompression failed: {}", msg),
             EnvelopeError::InvalidFragment(msg) => write!(f, "invalid URL fragment: {}", msg),
             EnvelopeError::InvalidUrlKey => write!(f, "url_key must be 32 bytes"),
             EnvelopeError::InvalidTtl(msg) => write!(f, "invalid TTL: {}", msg),
