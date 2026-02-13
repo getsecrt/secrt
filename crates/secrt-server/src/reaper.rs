@@ -16,6 +16,8 @@ pub fn start_expiry_reaper(store: Arc<dyn SecretsStore>) -> oneshot::Sender<()> 
     tokio::spawn(async move {
         run_expiry_reaper_once(store.clone()).await;
         let mut ticker = tokio::time::interval(EXPIRY_REAPER_INTERVAL);
+        // `interval` ticks immediately once; consume it to avoid a duplicate startup run.
+        ticker.tick().await;
 
         loop {
             tokio::select! {

@@ -145,18 +145,22 @@ impl SecretsStore for SlowStore {
     }
 }
 
-#[tokio::test]
-async fn reaper_runs_once_immediately_and_can_stop() {
+#[tokio::test(start_paused = true)]
+async fn reaper_runs_once_immediately_before_first_interval_tick() {
     let store = Arc::new(CountingStore {
         calls: AtomicUsize::new(0),
     });
     let stop = start_expiry_reaper(store.clone());
 
-    tokio::time::sleep(Duration::from_millis(30)).await;
-    assert!(store.calls.load(Ordering::SeqCst) >= 1);
+    tokio::task::yield_now().await;
+    assert_eq!(store.calls.load(Ordering::SeqCst), 1);
+
+    tokio::time::advance(Duration::from_secs(5 * 60) + Duration::from_millis(1)).await;
+    tokio::task::yield_now().await;
+    assert_eq!(store.calls.load(Ordering::SeqCst), 2);
 
     let _ = stop.send(());
-    tokio::time::sleep(Duration::from_millis(5)).await;
+    tokio::task::yield_now().await;
 }
 
 #[tokio::test]
