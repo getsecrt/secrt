@@ -79,6 +79,12 @@ All commands SHOULD support:
 - `--help`, `-h`: print usage for current command and exit.
 - `--version`, `-v`: print version string and exit (top-level only).
 
+Short option parsing rules:
+
+- Implementations MAY support short inline values for value-taking short flags (for example `-L20`, `-oout.txt`).
+- Boolean short flags MUST NOT accept inline suffixes or clustering.
+- Inputs like `-SNG` or `-mfoo` MUST return a usage error instead of silently dropping suffix characters.
+
 Environment variable fallbacks are RECOMMENDED:
 
 - `SECRET_BASE_URL`

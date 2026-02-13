@@ -149,6 +149,21 @@ fn looks_like_share_url(s: &str) -> bool {
             .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum ShortFlagKind {
+    TakesValue,
+    Bool,
+    Other,
+}
+
+fn classify_short_flag(flag: &str) -> ShortFlagKind {
+    match flag {
+        "-f" | "-o" | "-L" => ShortFlagKind::TakesValue,
+        "-h" | "-m" | "-s" | "-p" | "-n" | "-S" | "-N" | "-C" | "-G" => ShortFlagKind::Bool,
+        _ => ShortFlagKind::Other,
+    }
+}
+
 fn run_help(args: &[String], deps: &mut Deps) -> i32 {
     if args.is_empty() {
         print_help(deps);
@@ -235,6 +250,17 @@ pub fn parse_flags(args: &[String]) -> Result<ParsedArgs, CliError> {
         } else {
             (arg.as_str(), None)
         };
+
+        if arg.starts_with('-')
+            && !arg.starts_with("--")
+            && inline_val.is_some()
+            && classify_short_flag(flag) == ShortFlagKind::Bool
+        {
+            return Err(CliError::Error(format!(
+                "{} does not accept an inline value",
+                flag
+            )));
+        }
 
         /// Read the value for a flag that requires one, preferring an inline
         /// `--flag=value` if present, otherwise consuming the next argument.
@@ -1695,6 +1721,28 @@ mod tests {
     fn flags_short_concat_output() {
         let pa = parse_flags(&s(&["-oout.txt"])).unwrap();
         assert_eq!(pa.output, "out.txt");
+    }
+
+    #[test]
+    fn flags_short_bool_stack_errors() {
+        let err = match parse_flags(&s(&["-SNG"])) {
+            Ok(_) => panic!("stacked bool flags should fail"),
+            Err(err) => err,
+        };
+        assert!(
+            matches!(err, CliError::Error(msg) if msg.contains("does not accept an inline value"))
+        );
+    }
+
+    #[test]
+    fn flags_short_bool_with_inline_suffix_errors() {
+        let err = match parse_flags(&s(&["-mfoo"])) {
+            Ok(_) => panic!("bool short flag with suffix should fail"),
+            Err(err) => err,
+        };
+        assert!(
+            matches!(err, CliError::Error(msg) if msg.contains("does not accept an inline value"))
+        );
     }
 
     // --- `--` end-of-flags tests ---
