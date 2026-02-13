@@ -4,7 +4,7 @@ use std::io::{Read, Write};
 use crate::cli::{parse_flags, print_send_help, resolve_globals, CliError, Deps, ParsedArgs};
 use crate::client::CreateRequest;
 use crate::color::{color_func, DIM, LABEL, SUCCESS, URL, WARN};
-use crate::envelope::{self, format_share_link, SealParams};
+use crate::envelope::{self, format_share_link, CompressionPolicy, PayloadMeta, SealParams};
 use crate::gen::generate_password_from_args;
 use crate::passphrase::{resolve_passphrase_for_send, write_error};
 
@@ -84,19 +84,22 @@ pub fn run_send(args: &[String], deps: &mut Deps) -> i32 {
     };
     let has_passphrase = !passphrase.is_empty();
 
-    // Build file hint when encrypting a file
-    let hint = if !pa.file.is_empty() {
-        crate::fileutil::build_file_hint(&pa.file)
+    // Build encrypted payload metadata (stored inside ciphertext frame).
+    let metadata = if !pa.file.is_empty() {
+        crate::fileutil::build_file_metadata(&pa.file).unwrap_or_else(PayloadMeta::binary)
+    } else if std::str::from_utf8(&plaintext).is_ok() {
+        PayloadMeta::text()
     } else {
-        None
+        PayloadMeta::binary()
     };
 
     // Seal envelope
     let result = envelope::seal(SealParams {
-        plaintext,
+        content: plaintext,
+        metadata,
         passphrase,
         rand_bytes: &*deps.rand_bytes,
-        hint,
+        compression_policy: CompressionPolicy::default(),
         iterations: 0,
     });
 

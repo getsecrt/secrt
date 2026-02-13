@@ -1,7 +1,6 @@
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use base64::Engine;
 use serde::Deserialize;
-use std::collections::HashMap;
 
 // We need to access the crate's envelope module
 use secrt_cli::envelope;
@@ -26,6 +25,10 @@ struct Vector {
     claim_token: String,
     claim_hash: String,
     envelope: serde_json::Value,
+    #[serde(default)]
+    metadata: Option<envelope::PayloadMeta>,
+    #[serde(default)]
+    codec: Option<String>,
 }
 
 fn load_vectors() -> VectorFile {
@@ -46,6 +49,14 @@ fn b64_encode(data: &[u8]) -> String {
     URL_SAFE_NO_PAD.encode(data)
 }
 
+fn parse_codec(s: &str) -> envelope::PayloadCodec {
+    match s {
+        "none" => envelope::PayloadCodec::None,
+        "zstd" => envelope::PayloadCodec::Zstd,
+        other => panic!("unknown codec {:?} in vector fixture", other),
+    }
+}
+
 /// Test that open() produces the correct plaintext for each vector.
 #[test]
 fn test_open_vectors() {
@@ -54,12 +65,28 @@ fn test_open_vectors() {
         let url_key = b64_decode(&v.url_key);
         let passphrase = v.passphrase.clone().unwrap_or_default();
 
-        let plaintext = envelope::open(envelope::OpenParams {
+        let opened = envelope::open(envelope::OpenParams {
             envelope: v.envelope.clone(),
             url_key,
             passphrase,
         })
         .unwrap_or_else(|e| panic!("open failed for {:?}: {}", v.description, e));
+        let plaintext = opened.content;
+        if let Some(ref codec) = v.codec {
+            assert_eq!(
+                opened.codec,
+                parse_codec(codec),
+                "codec mismatch for {:?}",
+                v.description
+            );
+        }
+        if let Some(ref metadata) = v.metadata {
+            assert_eq!(
+                &opened.metadata, metadata,
+                "metadata mismatch for {:?}",
+                v.description
+            );
+        }
 
         let expected = b64_decode(&v.plaintext);
         assert_eq!(
@@ -150,11 +177,10 @@ fn test_seal_vectors() {
             Ok(())
         };
 
-        // Extract hint if present
-        let hint: Option<HashMap<String, String>> = v
-            .envelope
-            .get("hint")
-            .and_then(|h| serde_json::from_value(h.clone()).ok());
+        let metadata = v
+            .metadata
+            .clone()
+            .unwrap_or_else(envelope::PayloadMeta::text);
 
         // Get iterations from envelope
         let iterations = v.envelope["kdf"]
@@ -163,10 +189,11 @@ fn test_seal_vectors() {
             .unwrap_or(0) as u32;
 
         let result = envelope::seal(envelope::SealParams {
-            plaintext: expected_plaintext,
+            content: expected_plaintext,
+            metadata,
             passphrase,
             rand_bytes: &rand_fn,
-            hint,
+            compression_policy: envelope::CompressionPolicy::default(),
             iterations,
         })
         .unwrap_or_else(|e| panic!("seal failed for {:?}: {}", v.description, e));
@@ -233,15 +260,6 @@ fn test_seal_vectors() {
             "envelope.hkdf mismatch for {:?}",
             v.description
         );
-
-        // Verify hint if present
-        if expected_env.get("hint").is_some() {
-            assert_eq!(
-                result_env["hint"], expected_env["hint"],
-                "envelope.hint mismatch for {:?}",
-                v.description
-            );
-        }
     }
 }
 
@@ -259,10 +277,11 @@ fn test_roundtrip() {
     };
 
     let result = envelope::seal(envelope::SealParams {
-        plaintext: plaintext.to_vec(),
+        content: plaintext.to_vec(),
+        metadata: envelope::PayloadMeta::text(),
         passphrase: String::new(),
         rand_bytes: &rand_fn,
-        hint: None,
+        compression_policy: envelope::CompressionPolicy::default(),
         iterations: 0,
     })
     .expect("seal failed");
@@ -274,7 +293,7 @@ fn test_roundtrip() {
     })
     .expect("open failed");
 
-    assert_eq!(recovered, plaintext);
+    assert_eq!(recovered.content, plaintext);
 }
 
 /// Verify round-trip with passphrase.
@@ -292,10 +311,11 @@ fn test_roundtrip_with_passphrase() {
     };
 
     let result = envelope::seal(envelope::SealParams {
-        plaintext: plaintext.to_vec(),
+        content: plaintext.to_vec(),
+        metadata: envelope::PayloadMeta::text(),
         passphrase: passphrase.to_string(),
         rand_bytes: &rand_fn,
-        hint: None,
+        compression_policy: envelope::CompressionPolicy::default(),
         iterations: 0,
     })
     .expect("seal failed");
@@ -307,7 +327,7 @@ fn test_roundtrip_with_passphrase() {
     })
     .expect("open failed");
 
-    assert_eq!(recovered, plaintext);
+    assert_eq!(recovered.content, plaintext);
 }
 
 /// Wrong passphrase should fail decryption.
@@ -324,10 +344,11 @@ fn test_wrong_passphrase() {
     };
 
     let result = envelope::seal(envelope::SealParams {
-        plaintext: plaintext.to_vec(),
+        content: plaintext.to_vec(),
+        metadata: envelope::PayloadMeta::text(),
         passphrase: "correct".to_string(),
         rand_bytes: &rand_fn,
-        hint: None,
+        compression_policy: envelope::CompressionPolicy::default(),
         iterations: 0,
     })
     .expect("seal failed");

@@ -3,8 +3,6 @@ mod helpers;
 use std::fs;
 use std::sync::Mutex;
 
-use std::collections::HashMap;
-
 use helpers::{args, TestDepsBuilder};
 use secrt_cli::cli;
 use secrt_cli::client::ClaimResponse;
@@ -34,10 +32,11 @@ fn real_rand(buf: &mut [u8]) -> Result<(), secrt_cli::envelope::EnvelopeError> {
 /// Seal an envelope and return (share_link, seal_result)
 fn seal_test_secret(plaintext: &[u8], passphrase: &str) -> (String, envelope::SealResult) {
     let result = envelope::seal(SealParams {
-        plaintext: plaintext.to_vec(),
+        content: plaintext.to_vec(),
+        metadata: envelope::PayloadMeta::text(),
         passphrase: passphrase.to_string(),
         rand_bytes: &real_rand,
-        hint: None,
+        compression_policy: envelope::CompressionPolicy::default(),
         iterations: if passphrase.is_empty() { 0 } else { 300_000 },
     })
     .unwrap();
@@ -857,15 +856,12 @@ fn get_implicit_with_flags() {
 
 /// Seal an envelope with a file hint and return (share_link, seal_result)
 fn seal_test_file(plaintext: &[u8], filename: &str, mime: &str) -> (String, envelope::SealResult) {
-    let mut hint = HashMap::new();
-    hint.insert("type".into(), "file".into());
-    hint.insert("filename".into(), filename.into());
-    hint.insert("mime".into(), mime.into());
     let result = envelope::seal(SealParams {
-        plaintext: plaintext.to_vec(),
+        content: plaintext.to_vec(),
+        metadata: envelope::PayloadMeta::file(filename.to_string(), mime.to_string()),
         passphrase: String::new(),
         rand_bytes: &real_rand,
-        hint: Some(hint),
+        compression_policy: envelope::CompressionPolicy::default(),
         iterations: 0,
     })
     .unwrap();
@@ -1019,7 +1015,7 @@ fn get_file_json_with_hint_utf8() {
     assert_eq!(json["plaintext"].as_str().unwrap(), "file text content");
     assert_eq!(json["filename"].as_str().unwrap(), "notes.txt");
     assert_eq!(json["mime"].as_str().unwrap(), "text/plain");
-    assert_eq!(json["type"].as_str().unwrap(), "text/plain");
+    assert_eq!(json["type"].as_str().unwrap(), "file");
     assert!(json.get("plaintext_base64").is_none());
 }
 

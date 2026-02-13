@@ -1,17 +1,17 @@
-use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
+use crate::envelope::{PayloadMeta, PayloadType};
 use crate::mime::mime_from_extension;
 
-/// Metadata extracted from an envelope hint with `type: "file"`.
+/// Metadata extracted from decrypted payload metadata with `type: "file"`.
 pub struct FileHint {
     pub filename: String,
     pub mime: String,
 }
 
-/// Build a hint map for a file path (used during `create --file`).
+/// Build encrypted payload metadata for a file path (used during `send --file`).
 /// Returns `None` if the path has no usable basename.
-pub fn build_file_hint(path: &str) -> Option<HashMap<String, String>> {
+pub fn build_file_metadata(path: &str) -> Option<PayloadMeta> {
     let basename = Path::new(path).file_name()?.to_str()?.to_string();
 
     if basename.is_empty() {
@@ -24,14 +24,10 @@ pub fn build_file_hint(path: &str) -> Option<HashMap<String, String>> {
         .unwrap_or("");
     let mime = mime_from_extension(ext).to_string();
 
-    let mut hint = HashMap::new();
-    hint.insert("type".into(), "file".into());
-    hint.insert("filename".into(), basename);
-    hint.insert("mime".into(), mime);
-    Some(hint)
+    Some(PayloadMeta::file(basename, mime))
 }
 
-/// Sanitize a filename received from an envelope hint.
+/// Sanitize a filename received from decrypted metadata.
 ///
 /// Strips path separators, null bytes, control characters, and leading dots.
 /// Replaces forbidden characters with `_`. Limits to 255 bytes.
@@ -111,25 +107,22 @@ pub fn resolve_output_path(filename: &str) -> Result<PathBuf, String> {
     ))
 }
 
-/// Extract a `FileHint` from an envelope's JSON `hint` field.
+/// Extract a `FileHint` from decrypted payload metadata.
 ///
-/// Returns `Some(FileHint)` only when `hint.type == "file"` and the
+/// Returns `Some(FileHint)` only when `metadata.type == "file"` and the
 /// filename passes sanitization.
-pub fn extract_file_hint(envelope: &serde_json::Value) -> Option<FileHint> {
-    let hint = envelope.get("hint")?;
-    let hint_type = hint.get("type")?.as_str()?;
-    if hint_type != "file" {
+pub fn extract_file_hint(metadata: &PayloadMeta) -> Option<FileHint> {
+    if metadata.payload_type != PayloadType::File {
         return None;
     }
 
-    let raw_filename = hint.get("filename")?.as_str()?;
+    let raw_filename = metadata.filename.as_deref()?;
     let filename = sanitize_filename(raw_filename)?;
 
-    let mime = hint
-        .get("mime")
-        .and_then(|v| v.as_str())
-        .unwrap_or("application/octet-stream")
-        .to_string();
+    let mime = metadata
+        .mime
+        .clone()
+        .unwrap_or_else(|| "application/octet-stream".to_string());
 
     Some(FileHint { filename, mime })
 }
@@ -138,33 +131,33 @@ pub fn extract_file_hint(envelope: &serde_json::Value) -> Option<FileHint> {
 mod tests {
     use super::*;
 
-    // --- build_file_hint ---
+    // --- build_file_metadata ---
 
     #[test]
     fn build_hint_simple() {
-        let hint = build_file_hint("./claw.png").unwrap();
-        assert_eq!(hint["type"], "file");
-        assert_eq!(hint["filename"], "claw.png");
-        assert_eq!(hint["mime"], "image/png");
+        let hint = build_file_metadata("./claw.png").unwrap();
+        assert_eq!(hint.payload_type, PayloadType::File);
+        assert_eq!(hint.filename.as_deref(), Some("claw.png"));
+        assert_eq!(hint.mime.as_deref(), Some("image/png"));
     }
 
     #[test]
     fn build_hint_nested_path() {
-        let hint = build_file_hint("/home/user/docs/report.pdf").unwrap();
-        assert_eq!(hint["filename"], "report.pdf");
-        assert_eq!(hint["mime"], "application/pdf");
+        let hint = build_file_metadata("/home/user/docs/report.pdf").unwrap();
+        assert_eq!(hint.filename.as_deref(), Some("report.pdf"));
+        assert_eq!(hint.mime.as_deref(), Some("application/pdf"));
     }
 
     #[test]
     fn build_hint_no_extension() {
-        let hint = build_file_hint("Makefile").unwrap();
-        assert_eq!(hint["filename"], "Makefile");
-        assert_eq!(hint["mime"], "application/octet-stream");
+        let hint = build_file_metadata("Makefile").unwrap();
+        assert_eq!(hint.filename.as_deref(), Some("Makefile"));
+        assert_eq!(hint.mime.as_deref(), Some("application/octet-stream"));
     }
 
     #[test]
     fn build_hint_empty_path() {
-        assert!(build_file_hint("").is_none());
+        assert!(build_file_metadata("").is_none());
     }
 
     // --- sanitize_filename ---
@@ -229,69 +222,43 @@ mod tests {
 
     #[test]
     fn extract_hint_valid() {
-        let env = serde_json::json!({
-            "hint": {
-                "type": "file",
-                "filename": "photo.jpg",
-                "mime": "image/jpeg"
-            }
-        });
-        let fh = extract_file_hint(&env).unwrap();
+        let meta = PayloadMeta::file("photo.jpg".into(), "image/jpeg".into());
+        let fh = extract_file_hint(&meta).unwrap();
         assert_eq!(fh.filename, "photo.jpg");
         assert_eq!(fh.mime, "image/jpeg");
     }
 
     #[test]
     fn extract_hint_no_hint() {
-        let env = serde_json::json!({});
-        assert!(extract_file_hint(&env).is_none());
+        let meta = PayloadMeta::text();
+        assert!(extract_file_hint(&meta).is_none());
     }
 
     #[test]
     fn extract_hint_wrong_type() {
-        let env = serde_json::json!({
-            "hint": {
-                "type": "text",
-                "filename": "notes.txt"
-            }
-        });
-        assert!(extract_file_hint(&env).is_none());
+        let mut meta = PayloadMeta::text();
+        meta.filename = Some("notes.txt".into());
+        assert!(extract_file_hint(&meta).is_none());
     }
 
     #[test]
     fn extract_hint_sanitizes_filename() {
-        let env = serde_json::json!({
-            "hint": {
-                "type": "file",
-                "filename": "../../../etc/passwd",
-                "mime": "text/plain"
-            }
-        });
-        let fh = extract_file_hint(&env).unwrap();
+        let meta = PayloadMeta::file("../../../etc/passwd".into(), "text/plain".into());
+        let fh = extract_file_hint(&meta).unwrap();
         assert_eq!(fh.filename, "passwd");
     }
 
     #[test]
     fn extract_hint_bad_filename_returns_none() {
-        let env = serde_json::json!({
-            "hint": {
-                "type": "file",
-                "filename": "...",
-                "mime": "text/plain"
-            }
-        });
-        assert!(extract_file_hint(&env).is_none());
+        let meta = PayloadMeta::file("...".into(), "text/plain".into());
+        assert!(extract_file_hint(&meta).is_none());
     }
 
     #[test]
     fn extract_hint_default_mime() {
-        let env = serde_json::json!({
-            "hint": {
-                "type": "file",
-                "filename": "data.bin"
-            }
-        });
-        let fh = extract_file_hint(&env).unwrap();
+        let mut meta = PayloadMeta::file("data.bin".into(), "application/octet-stream".into());
+        meta.mime = None;
+        let fh = extract_file_hint(&meta).unwrap();
         assert_eq!(fh.mime, "application/octet-stream");
     }
 
@@ -330,29 +297,22 @@ mod tests {
 
     #[test]
     fn extract_hint_missing_filename() {
-        let env = serde_json::json!({
-            "hint": {
-                "type": "file",
-                "mime": "text/plain"
-            }
-        });
-        assert!(extract_file_hint(&env).is_none());
+        let mut meta = PayloadMeta::file("test.txt".into(), "text/plain".into());
+        meta.filename = None;
+        assert!(extract_file_hint(&meta).is_none());
     }
 
     #[test]
     fn extract_hint_missing_type() {
-        let env = serde_json::json!({
-            "hint": {
-                "filename": "test.txt",
-                "mime": "text/plain"
-            }
-        });
-        assert!(extract_file_hint(&env).is_none());
+        let mut meta = PayloadMeta::text();
+        meta.filename = Some("test.txt".into());
+        meta.mime = Some("text/plain".into());
+        assert!(extract_file_hint(&meta).is_none());
     }
 
     #[test]
     fn build_hint_root_path() {
         // Path "/" has no file_name component
-        assert!(build_file_hint("/").is_none());
+        assert!(build_file_metadata("/").is_none());
     }
 }

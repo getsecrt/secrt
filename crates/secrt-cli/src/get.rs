@@ -3,7 +3,7 @@ use std::io::Write;
 
 use crate::cli::{parse_flags, print_get_help, resolve_globals, CliError, Deps};
 use crate::color::{color_func, DIM, LABEL, SUCCESS, WARN};
-use crate::envelope::{self, EnvelopeError, OpenParams};
+use crate::envelope::{self, EnvelopeError, OpenParams, PayloadMeta};
 use crate::fileutil::{extract_file_hint, resolve_output_path};
 use crate::passphrase::{resolve_passphrase, write_error};
 
@@ -116,13 +116,13 @@ pub fn run_get(args: &[String], deps: &mut Deps) -> i32 {
         };
 
         let can_retry = pa.passphrase_prompt && is_tty && needs_pass;
-        let plaintext = loop {
+        let opened = loop {
             match envelope::open(OpenParams {
                 envelope: resp.envelope.clone(),
                 url_key: url_key.clone(),
                 passphrase: passphrase.clone(),
             }) {
-                Ok(p) => break p,
+                Ok(v) => break v,
                 Err(EnvelopeError::DecryptionFailed) if can_retry => {
                     let c = color_func(is_tty);
                     let _ = writeln!(deps.stderr, "{}", c(WARN, "Wrong passphrase, try again."));
@@ -157,7 +157,13 @@ pub fn run_get(args: &[String], deps: &mut Deps) -> i32 {
             }
         };
 
-        return output_plaintext(&plaintext, &pa, deps, &resp.expires_at, &resp.envelope);
+        return output_plaintext(
+            &opened.content,
+            &pa,
+            deps,
+            &resp.expires_at,
+            &opened.metadata,
+        );
     }
 
     // --- Phase B: Try configured passphrases (default + decryption list) ---
@@ -180,13 +186,13 @@ pub fn run_get(args: &[String], deps: &mut Deps) -> i32 {
                 url_key: url_key.clone(),
                 passphrase: String::new(),
             }) {
-                Ok(plaintext) => {
+                Ok(opened) => {
                     return output_plaintext(
-                        &plaintext,
+                        &opened.content,
                         &pa,
                         deps,
                         &resp.expires_at,
-                        &resp.envelope,
+                        &opened.metadata,
                     )
                 }
                 Err(EnvelopeError::DecryptionFailed) => {
@@ -206,13 +212,13 @@ pub fn run_get(args: &[String], deps: &mut Deps) -> i32 {
                 url_key: url_key.clone(),
                 passphrase: candidate.clone(),
             }) {
-                Ok(plaintext) => {
+                Ok(opened) => {
                     return output_plaintext(
-                        &plaintext,
+                        &opened.content,
                         &pa,
                         deps,
                         &resp.expires_at,
-                        &resp.envelope,
+                        &opened.metadata,
                     )
                 }
                 Err(EnvelopeError::DecryptionFailed) => continue,
@@ -314,13 +320,13 @@ pub fn run_get(args: &[String], deps: &mut Deps) -> i32 {
                 url_key: url_key.clone(),
                 passphrase,
             }) {
-                Ok(plaintext) => {
+                Ok(opened) => {
                     return output_plaintext(
-                        &plaintext,
+                        &opened.content,
                         &pa,
                         deps,
                         &resp.expires_at,
-                        &resp.envelope,
+                        &opened.metadata,
                     )
                 }
                 Err(EnvelopeError::DecryptionFailed) => {
@@ -351,9 +357,9 @@ fn output_plaintext(
     pa: &crate::cli::ParsedArgs,
     deps: &mut Deps,
     expires_at: &str,
-    envelope: &serde_json::Value,
+    metadata: &PayloadMeta,
 ) -> i32 {
-    let file_hint = extract_file_hint(envelope);
+    let file_hint = extract_file_hint(metadata);
 
     // 1. JSON mode
     if pa.json {
@@ -361,7 +367,7 @@ fn output_plaintext(
 
         // Use base64 for binary data, plain string for valid UTF-8
         if let Some(ref fh) = file_hint {
-            out.insert("type".into(), serde_json::json!(fh.mime.clone()));
+            out.insert("type".into(), serde_json::json!("file"));
             out.insert("filename".into(), serde_json::json!(fh.filename.clone()));
             out.insert("mime".into(), serde_json::json!(fh.mime.clone()));
         }
