@@ -2,6 +2,38 @@ use std::io::Write;
 use std::process::{Command, Stdio};
 
 #[test]
+fn server_version_does_not_touch_database() {
+    let bin = env!("CARGO_BIN_EXE_secrt-server");
+    let out = Command::new(bin)
+        .arg("--version")
+        .env("DATABASE_URL", "postgres://invalid:%zz")
+        .output()
+        .expect("run server --version");
+
+    assert!(out.status.success());
+    assert_eq!(
+        String::from_utf8_lossy(&out.stdout).trim(),
+        format!("secrt-server {}", env!("CARGO_PKG_VERSION"))
+    );
+}
+
+#[test]
+fn server_help_does_not_touch_database() {
+    let bin = env!("CARGO_BIN_EXE_secrt-server");
+    let out = Command::new(bin)
+        .arg("--help")
+        .env("DATABASE_URL", "postgres://invalid:%zz")
+        .output()
+        .expect("run server --help");
+
+    assert!(out.status.success());
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(stdout.contains("Usage:"));
+    assert!(stdout.contains("secrt-server"));
+    assert!(stdout.contains("--version"));
+}
+
+#[test]
 fn server_exits_non_zero_on_invalid_database_url() {
     let bin = env!("CARGO_BIN_EXE_secrt-server");
     let out = Command::new(bin)
