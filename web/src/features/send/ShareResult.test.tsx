@@ -25,19 +25,25 @@ describe('ShareResult', () => {
     expect(textbox.textContent).toBe(props.shareUrl);
   });
 
-  it('shows "Secret created" heading', () => {
+  it('shows "Secret Created" heading', () => {
     render(<ShareResult {...props} />);
-    expect(screen.getByRole('heading', { name: 'Secret created' })).toBeInTheDocument();
+    expect(
+      screen.getByRole('heading', { name: 'Secret Created' }),
+    ).toBeInTheDocument();
   });
 
   it('shows expiry text', () => {
     render(<ShareResult {...props} />);
-    expect(screen.getByText(/This link works exactly once/)).toBeInTheDocument();
+    expect(
+      screen.getByText(/This link works exactly once/),
+    ).toBeInTheDocument();
   });
 
   it('shows "Copy link" button', () => {
     render(<ShareResult {...props} />);
-    expect(screen.getByRole('button', { name: 'Copy link' })).toBeInTheDocument();
+    expect(
+      screen.getByRole('button', { name: 'Copy link' }),
+    ).toBeInTheDocument();
   });
 
   it('calls onReset when "Create another" is clicked', async () => {

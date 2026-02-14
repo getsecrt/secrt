@@ -16,7 +16,7 @@ export async function sendSecret(
   }
 
   await page.getByRole('button', { name: 'Create secret' }).click();
-  await expect(page.getByText('Secret created')).toBeVisible({
+  await expect(page.getByText('Secret Created')).toBeVisible({
     timeout: 15_000,
   });
 

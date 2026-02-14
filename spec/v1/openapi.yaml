@@ -115,7 +115,7 @@ paths:
               ttl_seconds: 86400
       responses:
         "201":
-          description: Secret created
+          description: Secret Created
           content:
             application/json:
               schema:
@@ -153,7 +153,7 @@ paths:
               $ref: "#/components/schemas/CreateSecretRequest"
       responses:
         "201":
-          description: Secret created
+          description: Secret Created
           content:
             application/json:
               schema:
