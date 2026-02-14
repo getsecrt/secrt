@@ -1,5 +1,6 @@
 import { useState, useCallback, useRef } from 'preact/hooks';
 import { UploadIcon, XMarkIcon } from '../../components/Icons';
+import { formatSize } from './format';
 
 interface FileDropZoneProps {
   file: File | null;
@@ -7,12 +8,6 @@ interface FileDropZoneProps {
   onFileClear: () => void;
   disabled?: boolean;
   className?: string;
-}
-
-function formatSize(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
 export function FileDropZone({
