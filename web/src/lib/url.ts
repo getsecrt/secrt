@@ -1,18 +1,18 @@
 import { base64urlEncode, base64urlDecode } from '../crypto/encoding';
 import { URL_KEY_LEN } from '../crypto/constants';
 
-const DEFAULT_HOST = 'secrt.ca';
-
 /**
  * Format a share link from secret ID and url_key.
  * Fragment carries the base64url-encoded url_key.
+ * Defaults to the current origin so links work in both dev and production.
  */
 export function formatShareLink(
   id: string,
   urlKey: Uint8Array,
-  host?: string,
+  baseUrl?: string,
 ): string {
-  return `https://${host ?? DEFAULT_HOST}/s/${id}#${base64urlEncode(urlKey)}`;
+  const origin = baseUrl ?? window.location.origin;
+  return `${origin}/s/${id}#${base64urlEncode(urlKey)}`;
 }
 
 /**

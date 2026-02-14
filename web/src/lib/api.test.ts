@@ -1,10 +1,24 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { fetchInfo, createSecret, claimSecret, burnSecret } from './api';
+import {
+  fetchInfo,
+  createSecret,
+  claimSecret,
+  burnSecret,
+  registerPasskeyStart,
+  registerPasskeyFinish,
+  loginPasskeyStart,
+  loginPasskeyFinish,
+  fetchSession,
+  logout,
+} from './api';
 import type {
   ApiInfo,
   CreateRequest,
   CreateResponse,
   ClaimResponse,
+  ChallengeResponse,
+  AuthFinishResponse,
+  SessionResponse,
   EnvelopeJson,
 } from '../types';
 
@@ -294,5 +308,139 @@ describe('burnSecret', () => {
       expect.anything(),
       expect.objectContaining({ signal: controller.signal }),
     );
+  });
+});
+
+/* ── Auth API ─────────────────────────────────────────── */
+
+const mockChallenge: ChallengeResponse = {
+  challenge_id: 'ch_123',
+  challenge: 'Y2hhbGxlbmdl',
+  expires_at: '2026-12-31T00:00:00Z',
+};
+
+const mockAuthFinish: AuthFinishResponse = {
+  session_token: 'uss_abc.secret',
+  user_id: 42,
+  handle: 'alice',
+  expires_at: '2026-12-31T00:00:00Z',
+};
+
+describe('registerPasskeyStart', () => {
+  it('POSTs to register/start endpoint', async () => {
+    vi.mocked(fetch).mockResolvedValue(jsonResponse(mockChallenge));
+
+    const result = await registerPasskeyStart({ display_name: 'Alice' });
+    expect(result).toEqual(mockChallenge);
+    expect(fetch).toHaveBeenCalledWith(
+      '/api/v1/auth/passkeys/register/start',
+      expect.objectContaining({ method: 'POST' }),
+    );
+  });
+
+  it('throws on error', async () => {
+    vi.mocked(fetch).mockResolvedValue(
+      errorResponse(400, 'Bad Request', { error: 'display_name required' }),
+    );
+
+    await expect(
+      registerPasskeyStart({ display_name: '' }),
+    ).rejects.toThrow('display_name required');
+  });
+});
+
+describe('registerPasskeyFinish', () => {
+  it('POSTs to register/finish endpoint', async () => {
+    vi.mocked(fetch).mockResolvedValue(jsonResponse(mockAuthFinish));
+
+    const result = await registerPasskeyFinish({
+      challenge_id: 'ch_1',
+      credential_id: 'cred_1',
+      public_key: 'pk_1',
+    });
+    expect(result).toEqual(mockAuthFinish);
+    expect(fetch).toHaveBeenCalledWith(
+      '/api/v1/auth/passkeys/register/finish',
+      expect.objectContaining({ method: 'POST' }),
+    );
+  });
+});
+
+describe('loginPasskeyStart', () => {
+  it('POSTs to login/start endpoint', async () => {
+    vi.mocked(fetch).mockResolvedValue(jsonResponse(mockChallenge));
+
+    const result = await loginPasskeyStart({ credential_id: 'cred_abc' });
+    expect(result).toEqual(mockChallenge);
+    expect(fetch).toHaveBeenCalledWith(
+      '/api/v1/auth/passkeys/login/start',
+      expect.objectContaining({ method: 'POST' }),
+    );
+  });
+});
+
+describe('loginPasskeyFinish', () => {
+  it('POSTs to login/finish endpoint', async () => {
+    vi.mocked(fetch).mockResolvedValue(jsonResponse(mockAuthFinish));
+
+    const result = await loginPasskeyFinish({
+      challenge_id: 'ch_2',
+      credential_id: 'cred_xyz',
+    });
+    expect(result).toEqual(mockAuthFinish);
+    expect(fetch).toHaveBeenCalledWith(
+      '/api/v1/auth/passkeys/login/finish',
+      expect.objectContaining({ method: 'POST' }),
+    );
+  });
+});
+
+describe('fetchSession', () => {
+  const mockSession: SessionResponse = {
+    authenticated: true,
+    user_id: 42,
+    handle: 'alice',
+    expires_at: '2026-12-31T00:00:00Z',
+  };
+
+  it('GETs session endpoint with bearer token', async () => {
+    vi.mocked(fetch).mockResolvedValue(jsonResponse(mockSession));
+
+    const result = await fetchSession('uss_tok.secret');
+    expect(result).toEqual(mockSession);
+    const callArgs = vi.mocked(fetch).mock.calls[0];
+    const init = callArgs[1] as RequestInit;
+    const headers = new Headers(init.headers);
+    expect(headers.get('authorization')).toBe('Bearer uss_tok.secret');
+  });
+
+  it('throws on 401', async () => {
+    vi.mocked(fetch).mockResolvedValue(
+      errorResponse(401, 'Unauthorized', { error: 'invalid token' }),
+    );
+
+    await expect(fetchSession('bad_tok')).rejects.toThrow('invalid token');
+  });
+});
+
+describe('logout', () => {
+  it('POSTs to logout endpoint with bearer token', async () => {
+    vi.mocked(fetch).mockResolvedValue(jsonResponse({ ok: true }));
+
+    await logout('uss_tok.secret');
+    expect(fetch).toHaveBeenCalledWith(
+      '/api/v1/auth/logout',
+      expect.objectContaining({ method: 'POST' }),
+    );
+    const callArgs = vi.mocked(fetch).mock.calls[0];
+    const init = callArgs[1] as RequestInit;
+    const headers = new Headers(init.headers);
+    expect(headers.get('authorization')).toBe('Bearer uss_tok.secret');
+  });
+
+  it('resolves on success (void return)', async () => {
+    vi.mocked(fetch).mockResolvedValue(jsonResponse({ ok: true }));
+
+    await expect(logout('tok')).resolves.toBeUndefined();
   });
 });

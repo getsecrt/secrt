@@ -18,6 +18,7 @@ import { FileDropZone } from './FileDropZone';
 import { TtlSelector } from './TtlSelector';
 import { ShareResult } from './ShareResult';
 import { HowItWorks } from '../../components/HowItWorks';
+import { useAuth } from '../../lib/auth-context';
 import { mapError } from './errors';
 
 type SendStatus =
@@ -28,6 +29,7 @@ type SendStatus =
   | { step: 'error'; message: string };
 
 export function SendPage() {
+  const auth = useAuth();
   const [mode, setMode] = useState<'text' | 'file'>('text');
   const [text, setText] = useState('');
   const [file, setFile] = useState<File | null>(null);
@@ -130,7 +132,7 @@ export function SendPage() {
         setStatus({ step: 'sending' });
         const res = await createSecret(
           { envelope, claim_hash: claimHash, ttl_seconds: ttlSeconds },
-          undefined,
+          auth.sessionToken ?? undefined,
           controller.signal,
         );
 
@@ -143,7 +145,7 @@ export function SendPage() {
         setStatus({ step: 'error', message: mapError(err) });
       }
     },
-    [mode, text, file, passphrase, ttlSeconds, hasContent, busy, serverInfo],
+    [mode, text, file, passphrase, ttlSeconds, hasContent, busy, serverInfo, auth.sessionToken],
   );
 
   // Done — show result
@@ -166,6 +168,9 @@ export function SendPage() {
 
   return (
     <div class="space-y-4">
+      <p class="text-center text-xs text-muted">
+        Private, Zero-Knowledge, One-Time Secret Sharing
+      </p>
       <form
         class="card space-y-6"
         onSubmit={handleSubmit}

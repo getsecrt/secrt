@@ -50,7 +50,7 @@ test.describe('File upload flow', () => {
     const claimPage = await context.newPage();
     await claimPage.goto(pathWithHash);
 
-    await expect(claimPage.getByText('Secret Revealed')).toBeVisible({
+    await expect(claimPage.getByText('Secret Decrypted')).toBeVisible({
       timeout: 15_000,
     });
 

@@ -21,7 +21,7 @@ test.describe('Security', () => {
     });
 
     await page.goto(pathWithHash);
-    await expect(page.getByText('Secret Revealed')).toBeVisible({
+    await expect(page.getByText('Secret Decrypted')).toBeVisible({
       timeout: 15_000,
     });
 
@@ -45,7 +45,7 @@ test.describe('Security', () => {
     const claimPage = await context.newPage();
     await claimPage.goto(pathWithHash);
     // Wait for the claim flow — might need longer due to crypto operations
-    await expect(claimPage.getByText('Secret Revealed')).toBeVisible({
+    await expect(claimPage.getByText('Secret Decrypted')).toBeVisible({
       timeout: 15_000,
     });
 

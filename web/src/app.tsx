@@ -1,8 +1,11 @@
 import { useRoute } from './router';
 import { Layout } from './components/Layout';
+import { AuthProvider } from './lib/auth-context';
 import { SendPage } from './features/send/SendPage';
 import { ClaimPage } from './features/claim/ClaimPage';
 import { HowItWorksPage } from './features/trust/HowItWorksPage';
+import { LoginPage } from './features/auth/LoginPage';
+import { RegisterPage } from './features/auth/RegisterPage';
 import { ThemePage } from './features/test/ThemePage';
 import { TestClaimPage } from './features/test/TestClaimPage';
 
@@ -24,6 +27,12 @@ export function App() {
     case 'how-it-works':
       page = <HowItWorksPage />;
       break;
+    case 'login':
+      page = <LoginPage />;
+      break;
+    case 'register':
+      page = <RegisterPage />;
+      break;
     case 'test-claim':
       if (import.meta.env.DEV) {
         page = <TestClaimPage />;
@@ -39,5 +48,9 @@ export function App() {
       break;
   }
 
-  return <Layout>{page}</Layout>;
+  return (
+    <AuthProvider>
+      <Layout>{page}</Layout>
+    </AuthProvider>
+  );
 }

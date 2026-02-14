@@ -4,6 +4,13 @@ import type {
   CreateResponse,
   ClaimRequest,
   ClaimResponse,
+  PasskeyRegisterStartRequest,
+  PasskeyRegisterFinishRequest,
+  PasskeyLoginStartRequest,
+  PasskeyLoginFinishRequest,
+  ChallengeResponse,
+  AuthFinishResponse,
+  SessionResponse,
 } from '../types';
 
 type ApiErrorBody = { error?: string };
@@ -86,6 +93,96 @@ export async function burnSecret(
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify(req),
+    },
+    signal,
+  );
+}
+
+/* ── Auth API ─────────────────────────────────────────── */
+
+export async function registerPasskeyStart(
+  req: PasskeyRegisterStartRequest,
+  signal?: AbortSignal,
+): Promise<ChallengeResponse> {
+  return requestJson<ChallengeResponse>(
+    '/api/v1/auth/passkeys/register/start',
+    {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(req),
+    },
+    signal,
+  );
+}
+
+export async function registerPasskeyFinish(
+  req: PasskeyRegisterFinishRequest,
+  signal?: AbortSignal,
+): Promise<AuthFinishResponse> {
+  return requestJson<AuthFinishResponse>(
+    '/api/v1/auth/passkeys/register/finish',
+    {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(req),
+    },
+    signal,
+  );
+}
+
+export async function loginPasskeyStart(
+  req: PasskeyLoginStartRequest,
+  signal?: AbortSignal,
+): Promise<ChallengeResponse> {
+  return requestJson<ChallengeResponse>(
+    '/api/v1/auth/passkeys/login/start',
+    {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(req),
+    },
+    signal,
+  );
+}
+
+export async function loginPasskeyFinish(
+  req: PasskeyLoginFinishRequest,
+  signal?: AbortSignal,
+): Promise<AuthFinishResponse> {
+  return requestJson<AuthFinishResponse>(
+    '/api/v1/auth/passkeys/login/finish',
+    {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(req),
+    },
+    signal,
+  );
+}
+
+export async function fetchSession(
+  token: string,
+  signal?: AbortSignal,
+): Promise<SessionResponse> {
+  return requestJson<SessionResponse>(
+    '/api/v1/auth/session',
+    {
+      method: 'GET',
+      headers: { authorization: `Bearer ${token}` },
+    },
+    signal,
+  );
+}
+
+export async function logout(
+  token: string,
+  signal?: AbortSignal,
+): Promise<void> {
+  await requestJson<{ ok: boolean }>(
+    '/api/v1/auth/logout',
+    {
+      method: 'POST',
+      headers: { authorization: `Bearer ${token}` },
     },
     signal,
   );

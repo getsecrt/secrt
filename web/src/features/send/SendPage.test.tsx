@@ -30,6 +30,18 @@ vi.mock('../../lib/clipboard', () => ({
   copyToClipboard: vi.fn().mockResolvedValue(true),
 }));
 
+vi.mock('../../lib/auth-context', () => ({
+  useAuth: () => ({
+    loading: false,
+    authenticated: false,
+    userId: null,
+    handle: null,
+    sessionToken: null,
+    login: vi.fn(),
+    logout: vi.fn(),
+  }),
+}));
+
 import { seal } from '../../crypto/envelope';
 import { createSecret, fetchInfo } from '../../lib/api';
 import { checkEnvelopeSize } from '../../lib/envelope-size';

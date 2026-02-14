@@ -49,7 +49,7 @@ export async function claimSecret(
     await page.getByRole('button', { name: 'Decrypt' }).click();
   }
 
-  await expect(page.getByText('Secret Revealed')).toBeVisible({
+  await expect(page.getByText('Secret Decrypted')).toBeVisible({
     timeout: 15_000,
   });
 

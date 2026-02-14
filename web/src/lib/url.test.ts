@@ -10,15 +10,17 @@ function makeUrlKey(seed = 0): Uint8Array {
 }
 
 describe('formatShareLink', () => {
-  it('uses default host secrt.ca', () => {
+  it('uses window.location.origin by default', () => {
     const key = makeUrlKey();
     const link = formatShareLink('abc123', key);
-    expect(link).toMatch(/^https:\/\/secrt\.ca\/s\/abc123#/);
+    expect(link).toMatch(
+      new RegExp(`^${window.location.origin.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}/s/abc123#`),
+    );
   });
 
-  it('uses custom host when provided', () => {
+  it('uses custom base URL when provided', () => {
     const key = makeUrlKey();
-    const link = formatShareLink('abc123', key, 'example.com');
+    const link = formatShareLink('abc123', key, 'https://example.com');
     expect(link).toMatch(/^https:\/\/example\.com\/s\/abc123#/);
   });
 

@@ -93,3 +93,44 @@ export interface ClaimRequest {
 export interface ClaimResponse {
   envelope: EnvelopeJson;
 }
+
+/** Auth API types. */
+export interface PasskeyRegisterStartRequest {
+  display_name: string;
+  handle?: string;
+}
+
+export interface ChallengeResponse {
+  challenge_id: string;
+  challenge: string;
+  expires_at: string;
+}
+
+export interface PasskeyRegisterFinishRequest {
+  challenge_id: string;
+  credential_id: string;
+  public_key: string;
+}
+
+export interface PasskeyLoginStartRequest {
+  credential_id: string;
+}
+
+export interface PasskeyLoginFinishRequest {
+  challenge_id: string;
+  credential_id: string;
+}
+
+export interface AuthFinishResponse {
+  session_token: string;
+  user_id: number;
+  handle: string;
+  expires_at: string;
+}
+
+export interface SessionResponse {
+  authenticated: boolean;
+  user_id: number | null;
+  handle: string | null;
+  expires_at: string | null;
+}

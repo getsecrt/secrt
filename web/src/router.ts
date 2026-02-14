@@ -4,6 +4,8 @@ export type Route =
   | { page: 'send' }
   | { page: 'claim'; id: string }
   | { page: 'how-it-works' }
+  | { page: 'login' }
+  | { page: 'register' }
   | { page: 'theme' }
   | { page: 'test-claim' }
   | { page: 'not-found' };
@@ -20,6 +22,14 @@ export function matchRoute(path: string): Route {
 
   if (path === '/how-it-works') {
     return { page: 'how-it-works' };
+  }
+
+  if (path === '/login') {
+    return { page: 'login' };
+  }
+
+  if (path === '/register') {
+    return { page: 'register' };
   }
 
   if (import.meta.env.DEV) {

@@ -10,6 +10,12 @@ vi.mock('./features/claim/ClaimPage', () => ({
     <div data-testid="claim-page">ClaimPage:{id}</div>
   ),
 }));
+vi.mock('./features/auth/LoginPage', () => ({
+  LoginPage: () => <div data-testid="login-page">LoginPage</div>,
+}));
+vi.mock('./features/auth/RegisterPage', () => ({
+  RegisterPage: () => <div data-testid="register-page">RegisterPage</div>,
+}));
 vi.mock('./features/test/ThemePage', () => ({
   ThemePage: () => <div data-testid="theme-page">ThemePage</div>,
 }));
@@ -24,6 +30,11 @@ vi.mock('./features/trust/HowItWorksPage', () => ({
 vi.mock('./components/Layout', () => ({
   Layout: ({ children }: { children: preact.ComponentChildren }) => (
     <div data-testid="layout">{children}</div>
+  ),
+}));
+vi.mock('./lib/auth-context', () => ({
+  AuthProvider: ({ children }: { children: preact.ComponentChildren }) => (
+    <div data-testid="auth-provider">{children}</div>
   ),
 }));
 
@@ -74,16 +85,30 @@ describe('App', () => {
     expect(screen.getByTestId('how-it-works-page')).toBeInTheDocument();
   });
 
+  it('renders LoginPage for "login" route', () => {
+    mockUseRoute.mockReturnValue({ page: 'login' });
+    render(<App />);
+    expect(screen.getByTestId('login-page')).toBeInTheDocument();
+  });
+
+  it('renders RegisterPage for "register" route', () => {
+    mockUseRoute.mockReturnValue({ page: 'register' });
+    render(<App />);
+    expect(screen.getByTestId('register-page')).toBeInTheDocument();
+  });
+
   it('renders TestClaimPage in DEV mode for "test-claim" route', () => {
     mockUseRoute.mockReturnValue({ page: 'test-claim' });
     render(<App />);
     expect(screen.getByTestId('test-claim-page')).toBeInTheDocument();
   });
 
-  it('wraps content in Layout', () => {
+  it('wraps content in AuthProvider and Layout', () => {
     mockUseRoute.mockReturnValue({ page: 'send' });
     render(<App />);
+    const authProvider = screen.getByTestId('auth-provider');
     const layout = screen.getByTestId('layout');
+    expect(authProvider).toContainElement(layout);
     expect(layout).toContainElement(screen.getByTestId('send-page'));
   });
 });

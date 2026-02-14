@@ -29,6 +29,14 @@ describe('matchRoute', () => {
     expect(matchRoute('/how-it-works')).toEqual({ page: 'how-it-works' });
   });
 
+  it('"/login" -> login page', () => {
+    expect(matchRoute('/login')).toEqual({ page: 'login' });
+  });
+
+  it('"/register" -> register page', () => {
+    expect(matchRoute('/register')).toEqual({ page: 'register' });
+  });
+
   it('"/test/theme" -> theme page', () => {
     expect(matchRoute('/test/theme')).toEqual({ page: 'theme' });
   });

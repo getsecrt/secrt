@@ -42,12 +42,23 @@ const noPassEnvelope = {
   suite: 'v1-pbkdf2-hkdf-aes256gcm-sealed-payload' as const,
   enc: { alg: 'A256GCM' as const, nonce: 'n', ciphertext: 'c' },
   kdf: { name: 'none' as const },
-  hkdf: { hash: 'SHA-256' as const, salt: 's', enc_info: 'e', claim_info: 'cl', length: 32 as const },
+  hkdf: {
+    hash: 'SHA-256' as const,
+    salt: 's',
+    enc_info: 'e',
+    claim_info: 'cl',
+    length: 32 as const,
+  },
 };
 
 const passEnvelope = {
   ...noPassEnvelope,
-  kdf: { name: 'PBKDF2-SHA256' as const, salt: 'ks', iterations: 600000, length: 32 as const },
+  kdf: {
+    name: 'PBKDF2-SHA256' as const,
+    salt: 'ks',
+    iterations: 600000,
+    length: 32 as const,
+  },
 };
 
 function setHash(hash: string) {
@@ -127,11 +138,11 @@ describe('ClaimPage', () => {
 
   // ── No-passphrase flow ──
 
-  it('shows "Secret Revealed" after claim+decrypt', async () => {
+  it('shows "Secret Decrypted" after claim+decrypt', async () => {
     setHash(fakeFragment);
     render(<ClaimPage id="test123" />);
     await waitFor(() => {
-      expect(screen.getByText('Secret Revealed')).toBeInTheDocument();
+      expect(screen.getByText('Secret Decrypted')).toBeInTheDocument();
     });
   });
 
@@ -139,7 +150,7 @@ describe('ClaimPage', () => {
     setHash(fakeFragment);
     render(<ClaimPage id="test123" />);
     await waitFor(() => {
-      expect(screen.getByText('Secret Revealed')).toBeInTheDocument();
+      expect(screen.getByText('Secret Decrypted')).toBeInTheDocument();
     });
 
     // Should show dots initially (not the actual text)
@@ -155,7 +166,9 @@ describe('ClaimPage', () => {
     setHash(fakeFragment);
     render(<ClaimPage id="test123" />);
     await waitFor(() => {
-      expect(screen.getByRole('button', { name: /Copy secret/ })).toBeInTheDocument();
+      expect(
+        screen.getByRole('button', { name: /Copy secret/ }),
+      ).toBeInTheDocument();
     });
   });
 
@@ -172,7 +185,7 @@ describe('ClaimPage', () => {
     const user = userEvent.setup();
     render(<ClaimPage id="test123" />);
     await waitFor(() => {
-      expect(screen.getByText('Secret Revealed')).toBeInTheDocument();
+      expect(screen.getByText('Secret Decrypted')).toBeInTheDocument();
     });
     await user.click(screen.getByText('Create a new secret'));
     expect(mockNavigate).toHaveBeenCalledWith('/');
@@ -191,7 +204,9 @@ describe('ClaimPage', () => {
       expect(screen.getByText('report.pdf')).toBeInTheDocument();
     });
     expect(screen.getByText(/4\.0 KB/)).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /Download file/ })).toBeInTheDocument();
+    expect(
+      screen.getByRole('button', { name: /Download file/ }),
+    ).toBeInTheDocument();
   });
 
   // ── Passphrase flow ──
@@ -233,9 +248,13 @@ describe('ClaimPage', () => {
     await user.click(screen.getByRole('button', { name: 'Decrypt' }));
 
     await waitFor(() => {
-      expect(screen.getByText('Secret Revealed')).toBeInTheDocument();
+      expect(screen.getByText('Secret Decrypted')).toBeInTheDocument();
     });
-    expect(mockOpen).toHaveBeenCalledWith(passEnvelope, expect.any(Uint8Array), 'correct-pass');
+    expect(mockOpen).toHaveBeenCalledWith(
+      passEnvelope,
+      expect.any(Uint8Array),
+      'correct-pass',
+    );
   });
 
   it('shows "Wrong passphrase" on failure, allows retry', async () => {

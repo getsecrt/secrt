@@ -298,7 +298,9 @@ export function TestClaimPage() {
           <h2 class="text-lg font-semibold">Secret Unavailable</h2>
         </div>
 
-        <p class="whitespace-pre-line text-center text-sm text-muted">{status.message}</p>
+        <p class="text-center text-sm whitespace-pre-line text-muted">
+          {status.message}
+        </p>
 
         <button type="button" class="btn w-full" onClick={reset}>
           Back to scenarios
@@ -339,7 +341,7 @@ export function TestClaimPage() {
           ) : (
             <>
               <CheckCircleIcon class="size-10 text-success" />
-              <h2 class="text-lg font-semibold">Secret Revealed</h2>
+              <h2 class="text-lg font-semibold">Secret Decrypted</h2>
             </>
           )}
         </div>
