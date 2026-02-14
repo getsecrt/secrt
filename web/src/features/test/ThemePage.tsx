@@ -1,5 +1,10 @@
 import { ThemeToggle } from '../../components/ThemeToggle';
 import { Logo } from '../../components/Logo';
+import {
+  CircleXmarkIcon,
+  ClipboardIcon,
+  FireIcon,
+} from '../../components/Icons';
 import { navigate } from '../../router';
 import type { ComponentChildren } from 'preact';
 
@@ -193,25 +198,52 @@ export function ThemePage() {
               <button class="btn btn-primary" type="button">
                 Primary
               </button>
+
               <button class="btn btn-primary" type="button" disabled>
                 Primary Disabled
               </button>
+
               <button class="btn" type="button">
                 Button
               </button>
+
+              <button class="btn" type="button">
+                <ClipboardIcon />
+                Icon
+              </button>
+
               <button class="btn btn-danger" type="button">
+                <FireIcon />
                 Danger (inline)
               </button>
             </div>
+
             <div class="flex flex-wrap items-center gap-3">
               <button
-                class="btn btn-primary rounded-md px-2 py-1 text-xs"
+                class="btn btn-primary rounded-sm px-1.5 py-1 text-xs"
                 type="button"
               >
                 Small Primary
               </button>
-              <button class="btn px-2 py-1 text-xs" type="button">
+
+              <button class="btn rounded-sm px-1.5 py-1 text-xs" type="button">
                 Small Secondary
+              </button>
+
+              <button
+                class="btn flex gap-1.5 rounded-sm px-1.5 py-1 text-xs"
+                type="button"
+              >
+                <ClipboardIcon class="size-4" />
+                Copy
+              </button>
+
+              <button
+                class="btn btn-danger flex gap-1.5 rounded-sm px-1.5 py-1 text-xs"
+                type="button"
+              >
+                <CircleXmarkIcon class="size-4" />
+                Copy
               </button>
             </div>
           </div>
