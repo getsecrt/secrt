@@ -1,15 +1,5 @@
 import { useCallback, useEffect } from 'preact/hooks';
-
-function isDark(): boolean {
-  return document.documentElement.classList.contains('dark');
-}
-
-function setDarkMode(dark: boolean): void {
-  document.documentElement.classList.toggle('dark', dark);
-  try {
-    localStorage.setItem('theme', dark ? 'dark' : 'light');
-  } catch {}
-}
+import { isDark, setDarkMode } from '../lib/theme';
 
 export function ThemeToggle() {
   const toggle = useCallback(() => setDarkMode(!isDark()), []);

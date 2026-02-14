@@ -17,12 +17,14 @@ export function matchRoute(path: string): Route {
     return { page: 'claim', id: match[1] };
   }
 
-  if (path === '/test/theme') {
-    return { page: 'theme' };
-  }
+  if (import.meta.env.DEV) {
+    if (path === '/test/theme') {
+      return { page: 'theme' };
+    }
 
-  if (path === '/test/claim') {
-    return { page: 'test-claim' };
+    if (path === '/test/claim') {
+      return { page: 'test-claim' };
+    }
   }
 
   return { page: 'not-found' };

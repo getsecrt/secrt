@@ -8,7 +8,7 @@ import { TestClaimPage } from './features/test/TestClaimPage';
 export function App() {
   const route = useRoute();
 
-  if (route.page === 'theme') {
+  if (import.meta.env.DEV && route.page === 'theme') {
     return <ThemePage />;
   }
 
@@ -21,7 +21,9 @@ export function App() {
       page = <ClaimPage id={route.id} />;
       break;
     case 'test-claim':
-      page = <TestClaimPage />;
+      if (import.meta.env.DEV) {
+        page = <TestClaimPage />;
+      }
       break;
     case 'not-found':
       page = (

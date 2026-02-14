@@ -1,5 +1,5 @@
-import { describe, it, expect } from 'vitest';
-import { matchRoute } from './router';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { matchRoute, navigate } from './router';
 
 describe('matchRoute', () => {
   it('"/" -> send page', () => {
@@ -47,5 +47,22 @@ describe('matchRoute', () => {
 
   it('"/S/abc" -> not-found (case sensitive)', () => {
     expect(matchRoute('/S/abc')).toEqual({ page: 'not-found' });
+  });
+});
+
+describe('navigate', () => {
+  beforeEach(() => {
+    vi.spyOn(window.history, 'pushState');
+    vi.spyOn(window, 'dispatchEvent');
+  });
+
+  it('calls pushState with correct path', () => {
+    navigate('/s/abc');
+    expect(window.history.pushState).toHaveBeenCalledWith(null, '', '/s/abc');
+  });
+
+  it('dispatches PopStateEvent', () => {
+    navigate('/');
+    expect(window.dispatchEvent).toHaveBeenCalledWith(expect.any(PopStateEvent));
   });
 });
