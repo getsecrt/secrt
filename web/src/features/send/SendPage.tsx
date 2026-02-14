@@ -88,7 +88,14 @@ export function SendPage() {
   const handleSubmit = useCallback(
     async (e: Event) => {
       e.preventDefault();
-      if (!hasContent || busy) return;
+      if (busy) return;
+      if (!hasContent) {
+        setStatus({
+          step: 'error',
+          message: mode === 'text' ? 'Enter a secret message first.' : 'Choose a file first.',
+        });
+        return;
+      }
       if (!isValidTtl(ttlSeconds)) {
         setStatus({ step: 'error', message: 'Invalid expiry time.' });
         return;
@@ -313,7 +320,7 @@ export function SendPage() {
         <button
           type="submit"
           class="btn btn-primary mt-3 w-full tracking-wider uppercase"
-          disabled={!hasContent || busy}
+          disabled={busy}
         >
           {buttonLabel}
         </button>

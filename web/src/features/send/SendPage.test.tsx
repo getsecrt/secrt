@@ -106,7 +106,7 @@ describe('SendPage', () => {
     vi.restoreAllMocks();
   });
 
-  it('renders form with textarea, passphrase, TTL, and disabled submit', () => {
+  it('renders form with textarea, passphrase, TTL, and enabled submit', () => {
     render(<SendPage />);
     expect(
       screen.getByPlaceholderText('Enter your secret...'),
@@ -115,17 +115,17 @@ describe('SendPage', () => {
     expect(screen.getByText('Expires After')).toBeInTheDocument();
     expect(
       screen.getByRole('button', { name: 'Create secret' }),
-    ).toBeDisabled();
+    ).toBeEnabled();
   });
 
-  it('enables submit when text is entered', async () => {
+  it('shows validation error when submitting empty text', async () => {
     const user = userEvent.setup();
     render(<SendPage />);
-    await user.type(
-      screen.getByPlaceholderText('Enter your secret...'),
-      'hello',
-    );
-    expect(screen.getByRole('button', { name: 'Create secret' })).toBeEnabled();
+    await user.click(screen.getByRole('button', { name: 'Create secret' }));
+    await waitFor(() => {
+      expect(screen.getByRole('alert')).toBeInTheDocument();
+    });
+    expect(screen.getByText(/Enter a secret message/)).toBeInTheDocument();
   });
 
   it('passphrase visibility toggle works', async () => {
@@ -235,7 +235,7 @@ describe('SendPage', () => {
       expect(screen.getByText('Secret Created')).toBeInTheDocument();
     });
 
-    await user.click(screen.getByRole('button', { name: 'Create another' }));
+    await user.click(screen.getByRole('button', { name: 'Send Another Secret' }));
     expect(
       screen.getByPlaceholderText('Enter your secret...'),
     ).toBeInTheDocument();
