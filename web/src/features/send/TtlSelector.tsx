@@ -20,7 +20,7 @@ export function TtlSelector({ value, onChange, disabled }: TtlSelectorProps) {
     <fieldset class="space-y-2" disabled={disabled}>
       <legend class="flex items-center gap-1.5 text-sm font-medium text-muted">
         <ClockIcon class="size-4" />
-        Expires after
+        Expires After
       </legend>
       <div class="flex flex-wrap justify-center gap-1.5">
         {TTL_PRESETS.map((preset) => (
