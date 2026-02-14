@@ -1,8 +1,15 @@
 import { useState, useCallback, useEffect, useRef } from 'preact/hooks';
 import { seal } from '../../crypto/envelope';
 import { utf8Encode } from '../../crypto/encoding';
+import { buildFrame } from '../../crypto/frame';
+import { ensureCompressor, compress } from '../../crypto/compress';
+import { CODEC_ZSTD } from '../../crypto/constants';
 import { createSecret, fetchInfo } from '../../lib/api';
-import { checkEnvelopeSize } from '../../lib/envelope-size';
+import {
+  checkEnvelopeSize,
+  estimateEnvelopeSize,
+  frameSizeError,
+} from '../../lib/envelope-size';
 import { formatShareLink } from '../../lib/url';
 import { TTL_DEFAULT, isValidTtl } from '../../lib/ttl';
 import {
@@ -21,6 +28,9 @@ import { HowItWorks } from '../../components/HowItWorks';
 import { useAuth } from '../../lib/auth-context';
 import { mapError } from './errors';
 
+/** Skip compression if raw file size exceeds this multiple of the server limit. */
+const COMPRESS_SKIP_FACTOR = 40;
+
 type SendStatus =
   | { step: 'input' }
   | { step: 'encrypting' }
@@ -37,6 +47,7 @@ export function SendPage() {
   const [showPassphrase, setShowPassphrase] = useState(false);
   const [ttlSeconds, setTtlSeconds] = useState(TTL_DEFAULT);
   const [status, setStatus] = useState<SendStatus>({ step: 'input' });
+  const [cachedFrame, setCachedFrame] = useState<Uint8Array | null>(null);
   const abortRef = useRef<AbortController | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [serverInfo, setServerInfo] = useState<ApiInfo | null>(null);
@@ -62,20 +73,97 @@ export function SendPage() {
     }
   }, []);
 
-  const handleFileSelect = useCallback((f: File) => {
-    setFile(f);
-    setMode('file');
-  }, []);
+  const handleFileSelect = useCallback(
+    async (f: File) => {
+      setFile(f);
+      setMode('file');
+      setCachedFrame(null);
+
+      // Clear previous error
+      setStatus((prev) => (prev.step === 'error' ? { step: 'input' } : prev));
+
+      // Quick-reject: if raw file size is 10x the server limit, no point compressing
+      if (serverInfo) {
+        const tier = auth.authenticated
+          ? serverInfo.limits.authed
+          : serverInfo.limits.public;
+        if (f.size > tier.max_envelope_bytes * COMPRESS_SKIP_FACTOR) {
+          setStatus({
+            step: 'error',
+            message: frameSizeError(
+              estimateEnvelopeSize(f.size),
+              tier.max_envelope_bytes,
+            ),
+          });
+          return;
+        }
+      }
+
+      // Build frame with compression for accurate size check
+      try {
+        await ensureCompressor();
+
+        const bytes = new Uint8Array(await f.arrayBuffer());
+        const meta: PayloadMeta = {
+          type: 'file',
+          filename: f.name,
+          mime: f.type || 'application/octet-stream',
+        };
+        const frame = buildFrame(meta, bytes, compress);
+
+        // Check estimated envelope size against server limit
+        if (serverInfo) {
+          const tier = auth.authenticated
+            ? serverInfo.limits.authed
+            : serverInfo.limits.public;
+          const estimated = estimateEnvelopeSize(frame.length);
+          if (estimated > tier.max_envelope_bytes) {
+            const wasCompressed = frame[5] === CODEC_ZSTD;
+            setStatus({
+              step: 'error',
+              message: frameSizeError(
+                estimated,
+                tier.max_envelope_bytes,
+                wasCompressed,
+              ),
+            });
+            return;
+          }
+        }
+
+        setCachedFrame(frame);
+      } catch {
+        // If compression init fails, fall back to raw size check
+        if (serverInfo) {
+          const tier = auth.authenticated
+            ? serverInfo.limits.authed
+            : serverInfo.limits.public;
+          const estimated = estimateEnvelopeSize(f.size);
+          if (estimated > tier.max_envelope_bytes) {
+            setStatus({
+              step: 'error',
+              message: frameSizeError(estimated, tier.max_envelope_bytes),
+            });
+            return;
+          }
+        }
+      }
+    },
+    [serverInfo, auth.authenticated],
+  );
 
   const handleFileClear = useCallback(() => {
     setFile(null);
+    setCachedFrame(null);
     setMode('text');
-  }, []);
+    if (status.step === 'error') setStatus({ step: 'input' });
+  }, [status.step]);
 
   const handleReset = useCallback(() => {
     setMode('text');
     setText('');
     setFile(null);
+    setCachedFrame(null);
     setPassphrase('');
     setShowPassphrase(false);
     setTtlSeconds(TTL_DEFAULT);
@@ -84,6 +172,9 @@ export function SendPage() {
 
   const busy = status.step === 'encrypting' || status.step === 'sending';
   const hasContent = mode === 'text' ? text.trim().length > 0 : file !== null;
+  const contentError =
+    status.step === 'error' &&
+    (status.message.includes('too large') || !hasContent);
 
   const handleSubmit = useCallback(
     async (e: Event) => {
@@ -92,7 +183,10 @@ export function SendPage() {
       if (!hasContent) {
         setStatus({
           step: 'error',
-          message: mode === 'text' ? 'Enter a secret message first.' : 'Choose a file first.',
+          message:
+            mode === 'text'
+              ? 'Enter a secret message first.'
+              : 'Choose a file first.',
         });
         return;
       }
@@ -121,15 +215,34 @@ export function SendPage() {
           meta = { type: 'text' };
         }
 
-        // Encrypt
+        // Encrypt — reuse cached frame for files, compress on the fly for text
         setStatus({ step: 'encrypting' });
-        const opts = passphrase ? { passphrase } : undefined;
-        const { envelope, urlKey, claimHash } = await seal(content, meta, opts);
+
+        await ensureCompressor();
+
+        let sealOpts: Parameters<typeof seal>[2];
+        if (mode === 'file' && cachedFrame) {
+          sealOpts = passphrase
+            ? { passphrase, prebuiltFrame: cachedFrame }
+            : { prebuiltFrame: cachedFrame };
+        } else {
+          sealOpts = passphrase ? { passphrase, compress } : { compress };
+        }
+
+        const { envelope, urlKey, claimHash } = await seal(
+          content,
+          meta,
+          sealOpts,
+        );
 
         if (controller.signal.aborted) return;
 
         // Check envelope size against server limit
-        const sizeError = checkEnvelopeSize(envelope, serverInfo);
+        const sizeError = checkEnvelopeSize(
+          envelope,
+          serverInfo,
+          auth.authenticated,
+        );
         if (sizeError) {
           setStatus({ step: 'error', message: sizeError });
           return;
@@ -152,7 +265,19 @@ export function SendPage() {
         setStatus({ step: 'error', message: mapError(err) });
       }
     },
-    [mode, text, file, passphrase, ttlSeconds, hasContent, busy, serverInfo, auth.sessionToken],
+    [
+      mode,
+      text,
+      file,
+      passphrase,
+      ttlSeconds,
+      hasContent,
+      busy,
+      serverInfo,
+      cachedFrame,
+      auth.authenticated,
+      auth.sessionToken,
+    ],
   );
 
   // Done — show result
@@ -204,13 +329,14 @@ export function SendPage() {
           {/* Grid stack: textarea sets the height, drop zone overlays it */}
           <div class="grid">
             <textarea
-              class={`textarea mb-0 [grid-area:1/1] ${mode === 'file' ? 'invisible' : ''}`}
+              class={`textarea mb-0 [grid-area:1/1] ${mode === 'file' ? 'invisible' : ''} ${contentError && mode === 'text' ? 'input-error' : ''}`}
               rows={5}
               placeholder="Enter your secret..."
               value={text}
-              onInput={(e) =>
-                setText((e.target as HTMLTextAreaElement).value)
-              }
+              onInput={(e) => {
+                setText((e.target as HTMLTextAreaElement).value);
+                if (status.step === 'error') setStatus({ step: 'input' });
+              }}
               disabled={busy || mode === 'file'}
             />
             {mode === 'file' && (
@@ -219,7 +345,7 @@ export function SendPage() {
                 onFileSelect={handleFileSelect}
                 onFileClear={handleFileClear}
                 disabled={busy}
-                className="[grid-area:1/1]"
+                className={`[grid-area:1/1] ${contentError ? 'border-error' : ''}`}
               />
             )}
           </div>
@@ -248,7 +374,7 @@ export function SendPage() {
               <>
                 Max size{' '}
                 {serverInfo
-                  ? `${Math.floor((serverInfo.authenticated ? serverInfo.limits.authed : serverInfo.limits.public).max_envelope_bytes / 1024)} KB`
+                  ? `${Math.floor((auth.authenticated ? serverInfo.limits.authed : serverInfo.limits.public).max_envelope_bytes / 1024)} KB`
                   : '256 KB'}
               </>
             )}
@@ -305,17 +431,6 @@ export function SendPage() {
           disabled={busy}
         />
 
-        {/* Error */}
-        {status.step === 'error' && (
-          <div
-            role="alert"
-            class="flex items-start gap-2 rounded-md border border-error/30 bg-error/5 px-3 py-2.5 text-sm text-error"
-          >
-            <TriangleExclamationIcon class="mt-0.5 size-4 shrink-0" />
-            {status.message}
-          </div>
-        )}
-
         {/* Submit */}
         <button
           type="submit"
@@ -324,6 +439,24 @@ export function SendPage() {
         >
           {buttonLabel}
         </button>
+
+        {/* Error */}
+        {status.step === 'error' && (
+          <div
+            role="alert"
+            class="flex items-start gap-2 rounded-md border border-error/30 bg-error/5 px-3 py-2.5 text-sm text-error"
+          >
+            <TriangleExclamationIcon class="mt-0.5 size-4 shrink-0" />
+            <span>
+              {status.message.split('\n').map((line, i, arr) => (
+                <>
+                  {line}
+                  {i < arr.length - 1 && <br />}
+                </>
+              ))}
+            </span>
+          </div>
+        )}
       </form>
 
       <HowItWorks />

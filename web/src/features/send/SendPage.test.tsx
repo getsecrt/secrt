@@ -13,6 +13,25 @@ vi.mock('../../crypto/encoding', () => ({
   utf8Encode: vi.fn((s: string) => new TextEncoder().encode(s)),
 }));
 
+vi.mock('../../crypto/frame', () => ({
+  buildFrame: vi.fn((_meta: unknown, body: Uint8Array) => {
+    // Return a fake frame: 16-byte header + body
+    const frame = new Uint8Array(16 + body.length);
+    frame[5] = 0; // CODEC_NONE by default
+    frame.set(body, 16);
+    return frame;
+  }),
+}));
+
+vi.mock('../../crypto/compress', () => ({
+  ensureCompressor: vi.fn().mockResolvedValue(undefined),
+  compress: vi.fn((data: Uint8Array) => data),
+}));
+
+vi.mock('../../crypto/constants', () => ({
+  CODEC_ZSTD: 1,
+}));
+
 vi.mock('../../lib/api', () => ({
   createSecret: vi.fn(),
   fetchInfo: vi.fn(),
@@ -20,6 +39,11 @@ vi.mock('../../lib/api', () => ({
 
 vi.mock('../../lib/envelope-size', () => ({
   checkEnvelopeSize: vi.fn(),
+  estimateEnvelopeSize: vi.fn((frameBytes: number) => Math.ceil((frameBytes + 16) * 4 / 3) + 400),
+  frameSizeError: vi.fn((est: number, max: number, compressed?: boolean) => {
+    const qualifier = compressed ? 'encrypted & compressed' : 'encrypted';
+    return `File is too large (${est} B ${qualifier}).\nMaximum is ${max} B.`;
+  }),
 }));
 
 vi.mock('../../lib/url', () => ({
@@ -46,12 +70,16 @@ import { seal } from '../../crypto/envelope';
 import { createSecret, fetchInfo } from '../../lib/api';
 import { checkEnvelopeSize } from '../../lib/envelope-size';
 import { formatShareLink } from '../../lib/url';
+import { buildFrame } from '../../crypto/frame';
+import { ensureCompressor } from '../../crypto/compress';
 
 const mockSeal = vi.mocked(seal);
 const mockCreate = vi.mocked(createSecret);
 const mockFetchInfo = vi.mocked(fetchInfo);
 const mockCheckSize = vi.mocked(checkEnvelopeSize);
 const mockFormatLink = vi.mocked(formatShareLink);
+const mockBuildFrame = vi.mocked(buildFrame);
+const mockEnsureCompressor = vi.mocked(ensureCompressor);
 
 const fakeEnvelope = {
   v: 1 as const,
@@ -155,7 +183,7 @@ describe('SendPage', () => {
     expect(mockCreate).toHaveBeenCalled();
   });
 
-  it('passes passphrase to seal when provided', async () => {
+  it('passes passphrase and compress to seal when provided', async () => {
     const user = userEvent.setup();
     render(<SendPage />);
     await user.type(
@@ -169,8 +197,40 @@ describe('SendPage', () => {
       expect(mockSeal).toHaveBeenCalledWith(
         expect.any(Uint8Array),
         { type: 'text' },
-        { passphrase: 'mypass' },
+        expect.objectContaining({ passphrase: 'mypass', compress: expect.any(Function) }),
       );
+    });
+  });
+
+  it('passes compress function to seal for text mode', async () => {
+    const user = userEvent.setup();
+    render(<SendPage />);
+    await user.type(
+      screen.getByPlaceholderText('Enter your secret...'),
+      'text',
+    );
+    await user.click(screen.getByRole('button', { name: 'Create secret' }));
+
+    await waitFor(() => {
+      expect(mockSeal).toHaveBeenCalledWith(
+        expect.any(Uint8Array),
+        { type: 'text' },
+        expect.objectContaining({ compress: expect.any(Function) }),
+      );
+    });
+  });
+
+  it('calls ensureCompressor before seal on submit', async () => {
+    const user = userEvent.setup();
+    render(<SendPage />);
+    await user.type(
+      screen.getByPlaceholderText('Enter your secret...'),
+      'text',
+    );
+    await user.click(screen.getByRole('button', { name: 'Create secret' }));
+
+    await waitFor(() => {
+      expect(mockEnsureCompressor).toHaveBeenCalled();
     });
   });
 
@@ -207,7 +267,7 @@ describe('SendPage', () => {
 
   it('shows error when envelope too large', async () => {
     mockCheckSize.mockReturnValue(
-      'Secret is too large. Maximum size is 256 KB.',
+      'Secret is too large (300.0 KB encrypted).\nMaximum is 256.0 KB.',
     );
     const user = userEvent.setup();
     render(<SendPage />);
@@ -279,5 +339,24 @@ describe('SendPage', () => {
   it('calls fetchInfo on mount', () => {
     render(<SendPage />);
     expect(mockFetchInfo).toHaveBeenCalled();
+  });
+
+  it('calls buildFrame during file select for pre-check', async () => {
+    render(<SendPage />);
+
+    // Wait for fetchInfo to resolve so serverInfo is populated
+    await waitFor(() => {
+      expect(mockFetchInfo).toHaveBeenCalled();
+    });
+
+    // Simulate file select by finding the hidden file input and triggering change
+    const fileInput = document.querySelector('input[type="file"]') as HTMLInputElement;
+    const smallFile = new File(['hello'], 'test.txt', { type: 'text/plain' });
+    Object.defineProperty(fileInput, 'files', { value: [smallFile] });
+    fileInput.dispatchEvent(new Event('change', { bubbles: true }));
+
+    await waitFor(() => {
+      expect(mockBuildFrame).toHaveBeenCalled();
+    });
   });
 });

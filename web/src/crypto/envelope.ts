@@ -39,6 +39,8 @@ interface SealOptions {
   iterations?: number;
   rng?: (buf: Uint8Array) => void;
   compress?: (data: Uint8Array) => Uint8Array;
+  /** Pre-built frame bytes (already compressed). Skips buildFrame() when provided. */
+  prebuiltFrame?: Uint8Array;
 }
 
 /**
@@ -89,8 +91,8 @@ export async function seal(
   // 5. Derive claim_token + claim_hash
   const claimHash = await deriveClaimHash(urlKey);
 
-  // 6. Build framed payload
-  const frameBytes = buildFrame(meta, content, options?.compress);
+  // 6. Build framed payload (reuse pre-built frame if provided)
+  const frameBytes = options?.prebuiltFrame ?? buildFrame(meta, content, options?.compress);
 
   // 7. Generate nonce
   const nonce = new Uint8Array(GCM_NONCE_LEN);

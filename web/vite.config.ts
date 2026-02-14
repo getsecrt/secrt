@@ -26,6 +26,9 @@ export default defineConfig(({ mode }) => {
         }
       }
     },
+    optimizeDeps: {
+      exclude: ['@bokuweb/zstd-wasm'],
+    },
     build: {
       outDir: 'dist',
       emptyOutDir: true

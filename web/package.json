@@ -22,6 +22,7 @@
     "pnpm": ">=10.5.2"
   },
   "dependencies": {
+    "@bokuweb/zstd-wasm": "^0.0.27",
     "@tailwindcss/vite": "^4.1.18",
     "fzstd": "^0.1.1",
     "preact": "^10.27.2",
