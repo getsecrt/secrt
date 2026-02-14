@@ -229,6 +229,10 @@ pub fn build_router(state: Arc<AppState>) -> Router {
         .route("/healthz", get(handle_healthz))
         .route("/", get(handle_index))
         .route("/s/{id}", get(handle_secret_page))
+        // SPA client-side routes — serve the same index.html for all of them
+        .route("/login", get(handle_index))
+        .route("/register", get(handle_index))
+        .route("/how-it-works", get(handle_index))
         .route("/robots.txt", get(handle_robots_txt));
 
     // Serve static files: env override → embedded assets → filesystem fallback
@@ -1336,11 +1340,11 @@ pub async fn handle_healthz() -> Response {
 }
 
 pub async fn handle_index() -> Response {
-    let html = include_str!("../../templates/index.html");
+    let html = crate::assets::spa_index_html()
+        .unwrap_or_else(|| include_str!("../../templates/index.html").to_string());
 
     let mut resp = Html(html).into_response();
     insert_header(resp.headers_mut(), "cache-control", "no-store");
-    insert_header(resp.headers_mut(), "x-robots-tag", "noindex");
     resp
 }
 
@@ -1360,11 +1364,14 @@ fn escape_html(input: &str) -> String {
 }
 
 pub async fn handle_secret_page(Path(id): Path<String>) -> Response {
-    let escaped_id = escape_html(&id);
-    let body = format!(
-        "<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\"><title>Secret {escaped_id}</title></head><body><h1>Secret {escaped_id}</h1></body></html>"
-    );
-    let mut resp = Html(body).into_response();
+    // SPA handles /s/{id} client-side; fall back to minimal HTML if no frontend built.
+    let html = crate::assets::spa_index_html().unwrap_or_else(|| {
+        let escaped_id = escape_html(&id);
+        format!(
+            "<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\"><title>Secret {escaped_id}</title></head><body><h1>Secret {escaped_id}</h1></body></html>"
+        )
+    });
+    let mut resp = Html(html).into_response();
     insert_header(resp.headers_mut(), "cache-control", "no-store");
     insert_header(resp.headers_mut(), "x-robots-tag", "noindex");
     resp
@@ -2240,28 +2247,22 @@ mod tests {
                 .and_then(|v| v.to_str().ok()),
             Some("noindex")
         );
+        // SPA serves generic index.html; the secret ID is handled client-side
         let body = response_text(resp).await;
-        assert!(body.contains("abc123"));
+        assert!(body.contains("<!doctype html>") || body.contains("<!DOCTYPE html>"));
     }
 
     #[tokio::test]
-    async fn secret_page_rejects_or_escapes_html_in_id() {
+    async fn secret_page_does_not_reflect_id_into_html() {
+        // With SPA serving, the ID should never appear in the server-rendered HTML
         let reflected = "<script>alert(1)</script>";
         let resp = handle_secret_page(Path(reflected.to_string())).await;
-        let status = resp.status();
+        assert_eq!(resp.status(), StatusCode::OK);
         let body = response_text(resp).await;
-
         assert!(
-            status.is_client_error() || !body.contains(reflected),
-            "id must not be reflected into HTML without escaping; status={status}, body={body}"
+            !body.contains(reflected),
+            "id must not be reflected into HTML; body={body}"
         );
-
-        if status == StatusCode::OK {
-            assert!(
-                body.contains("&lt;script&gt;alert(1)&lt;/script&gt;"),
-                "expected escaped script tag in HTML body"
-            );
-        }
     }
 
     #[tokio::test]

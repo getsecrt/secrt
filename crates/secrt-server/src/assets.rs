@@ -39,6 +39,24 @@ pub fn has_embedded_assets() -> bool {
     WebAssets::iter().next().is_some()
 }
 
+/// Returns the SPA index.html from embedded assets, the env-configured dist
+/// directory, or the default filesystem path.  Returns `None` only when no
+/// built frontend can be found.
+pub fn spa_index_html() -> Option<String> {
+    // 1. Embedded assets (compiled into binary)
+    if let Some(file) = WebAssets::get("index.html") {
+        return String::from_utf8(file.data.into_owned()).ok();
+    }
+    // 2. Env override
+    if let Ok(dir) = std::env::var("SECRT_WEB_DIST_DIR") {
+        if let Ok(html) = std::fs::read_to_string(format!("{dir}/index.html")) {
+            return Some(html);
+        }
+    }
+    // 3. Default filesystem fallback
+    std::fs::read_to_string("web/dist/index.html").ok()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
