@@ -16,6 +16,10 @@
 - **Nav and login UI polish:** updated styling, icon integration, responsive improvements.
 - **Spec updates:** API and server spec amendments for UUID user IDs and session privacy.
 
+### Fixed
+
+- **SPA serving:** `/`, `/s/{id}`, `/login`, `/register`, and `/how-it-works` now serve the Preact SPA `index.html` instead of the old placeholder page. Falls back to the placeholder when no frontend is built.
+
 ## 0.6.1 — 2026-02-13
 
 ### Fixed
