@@ -178,6 +178,15 @@ There are **two separate release pipelines** — one for the CLI and one for the
 4. Commit: `chore: bump version to X.Y.Z`
 5. Tag **both** releases: `git tag cli/vX.Y.Z && git tag server/vX.Y.Z`
 6. Push: `git push origin main --tags`
+7. After the release workflows finish, update both GitHub Releases with notes matching the CHANGELOG entries:
+   ```sh
+   gh release edit cli/vX.Y.Z --notes "$(cat <<'EOF'
+   ## What's Changed
+   (Paste the CHANGELOG.md entry for this version here, formatted for GitHub markdown)
+   EOF
+   )"
+   ```
+   Repeat for `server/vX.Y.Z`. Include all Added/Changed/Fixed/Removed sections from the changelog.
 
 **`cli/v*` tag** triggers the CLI release workflow (`.github/workflows/release-cli.yml`):
 - Runs `cargo test --workspace` and `cargo clippy --workspace`
