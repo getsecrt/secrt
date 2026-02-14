@@ -50,12 +50,29 @@ export interface KdfPbkdf2 {
 }
 
 /** Server API response types. */
+export interface ApiInfoRate {
+  requests_per_second: number;
+  burst: number;
+}
+
+export interface ApiInfoTier {
+  max_envelope_bytes: number;
+  max_secrets: number;
+  max_total_bytes: number;
+  rate: ApiInfoRate;
+}
+
 export interface ApiInfo {
   authenticated: boolean;
   ttl: {
     default_seconds: number;
     max_seconds: number;
   };
+  limits: {
+    public: ApiInfoTier;
+    authed: ApiInfoTier;
+  };
+  claim_rate: ApiInfoRate;
 }
 
 export interface CreateRequest {

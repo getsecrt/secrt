@@ -92,7 +92,7 @@ const semantics = [
 
 export function ThemePage() {
   return (
-    <div class="min-h-screen bg-bg px-6 py-10 text-text">
+    <div class="min-h-screen px-6 py-10 text-text">
       <div class="mx-auto max-w-3xl space-y-10">
         {/* Header */}
         <div class="flex items-center justify-between">
@@ -253,15 +253,29 @@ export function ThemePage() {
         <Section title="Links">
           <div class="space-y-2">
             <p>
-              Inline link: <a href="#demo">default accent link</a> within text.
+              Inline link:{' '}
+              <a class="link" href="#demo">
+                default accent link
+              </a>{' '}
+              within text.
             </p>
             <p class="text-sm text-muted">
-              Muted context: <a href="#demo">link in muted text</a>.
+              Muted context:{' '}
+              <a class="link" href="#demo">
+                link in muted text
+              </a>
+              .
             </p>
             <div class="flex gap-6 text-sm">
-              <a href="#demo">Nav link one</a>
-              <a href="#demo">Nav link two</a>
-              <a href="#demo">Nav link three</a>
+              <a class="link" href="#demo">
+                Nav link one
+              </a>
+              <a class="link" href="#demo">
+                Nav link two
+              </a>
+              <a class="link" href="#demo">
+                Nav link three
+              </a>
             </div>
           </div>
         </Section>
@@ -275,7 +289,7 @@ export function ThemePage() {
                 Standard surface with border and shadow.
               </p>
             </div>
-            <div class="card bg-surface-raised">
+            <div class="card bg-surface-raised shadow-lg">
               <h3 class="mb-2 font-semibold">Raised Card</h3>
               <p class="text-sm text-muted">
                 Surface-raised background variant.
@@ -401,8 +415,10 @@ export function ThemePage() {
               <button class="btn" type="button">
                 Secondary
               </button>
-              <a href="#demo">Link</a>
-              <a href="#demo" class="text-sm text-muted">
+              <a class="link" href="#demo">
+                Link
+              </a>
+              <a href="#demo" class="link text-sm text-muted">
                 Muted Link
               </a>
             </div>

@@ -15,16 +15,18 @@
   --color-green-900: oklch(0.31 0.08 146);
   --color-green-950: oklch(0.21 0.05 147);
 
-  /* Surfaces & borders (zinc scale) */
-  --color-bg: var(--color-zinc-50);
-  --color-surface: #fff;
-  --color-surface-raised: var(--color-zinc-100);
-  --color-border: var(--color-zinc-200);
+  --color-neutral-150: oklch(0.95 0 0);
 
-  /* Text (zinc scale) */
-  --color-text: var(--color-zinc-900);
-  --color-text-muted: var(--color-zinc-500);
-  --color-text-faint: var(--color-zinc-400);
+  /* Surfaces & borders (neutral scale) */
+  --color-bg: #fff;
+  --color-surface: #fff;
+  --color-surface-raised: var(--color-neutral-100);
+  --color-border: var(--color-neutral-200);
+
+  /* Text (neutral scale) */
+  --color-text: var(--color-neutral-900);
+  --color-text-muted: var(--color-neutral-600);
+  --color-text-faint: var(--color-neutral-400);
 
   /* Semantic accent (custom green palette) */
   --color-accent: var(--color-green-700);
@@ -47,13 +49,13 @@
 }
 
 :root.dark {
-  --color-bg: var(--color-zinc-950);
-  --color-surface: var(--color-zinc-900);
-  --color-surface-raised: var(--color-zinc-800);
-  --color-border: var(--color-zinc-700);
-  --color-text: var(--color-zinc-100);
-  --color-text-muted: var(--color-zinc-400);
-  --color-text-faint: var(--color-zinc-500);
+  --color-bg: var(--color-neutral-950);
+  --color-surface: var(--color-neutral-900);
+  --color-surface-raised: var(--color-neutral-800);
+  --color-border: var(--color-neutral-700);
+  --color-text: var(--color-neutral-100);
+  --color-text-muted: var(--color-neutral-300);
+  --color-text-faint: var(--color-neutral-500);
   --color-accent: var(--color-green-400);
   --color-accent-bright: var(--color-green-600);
   --color-accent-hover: var(--color-green-300);
@@ -65,17 +67,53 @@
 @layer base {
   body {
     @apply bg-bg text-text antialiased;
+
     font-family: var(--font-sans);
     font-size: var(--text-base);
   }
 
-  a {
+  .dark body {
+    background-image:
+      /* Broad green curtain — top-center, sweeping right */
+      radial-gradient(
+        ellipse 120% 50% at 60% 0%,
+        color-mix(in oklch, var(--color-green-900) 25%, transparent),
+        color-mix(in oklch, var(--color-green-950) 12%, transparent) 30%,
+        transparent 5%
+      ),
+      /* Teal streak — upper-left, tall & narrow */
+        radial-gradient(
+          ellipse 35% 70% at 20% 10%,
+          color-mix(in oklch, oklch(0.35 0.1 170) 22%, transparent),
+          transparent 60%
+        ),
+      /* Emerald ribbon — offset right */
+        radial-gradient(
+          ellipse 40% 55% at 75% 15%,
+          color-mix(in oklch, var(--color-green-800) 18%, transparent),
+          transparent 65%
+        ),
+      /* Faint violet wisp — far left */
+        radial-gradient(
+          ellipse 25% 45% at 10% 25%,
+          color-mix(in oklch, oklch(0.3 0.08 300) 10%, transparent),
+          transparent 60%
+        );
+  }
+
+  .link {
     @apply text-accent no-underline;
   }
 
-  a:hover {
+  .link:hover {
     @apply underline;
     color: var(--color-accent-hover);
+    text-underline-offset: 3px;
+    text-decoration-color: color-mix(
+      in oklch,
+      var(--color-accent) 40%,
+      transparent
+    );
   }
 
   input[type='checkbox'],
@@ -107,11 +145,11 @@
   }
 
   .btn {
-    --btn-color: var(--color-zinc-200);
+    --btn-color: var(--color-neutral-200);
     --btn-fg: var(--color-text);
     --btn-highlight: 1.06;
 
-    @apply relative inline-flex cursor-pointer items-center justify-center gap-2 rounded-md px-3 py-1.5 font-semibold tracking-wide duration-200 ease-out select-none;
+    @apply relative inline-flex cursor-pointer items-center justify-center gap-2 rounded-md px-3 py-2 font-semibold tracking-wide duration-200 ease-out select-none;
     transition-property:
       filter, transform, box-shadow, background-color, border-color;
     color: var(--btn-fg);
@@ -129,7 +167,7 @@
     text-shadow: 0 1px 1px oklch(1 0 0 / 0.9);
 
     .dark & {
-      --btn-color: var(--color-zinc-600);
+      --btn-color: var(--color-neutral-600);
       --btn-highlight: 1.2;
       text-shadow: 0 1px 1px oklch(0 0 0 / 0.3);
     }
@@ -180,7 +218,7 @@
 
   .btn-warning {
     --btn-color: var(--color-amber-400);
-    --btn-fg: var(--color-zinc-900);
+    --btn-fg: var(--color-neutral-900);
     --btn-highlight: 1.08;
     text-shadow: 0 1px 0 oklch(1 0 0 / 0.4);
 
@@ -194,7 +232,7 @@
   .input,
   .select,
   .textarea {
-    @apply w-full rounded-md border border-border bg-surface px-3 py-2 text-sm text-text inset-shadow-sm transition-colors outline-none placeholder:text-neutral-500/50;
+    @apply w-full rounded-md border border-border bg-surface px-3 py-2 text-text inset-shadow-sm transition-colors outline-none placeholder:text-neutral-500/50;
     &:focus {
       @apply border-accent ring-2 ring-accent/15;
     }
@@ -220,7 +258,7 @@
   }
 
   .card {
-    @apply rounded-lg border border-border bg-surface p-6 shadow-md;
+    @apply rounded-lg border border-neutral-300/50 bg-neutral-100 p-6 shadow-md backdrop-blur-md dark:border-neutral-700/35 dark:bg-neutral-950/40;
   }
 }
 
