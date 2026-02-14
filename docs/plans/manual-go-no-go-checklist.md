@@ -4,10 +4,10 @@ Use this checklist before promoting staging to production.
 
 ## 0. Build Artifacts (Required)
 
-- [ ] Rebuild the current CLI from source before testing (`cargo build --release -p secrt-cli`).
-- [ ] Rebuild the current server from source before testing (`cargo build --release -p secrt-server`).
-- [ ] Confirm local binaries report expected version (`secrt --version`, `secrt-server --version`).
-- [ ] Confirm staging host is using freshly deployed binaries (not prior local/system package versions).
+- [x] Rebuild the current CLI from source before testing (`cargo build --release -p secrt-cli`).
+- [x] Rebuild the current server from source before testing (`cargo build --release -p secrt-server`).
+- [x] Confirm local binaries report expected version (`secrt --version`, `secrt-server --version`).
+- [x] Confirm staging host is using freshly deployed binaries (not prior local/system package versions).
 
 ## 1. Environment and Startup
 

@@ -6,3 +6,4 @@ web/.env
 web/.env.*
 web/pnpm-debug.log*
 web/.pnpm-store
+.playwright-mcp
