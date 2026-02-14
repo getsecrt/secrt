@@ -6,6 +6,22 @@ All notable changes to the secrt monorepo are documented here. Individual crate 
 - [secrt-core](crates/secrt-core/CHANGELOG.md)
 - [secrt-server](crates/secrt-server/CHANGELOG.md)
 
+## 0.7.0 — 2026-02-14
+
+### Added
+
+- **Technical whitepaper:** comprehensive `docs/whitepaper.md` covering cryptographic architecture, zero-knowledge design, database schema, abuse prevention, signed releases, and FAQ.
+- **Passkey icon** SVG asset for auth pages.
+
+### Changed
+
+- **User identity hardening:** user IDs are now server-generated UUIDv7 values; `user_id` is no longer exposed in auth/session API responses.
+- **Registration page overhaul:** auto-generated privacy-friendly display names (adjective + animal), polished passkey flow.
+- **Font Awesome icons** across nav, login, and registration UI.
+- **SPA serving:** all frontend routes (`/`, `/s/{id}`, `/login`, `/register`, `/how-it-works`) now serve the Preact SPA instead of placeholder HTML. Falls back to placeholder when no frontend is built.
+- **Spec updates:** API and server spec amendments for UUID user IDs and session privacy.
+- **Release process:** documented dual-tag release (both `cli/v*` and `server/v*`) in CLAUDE.md.
+
 ## 0.6.1 — 2026-02-13
 
 ### Fixed

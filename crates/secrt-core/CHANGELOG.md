@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.7.0 — 2026-02-14
+
+No `secrt-core` API/behavior changes in this release. Version bump to align workspace at 0.7.0.
+
 ## 0.6.1 — 2026-02-13
 
 No `secrt-core` API/behavior changes in this release. Version bump to align workspace at 0.6.1.
