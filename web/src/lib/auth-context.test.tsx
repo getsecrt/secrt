@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen, cleanup, act, waitFor } from '@testing-library/preact';
+import { render, screen, cleanup, waitFor } from '@testing-library/preact';
 import userEvent from '@testing-library/user-event';
 import { AuthProvider, useAuth } from './auth-context';
 
@@ -17,10 +17,9 @@ function AuthConsumer() {
     <div>
       <span data-testid="loading">{String(auth.loading)}</span>
       <span data-testid="authenticated">{String(auth.authenticated)}</span>
-      <span data-testid="userId">{String(auth.userId)}</span>
-      <span data-testid="handle">{String(auth.handle)}</span>
+      <span data-testid="displayName">{String(auth.displayName)}</span>
       <span data-testid="sessionToken">{String(auth.sessionToken)}</span>
-      <button data-testid="login-btn" onClick={() => auth.login('tok_new', 42, 'alice')}>
+      <button data-testid="login-btn" onClick={() => auth.login('tok_new', 'alice')}>
         Login
       </button>
       <button data-testid="logout-btn" onClick={() => auth.logout()}>
@@ -52,15 +51,13 @@ describe('AuthProvider', () => {
       expect(screen.getByTestId('loading').textContent).toBe('false');
     });
     expect(screen.getByTestId('authenticated').textContent).toBe('false');
-    expect(screen.getByTestId('userId').textContent).toBe('null');
   });
 
   it('restores session from localStorage on mount', async () => {
     localStorage.setItem('session_token', 'uss_stored.secret');
     vi.mocked(fetchSession).mockResolvedValue({
       authenticated: true,
-      user_id: 7,
-      handle: 'bob',
+      display_name: 'bob',
       expires_at: '2026-12-31T00:00:00Z',
     });
 
@@ -74,8 +71,7 @@ describe('AuthProvider', () => {
       expect(screen.getByTestId('loading').textContent).toBe('false');
     });
     expect(screen.getByTestId('authenticated').textContent).toBe('true');
-    expect(screen.getByTestId('userId').textContent).toBe('7');
-    expect(screen.getByTestId('handle').textContent).toBe('bob');
+    expect(screen.getByTestId('displayName').textContent).toBe('bob');
     expect(screen.getByTestId('sessionToken').textContent).toBe('uss_stored.secret');
   });
 
@@ -83,8 +79,7 @@ describe('AuthProvider', () => {
     localStorage.setItem('session_token', 'uss_expired.tok');
     vi.mocked(fetchSession).mockResolvedValue({
       authenticated: false,
-      user_id: null,
-      handle: null,
+      display_name: null,
       expires_at: null,
     });
 
@@ -134,8 +129,7 @@ describe('AuthProvider', () => {
     await user.click(screen.getByTestId('login-btn'));
 
     expect(screen.getByTestId('authenticated').textContent).toBe('true');
-    expect(screen.getByTestId('userId').textContent).toBe('42');
-    expect(screen.getByTestId('handle').textContent).toBe('alice');
+    expect(screen.getByTestId('displayName').textContent).toBe('alice');
     expect(localStorage.getItem('session_token')).toBe('tok_new');
   });
 
@@ -161,7 +155,6 @@ describe('AuthProvider', () => {
     await user.click(screen.getByTestId('logout-btn'));
 
     expect(screen.getByTestId('authenticated').textContent).toBe('false');
-    expect(screen.getByTestId('userId').textContent).toBe('null');
     expect(localStorage.getItem('session_token')).toBeNull();
   });
 

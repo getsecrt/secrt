@@ -31,7 +31,7 @@ use crate::domain::secret_rules::{
 };
 use crate::storage::{
     ApiKeyRecord, ApiKeyRegistrationLimits, ApiKeysStore, AuthStore, SecretQuotaLimits,
-    SecretRecord, SecretsStore, SessionRecord, StorageError,
+    SecretRecord, SecretsStore, SessionRecord, StorageError, UserId,
 };
 
 #[derive(Clone)]
@@ -167,7 +167,6 @@ struct InfoRate {
 #[serde(deny_unknown_fields)]
 struct PasskeyRegisterStartRequest {
     display_name: String,
-    handle: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -201,8 +200,7 @@ struct PasskeyLoginFinishRequest {
 #[derive(Serialize)]
 struct SessionResponse {
     authenticated: bool,
-    user_id: Option<i64>,
-    handle: Option<String>,
+    display_name: Option<String>,
     expires_at: Option<DateTime<Utc>>,
 }
 
@@ -222,8 +220,7 @@ struct RegisterApiKeyResponse {
 #[derive(Serialize)]
 struct AuthFinishResponse {
     session_token: String,
-    user_id: i64,
-    handle: String,
+    display_name: String,
     expires_at: DateTime<Utc>,
 }
 
@@ -780,7 +777,6 @@ const CHALLENGE_LEN: usize = 32;
 #[derive(Serialize, Deserialize)]
 struct RegisterChallengePayload {
     display_name: String,
-    handle: String,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -835,7 +831,7 @@ fn hash_session_token(pepper: &str, sid: &str, secret: &str) -> Result<String, (
 async fn require_session_user(
     state: &Arc<AppState>,
     headers: &HeaderMap,
-) -> Result<(i64, String, DateTime<Utc>), Response> {
+) -> Result<(UserId, String, DateTime<Utc>), Response> {
     let sess = require_valid_session(state, headers).await?;
 
     let user = state
@@ -843,7 +839,7 @@ async fn require_session_user(
         .get_user_by_id(sess.user_id)
         .await
         .map_err(|_| unauthorized())?;
-    Ok((user.id, user.handle, sess.expires_at))
+    Ok((user.id, user.display_name, sess.expires_at))
 }
 
 async fn require_valid_session(
@@ -873,7 +869,7 @@ async fn require_valid_session(
 
 async fn issue_session_token(
     state: &Arc<AppState>,
-    user_id: i64,
+    user_id: UserId,
 ) -> Result<(String, DateTime<Utc>), Response> {
     let sid = random_b64(SESSION_SID_LEN).map_err(|_| internal_server_error())?;
     let secret = random_b64(SESSION_SECRET_LEN).map_err(|_| internal_server_error())?;
@@ -911,13 +907,8 @@ pub async fn handle_passkey_register_start_entry(
         Ok(v) => v,
         Err(_) => return internal_server_error(),
     };
-    let handle = payload.handle.unwrap_or_else(|| {
-        let short = challenge_id.get(..8).unwrap_or("user");
-        format!("user-{short}")
-    });
     let challenge_json = match serde_json::to_string(&RegisterChallengePayload {
         display_name: payload.display_name,
-        handle,
     }) {
         Ok(v) => v,
         Err(_) => return internal_server_error(),
@@ -977,7 +968,7 @@ pub async fn handle_passkey_register_finish_entry(
 
     let user = match state
         .auth_store
-        .create_user(parsed.handle.trim(), parsed.display_name.trim())
+        .create_user(parsed.display_name.trim())
         .await
     {
         Ok(v) => v,
@@ -1004,8 +995,7 @@ pub async fn handle_passkey_register_finish_entry(
         StatusCode::OK,
         AuthFinishResponse {
             session_token: token,
-            user_id: user.id,
-            handle: user.handle,
+            display_name: user.display_name,
             expires_at,
         },
     )
@@ -1129,8 +1119,7 @@ pub async fn handle_passkey_login_finish_entry(
         StatusCode::OK,
         AuthFinishResponse {
             session_token: token,
-            user_id: user.id,
-            handle: user.handle,
+            display_name: user.display_name,
             expires_at,
         },
     )
@@ -1143,26 +1132,25 @@ pub async fn handle_auth_session_entry(
     if req.method() != Method::GET {
         return method_not_allowed();
     }
-    let (user_id, handle, expires_at) = match require_session_user(&state, req.headers()).await {
-        Ok(v) => v,
-        Err(_) => {
-            return json_response(
-                StatusCode::OK,
-                SessionResponse {
-                    authenticated: false,
-                    user_id: None,
-                    handle: None,
-                    expires_at: None,
-                },
-            )
-        }
-    };
+    let (_user_id, display_name, expires_at) =
+        match require_session_user(&state, req.headers()).await {
+            Ok(v) => v,
+            Err(_) => {
+                return json_response(
+                    StatusCode::OK,
+                    SessionResponse {
+                        authenticated: false,
+                        display_name: None,
+                        expires_at: None,
+                    },
+                )
+            }
+        };
     json_response(
         StatusCode::OK,
         SessionResponse {
             authenticated: true,
-            user_id: Some(user_id),
-            handle: Some(handle),
+            display_name: Some(display_name),
             expires_at: Some(expires_at),
         },
     )
@@ -1415,6 +1403,7 @@ mod tests {
     use std::sync::Arc;
     use std::sync::Mutex;
     use tower::ServiceExt;
+    use uuid::Uuid;
 
     struct EnvVarGuard {
         key: &'static str,
@@ -1542,21 +1531,17 @@ mod tests {
 
     #[async_trait]
     impl AuthStore for MemStore {
-        async fn create_user(
-            &self,
-            _handle: &str,
-            _display_name: &str,
-        ) -> Result<UserRecord, StorageError> {
+        async fn create_user(&self, _display_name: &str) -> Result<UserRecord, StorageError> {
             Err(StorageError::Other("unsupported".into()))
         }
 
-        async fn get_user_by_id(&self, _user_id: i64) -> Result<UserRecord, StorageError> {
+        async fn get_user_by_id(&self, _user_id: UserId) -> Result<UserRecord, StorageError> {
             Err(StorageError::NotFound)
         }
 
         async fn insert_passkey(
             &self,
-            _user_id: i64,
+            _user_id: UserId,
             _credential_id: &str,
             _public_key: &str,
             _sign_count: i64,
@@ -1582,7 +1567,7 @@ mod tests {
         async fn insert_session(
             &self,
             _sid: &str,
-            _user_id: i64,
+            _user_id: UserId,
             _token_hash: &str,
             _expires_at: DateTime<Utc>,
         ) -> Result<SessionRecord, StorageError> {
@@ -1600,7 +1585,7 @@ mod tests {
         async fn insert_challenge(
             &self,
             _challenge_id: &str,
-            _user_id: Option<i64>,
+            _user_id: Option<UserId>,
             _purpose: &str,
             _challenge_json: &str,
             _expires_at: DateTime<Utc>,
@@ -1619,7 +1604,7 @@ mod tests {
 
         async fn count_apikey_registrations_by_user_since(
             &self,
-            _user_id: i64,
+            _user_id: UserId,
             _since: DateTime<Utc>,
         ) -> Result<i64, StorageError> {
             Ok(0)
@@ -1645,7 +1630,7 @@ mod tests {
 
         async fn insert_apikey_registration_event(
             &self,
-            _user_id: i64,
+            _user_id: UserId,
             _ip_hash: &str,
             _now: DateTime<Utc>,
         ) -> Result<(), StorageError> {
@@ -2088,17 +2073,18 @@ mod tests {
     async fn memstore_auth_stub_methods_are_exercised() {
         let store = MemStore::default();
         let now = Utc::now();
+        let user_id = Uuid::now_v7();
 
         assert!(matches!(
-            store.create_user("h", "d").await,
+            store.create_user("d").await,
             Err(StorageError::Other(_))
         ));
         assert!(matches!(
-            store.get_user_by_id(1).await,
+            store.get_user_by_id(user_id).await,
             Err(StorageError::NotFound)
         ));
         assert!(matches!(
-            store.insert_passkey(1, "c", "pk", 0).await,
+            store.insert_passkey(user_id, "c", "pk", 0).await,
             Err(StorageError::Other(_))
         ));
         assert!(matches!(
@@ -2110,7 +2096,7 @@ mod tests {
             Err(StorageError::NotFound)
         ));
         assert!(matches!(
-            store.insert_session("sid", 1, "hash", now).await,
+            store.insert_session("sid", user_id, "hash", now).await,
             Err(StorageError::Other(_))
         ));
         assert!(matches!(
@@ -2133,7 +2119,7 @@ mod tests {
         ));
         assert_eq!(
             store
-                .count_apikey_registrations_by_user_since(1, now - chrono::Duration::hours(1))
+                .count_apikey_registrations_by_user_since(user_id, now - chrono::Duration::hours(1))
                 .await
                 .expect("count by user"),
             0
@@ -2170,7 +2156,7 @@ mod tests {
             Err(StorageError::Other(_))
         ));
         store
-            .insert_apikey_registration_event(1, "ip", now)
+            .insert_apikey_registration_event(user_id, "ip", now)
             .await
             .expect("insert reg event");
     }

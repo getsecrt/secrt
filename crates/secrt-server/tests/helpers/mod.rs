@@ -15,18 +15,19 @@ use secrt_server::http::{build_router, AppState};
 use secrt_server::storage::{
     ApiKeyRecord, ApiKeyRegistrationLimits, ApiKeysStore, AuthStore, ChallengeRecord,
     PasskeyRecord, SecretQuotaLimits, SecretRecord, SecretsStore, SessionRecord, StorageError,
-    StorageUsage, UserRecord,
+    StorageUsage, UserId, UserRecord,
 };
+use uuid::Uuid;
 
 #[derive(Default)]
 pub struct MemStore {
     pub secrets: Mutex<HashMap<String, SecretRecord>>,
     pub keys: Mutex<HashMap<String, ApiKeyRecord>>,
-    pub users: Mutex<HashMap<i64, UserRecord>>,
+    pub users: Mutex<HashMap<UserId, UserRecord>>,
     pub passkeys: Mutex<HashMap<String, PasskeyRecord>>,
     pub sessions: Mutex<HashMap<String, SessionRecord>>,
     pub challenges: Mutex<HashMap<String, ChallengeRecord>>,
-    pub apikey_regs: Mutex<Vec<(i64, String, DateTime<Utc>)>>,
+    pub apikey_regs: Mutex<Vec<(UserId, String, DateTime<Utc>)>>,
     pub ids: Mutex<i64>,
 }
 
@@ -172,16 +173,9 @@ impl ApiKeysStore for MemStore {
 
 #[async_trait]
 impl AuthStore for MemStore {
-    async fn create_user(
-        &self,
-        handle: &str,
-        display_name: &str,
-    ) -> Result<UserRecord, StorageError> {
-        let mut ids = self.ids.lock().expect("ids mutex poisoned");
-        *ids += 1;
+    async fn create_user(&self, display_name: &str) -> Result<UserRecord, StorageError> {
         let u = UserRecord {
-            id: *ids,
-            handle: handle.to_string(),
+            id: Uuid::now_v7(),
             display_name: display_name.to_string(),
             created_at: Utc::now(),
         };
@@ -192,7 +186,7 @@ impl AuthStore for MemStore {
         Ok(u)
     }
 
-    async fn get_user_by_id(&self, user_id: i64) -> Result<UserRecord, StorageError> {
+    async fn get_user_by_id(&self, user_id: UserId) -> Result<UserRecord, StorageError> {
         self.users
             .lock()
             .expect("users mutex poisoned")
@@ -203,7 +197,7 @@ impl AuthStore for MemStore {
 
     async fn insert_passkey(
         &self,
-        user_id: i64,
+        user_id: UserId,
         credential_id: &str,
         public_key: &str,
         sign_count: i64,
@@ -254,7 +248,7 @@ impl AuthStore for MemStore {
     async fn insert_session(
         &self,
         sid: &str,
-        user_id: i64,
+        user_id: UserId,
         token_hash: &str,
         expires_at: DateTime<Utc>,
     ) -> Result<SessionRecord, StorageError> {
@@ -300,7 +294,7 @@ impl AuthStore for MemStore {
     async fn insert_challenge(
         &self,
         challenge_id: &str,
-        user_id: Option<i64>,
+        user_id: Option<UserId>,
         purpose: &str,
         challenge_json: &str,
         expires_at: DateTime<Utc>,
@@ -341,7 +335,7 @@ impl AuthStore for MemStore {
 
     async fn count_apikey_registrations_by_user_since(
         &self,
-        user_id: i64,
+        user_id: UserId,
         since: DateTime<Utc>,
     ) -> Result<i64, StorageError> {
         let regs = self.apikey_regs.lock().expect("apikey_regs mutex poisoned");
@@ -422,7 +416,7 @@ impl AuthStore for MemStore {
 
     async fn insert_apikey_registration_event(
         &self,
-        user_id: i64,
+        user_id: UserId,
         ip_hash: &str,
         now: DateTime<Utc>,
     ) -> Result<(), StorageError> {

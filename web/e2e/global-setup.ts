@@ -105,7 +105,15 @@ export default async function globalSetup() {
   console.log(`[e2e] Starting Vite dev server on port ${VITE_PORT}...`);
   const vite: ChildProcess = spawn(
     'pnpm',
-    ['exec', 'vite', '--port', String(VITE_PORT), '--strictPort'],
+    [
+      'exec',
+      'vite',
+      '--host',
+      '127.0.0.1',
+      '--port',
+      String(VITE_PORT),
+      '--strictPort',
+    ],
     {
       cwd: WEB_DIR,
       env: {

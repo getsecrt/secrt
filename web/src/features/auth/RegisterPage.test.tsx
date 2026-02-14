@@ -6,8 +6,7 @@ import userEvent from '@testing-library/user-event';
 const mockAuth = {
   loading: false,
   authenticated: false,
-  userId: null,
-  handle: null,
+  displayName: null,
   sessionToken: null,
   login: vi.fn(),
   logout: vi.fn(),
@@ -50,7 +49,7 @@ describe('RegisterPage', () => {
 
   it('renders registration form', () => {
     render(<RegisterPage />);
-    expect(screen.getByText('Create an account')).toBeInTheDocument();
+    expect(screen.getByText('Create an Account')).toBeInTheDocument();
     expect(screen.getByLabelText('Display Name')).toBeInTheDocument();
     expect(screen.getByText('Register with Passkey')).toBeInTheDocument();
   });
@@ -67,16 +66,18 @@ describe('RegisterPage', () => {
     expect(screen.getByText('Passkeys not supported')).toBeInTheDocument();
   });
 
-  it('disables submit when display name is empty', () => {
-    render(<RegisterPage />);
-    const btn = screen.getByText('Register with Passkey');
-    expect(btn).toBeDisabled();
-  });
-
-  it('enables submit when display name is entered', async () => {
+  it('shows error when display name is empty on submit', async () => {
     const user = userEvent.setup();
     render(<RegisterPage />);
-    await user.type(screen.getByLabelText('Display Name'), 'Alice');
+    // Clear the pre-filled random name
+    const input = screen.getByLabelText('Display Name');
+    await user.clear(input);
+    await user.click(screen.getByText('Register with Passkey'));
+    expect(screen.getByRole('alert')).toHaveTextContent('Please enter a display name');
+  });
+
+  it('submit button is enabled with pre-filled name', () => {
+    render(<RegisterPage />);
     expect(screen.getByText('Register with Passkey')).not.toBeDisabled();
   });
 
@@ -93,20 +94,21 @@ describe('RegisterPage', () => {
     });
     vi.mocked(registerPasskeyFinish).mockResolvedValue({
       session_token: 'uss_new.tok',
-      user_id: 99,
-      handle: 'alice',
+      display_name: 'alice',
       expires_at: '2026-12-31T00:00:00Z',
     });
 
     render(<RegisterPage />);
-    await user.type(screen.getByLabelText('Display Name'), 'Alice');
+    // Clear pre-filled name and type a specific one
+    const input = screen.getByLabelText('Display Name');
+    await user.clear(input);
+    await user.type(input, 'Alice');
     await user.click(screen.getByText('Register with Passkey'));
 
     expect(registerPasskeyStart).toHaveBeenCalledWith({
       display_name: 'Alice',
-      handle: undefined,
     });
-    expect(mockAuth.login).toHaveBeenCalledWith('uss_new.tok', 99, 'alice');
+    expect(mockAuth.login).toHaveBeenCalledWith('uss_new.tok', 'alice');
     expect(mockNavigate).toHaveBeenCalledWith('/');
   });
 
@@ -145,7 +147,7 @@ describe('RegisterPage', () => {
   it('has link to login page', async () => {
     const user = userEvent.setup();
     render(<RegisterPage />);
-    await user.click(screen.getByText('Log in'));
+    await user.click(screen.getByText('Log In'));
     expect(mockNavigate).toHaveBeenCalledWith('/login');
   });
 });

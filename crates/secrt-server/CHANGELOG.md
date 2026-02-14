@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.7.0 — 2026-02-14
+
+### Added
+
+- **Technical whitepaper** documenting cryptographic architecture, zero-knowledge design, abuse prevention, and FAQ.
+- **Font Awesome icons** across nav and auth UI.
+- **Passkey icon** SVG asset for auth pages.
+
+### Changed
+
+- **User identity storage hardening:** user IDs are now server-generated UUIDv7 values, and all auth-linked `user_id` foreign keys are UUID-typed.
+- **Auth/session response privacy:** `user_id` is no longer returned by passkey `register/finish`, `login/finish`, or `GET /api/v1/auth/session` responses.
+- **Registration page overhaul:** auto-generated privacy-friendly display names, polished passkey flow.
+- **Nav and login UI polish:** updated styling, icon integration, responsive improvements.
+- **Spec updates:** API and server spec amendments for UUID user IDs and session privacy.
+
 ## 0.6.1 — 2026-02-13
 
 ### Fixed

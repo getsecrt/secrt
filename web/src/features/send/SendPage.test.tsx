@@ -58,8 +58,7 @@ vi.mock('../../lib/auth-context', () => ({
   useAuth: () => ({
     loading: false,
     authenticated: false,
-    userId: null,
-    handle: null,
+    displayName: null,
     sessionToken: null,
     login: vi.fn(),
     logout: vi.fn(),

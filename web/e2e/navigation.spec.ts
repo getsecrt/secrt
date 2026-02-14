@@ -11,12 +11,18 @@ test.describe('Navigation', () => {
     ).toBeVisible();
   });
 
-  test('logo click navigates home', async ({ page }) => {
+  test('home nav control navigates home', async ({ page }) => {
     await page.goto('/how-it-works');
     await expect(page.getByText('How secrt Works')).toBeVisible();
 
-    // Click logo to go home
-    await page.locator('header a').first().click();
+    const createLink = page.getByRole('link', { name: /^Create$/ }).first();
+    if (await createLink.isVisible()) {
+      await createLink.click();
+    } else {
+      await page.getByRole('button', { name: 'Open menu' }).click();
+      await page.getByRole('link', { name: /^Create$/ }).first().click();
+    }
+
     await expect(
       page.getByPlaceholder('Enter your secret...'),
     ).toBeVisible();

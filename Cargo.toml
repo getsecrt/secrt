@@ -8,7 +8,7 @@ members = [
 ]
 
 [workspace.package]
-version = "0.6.1"
+version = "0.7.0"
 edition = "2021"
 license = "MIT"
 repository = "https://github.com/getsecrt/secrt"
@@ -28,11 +28,12 @@ tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
 async-trait = "0.1"
 thiserror = "2"
 chrono = { version = "0.4", features = ["serde", "clock"] }
-tokio-postgres = { version = "0.7", features = ["with-serde_json-1", "with-chrono-0_4"] }
+tokio-postgres = { version = "0.7", features = ["with-serde_json-1", "with-chrono-0_4", "with-uuid-1"] }
 deadpool-postgres = "0.14"
 hyper-util = { version = "0.1", features = ["server-auto", "server-graceful", "tokio", "http1", "service"] }
 tokio-io-timeout = "1.2"
 hex = "0.4"
+uuid = { version = "1", features = ["serde", "v7"] }
 url = "2"
 urlencoding = "2"
 rust-embed = "8"

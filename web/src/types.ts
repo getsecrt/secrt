@@ -97,7 +97,6 @@ export interface ClaimResponse {
 /** Auth API types. */
 export interface PasskeyRegisterStartRequest {
   display_name: string;
-  handle?: string;
 }
 
 export interface ChallengeResponse {
@@ -123,14 +122,12 @@ export interface PasskeyLoginFinishRequest {
 
 export interface AuthFinishResponse {
   session_token: string;
-  user_id: number;
-  handle: string;
+  display_name: string;
   expires_at: string;
 }
 
 export interface SessionResponse {
   authenticated: boolean;
-  user_id: number | null;
-  handle: string | null;
+  display_name: string | null;
   expires_at: string | null;
 }

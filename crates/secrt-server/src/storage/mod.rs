@@ -2,9 +2,12 @@ use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
+use uuid::Uuid;
 
 pub mod migrations;
 pub mod postgres;
+
+pub type UserId = Uuid;
 
 #[derive(Clone, Debug)]
 pub struct SecretRecord {
@@ -34,15 +37,14 @@ pub struct ApiKeyRecord {
     pub prefix: String,
     pub auth_hash: String,
     pub scopes: String,
-    pub user_id: Option<i64>,
+    pub user_id: Option<UserId>,
     pub created_at: DateTime<Utc>,
     pub revoked_at: Option<DateTime<Utc>>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct UserRecord {
-    pub id: i64,
-    pub handle: String,
+    pub id: UserId,
     pub display_name: String,
     pub created_at: DateTime<Utc>,
 }
@@ -50,7 +52,7 @@ pub struct UserRecord {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct PasskeyRecord {
     pub id: i64,
-    pub user_id: i64,
+    pub user_id: UserId,
     pub credential_id: String,
     pub public_key: String,
     pub sign_count: i64,
@@ -62,7 +64,7 @@ pub struct PasskeyRecord {
 pub struct SessionRecord {
     pub id: i64,
     pub sid: String,
-    pub user_id: i64,
+    pub user_id: UserId,
     pub token_hash: String,
     pub expires_at: DateTime<Utc>,
     pub created_at: DateTime<Utc>,
@@ -73,7 +75,7 @@ pub struct SessionRecord {
 pub struct ChallengeRecord {
     pub id: i64,
     pub challenge_id: String,
-    pub user_id: Option<i64>,
+    pub user_id: Option<UserId>,
     pub purpose: String,
     pub challenge_json: String,
     pub expires_at: DateTime<Utc>,
@@ -175,16 +177,12 @@ pub trait ApiKeysStore: Send + Sync {
 
 #[async_trait]
 pub trait AuthStore: Send + Sync {
-    async fn create_user(
-        &self,
-        handle: &str,
-        display_name: &str,
-    ) -> Result<UserRecord, StorageError>;
-    async fn get_user_by_id(&self, user_id: i64) -> Result<UserRecord, StorageError>;
+    async fn create_user(&self, display_name: &str) -> Result<UserRecord, StorageError>;
+    async fn get_user_by_id(&self, user_id: UserId) -> Result<UserRecord, StorageError>;
 
     async fn insert_passkey(
         &self,
-        user_id: i64,
+        user_id: UserId,
         credential_id: &str,
         public_key: &str,
         sign_count: i64,
@@ -202,7 +200,7 @@ pub trait AuthStore: Send + Sync {
     async fn insert_session(
         &self,
         sid: &str,
-        user_id: i64,
+        user_id: UserId,
         token_hash: &str,
         expires_at: DateTime<Utc>,
     ) -> Result<SessionRecord, StorageError>;
@@ -212,7 +210,7 @@ pub trait AuthStore: Send + Sync {
     async fn insert_challenge(
         &self,
         challenge_id: &str,
-        user_id: Option<i64>,
+        user_id: Option<UserId>,
         purpose: &str,
         challenge_json: &str,
         expires_at: DateTime<Utc>,
@@ -226,7 +224,7 @@ pub trait AuthStore: Send + Sync {
 
     async fn count_apikey_registrations_by_user_since(
         &self,
-        user_id: i64,
+        user_id: UserId,
         since: DateTime<Utc>,
     ) -> Result<i64, StorageError>;
     async fn count_apikey_registrations_by_ip_since(
@@ -243,7 +241,7 @@ pub trait AuthStore: Send + Sync {
     ) -> Result<(), StorageError>;
     async fn insert_apikey_registration_event(
         &self,
-        user_id: i64,
+        user_id: UserId,
         ip_hash: &str,
         now: DateTime<Utc>,
     ) -> Result<(), StorageError>;
@@ -312,21 +310,17 @@ impl<T> AuthStore for Arc<T>
 where
     T: AuthStore + ?Sized,
 {
-    async fn create_user(
-        &self,
-        handle: &str,
-        display_name: &str,
-    ) -> Result<UserRecord, StorageError> {
-        (**self).create_user(handle, display_name).await
+    async fn create_user(&self, display_name: &str) -> Result<UserRecord, StorageError> {
+        (**self).create_user(display_name).await
     }
 
-    async fn get_user_by_id(&self, user_id: i64) -> Result<UserRecord, StorageError> {
+    async fn get_user_by_id(&self, user_id: UserId) -> Result<UserRecord, StorageError> {
         (**self).get_user_by_id(user_id).await
     }
 
     async fn insert_passkey(
         &self,
-        user_id: i64,
+        user_id: UserId,
         credential_id: &str,
         public_key: &str,
         sign_count: i64,
@@ -356,7 +350,7 @@ where
     async fn insert_session(
         &self,
         sid: &str,
-        user_id: i64,
+        user_id: UserId,
         token_hash: &str,
         expires_at: DateTime<Utc>,
     ) -> Result<SessionRecord, StorageError> {
@@ -376,7 +370,7 @@ where
     async fn insert_challenge(
         &self,
         challenge_id: &str,
-        user_id: Option<i64>,
+        user_id: Option<UserId>,
         purpose: &str,
         challenge_json: &str,
         expires_at: DateTime<Utc>,
@@ -397,7 +391,7 @@ where
 
     async fn count_apikey_registrations_by_user_since(
         &self,
-        user_id: i64,
+        user_id: UserId,
         since: DateTime<Utc>,
     ) -> Result<i64, StorageError> {
         (**self)
@@ -427,7 +421,7 @@ where
 
     async fn insert_apikey_registration_event(
         &self,
-        user_id: i64,
+        user_id: UserId,
         ip_hash: &str,
         now: DateTime<Utc>,
     ) -> Result<(), StorageError> {

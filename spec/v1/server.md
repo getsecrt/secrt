@@ -64,11 +64,16 @@ Primary tables:
 
 - `secrets(id, claim_hash, envelope, expires_at, created_at, owner_key)`
 - `api_keys(id, key_prefix, auth_hash, scopes, user_id, created_at, revoked_at)`
-- `users(id, handle, display_name, created_at)`
+- `users(id UUIDv7, display_name, created_at)`
 - `passkeys(id, user_id, credential_id, public_key, sign_count, created_at, revoked_at)`
 - `sessions(id, sid, user_id, token_hash, expires_at, created_at, revoked_at)`
 - `webauthn_challenges(id, challenge_id, user_id, purpose, challenge_json, expires_at, created_at)`
 - `api_key_registrations(id, user_id, ip_hash, created_at)`
+
+User identifier notes:
+
+- `users.id` is server-generated UUIDv7.
+- All auth-linked `user_id` foreign keys (`api_keys`, `passkeys`, `sessions`, `webauthn_challenges`, `api_key_registrations`) are UUID-typed.
 
 Indexes:
 

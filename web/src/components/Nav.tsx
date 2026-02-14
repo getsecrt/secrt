@@ -5,10 +5,11 @@ import {
   XMarkIcon,
   UserCircleIcon,
   LogoutIcon,
-  FingerprintIcon,
+  PasskeyIcon,
   GitHubIcon,
   DownloadIcon,
   CircleQuestionIcon,
+  SquarePlusIcon,
 } from './Icons';
 import { navigate, useRoute } from '../router';
 import { useAuth } from '../lib/auth-context';
@@ -79,12 +80,15 @@ export function Nav() {
   const isActive = (page: string) => route.page === page;
 
   return (
-    <nav class="sticky top-0 z-10 border-b border-border bg-surface/95 backdrop-blur">
-      <div class="mx-auto flex max-w-lg items-center justify-center gap-4 px-4 py-2">
+    <nav class="sticky top-0 z-10 border-b border-border bg-neutral-200/50 shadow-sm backdrop-blur dark:bg-neutral-700/50">
+      <div class="mx-auto flex max-w-lg items-center justify-center gap-4 px-4 py-1.5">
         {/* Desktop links (hidden below sm) */}
         <div class="hidden items-center gap-6 sm:flex">
           <NavLink href="/" active={isActive('send')}>
-            Create
+            <span class="flex items-center gap-1">
+              <SquarePlusIcon class="size-4" />
+              Create
+            </span>
           </NavLink>
 
           <NavLink href="/how-it-works" active={isActive('how-it-works')}>
@@ -114,7 +118,7 @@ export function Nav() {
               <div class="flex items-center gap-3">
                 <span class="flex items-center gap-1 text-sm text-muted">
                   <UserCircleIcon class="size-4" />
-                  {auth.handle}
+                  {auth.displayName}
                 </span>
                 <button
                   type="button"
@@ -128,7 +132,7 @@ export function Nav() {
             ) : (
               <NavLink href="/login" active={isActive('login')}>
                 <span class="flex items-center gap-1 whitespace-nowrap">
-                  <FingerprintIcon class="size-4" />
+                  <PasskeyIcon class="size-4" />
                   Log In
                 </span>
               </NavLink>
@@ -161,7 +165,10 @@ export function Nav() {
         <div class="border-t border-border px-4 pt-2 pb-4 sm:hidden">
           <div class="flex flex-col gap-3">
             <NavLink href="/" active={isActive('send')}>
-              Create
+              <span class="flex items-center gap-1">
+                <SquarePlusIcon class="size-4" />
+                Create
+              </span>
             </NavLink>
             <NavLink href="/how-it-works" active={isActive('how-it-works')}>
               <span class="flex items-center gap-1">
@@ -189,7 +196,7 @@ export function Nav() {
                 <>
                   <span class="flex items-center gap-1 text-sm text-muted">
                     <UserCircleIcon class="size-4" />
-                    {auth.handle}
+                    {auth.displayName}
                   </span>
                   <button
                     type="button"
@@ -203,7 +210,7 @@ export function Nav() {
               ) : (
                 <NavLink href="/login" active={isActive('login')}>
                   <span class="flex items-center gap-1">
-                    <FingerprintIcon class="size-4" />
+                    <PasskeyIcon class="size-4" />
                     Log In
                   </span>
                 </NavLink>

@@ -6,8 +6,7 @@ import userEvent from '@testing-library/user-event';
 const mockAuth = {
   loading: false,
   authenticated: false,
-  userId: null,
-  handle: null,
+  displayName: null,
   sessionToken: null,
   login: vi.fn(),
   logout: vi.fn(),
@@ -53,7 +52,7 @@ describe('LoginPage', () => {
 
   it('renders login page', () => {
     render(<LoginPage />);
-    expect(screen.getByText('Log in')).toBeInTheDocument();
+    expect(screen.getByText('Log In')).toBeInTheDocument();
     expect(screen.getByText('Log in with Passkey')).toBeInTheDocument();
   });
 
@@ -81,8 +80,7 @@ describe('LoginPage', () => {
     });
     vi.mocked(loginPasskeyFinish).mockResolvedValue({
       session_token: 'uss_login.tok',
-      user_id: 55,
-      handle: 'dave',
+      display_name: 'dave',
       expires_at: '2026-12-31T00:00:00Z',
     });
 
@@ -96,7 +94,7 @@ describe('LoginPage', () => {
       challenge_id: 'ch_login',
       credential_id: 'cred_login',
     });
-    expect(mockAuth.login).toHaveBeenCalledWith('uss_login.tok', 55, 'dave');
+    expect(mockAuth.login).toHaveBeenCalledWith('uss_login.tok', 'dave');
     expect(mockNavigate).toHaveBeenCalledWith('/');
   });
 
@@ -126,7 +124,7 @@ describe('LoginPage', () => {
   it('has link to register page', async () => {
     const user = userEvent.setup();
     render(<LoginPage />);
-    await user.click(screen.getByText('Register'));
+    await user.click(screen.getByText('Register a New Account'));
     expect(mockNavigate).toHaveBeenCalledWith('/register');
   });
 });

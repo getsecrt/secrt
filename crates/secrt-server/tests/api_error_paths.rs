@@ -11,7 +11,7 @@ use secrt_server::domain::auth::hash_api_key_auth_token;
 use secrt_server::http::{build_router, AppState};
 use secrt_server::storage::{
     ApiKeyRecord, ApiKeyRegistrationLimits, ApiKeysStore, AuthStore, ChallengeRecord,
-    PasskeyRecord, SecretRecord, SecretsStore, SessionRecord, StorageError, StorageUsage,
+    PasskeyRecord, SecretRecord, SecretsStore, SessionRecord, StorageError, StorageUsage, UserId,
     UserRecord,
 };
 use tower::ServiceExt;
@@ -173,21 +173,17 @@ impl ApiKeysStore for ErrStore {
 
 #[async_trait]
 impl AuthStore for ErrStore {
-    async fn create_user(
-        &self,
-        _handle: &str,
-        _display_name: &str,
-    ) -> Result<UserRecord, StorageError> {
+    async fn create_user(&self, _display_name: &str) -> Result<UserRecord, StorageError> {
         Err(StorageError::Other("unsupported".into()))
     }
 
-    async fn get_user_by_id(&self, _user_id: i64) -> Result<UserRecord, StorageError> {
+    async fn get_user_by_id(&self, _user_id: UserId) -> Result<UserRecord, StorageError> {
         Err(StorageError::NotFound)
     }
 
     async fn insert_passkey(
         &self,
-        _user_id: i64,
+        _user_id: UserId,
         _credential_id: &str,
         _public_key: &str,
         _sign_count: i64,
@@ -213,7 +209,7 @@ impl AuthStore for ErrStore {
     async fn insert_session(
         &self,
         _sid: &str,
-        _user_id: i64,
+        _user_id: UserId,
         _token_hash: &str,
         _expires_at: DateTime<Utc>,
     ) -> Result<SessionRecord, StorageError> {
@@ -231,7 +227,7 @@ impl AuthStore for ErrStore {
     async fn insert_challenge(
         &self,
         _challenge_id: &str,
-        _user_id: Option<i64>,
+        _user_id: Option<UserId>,
         _purpose: &str,
         _challenge_json: &str,
         _expires_at: DateTime<Utc>,
@@ -250,7 +246,7 @@ impl AuthStore for ErrStore {
 
     async fn count_apikey_registrations_by_user_since(
         &self,
-        _user_id: i64,
+        _user_id: UserId,
         _since: DateTime<Utc>,
     ) -> Result<i64, StorageError> {
         Ok(0)
@@ -276,7 +272,7 @@ impl AuthStore for ErrStore {
 
     async fn insert_apikey_registration_event(
         &self,
-        _user_id: i64,
+        _user_id: UserId,
         _ip_hash: &str,
         _now: DateTime<Utc>,
     ) -> Result<(), StorageError> {

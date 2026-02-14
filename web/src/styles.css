@@ -141,7 +141,7 @@
 
 @layer components {
   .heading {
-    @apply border-b border-border pb-2 text-lg font-semibold tracking-widest text-neutral-700 uppercase dark:text-neutral-300 dark:text-shadow-black;
+    @apply mb-3 border-b border-border pb-2 text-lg font-semibold tracking-widest text-neutral-700 uppercase dark:text-neutral-300 dark:text-shadow-black;
   }
 
   .btn {

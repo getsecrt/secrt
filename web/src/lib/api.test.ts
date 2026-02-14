@@ -321,8 +321,7 @@ const mockChallenge: ChallengeResponse = {
 
 const mockAuthFinish: AuthFinishResponse = {
   session_token: 'uss_abc.secret',
-  user_id: 42,
-  handle: 'alice',
+  display_name: 'alice',
   expires_at: '2026-12-31T00:00:00Z',
 };
 
@@ -359,6 +358,9 @@ describe('registerPasskeyFinish', () => {
       public_key: 'pk_1',
     });
     expect(result).toEqual(mockAuthFinish);
+    expect(
+      'user_id' in (result as unknown as Record<string, unknown>),
+    ).toBe(false);
     expect(fetch).toHaveBeenCalledWith(
       '/api/v1/auth/passkeys/register/finish',
       expect.objectContaining({ method: 'POST' }),
@@ -388,6 +390,9 @@ describe('loginPasskeyFinish', () => {
       credential_id: 'cred_xyz',
     });
     expect(result).toEqual(mockAuthFinish);
+    expect(
+      'user_id' in (result as unknown as Record<string, unknown>),
+    ).toBe(false);
     expect(fetch).toHaveBeenCalledWith(
       '/api/v1/auth/passkeys/login/finish',
       expect.objectContaining({ method: 'POST' }),
@@ -398,8 +403,7 @@ describe('loginPasskeyFinish', () => {
 describe('fetchSession', () => {
   const mockSession: SessionResponse = {
     authenticated: true,
-    user_id: 42,
-    handle: 'alice',
+    display_name: 'alice',
     expires_at: '2026-12-31T00:00:00Z',
   };
 
@@ -408,6 +412,9 @@ describe('fetchSession', () => {
 
     const result = await fetchSession('uss_tok.secret');
     expect(result).toEqual(mockSession);
+    expect(
+      'user_id' in (result as unknown as Record<string, unknown>),
+    ).toBe(false);
     const callArgs = vi.mocked(fetch).mock.calls[0];
     const init = callArgs[1] as RequestInit;
     const headers = new Headers(init.headers);

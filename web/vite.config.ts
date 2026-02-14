@@ -12,7 +12,7 @@ export default defineConfig(({ mode }) => {
     base: mode === 'production' ? '/static/' : '/',
     plugins: [tailwindcss(), preact()],
     server: {
-      host: '127.0.0.1',
+      host: 'localhost',
       port: 5173,
       strictPort: true,
       proxy: {

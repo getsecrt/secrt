@@ -251,6 +251,9 @@ Session bearer token format:
 
 - `Authorization: Bearer uss_<sid>.<secret>`
 - Session TTL is fixed at 24h in v1 (no refresh flow).
+- `register/finish` and `login/finish` return `session_token`, `display_name`, and `expires_at`.
+- `GET /api/v1/auth/session` returns `authenticated`, `display_name`, and `expires_at`.
+- Auth/session responses intentionally do **not** expose `user_id`.
 
 ### API-Key Registration (Passkey Session Required)
 

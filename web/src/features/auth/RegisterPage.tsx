@@ -1,9 +1,130 @@
 import { useState, useCallback } from 'preact/hooks';
 import { useAuth } from '../../lib/auth-context';
-import { supportsWebAuthn, createPasskeyCredential, generateUserId } from '../../lib/webauthn';
+import {
+  supportsWebAuthn,
+  createPasskeyCredential,
+  generateUserId,
+} from '../../lib/webauthn';
 import { registerPasskeyStart, registerPasskeyFinish } from '../../lib/api';
 import { navigate } from '../../router';
-import { FingerprintIcon, TriangleExclamationIcon } from '../../components/Icons';
+import {
+  PasskeyIcon,
+  ShuffleIcon,
+  TriangleExclamationIcon,
+} from '../../components/Icons';
+
+// --- Random display name generator ---
+// ~2 500 combinations for privacy-friendly default names.
+const ADJECTIVES = [
+  'Silent',
+  'Hidden',
+  'Masked',
+  'Covert',
+  'Shadow',
+  'Ghost',
+  'Stealth',
+  'Phantom',
+  'Veiled',
+  'Cryptic',
+  'Secret',
+  'Cloaked',
+  'Guarded',
+  'Sealed',
+  'Shielded',
+  'Obsidian',
+  'Onyx',
+  'Furtive',
+  'Arcane',
+  'Nimble',
+  'Dusk',
+  'Midnight',
+  'Ember',
+  'Frost',
+  'Iron',
+  'Ashen',
+  'Copper',
+  'Misty',
+  'Wary',
+  'Deft',
+  'Keen',
+  'Swift',
+  'Bold',
+  'Clever',
+  'Quiet',
+  'Sturdy',
+  'Vivid',
+  'Wispy',
+  'Lucid',
+  'Stark',
+  'Rustic',
+  'Lunar',
+  'Solar',
+  'Coral',
+  'Amber',
+  'Brisk',
+  'Rapid',
+  'Steady',
+  'Subtle',
+  'Dusky',
+];
+const NOUNS = [
+  'Fox',
+  'Owl',
+  'Wolf',
+  'Bear',
+  'Hawk',
+  'Lynx',
+  'Raven',
+  'Cobra',
+  'Otter',
+  'Panda',
+  'Heron',
+  'Crane',
+  'Bison',
+  'Moose',
+  'Eagle',
+  'Viper',
+  'Falcon',
+  'Badger',
+  'Jaguar',
+  'Osprey',
+  'Wren',
+  'Finch',
+  'Marten',
+  'Ferret',
+  'Newt',
+  'Stoat',
+  'Shrike',
+  'Ibis',
+  'Gecko',
+  'Puma',
+  'Egret',
+  'Condor',
+  'Mink',
+  'Coyote',
+  'Jackal',
+  'Mantis',
+  'Parrot',
+  'Lemur',
+  'Ocelot',
+  'Macaw',
+  'Quail',
+  'Toad',
+  'Moth',
+  'Beetle',
+  'Ermine',
+  'Grouse',
+  'Marmot',
+  'Bobcat',
+  'Hare',
+  'Wombat',
+];
+
+function randomName(): string {
+  const adj = ADJECTIVES[Math.floor(Math.random() * ADJECTIVES.length)];
+  const noun = NOUNS[Math.floor(Math.random() * NOUNS.length)];
+  return `${adj} ${noun}`;
+}
 
 type RegisterState =
   | { step: 'input' }
@@ -14,8 +135,7 @@ type RegisterState =
 
 export function RegisterPage() {
   const auth = useAuth();
-  const [displayName, setDisplayName] = useState('');
-  const [handle, setHandle] = useState('');
+  const [displayName, setDisplayName] = useState(randomName);
   const [state, setState] = useState<RegisterState>(() =>
     supportsWebAuthn() ? { step: 'input' } : { step: 'unsupported' },
   );
@@ -27,11 +147,21 @@ export function RegisterPage() {
   }
 
   const busy = state.step === 'creating';
+  const nameError =
+    state.step === 'error' && state.message.includes('display name');
 
   const handleSubmit = useCallback(
     async (e: Event) => {
       e.preventDefault();
-      if (!displayName.trim() || busy) return;
+      if (busy) return;
+
+      if (!displayName.trim()) {
+        setState({
+          step: 'error',
+          message: 'Please enter a display name.',
+        });
+        return;
+      }
 
       setState({ step: 'creating' });
 
@@ -39,7 +169,6 @@ export function RegisterPage() {
         // 1. Start registration — get challenge from server
         const startRes = await registerPasskeyStart({
           display_name: displayName.trim(),
-          handle: handle.trim() || undefined,
         });
 
         // 2. Create passkey credential in browser
@@ -47,7 +176,7 @@ export function RegisterPage() {
         const credential = await createPasskeyCredential(
           startRes.challenge,
           userId,
-          handle.trim() || displayName.trim(),
+          displayName.trim(),
           displayName.trim(),
         );
 
@@ -59,27 +188,31 @@ export function RegisterPage() {
         });
 
         // 4. Log in with the returned session
-        auth.login(finishRes.session_token, finishRes.user_id, finishRes.handle);
+        auth.login(finishRes.session_token, finishRes.display_name);
         setState({ step: 'done' });
         navigate('/');
       } catch (err) {
         if (err instanceof DOMException && err.name === 'NotAllowedError') {
-          setState({ step: 'error', message: 'Passkey creation was cancelled.' });
+          setState({
+            step: 'error',
+            message: 'Passkey creation was cancelled.',
+          });
         } else {
           setState({
             step: 'error',
-            message: err instanceof Error ? err.message : 'Registration failed.',
+            message:
+              err instanceof Error ? err.message : 'Registration failed.',
           });
         }
       }
     },
-    [displayName, handle, busy, auth],
+    [displayName, busy, auth],
   );
 
   if (state.step === 'unsupported') {
     return (
       <div class="card space-y-4 text-center">
-        <TriangleExclamationIcon class="mx-auto size-8 text-warning" />
+        <TriangleExclamationIcon class="text-warning mx-auto size-8" />
         <h2 class="label">Passkeys not supported</h2>
         <p class="text-sm text-muted">
           Your browser doesn't support passkeys (WebAuthn). Please use a modern
@@ -93,43 +226,48 @@ export function RegisterPage() {
     <div class="space-y-4">
       <form class="card space-y-6" onSubmit={handleSubmit}>
         <div class="text-center">
-          <FingerprintIcon class="mx-auto mb-2 size-8 text-primary" />
-          <h2 class="label">Create an account</h2>
+          <PasskeyIcon class="text-primary mx-auto mb-2 size-10" />
+          <h2 class="heading">Create an Account</h2>
           <p class="mt-1 text-sm text-muted">
-            Register with a passkey for higher limits and secret management.
+            Register with a passkey for higher limits, larger files, and secret
+            management.
           </p>
         </div>
 
-        <div class="space-y-1">
-          <label class="text-sm font-medium text-muted" for="display-name">
-            Display Name
+        <div class="space-y-1.5">
+          <label
+            class="block text-sm font-medium text-muted"
+            for="display-name"
+          >
+            Account Nickname
           </label>
-          <input
-            id="display-name"
-            type="text"
-            class="input"
-            placeholder="Your name"
-            value={displayName}
-            onInput={(e) => setDisplayName((e.target as HTMLInputElement).value)}
-            disabled={busy}
-            required
-            autoFocus
-          />
-        </div>
-
-        <div class="space-y-1">
-          <label class="text-sm font-medium text-muted" for="handle">
-            Handle <span class="font-normal text-faint">(optional)</span>
-          </label>
-          <input
-            id="handle"
-            type="text"
-            class="input"
-            placeholder="@handle"
-            value={handle}
-            onInput={(e) => setHandle((e.target as HTMLInputElement).value)}
-            disabled={busy}
-          />
+          <div class="relative">
+            <input
+              id="display-name"
+              type="text"
+              class={`input pr-10 ${nameError ? 'input-error' : ''}`}
+              placeholder="Nickname"
+              value={displayName}
+              onInput={(e) => {
+                setDisplayName((e.target as HTMLInputElement).value);
+                if (state.step === 'error') setState({ step: 'input' });
+              }}
+              disabled={busy}
+              autoFocus
+            />
+            <button
+              type="button"
+              class="absolute top-1/2 right-2 -translate-y-1/2 p-1 text-muted hover:text-text"
+              onClick={() => setDisplayName(randomName())}
+              aria-label="Generate random name"
+              tabIndex={-1}
+            >
+              <ShuffleIcon class="size-4" />
+            </button>
+          </div>
+          <p class="text-xs text-faint">
+            A random name is generated for privacy, but you can change it.
+          </p>
         </div>
 
         {state.step === 'error' && (
@@ -145,14 +283,15 @@ export function RegisterPage() {
         <button
           type="submit"
           class="btn btn-primary w-full tracking-wider uppercase"
-          disabled={!displayName.trim() || busy}
+          disabled={busy}
         >
           {busy ? 'Creating passkey\u2026' : 'Register with Passkey'}
         </button>
       </form>
 
       <p class="text-center text-sm text-muted">
-        Already have an account?{' '}
+        Already have an account?
+        <br />
         <a
           href="/login"
           class="link"
@@ -161,7 +300,7 @@ export function RegisterPage() {
             navigate('/login');
           }}
         >
-          Log in
+          Log In
         </a>
       </p>
     </div>

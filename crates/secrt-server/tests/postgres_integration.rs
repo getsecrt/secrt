@@ -8,6 +8,7 @@ use secrt_server::storage::{
     ApiKeyRecord, ApiKeyRegistrationLimits, ApiKeysStore, AuthStore, SecretRecord, SecretsStore,
     StorageError,
 };
+use uuid::Uuid;
 
 fn test_database_url() -> Option<String> {
     std::env::var("TEST_DATABASE_URL")
@@ -40,6 +41,26 @@ async fn create_schema(base_url: &str, schema: &str) {
         .batch_execute(&format!("CREATE SCHEMA IF NOT EXISTS \"{schema}\""))
         .await
         .expect("create schema");
+}
+
+async fn assert_column_udt_name(store: &PgStore, table: &str, column: &str, expected: &str) {
+    let client = store.pool().get().await.expect("get client");
+    let row = client
+        .query_one(
+            "SELECT udt_name
+             FROM information_schema.columns
+             WHERE table_schema = current_schema()
+               AND table_name = $1
+               AND column_name = $2",
+            &[&table, &column],
+        )
+        .await
+        .expect("query information_schema.columns");
+    let actual: String = row.get(0);
+    assert_eq!(
+        actual, expected,
+        "expected {table}.{column} to use {expected}, got {actual}"
+    );
 }
 
 #[tokio::test]
@@ -329,7 +350,7 @@ async fn postgres_delete_expired_cleans_stale_auth_and_quota_rows() {
 
     let now = Utc::now();
     let user = store
-        .create_user("cleanup-user", "Cleanup User")
+        .create_user("Cleanup User")
         .await
         .expect("create user");
 
@@ -469,16 +490,14 @@ async fn postgres_auth_store_and_apikey_registration_paths() {
 
     let now = Utc::now();
 
-    let user = store
-        .create_user("user-auth", "User Auth")
-        .await
-        .expect("create user");
-    assert_eq!(user.handle, "user-auth");
+    let user = store.create_user("User Auth").await.expect("create user");
+    assert_eq!(user.display_name, "User Auth");
+    assert_eq!(user.id.get_version_num(), 7);
 
     let fetched_user = store.get_user_by_id(user.id).await.expect("get user");
     assert_eq!(fetched_user.display_name, "User Auth");
     let missing_user = store
-        .get_user_by_id(user.id + 999_999)
+        .get_user_by_id(Uuid::now_v7())
         .await
         .expect_err("missing user");
     assert!(matches!(missing_user, StorageError::NotFound));
@@ -783,4 +802,28 @@ async fn postgres_auth_store_and_apikey_registration_paths() {
         ip_day_err,
         StorageError::QuotaExceeded(ref key) if key == "ip/day"
     ));
+}
+
+#[tokio::test]
+async fn postgres_auth_schema_user_columns_use_uuid() {
+    let Some(base_url) = test_database_url() else {
+        eprintln!("skipping: TEST_DATABASE_URL not set");
+        return;
+    };
+
+    let schema = test_schema_name();
+    create_schema(&base_url, &schema).await;
+
+    let db_url = with_search_path(&base_url, &schema);
+    let store = PgStore::from_database_url(&db_url)
+        .await
+        .expect("connect schema database");
+    migrate(store.pool()).await.expect("migrate");
+
+    assert_column_udt_name(&store, "users", "id", "uuid").await;
+    assert_column_udt_name(&store, "passkeys", "user_id", "uuid").await;
+    assert_column_udt_name(&store, "sessions", "user_id", "uuid").await;
+    assert_column_udt_name(&store, "webauthn_challenges", "user_id", "uuid").await;
+    assert_column_udt_name(&store, "api_keys", "user_id", "uuid").await;
+    assert_column_udt_name(&store, "api_key_registrations", "user_id", "uuid").await;
 }

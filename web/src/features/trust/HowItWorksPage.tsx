@@ -7,7 +7,7 @@ export function HowItWorksPage() {
   };
 
   return (
-    <div class="card space-y-8">
+    <div class="space-y-8">
       <div class="space-y-2 text-center">
         <h1 class="heading">How secrt Works</h1>
         <p class="text-sm text-muted">
@@ -94,13 +94,20 @@ export function HowItWorksPage() {
         </p>
       </section>
 
-      <a
-        href="/"
-        class="btn btn-primary w-full text-center"
-        onClick={handleHome}
-      >
-        Create a secret
-      </a>
+      <div class="text-center">
+        <a href="/" class="link" onClick={handleHome}>
+          Create a secret
+        </a>
+      </div>
+
+      <div>
+        <h2 class="heading text-center">Technical Whitepaper</h2>
+        <p class="text-center text-sm text-muted">
+          A deep-dive into our secure architecture
+        </p>
+
+        <section></section>
+      </div>
     </div>
   );
 }

@@ -4,11 +4,12 @@ use deadpool_postgres::{
     Config as PgPoolConfig, Hook, HookError, Manager, ManagerConfig, Pool, RecyclingMethod, Runtime,
 };
 use tokio_postgres::error::SqlState;
+use uuid::Uuid;
 
 use super::{
     ApiKeyRecord, ApiKeyRegistrationLimits, ApiKeysStore, AuthStore, ChallengeRecord,
     PasskeyRecord, SecretQuotaLimits, SecretRecord, SecretsStore, SessionRecord, StorageError,
-    StorageUsage, UserRecord,
+    StorageUsage, UserId, UserRecord,
 };
 
 const POOL_MAX_SIZE: usize = 10;
@@ -368,32 +369,28 @@ impl ApiKeysStore for PgStore {
 
 #[async_trait]
 impl AuthStore for PgStore {
-    async fn create_user(
-        &self,
-        handle: &str,
-        display_name: &str,
-    ) -> Result<UserRecord, StorageError> {
+    async fn create_user(&self, display_name: &str) -> Result<UserRecord, StorageError> {
         let client = self.pool.get().await?;
+        let user_id = Uuid::now_v7();
         let row = client
             .query_one(
-                "INSERT INTO users (handle, display_name) VALUES ($1, $2) \
-                 RETURNING id, handle, display_name, created_at",
-                &[&handle, &display_name],
+                "INSERT INTO users (id, display_name) VALUES ($1, $2) \
+                 RETURNING id, display_name, created_at",
+                &[&user_id, &display_name],
             )
             .await?;
         Ok(UserRecord {
             id: row.try_get(0)?,
-            handle: row.try_get(1)?,
-            display_name: row.try_get(2)?,
-            created_at: row.try_get(3)?,
+            display_name: row.try_get(1)?,
+            created_at: row.try_get(2)?,
         })
     }
 
-    async fn get_user_by_id(&self, user_id: i64) -> Result<UserRecord, StorageError> {
+    async fn get_user_by_id(&self, user_id: UserId) -> Result<UserRecord, StorageError> {
         let client = self.pool.get().await?;
         let row = client
             .query_opt(
-                "SELECT id, handle, display_name, created_at FROM users WHERE id=$1",
+                "SELECT id, display_name, created_at FROM users WHERE id=$1",
                 &[&user_id],
             )
             .await?;
@@ -402,15 +399,14 @@ impl AuthStore for PgStore {
         };
         Ok(UserRecord {
             id: row.try_get(0)?,
-            handle: row.try_get(1)?,
-            display_name: row.try_get(2)?,
-            created_at: row.try_get(3)?,
+            display_name: row.try_get(1)?,
+            created_at: row.try_get(2)?,
         })
     }
 
     async fn insert_passkey(
         &self,
-        user_id: i64,
+        user_id: UserId,
         credential_id: &str,
         public_key: &str,
         sign_count: i64,
@@ -479,7 +475,7 @@ impl AuthStore for PgStore {
     async fn insert_session(
         &self,
         sid: &str,
-        user_id: i64,
+        user_id: UserId,
         token_hash: &str,
         expires_at: DateTime<Utc>,
     ) -> Result<SessionRecord, StorageError> {
@@ -540,7 +536,7 @@ impl AuthStore for PgStore {
     async fn insert_challenge(
         &self,
         challenge_id: &str,
-        user_id: Option<i64>,
+        user_id: Option<UserId>,
         purpose: &str,
         challenge_json: &str,
         expires_at: DateTime<Utc>,
@@ -596,7 +592,7 @@ impl AuthStore for PgStore {
 
     async fn count_apikey_registrations_by_user_since(
         &self,
-        user_id: i64,
+        user_id: UserId,
         since: DateTime<Utc>,
     ) -> Result<i64, StorageError> {
         let client = self.pool.get().await?;
@@ -714,7 +710,7 @@ impl AuthStore for PgStore {
 
     async fn insert_apikey_registration_event(
         &self,
-        user_id: i64,
+        user_id: UserId,
         ip_hash: &str,
         now: DateTime<Utc>,
     ) -> Result<(), StorageError> {

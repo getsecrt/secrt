@@ -17,15 +17,14 @@ CREATE INDEX IF NOT EXISTS secrets_owner_key_idx ON secrets (owner_key, expires_
 
 -- User/passkey/session auth foundation
 CREATE TABLE IF NOT EXISTS users (
-    id BIGSERIAL PRIMARY KEY,
-    handle TEXT NOT NULL UNIQUE,
+    id UUID PRIMARY KEY,
     display_name TEXT NOT NULL DEFAULT '',
     created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
 CREATE TABLE IF NOT EXISTS passkeys (
     id BIGSERIAL PRIMARY KEY,
-    user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     credential_id TEXT NOT NULL UNIQUE,
     public_key TEXT NOT NULL,
     sign_count BIGINT NOT NULL DEFAULT 0,
@@ -36,7 +35,7 @@ CREATE TABLE IF NOT EXISTS passkeys (
 CREATE TABLE IF NOT EXISTS sessions (
     id BIGSERIAL PRIMARY KEY,
     sid TEXT NOT NULL UNIQUE,
-    user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     token_hash TEXT NOT NULL,
     expires_at TIMESTAMPTZ NOT NULL,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
@@ -46,7 +45,7 @@ CREATE TABLE IF NOT EXISTS sessions (
 CREATE TABLE IF NOT EXISTS webauthn_challenges (
     id BIGSERIAL PRIMARY KEY,
     challenge_id TEXT NOT NULL UNIQUE,
-    user_id BIGINT REFERENCES users(id) ON DELETE CASCADE,
+    user_id UUID REFERENCES users(id) ON DELETE CASCADE,
     purpose TEXT NOT NULL,
     challenge_json TEXT NOT NULL,
     expires_at TIMESTAMPTZ NOT NULL,
@@ -59,7 +58,7 @@ CREATE TABLE IF NOT EXISTS api_keys (
     key_prefix TEXT NOT NULL UNIQUE,
     auth_hash TEXT NOT NULL,
     scopes TEXT NOT NULL DEFAULT '',
-    user_id BIGINT REFERENCES users(id) ON DELETE SET NULL,
+    user_id UUID REFERENCES users(id) ON DELETE SET NULL,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     revoked_at TIMESTAMPTZ
 );
@@ -67,7 +66,7 @@ CREATE TABLE IF NOT EXISTS api_keys (
 -- Registration accounting for account/IP quotas
 CREATE TABLE IF NOT EXISTS api_key_registrations (
     id BIGSERIAL PRIMARY KEY,
-    user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     ip_hash TEXT NOT NULL,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );

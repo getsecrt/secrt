@@ -17,8 +17,7 @@ vi.mock('../router', () => ({
 const mockAuth = {
   loading: false,
   authenticated: false,
-  userId: null,
-  handle: null,
+  displayName: null,
   sessionToken: null,
   login: vi.fn(),
   logout: vi.fn().mockResolvedValue(undefined),
@@ -34,8 +33,7 @@ describe('Nav', () => {
     mockUseRoute.mockReturnValue({ page: 'send' });
     mockAuth.loading = false;
     mockAuth.authenticated = false;
-    mockAuth.userId = null;
-    mockAuth.handle = null;
+    mockAuth.displayName = null;
     mockAuth.logout.mockResolvedValue(undefined);
   });
 
@@ -57,14 +55,14 @@ describe('Nav', () => {
     expect(screen.getAllByTestId('theme-toggle').length).toBeGreaterThan(0);
   });
 
-  it('shows Log in link when not authenticated', () => {
+  it('shows Log In link when not authenticated', () => {
     render(<Nav />);
-    expect(screen.getAllByText('Log in').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('Log In').length).toBeGreaterThan(0);
   });
 
-  it('shows handle and Log out when authenticated', () => {
+  it('shows displayName and Log out when authenticated', () => {
     mockAuth.authenticated = true;
-    mockAuth.handle = 'alice';
+    mockAuth.displayName = 'alice';
     render(<Nav />);
     expect(screen.getAllByText('alice').length).toBeGreaterThan(0);
     expect(screen.getAllByText('Log out').length).toBeGreaterThan(0);
@@ -80,7 +78,7 @@ describe('Nav', () => {
   it('calls logout and navigates to "/" on Log out click', async () => {
     const user = userEvent.setup();
     mockAuth.authenticated = true;
-    mockAuth.handle = 'bob';
+    mockAuth.displayName = 'bob';
     render(<Nav />);
     const logoutBtns = screen.getAllByText('Log out');
     await user.click(logoutBtns[0]);
