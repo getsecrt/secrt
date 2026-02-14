@@ -84,7 +84,7 @@
       /* Teal streak — upper-left, tall & narrow */
         radial-gradient(
           ellipse 35% 70% at 20% 10%,
-          color-mix(in oklch, oklch(0.35 0.1 170) 22%, transparent),
+          color-mix(in oklch, oklch(0.35 0.11 155) 22%, transparent),
           transparent 60%
         ),
       /* Emerald ribbon — offset right */
