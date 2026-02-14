@@ -39,17 +39,17 @@ describe('ShareResult', () => {
     ).toBeInTheDocument();
   });
 
-  it('shows "Copy link" button', () => {
+  it('shows "Copy Link" button', () => {
     render(<ShareResult {...props} />);
     expect(
-      screen.getByRole('button', { name: 'Copy link' }),
+      screen.getByRole('button', { name: 'Copy Link' }),
     ).toBeInTheDocument();
   });
 
-  it('calls onReset when "Create another" is clicked', async () => {
+  it('calls onReset when "Send Another Secret" is clicked', async () => {
     const user = userEvent.setup();
     render(<ShareResult {...props} />);
-    await user.click(screen.getByRole('button', { name: 'Create another' }));
+    await user.click(screen.getByRole('button', { name: 'Send Another Secret' }));
     expect(props.onReset).toHaveBeenCalledOnce();
   });
 });

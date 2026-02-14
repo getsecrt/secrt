@@ -68,9 +68,9 @@ export function FileDropZone({
 
   if (file) {
     return (
-      <div class={`flex items-center gap-3 rounded-md border border-border bg-surface px-3 py-3 ${className ?? ''}`}>
+      <div class={`flex min-w-0 items-center gap-3 rounded-md border border-border bg-surface px-3 py-3 ${className ?? ''}`}>
         <div class="min-w-0 flex-1">
-          <p class="truncate text-sm font-medium">{file.name}</p>
+          <p class="break-all text-sm font-medium">{file.name}</p>
           <p class="text-xs text-muted">{formatSize(file.size)}</p>
         </div>
         <button

@@ -9,7 +9,7 @@ export function HowItWorksPage() {
   return (
     <div class="card space-y-8">
       <div class="space-y-2 text-center">
-        <h1 class="text-xl font-bold">How secrt Works</h1>
+        <h1 class="heading">How secrt Works</h1>
         <p class="text-sm text-muted">
           A technical overview of our zero-knowledge architecture
         </p>
@@ -37,7 +37,8 @@ export function HowItWorksPage() {
         </p>
         <p class="text-sm text-muted">
           The encryption key is embedded in the share link's URL fragment (the
-          part after <code class="rounded bg-surface-raised px-1 py-0.5 text-xs">#</code>).
+          part after{' '}
+          <code class="rounded bg-surface-raised px-1 py-0.5 text-xs">#</code>).
           Fragments are never sent to the server by browsers, so the server
           never sees your key.
         </p>
@@ -49,8 +50,8 @@ export function HowItWorksPage() {
           For extra security, you can set a passphrase. This uses{' '}
           <strong>PBKDF2-SHA-256</strong> with 600,000 iterations to derive a
           secondary key. The final encryption key is then derived from both the
-          URL key and the passphrase key combined. Even if someone intercepts the
-          share link, they cannot decrypt the secret without the passphrase.
+          URL key and the passphrase key combined. Even if someone intercepts
+          the share link, they cannot decrypt the secret without the passphrase.
         </p>
       </section>
 
@@ -93,7 +94,11 @@ export function HowItWorksPage() {
         </p>
       </section>
 
-      <a href="/" class="btn btn-primary w-full text-center" onClick={handleHome}>
+      <a
+        href="/"
+        class="btn btn-primary w-full text-center"
+        onClick={handleHome}
+      >
         Create a secret
       </a>
     </div>

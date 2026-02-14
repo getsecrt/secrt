@@ -1,6 +1,15 @@
 import { useState, useEffect, useCallback } from 'preact/hooks';
 import { ThemeToggle } from './ThemeToggle';
-import { MenuIcon, XMarkIcon, UserCircleIcon, LogoutIcon, FingerprintIcon, GitHubIcon, DownloadIcon } from './Icons';
+import {
+  MenuIcon,
+  XMarkIcon,
+  UserCircleIcon,
+  LogoutIcon,
+  FingerprintIcon,
+  GitHubIcon,
+  DownloadIcon,
+  CircleQuestionIcon,
+} from './Icons';
 import { navigate, useRoute } from '../router';
 import { useAuth } from '../lib/auth-context';
 
@@ -19,8 +28,8 @@ function NavLink({
   onClick?: (e: MouseEvent) => void;
   class?: string;
 }) {
-  const base = 'text-sm transition-colors hover:text-text';
-  const activeClass = active ? 'text-text font-medium' : 'text-muted';
+  const base = 'text-sm transition-colors hover:text-text rounded-md px-2 py-1';
+  const activeClass = active ? 'text-text bg-text/10' : 'text-muted';
 
   if (external) {
     return (
@@ -73,19 +82,18 @@ export function Nav() {
     <nav class="sticky top-0 z-10 border-b border-border bg-surface/95 backdrop-blur">
       <div class="mx-auto flex max-w-lg items-center justify-center gap-4 px-4 py-2">
         {/* Desktop links (hidden below sm) */}
-        <div class="hidden items-center gap-4 sm:flex">
+        <div class="hidden items-center gap-6 sm:flex">
           <NavLink href="/" active={isActive('send')}>
             Create
           </NavLink>
+
           <NavLink href="/how-it-works" active={isActive('how-it-works')}>
-            How it Works
-          </NavLink>
-          <NavLink href="https://github.com/getsecrt/secrt" external>
-            <span class="flex items-center gap-1">
-              <GitHubIcon class="size-4" />
-              GitHub
+            <span class="flex items-center gap-1 whitespace-nowrap">
+              <CircleQuestionIcon class="size-4" />
+              How it Works
             </span>
           </NavLink>
+
           <NavLink href="https://github.com/getsecrt/secrt/releases" external>
             <span class="flex items-center gap-1">
               <DownloadIcon class="size-4" />
@@ -93,9 +101,16 @@ export function Nav() {
             </span>
           </NavLink>
 
+          <NavLink href="https://github.com/getsecrt/secrt" external>
+            <span class="flex items-center gap-1">
+              <GitHubIcon class="size-4" />
+              GitHub
+            </span>
+          </NavLink>
+
           {/* Auth section */}
-          {!auth.loading && (
-            auth.authenticated ? (
+          {!auth.loading &&
+            (auth.authenticated ? (
               <div class="flex items-center gap-3">
                 <span class="flex items-center gap-1 text-sm text-muted">
                   <UserCircleIcon class="size-4" />
@@ -111,53 +126,50 @@ export function Nav() {
                 </button>
               </div>
             ) : (
-              <NavLink href="/login">
-                <span class="flex items-center gap-1">
+              <NavLink href="/login" active={isActive('login')}>
+                <span class="flex items-center gap-1 whitespace-nowrap">
                   <FingerprintIcon class="size-4" />
-                  Log in
+                  Log In
                 </span>
               </NavLink>
-            )
-          )}
+            ))}
 
           <ThemeToggle />
         </div>
 
-        {/* Mobile: centered links + hamburger */}
+        {/* Mobile: hamburger + theme toggle */}
         <div class="flex w-full items-center justify-between sm:hidden">
-          <div class="flex items-center gap-3">
-            <NavLink href="/" active={isActive('send')}>
-              Create
-            </NavLink>
-            <NavLink href="/how-it-works" active={isActive('how-it-works')}>
-              How it Works
-            </NavLink>
-          </div>
-          <div class="flex items-center gap-2">
-            <ThemeToggle />
-            <button
-              type="button"
-              class="p-1 text-muted hover:text-text"
-              onClick={toggleMenu}
-              aria-label={menuOpen ? 'Close menu' : 'Open menu'}
-              aria-expanded={menuOpen}
-            >
-              {menuOpen ? <XMarkIcon class="size-6" /> : <MenuIcon class="size-6" />}
-            </button>
-          </div>
+          <button
+            type="button"
+            class="p-1 text-muted hover:text-text"
+            onClick={toggleMenu}
+            aria-label={menuOpen ? 'Close menu' : 'Open menu'}
+            aria-expanded={menuOpen}
+          >
+            {menuOpen ? (
+              <XMarkIcon class="size-6" />
+            ) : (
+              <MenuIcon class="size-6" />
+            )}
+          </button>
+          <ThemeToggle />
         </div>
       </div>
 
       {/* Mobile drawer */}
       {menuOpen && (
-        <div class="border-t border-border px-4 pb-4 pt-2 sm:hidden">
+        <div class="border-t border-border px-4 pt-2 pb-4 sm:hidden">
           <div class="flex flex-col gap-3">
-            <NavLink href="https://github.com/getsecrt/secrt" external>
+            <NavLink href="/" active={isActive('send')}>
+              Create
+            </NavLink>
+            <NavLink href="/how-it-works" active={isActive('how-it-works')}>
               <span class="flex items-center gap-1">
-                <GitHubIcon class="size-4" />
-                GitHub
+                <CircleQuestionIcon class="size-4" />
+                How it Works
               </span>
             </NavLink>
+
             <NavLink href="https://github.com/getsecrt/secrt/releases" external>
               <span class="flex items-center gap-1">
                 <DownloadIcon class="size-4" />
@@ -165,8 +177,15 @@ export function Nav() {
               </span>
             </NavLink>
 
-            {!auth.loading && (
-              auth.authenticated ? (
+            <NavLink href="https://github.com/getsecrt/secrt" external>
+              <span class="flex items-center gap-1">
+                <GitHubIcon class="size-4" />
+                GitHub
+              </span>
+            </NavLink>
+
+            {!auth.loading &&
+              (auth.authenticated ? (
                 <>
                   <span class="flex items-center gap-1 text-sm text-muted">
                     <UserCircleIcon class="size-4" />
@@ -182,14 +201,13 @@ export function Nav() {
                   </button>
                 </>
               ) : (
-                <NavLink href="/login">
+                <NavLink href="/login" active={isActive('login')}>
                   <span class="flex items-center gap-1">
                     <FingerprintIcon class="size-4" />
-                    Log in
+                    Log In
                   </span>
                 </NavLink>
-              )
-            )}
+              ))}
           </div>
         </div>
       )}

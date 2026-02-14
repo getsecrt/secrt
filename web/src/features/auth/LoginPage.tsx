@@ -4,7 +4,10 @@ import { supportsWebAuthn, getPasskeyCredential } from '../../lib/webauthn';
 import { loginPasskeyStart, loginPasskeyFinish } from '../../lib/api';
 import { base64urlEncode } from '../../crypto/encoding';
 import { navigate } from '../../router';
-import { FingerprintIcon, TriangleExclamationIcon } from '../../components/Icons';
+import {
+  FingerprintIcon,
+  TriangleExclamationIcon,
+} from '../../components/Icons';
 
 type LoginState =
   | { step: 'ready' }
@@ -82,7 +85,7 @@ export function LoginPage() {
   if (state.step === 'unsupported') {
     return (
       <div class="card space-y-4 text-center">
-        <TriangleExclamationIcon class="mx-auto size-8 text-warning" />
+        <TriangleExclamationIcon class="text-warning mx-auto size-8" />
         <h2 class="label">Passkeys not supported</h2>
         <p class="text-sm text-muted">
           Your browser doesn't support passkeys (WebAuthn). Please use a modern
@@ -96,11 +99,12 @@ export function LoginPage() {
     <div class="space-y-4">
       <div class="card space-y-6 text-center">
         <div>
-          <FingerprintIcon class="mx-auto mb-2 size-8 text-primary" />
-          <h2 class="label">Log in</h2>
+          <FingerprintIcon class="text-primary mx-auto mb-2 size-8" />
+          <h2 class="heading">Log In</h2>
           <p class="mt-1 text-sm text-muted">
-            Use your passkey to sign in. Your browser will show available
-            passkeys.
+            Use your passkey to sign in.
+            <br />
+            Your browser will show available passkeys.
           </p>
         </div>
 
@@ -125,7 +129,6 @@ export function LoginPage() {
       </div>
 
       <p class="text-center text-sm text-muted">
-        Don't have an account?{' '}
         <a
           href="/register"
           class="link"
@@ -134,7 +137,7 @@ export function LoginPage() {
             navigate('/register');
           }}
         >
-          Register
+          Register a New Account
         </a>
       </p>
     </div>
