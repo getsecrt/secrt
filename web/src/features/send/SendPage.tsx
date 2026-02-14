@@ -9,7 +9,9 @@ import {
   EyeIcon,
   EyeSlashIcon,
   LockIcon,
+  NoteIcon,
   TriangleExclamationIcon,
+  UploadIcon,
 } from '../../components/Icons';
 import type { ApiInfo, PayloadMeta } from '../../types';
 import { FileDropZone } from './FileDropZone';
@@ -189,8 +191,16 @@ export function SendPage() {
 
         {/* Content input */}
         <div class="space-y-1">
-          <label class="block text-sm font-medium text-muted">
-            {mode === 'text' ? 'Secret Message' : 'Secret File'}
+          <label class="flex items-center gap-1.5 text-sm font-medium text-muted">
+            {mode === 'text' ? (
+              <>
+                <NoteIcon class="size-4" /> Secret Message
+              </>
+            ) : (
+              <>
+                <UploadIcon class="size-4" /> Secret File
+              </>
+            )}
           </label>
           {/* Grid stack: textarea sets the height, drop zone overlays it */}
           <div class="grid">
