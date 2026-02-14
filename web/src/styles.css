@@ -194,12 +194,12 @@
   .input,
   .select,
   .textarea {
-    @apply w-full rounded-md border border-border bg-surface px-3 py-2 text-sm text-text inset-shadow-sm transition-colors outline-none;
+    @apply w-full rounded-md border border-border bg-surface px-3 py-2 text-sm text-text inset-shadow-sm transition-colors outline-none placeholder:text-neutral-500/50;
     &:focus {
       @apply border-accent ring-2 ring-accent/15;
     }
     &:disabled {
-      @apply cursor-not-allowed bg-surface-raised text-muted opacity-60;
+      @apply cursor-not-allowed bg-neutral-400/20 text-muted opacity-70;
     }
   }
 
