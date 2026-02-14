@@ -1,6 +1,6 @@
 # Website Plan for secrt.ca
 
-Status: Draft implementation plan (updated for Rust server + current monorepo)
+Status: Active implementation — Phase 0 nearly complete, Phase 1 in progress (2026-02-14)
 
 This document defines how we move from the current placeholder pages to a full web product while preserving the zero-knowledge model and spec compatibility.
 
@@ -9,15 +9,14 @@ This document defines how we move from the current placeholder pages to a full w
 Current status in repo:
 
 - Rust server is live and stable for v1 API (`/api/v1/*`).
-- `/` and `/s/{id}` are placeholder server-rendered pages.
-- A Preact + TypeScript frontend exists in `web/` but is only a foundation UI.
-- Server can serve frontend assets from:
+- Preact + TypeScript SPA in `web/` serves `/` and `/s/:id` via hash-based client-side routing.
+- Server serves frontend assets from:
   - `SECRT_WEB_DIST_DIR` override, or
   - embedded `web/dist` assets (`rust-embed`).
-
-Implication:
-
-- We should now ship the browser UX as the primary client-facing interface while keeping CLI compatibility as a hard requirement.
+- **Send page is functional** — text/file encryption, passphrase, TTL selection, share link generation all working.
+- **Claim page is a placeholder** — shows secret ID but does not yet parse fragment, claim, or decrypt.
+- Design system (Tailwind v4 tokens, dark mode, component classes) is established.
+- WebCrypto envelope module (`seal`/`open`) passes all 28+ spec test vectors.
 
 ## 2. Product Goals
 
@@ -69,130 +68,137 @@ Implication:
 5. Any analytics/telemetry must be opt-in and strictly metadata-only.
 6. New account/dashboard features must not weaken zero-knowledge secret handling.
 
-## 4. Recommended Tech Stack
+## 4. Tech Stack (established)
 
-Use the existing web foundation and keep dependencies minimal:
+The following stack is implemented and in use:
 
-- UI framework: `Preact` + TypeScript (already in repo).
-- Build tool: `Vite` (already in repo).
+- UI framework: `Preact 10` + TypeScript 5.8 (strict mode).
+- Build tool: `Vite 7` with `@preact/preset-vite`.
 - Crypto in browser: native `WebCrypto` APIs only.
-  - AES-GCM
-  - HKDF/SHA-256
-  - PBKDF2-HMAC-SHA-256
-- Routing: lightweight client-side router (or simple route switch) for:
-  - `/` (create flow)
+  - AES-256-GCM encryption/decryption
+  - HKDF-SHA256 key derivation
+  - PBKDF2-HMAC-SHA256 passphrase KDF (600k iterations)
+- Routing: custom hash-based client-side router (`router.ts`) for:
+  - `/` (send/create flow)
   - `/s/:id` (claim flow)
+  - `/test/theme` (design system reference)
   - future `/dashboard`, `/settings`
 - State/data:
-  - minimal local state for MVP
-  - add typed API module and strict runtime guards for envelope/API parsing
+  - Preact hooks for local component state
+  - typed API client module (`lib/api.ts`) with fetch wrapper
+  - envelope size validation against server-reported limits
 - Testing:
-  - `Vitest` for unit/integration/vector tests
-  - `Playwright` for end-to-end browser coverage
+  - `Vitest 3` for unit/integration/vector tests (happy-dom environment)
+  - `Playwright` for end-to-end browser coverage (not yet configured)
 - Styling:
-  - keep handcrafted CSS for now (no heavyweight CSS framework).
-
-Why this stack:
-
-- Matches current repo direction.
-- Keeps bundle small and auditable.
-- Uses browser-native crypto primitives as intended by spec.
-- Avoids introducing a large dependency graph before MVP proves UX.
+  - Tailwind CSS v4 with `@tailwindcss/vite` plugin
+  - OKLch green palette, semantic color tokens, dark mode via `.dark` class
+  - Component classes: `.btn`, `.input`, `.textarea`, `.card`, `.link`, `.code`
+- Dependencies: `fzstd` for zstd decompression (envelope frame codec)
 
 ### Shared with CLI vs Separate
 
-Decision:
+Decision (confirmed):
 
-- Keep crypto implementations separate:
+- Crypto implementations are separate:
   - CLI/core: Rust + `ring`
   - Web: native `WebCrypto`
-- Share protocol contracts and compatibility gates:
+- Protocol contracts and compatibility gates are shared:
   - `spec/v1/envelope.md`
-  - `spec/v1/envelope.vectors.json`
+  - `spec/v1/envelope.vectors.json` (28+ vectors, all passing in both implementations)
   - `spec/v1/api.md` and OpenAPI schema
-
-Rationale:
-
-- Separate implementations fit each platform and reduce browser complexity.
-- Shared vectors/specs prevent behavioral drift between clients.
 
 ## 5. Architecture Plan
 
-### Frontend module layout (proposed)
+### Frontend module layout (actual)
 
 `web/src/`:
 
-- `app/`
-  - route shell/layout
-- `features/send/`
-  - textarea + file input + TTL + passphrase controls
-  - create API call
-  - share-link result UI
-- `features/claim/`
-  - parse URL + claim API call
-  - passphrase entry + decrypt + reveal/download
+- `app.tsx` — main App component with route switch
+- `router.ts` — hash-based client-side router with `pushState` support
+- `main.tsx` — Vite entry point
+- `types.ts` — shared TypeScript types (`ApiInfo`, `PayloadMeta`, `Envelope`, etc.)
+- `styles.css` — Tailwind v4 config, theme tokens, component classes, dark mode
+- `features/send/` — **complete**
+  - `SendPage.tsx` — text/file mode, passphrase, TTL, encrypt+upload flow
+  - `FileDropZone.tsx` — drag-and-drop and click-to-browse file input
+  - `TtlSelector.tsx` — TTL preset buttons (5min → 30d)
+  - `ShareResult.tsx` — success screen with copy button and expiry display
+- `features/claim/` — **placeholder, next to implement**
+  - `ClaimPage.tsx` — currently shows secret ID only
+- `features/test/`
+  - `ThemePage.tsx` — design system reference page
 - `crypto/`
-  - WebCrypto implementation of envelope create/open
-  - strict validation against envelope spec
-- `lib/api/`
-  - typed API client for v1 endpoints
-- `lib/url/`
-  - share URL parse/format helpers (aligned with `secrt-core` behavior)
+  - `constants.ts` — protocol constants (algorithm names, iterations, info strings)
+  - `encoding.ts` — base64url, hex, UTF-8 encode/decode
+  - `frame.ts` — payload frame build/parse (magic header, zstd codec)
+  - `envelope.ts` — `seal()`, `open()`, `deriveClaimToken()`, `deriveClaimHash()`
+  - `envelope.test.ts` — 28+ spec vector tests
+- `lib/`
+  - `api.ts` — typed HTTP client (`fetchInfo`, `createSecret`, `claimSecret`, `burnSecret`)
+  - `url.ts` — share URL parse/format helpers
+  - `ttl.ts` — TTL presets, validation, expiry formatting
+  - `envelope-size.ts` — envelope size check against server limits
+  - `ttl.test.ts`, `envelope-size.test.ts` — unit tests
 - `components/`
-  - reusable primitives (buttons, inputs, cards, alerts)
-- `styles/`
-  - tokens + component styles
+  - `Layout.tsx` — page wrapper with header (logo) and footer (links, theme toggle)
+  - `Logo.tsx` — SVG logo with light/dark variants
+  - `Icons.tsx` — 16 icon components (Clipboard, Upload, Lock, Eye, Clock, etc.)
+  - `CopyButton.tsx` — clipboard copy with "Copied!" feedback
+  - `ThemeToggle.tsx` — dark/light mode switch (persists to localStorage, `D` key shortcut)
 
 ### Server/frontend integration
 
-1. Keep server as same-origin API + static asset host.
-2. Replace placeholder handlers for `/` and `/s/{id}` to serve web app shell, not ad hoc HTML.
-3. Preserve `no-store` and security headers on secret routes.
+1. Server acts as same-origin API + static asset host.
+2. SPA shell serves for `/` and `/s/{id}` (placeholder HTML replaced by app).
+3. `no-store` and security headers preserved on secret routes.
 
 ## 6. Delivery Phases
 
-### Phase 0: Foundation hardening (short)
+### Phase 0: Foundation hardening — NEARLY COMPLETE
 
-1. Route integration:
-   - Serve SPA shell for `/` and `/s/{id}`.
-2. Add robust API client wrappers for:
-   - `GET /api/v1/info`
-   - `POST /api/v1/public/secrets`
-   - `POST /api/v1/secrets/{id}/claim`
-3. Add shared binary/text utilities:
-   - UTF-8 detection
-   - base64url encode/decode
-   - safe filename handling for downloads.
-4. Add Vitest test harness and vector-driven crypto tests using `spec/v1/envelope.vectors.json`.
-5. Add Playwright harness with baseline E2E flows for send/claim.
+1. ~~Route integration:~~
+   - ~~Serve SPA shell for `/` and `/s/{id}`.~~ **Done** — hash-based router in `router.ts`.
+2. ~~Add robust API client wrappers for:~~
+   - ~~`GET /api/v1/info`~~ **Done**
+   - ~~`POST /api/v1/public/secrets`~~ **Done**
+   - ~~`POST /api/v1/secrets/{id}/claim`~~ **Done**
+3. ~~Add shared binary/text utilities:~~
+   - ~~UTF-8 detection~~ **Done** (`crypto/encoding.ts`)
+   - ~~base64url encode/decode~~ **Done** (`crypto/encoding.ts`)
+   - safe filename handling for downloads — **needed for claim page**
+4. ~~Add Vitest test harness and vector-driven crypto tests using `spec/v1/envelope.vectors.json`.~~ **Done** — 28+ vectors passing.
+5. Add Playwright harness with baseline E2E flows for send/claim. — **Not started**
 
 Exit criteria:
 
-- Browser crypto passes all spec vectors.
-- Vitest coverage gate is configured at `100%` for statements/branches/functions/lines.
-- Playwright baseline E2E suite is running in CI.
-- Placeholder pages removed for `/` and `/s/{id}`.
+- ~~Browser crypto passes all spec vectors.~~ **Done**
+- Vitest coverage gate configured at `100%` — **not yet configured** (tests exist but gate not enforced).
+- Playwright baseline E2E suite running in CI — **not started**.
+- ~~Placeholder pages removed for `/` and `/s/{id}`.~~ **Done**
 
-### Phase 1: MVP web experience (public)
+### Phase 1: MVP web experience (public) — IN PROGRESS
 
-1. Send page (`/`)
-   - plaintext textarea
-   - file drop/select
-   - optional passphrase
-   - TTL presets + custom seconds (validated to API bounds)
-   - create secret + show share link + copy button
-2. Claim page (`/s/:id`)
-   - parse fragment key
-   - claim secret
+1. ~~Send page (`/`)~~ **COMPLETE**
+   - ~~plaintext textarea~~ **Done**
+   - ~~file drop/select~~ **Done** (drag-and-drop + click-to-browse)
+   - ~~optional passphrase~~ **Done** (with show/hide toggle)
+   - ~~TTL presets + custom seconds (validated to API bounds)~~ **Done** (5 presets: 5min/1h/24h/7d/30d)
+   - ~~create secret + show share link + copy button~~ **Done** (ShareResult component)
+2. Claim page (`/s/:id`) — **NEXT TO IMPLEMENT**
+   - parse fragment key from URL
+   - call claim API with derived claim_token
    - passphrase prompt only when envelope indicates KDF != none
-   - masked reveal + copy + download
-3. Content/marketing essentials
-   - clear trust model explanation
-   - GitHub + Downloads links
-   - pointer to CLI and future apps
-4. Error UX
+   - masked reveal + copy button for text secrets
+   - download button for file secrets (with original filename/mime)
+   - design should follow the established send page patterns (card layout, icon labels, status flow, error alerts)
+3. Content/marketing essentials — **partial**
+   - ~~GitHub + Downloads links~~ **Done** (footer)
+   - clear trust model explanation — not yet
+   - pointer to CLI and future apps — not yet
+4. Error UX — **not started**
    - generic unavailable message for 404 claim outcomes
-   - explicit guidance for bad fragment/malformed link/passphrase mismatch.
+   - explicit guidance for bad fragment/malformed link/passphrase mismatch
 
 Exit criteria:
 
@@ -525,10 +531,16 @@ Minimum required E2E scenarios:
 
 ## 12. Immediate Next Steps
 
-1. Approve this phased scope and stack.
-2. Open implementation tasks:
-   - A: route integration (`/` and `/s/:id` app shell)
-   - B: WebCrypto envelope module + vector tests
-   - C: send UI + create flow
-   - D: claim UI + decrypt/reveal/download flow
-3. Ship MVP before starting passkey/account backend expansion.
+Completed:
+- ~~A: route integration (`/` and `/s/:id` app shell)~~ **Done**
+- ~~B: WebCrypto envelope module + vector tests~~ **Done**
+- ~~C: send UI + create flow~~ **Done**
+
+Current priority:
+1. **D: claim UI + decrypt/reveal/download flow** — next to implement
+2. Error UX for claim failures (404, bad fragment, wrong passphrase)
+3. Vitest 100% coverage gate configuration
+4. Playwright E2E harness setup
+
+After MVP:
+- Ship MVP before starting passkey/account backend expansion.
