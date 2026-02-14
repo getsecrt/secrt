@@ -4,6 +4,7 @@ export type Route =
   | { page: 'send' }
   | { page: 'claim'; id: string }
   | { page: 'theme' }
+  | { page: 'test-claim' }
   | { page: 'not-found' };
 
 export function matchRoute(path: string): Route {
@@ -18,6 +19,10 @@ export function matchRoute(path: string): Route {
 
   if (path === '/test/theme') {
     return { page: 'theme' };
+  }
+
+  if (path === '/test/claim') {
+    return { page: 'test-claim' };
   }
 
   return { page: 'not-found' };

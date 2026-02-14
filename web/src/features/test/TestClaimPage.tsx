@@ -1,12 +1,6 @@
 import { useState, useCallback, useEffect, useRef } from 'preact/hooks';
-import { open, deriveClaimToken } from '../../crypto/envelope';
-import {
-  base64urlEncode,
-  base64urlDecode,
-  utf8Decode,
-} from '../../crypto/encoding';
-import { URL_KEY_LEN } from '../../crypto/constants';
-import { claimSecret } from '../../lib/api';
+import { seal, open } from '../../crypto/envelope';
+import { utf8Encode, utf8Decode } from '../../crypto/encoding';
 import {
   CheckCircleIcon,
   CircleXmarkIcon,
@@ -21,34 +15,21 @@ import { CopyButton } from '../../components/CopyButton';
 import { navigate } from '../../router';
 import type { EnvelopeJson, PayloadMeta } from '../../types';
 
-interface ClaimPageProps {
-  id: string;
-}
+/* ── Types ── */
 
-type ClaimStatus =
-  | { step: 'init' }
+type TestStatus =
+  | { step: 'pick' }
+  | { step: 'sealing' }
   | { step: 'claiming' }
   | { step: 'passphrase'; envelope: EnvelopeJson; urlKey: Uint8Array }
   | { step: 'decrypting' }
-  | {
-      step: 'done';
-      content: Uint8Array;
-      meta: PayloadMeta;
-    }
-  | {
-      step: 'error';
-      code:
-        | 'no-fragment'
-        | 'invalid-fragment'
-        | 'unavailable'
-        | 'decrypt'
-        | 'network'
-        | 'unknown';
-      message: string;
-    };
+  | { step: 'done'; content: Uint8Array; meta: PayloadMeta }
+  | { step: 'error'; message: string };
 
 /** Placeholder dot count shown behind the passphrase modal. */
 const PLACEHOLDER_DOTS = 24;
+
+/* ── Helpers ── */
 
 function formatSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
@@ -56,58 +37,23 @@ function formatSize(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
-function mapClaimError(err: unknown): ClaimStatus & { step: 'error' } {
-  const msg = err instanceof Error ? err.message : String(err);
-  const lower = msg.toLowerCase();
+/** Simulate a short network delay. */
+const delay = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
-  if (lower.includes('404') || lower.includes('not found'))
-    return {
-      step: 'error',
-      code: 'unavailable',
-      message:
-        'This secret is no longer available. It may have already been viewed or expired.',
-    };
-  if (lower.includes('429') || lower.includes('rate'))
-    return {
-      step: 'error',
-      code: 'network',
-      message: 'Too many requests. Please wait a moment and try again.',
-    };
-  if (lower.includes('failed to fetch') || lower.includes('networkerror'))
-    return {
-      step: 'error',
-      code: 'network',
-      message:
-        'Could not reach the server. Check your connection and try again.',
-    };
-  if (lower.includes('500') || lower.includes('server'))
-    return {
-      step: 'error',
-      code: 'network',
-      message: 'Server error. Please try again later.',
-    };
-  return {
-    step: 'error',
-    code: 'unknown',
-    message: msg || 'Something went wrong.',
-  };
-}
+/* ── Component ── */
 
-export function ClaimPage({ id }: ClaimPageProps) {
-  const [status, setStatus] = useState<ClaimStatus>({ step: 'init' });
+export function TestClaimPage() {
+  const [status, setStatus] = useState<TestStatus>({ step: 'pick' });
   const [passphrase, setPassphrase] = useState('');
   const [showPassphrase, setShowPassphrase] = useState(false);
   const [passphraseError, setPassphraseError] = useState('');
   const [revealed, setRevealed] = useState(false);
-  const abortRef = useRef<AbortController | null>(null);
 
   const passphraseInputRef = useRef<HTMLInputElement | null>(null);
 
-  // Hold the envelope + urlKey across passphrase retries
   const envelopeRef = useRef<EnvelopeJson | null>(null);
   const urlKeyRef = useRef<Uint8Array | null>(null);
 
-  // Whether this secret requires a passphrase (known after claim response)
   const passphraseRequired =
     envelopeRef.current !== null && envelopeRef.current.kdf.name !== 'none';
 
@@ -118,79 +64,52 @@ export function ClaimPage({ id }: ClaimPageProps) {
     }
   }, [status.step]);
 
-  // Parse fragment and initiate claim on mount
-  useEffect(() => {
-    const controller = new AbortController();
-    abortRef.current = controller;
+  const reset = useCallback(() => {
+    setStatus({ step: 'pick' });
+    setPassphrase('');
+    setShowPassphrase(false);
+    setPassphraseError('');
+    setRevealed(false);
+    envelopeRef.current = null;
+    urlKeyRef.current = null;
+  }, []);
 
-    void (async () => {
-      // 1. Parse URL fragment
-      const fragment = window.location.hash.slice(1);
-      if (!fragment) {
-        setStatus({
-          step: 'error',
-          code: 'no-fragment',
-          message:
-            'This link is incomplete. The decryption key is missing from the URL.',
-        });
-        return;
-      }
+  /** Seal content, simulate claim delay, then decrypt. */
+  const runScenario = useCallback(
+    async (
+      content: Uint8Array,
+      meta: PayloadMeta,
+      opts?: { passphrase?: string },
+    ) => {
+      reset();
 
-      let urlKey: Uint8Array;
-      try {
-        urlKey = base64urlDecode(fragment);
-        if (urlKey.length !== URL_KEY_LEN) throw new Error('bad length');
-      } catch {
-        setStatus({
-          step: 'error',
-          code: 'invalid-fragment',
-          message:
-            'This link is malformed. The decryption key in the URL is invalid.',
-        });
-        return;
-      }
-
+      // 1. Seal
+      setStatus({ step: 'sealing' });
+      const sealOpts = opts?.passphrase
+        ? { passphrase: opts.passphrase }
+        : undefined;
+      const { envelope, urlKey } = await seal(content, meta, sealOpts);
+      envelopeRef.current = envelope;
       urlKeyRef.current = urlKey;
 
-      // 2. Derive claim_token and call claim API
+      // 2. Simulate network claim
       setStatus({ step: 'claiming' });
-      try {
-        const claimToken = await deriveClaimToken(urlKey);
-        if (controller.signal.aborted) return;
+      await delay(600);
 
-        const res = await claimSecret(
-          id,
-          { claim: base64urlEncode(claimToken) },
-          controller.signal,
-        );
-
-        envelopeRef.current = res.envelope;
-
-        // 3. Check if passphrase required
-        if (res.envelope.kdf.name !== 'none') {
-          setStatus({ step: 'passphrase', envelope: res.envelope, urlKey });
-          return;
-        }
-
-        // 4. Decrypt immediately (no passphrase)
-        setStatus({ step: 'decrypting' });
-        const result = await open(res.envelope, urlKey);
-        if (controller.signal.aborted) return;
-
-        setStatus({ step: 'done', content: result.content, meta: result.meta });
-      } catch (err) {
-        if (controller.signal.aborted) return;
-        setStatus(mapClaimError(err));
+      // 3. Check if passphrase required
+      if (envelope.kdf.name !== 'none') {
+        setStatus({ step: 'passphrase', envelope, urlKey });
+        return;
       }
-    })();
 
-    return () => {
-      controller.abort();
-      abortRef.current = null;
-    };
-  }, [id]);
+      // 4. Decrypt directly
+      setStatus({ step: 'decrypting' });
+      const result = await open(envelope, urlKey);
+      setStatus({ step: 'done', content: result.content, meta: result.meta });
+    },
+    [reset],
+  );
 
-  // Handle passphrase submission
   const handleDecrypt = useCallback(
     async (e: Event) => {
       e.preventDefault();
@@ -213,10 +132,8 @@ export function ClaimPage({ id }: ClaimPageProps) {
     [passphrase],
   );
 
-  // Download file helper
   const handleDownload = useCallback(() => {
     if (status.step !== 'done') return;
-    // Copy into a plain ArrayBuffer so TS 5.8's generic Uint8Array is accepted as BlobPart.
     const buf = new ArrayBuffer(status.content.byteLength);
     new Uint8Array(buf).set(status.content);
     const blob = new Blob([buf], {
@@ -237,23 +154,135 @@ export function ClaimPage({ id }: ClaimPageProps) {
     navigate('/');
   }, []);
 
-  // ── Loading / claiming ──
-  if (status.step === 'init' || status.step === 'claiming') {
+  /* ── Scenario picker ── */
+  if (status.step === 'pick') {
+    return (
+      <div class="space-y-6">
+        <div class="card space-y-4">
+          <h2 class="heading text-center">Claim Page Test Scenarios</h2>
+          <p class="text-sm text-muted">
+            Each scenario seals a test secret client-side, simulates the claim
+            API delay, then exercises the real decrypt and reveal UI.
+          </p>
+
+          <div class="space-y-2">
+            <button
+              class="btn w-full text-left"
+              onClick={() =>
+                runScenario(
+                  utf8Encode('Hello from secrt! This is a test secret.'),
+                  { type: 'text' },
+                )
+              }
+            >
+              1. Text secret (no passphrase)
+            </button>
+
+            <button
+              class="btn w-full text-left"
+              onClick={() =>
+                runScenario(
+                  utf8Encode('Protected secret content.\nLine two.'),
+                  { type: 'text' },
+                  { passphrase: 'hunter2' },
+                )
+              }
+            >
+              2. Text secret (passphrase: <code class="text-xs">hunter2</code>)
+            </button>
+
+            <button
+              class="btn w-full text-left"
+              onClick={() =>
+                runScenario(utf8Encode('{ "api_key": "sk_test_abc123" }'), {
+                  type: 'file',
+                  filename: 'credentials.json',
+                  mime: 'application/json',
+                })
+              }
+            >
+              3. File secret (credentials.json)
+            </button>
+
+            <button
+              class="btn w-full text-left"
+              onClick={() =>
+                runScenario(
+                  new Uint8Array([
+                    0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00,
+                  ]),
+                  {
+                    type: 'file',
+                    filename: 'image.png',
+                    mime: 'image/png',
+                  },
+                )
+              }
+            >
+              4. Binary file secret (image.png, 10 bytes)
+            </button>
+
+            <button
+              class="btn w-full text-left"
+              onClick={() =>
+                setStatus({
+                  step: 'error',
+                  message:
+                    'This secret is no longer available. It may have already been viewed or expired.',
+                })
+              }
+            >
+              5. Error: secret unavailable (404)
+            </button>
+
+            <button
+              class="btn w-full text-left"
+              onClick={() =>
+                setStatus({
+                  step: 'error',
+                  message:
+                    'This link is incomplete. The decryption key is missing from the URL.',
+                })
+              }
+            >
+              6. Error: missing fragment
+            </button>
+
+            <button
+              class="btn w-full text-left"
+              onClick={() =>
+                runScenario(utf8Encode('A'.repeat(500)), { type: 'text' })
+              }
+            >
+              7. Long text secret (500 chars)
+            </button>
+          </div>
+        </div>
+
+        <a href="/" class="btn w-full text-center" onClick={handleGoHome}>
+          Back to home
+        </a>
+      </div>
+    );
+  }
+
+  /* ── Loading states ── */
+  if (status.step === 'sealing' || status.step === 'claiming') {
     return (
       <div class="card space-y-4 text-center">
         <div class="flex justify-center">
           <div class="size-8 animate-spin rounded-full border-2 border-border border-t-accent" />
         </div>
         <p class="text-sm text-muted">
-          {status.step === 'init'
-            ? 'Preparing\u2026'
+          {status.step === 'sealing'
+            ? 'Encrypting test secret\u2026'
             : 'Retrieving your secret\u2026'}
         </p>
       </div>
     );
   }
 
-  // ── Auto-decrypting (no passphrase) ──
+  /* ── Auto-decrypting (no passphrase) ── */
   if (status.step === 'decrypting' && !passphraseRequired) {
     return (
       <div class="card space-y-4 text-center">
@@ -265,7 +294,7 @@ export function ClaimPage({ id }: ClaimPageProps) {
     );
   }
 
-  // ── Error ──
+  /* ── Error ── */
   if (status.step === 'error') {
     return (
       <div class="card space-y-5">
@@ -276,16 +305,14 @@ export function ClaimPage({ id }: ClaimPageProps) {
 
         <p class="text-center text-sm text-muted">{status.message}</p>
 
-        <a href="/" class="btn w-full text-center" onClick={handleGoHome}>
-          Create a new secret
-        </a>
+        <button type="button" class="btn w-full" onClick={reset}>
+          Back to scenarios
+        </button>
       </div>
     );
   }
 
-  // ── Reveal card (passphrase-locked or done) ──
-  // Shown when: passphrase prompt, decrypting after passphrase, or done.
-  // When locked, a placeholder is shown behind the passphrase modal.
+  /* ── Reveal card (passphrase-locked or done) ── */
   const isDone = status.step === 'done';
   const isLocked =
     status.step === 'passphrase' ||
@@ -323,7 +350,6 @@ export function ClaimPage({ id }: ClaimPageProps) {
         </div>
 
         {isDone && isFile ? (
-          /* ── File result ── */
           <div class="space-y-4">
             <div class="flex items-center gap-3 rounded-md border border-border bg-surface-raised px-3 py-3">
               <div class="min-w-0 flex-1">
@@ -350,7 +376,6 @@ export function ClaimPage({ id }: ClaimPageProps) {
             </button>
           </div>
         ) : (
-          /* ── Text result (or placeholder when locked) ── */
           <div class="space-y-3">
             <div class="relative rounded-md border border-border bg-surface px-3 py-2.5 inset-shadow-sm">
               {isDone && revealed ? (
@@ -386,9 +411,9 @@ export function ClaimPage({ id }: ClaimPageProps) {
           This secret has been permanently deleted from the server.
         </p>
 
-        <a href="/" class="btn w-full text-center" onClick={handleGoHome}>
-          Create a new secret
-        </a>
+        <button type="button" class="btn w-full" onClick={reset}>
+          Back to scenarios
+        </button>
       </div>
 
       {/* ── Passphrase modal overlay ── */}
@@ -411,7 +436,7 @@ export function ClaimPage({ id }: ClaimPageProps) {
             <div class="space-y-1">
               <label
                 class="flex items-center gap-1.5 text-sm font-medium text-muted"
-                for="claim-passphrase"
+                for="test-passphrase"
               >
                 <LockIcon class="size-4" />
                 Passphrase
@@ -419,7 +444,7 @@ export function ClaimPage({ id }: ClaimPageProps) {
               <div class="relative">
                 <input
                   ref={passphraseInputRef}
-                  id="claim-passphrase"
+                  id="test-passphrase"
                   type={showPassphrase ? 'text' : 'password'}
                   class="input pr-10"
                   value={passphrase}

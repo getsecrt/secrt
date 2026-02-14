@@ -3,6 +3,7 @@ import { Layout } from './components/Layout';
 import { SendPage } from './features/send/SendPage';
 import { ClaimPage } from './features/claim/ClaimPage';
 import { ThemePage } from './features/test/ThemePage';
+import { TestClaimPage } from './features/test/TestClaimPage';
 
 export function App() {
   const route = useRoute();
@@ -18,6 +19,9 @@ export function App() {
       break;
     case 'claim':
       page = <ClaimPage id={route.id} />;
+      break;
+    case 'test-claim':
+      page = <TestClaimPage />;
       break;
     case 'not-found':
       page = (

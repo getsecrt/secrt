@@ -1,15 +1,18 @@
 import { useState, useCallback } from 'preact/hooks';
+import type { ComponentChildren } from 'preact';
 
 interface CopyButtonProps {
   text: string;
   class?: string;
   label?: string;
+  icon?: ComponentChildren;
 }
 
 export function CopyButton({
   text,
   class: className,
   label = 'Copy',
+  icon,
 }: CopyButtonProps) {
   const [copied, setCopied] = useState(false);
 
@@ -39,6 +42,7 @@ export function CopyButton({
       class={`btn btn-sm btn-secondary ${className ?? ''}`}
       onClick={handleClick}
     >
+      {icon}
       {copied ? 'Copied!' : label}
     </button>
   );

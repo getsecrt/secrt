@@ -20,7 +20,7 @@ export function Layout({ children }: LayoutProps) {
           <Logo />
         </a>
         <p class="mt-1 text-xs text-muted">
-          Private, Zero-Knowledge, Encrypted Secret Sharing
+          Private, Zero-Knowledge, One-Time Secret Sharing
         </p>
       </header>
 
