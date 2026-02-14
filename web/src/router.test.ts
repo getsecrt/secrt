@@ -29,6 +29,10 @@ describe('matchRoute', () => {
     expect(matchRoute('/test/theme')).toEqual({ page: 'theme' });
   });
 
+  it('"/test/claim" -> test-claim page', () => {
+    expect(matchRoute('/test/claim')).toEqual({ page: 'test-claim' });
+  });
+
   it('"/unknown" -> not-found', () => {
     expect(matchRoute('/unknown')).toEqual({ page: 'not-found' });
   });

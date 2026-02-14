@@ -13,6 +13,7 @@ import {
 } from '../../components/Icons';
 import { CopyButton } from '../../components/CopyButton';
 import { navigate } from '../../router';
+import { formatSize } from '../../lib/format';
 import type { EnvelopeJson, PayloadMeta } from '../../types';
 
 /* ── Types ── */
@@ -30,12 +31,6 @@ type TestStatus =
 const PLACEHOLDER_DOTS = 24;
 
 /* ── Helpers ── */
-
-function formatSize(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-}
 
 /** Simulate a short network delay. */
 const delay = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
@@ -228,7 +223,7 @@ export function TestClaimPage() {
                 setStatus({
                   step: 'error',
                   message:
-                    'This secret is no longer available. It may have already been viewed or expired.',
+                    'This secret is no longer available.\nIt may have already been viewed or expired.',
                 })
               }
             >
@@ -303,7 +298,7 @@ export function TestClaimPage() {
           <h2 class="text-lg font-semibold">Secret Unavailable</h2>
         </div>
 
-        <p class="text-center text-sm text-muted">{status.message}</p>
+        <p class="whitespace-pre-line text-center text-sm text-muted">{status.message}</p>
 
         <button type="button" class="btn w-full" onClick={reset}>
           Back to scenarios
@@ -419,10 +414,7 @@ export function TestClaimPage() {
       {/* ── Passphrase modal overlay ── */}
       {isLocked && (
         <div class="fixed inset-0 z-50 flex items-start justify-center bg-black/30 px-4 pt-32">
-          <form
-            class="card w-full max-w-sm space-y-6"
-            onSubmit={handleDecrypt}
-          >
+          <form class="card w-full max-w-sm space-y-6" onSubmit={handleDecrypt}>
             <div class="flex flex-col items-center gap-2 text-center">
               <LockIcon class="size-10 text-amber-500" />
               <h2 class="text-lg font-semibold">Passphrase Required</h2>

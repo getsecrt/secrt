@@ -19,6 +19,8 @@ import {
 } from '../../components/Icons';
 import { CopyButton } from '../../components/CopyButton';
 import { navigate } from '../../router';
+import { formatSize } from '../../lib/format';
+import { mapClaimError, type ClaimError } from './errors';
 import type { EnvelopeJson, PayloadMeta } from '../../types';
 
 interface ClaimPageProps {
@@ -35,63 +37,10 @@ type ClaimStatus =
       content: Uint8Array;
       meta: PayloadMeta;
     }
-  | {
-      step: 'error';
-      code:
-        | 'no-fragment'
-        | 'invalid-fragment'
-        | 'unavailable'
-        | 'decrypt'
-        | 'network'
-        | 'unknown';
-      message: string;
-    };
+  | ClaimError;
 
 /** Placeholder dot count shown behind the passphrase modal. */
 const PLACEHOLDER_DOTS = 24;
-
-function formatSize(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-}
-
-function mapClaimError(err: unknown): ClaimStatus & { step: 'error' } {
-  const msg = err instanceof Error ? err.message : String(err);
-  const lower = msg.toLowerCase();
-
-  if (lower.includes('404') || lower.includes('not found'))
-    return {
-      step: 'error',
-      code: 'unavailable',
-      message:
-        'This secret is no longer available. It may have already been viewed or expired.',
-    };
-  if (lower.includes('429') || lower.includes('rate'))
-    return {
-      step: 'error',
-      code: 'network',
-      message: 'Too many requests. Please wait a moment and try again.',
-    };
-  if (lower.includes('failed to fetch') || lower.includes('networkerror'))
-    return {
-      step: 'error',
-      code: 'network',
-      message:
-        'Could not reach the server. Check your connection and try again.',
-    };
-  if (lower.includes('500') || lower.includes('server'))
-    return {
-      step: 'error',
-      code: 'network',
-      message: 'Server error. Please try again later.',
-    };
-  return {
-    step: 'error',
-    code: 'unknown',
-    message: msg || 'Something went wrong.',
-  };
-}
 
 export function ClaimPage({ id }: ClaimPageProps) {
   const [status, setStatus] = useState<ClaimStatus>({ step: 'init' });
@@ -274,7 +223,7 @@ export function ClaimPage({ id }: ClaimPageProps) {
           <h2 class="text-lg font-semibold">Secret Unavailable</h2>
         </div>
 
-        <p class="text-center text-sm text-muted">{status.message}</p>
+        <p class="whitespace-pre-line text-center text-sm text-muted">{status.message}</p>
 
         <a href="/" class="btn w-full text-center" onClick={handleGoHome}>
           Create a new secret
@@ -309,17 +258,8 @@ export function ClaimPage({ id }: ClaimPageProps) {
         class={`card space-y-5 ${isLocked ? 'pointer-events-none opacity-50 select-none' : ''}`}
       >
         <div class="flex flex-col items-center gap-2 text-center">
-          {isLocked ? (
-            <>
-              <CircleXmarkIcon class="size-10 text-muted" />
-              <h2 class="text-lg font-semibold">Secret Protected</h2>
-            </>
-          ) : (
-            <>
-              <CheckCircleIcon class="size-10 text-success" />
-              <h2 class="text-lg font-semibold">Secret Revealed</h2>
-            </>
-          )}
+          <CheckCircleIcon class="size-10 text-success" />
+          <h2 class="text-lg font-semibold">Secret Revealed</h2>
         </div>
 
         {isDone && isFile ? (
@@ -359,26 +299,37 @@ export function ClaimPage({ id }: ClaimPageProps) {
                 </pre>
               ) : (
                 <p class="cursor-pointer font-mono text-sm tracking-wider text-muted select-none">
-                  {'\u25CF'.repeat(PLACEHOLDER_DOTS)}
+                  {'\u25CF'.repeat(
+                    isDone
+                      ? Math.min(textContent.length || 12, 40)
+                      : PLACEHOLDER_DOTS,
+                  )}
                 </p>
               )}
-              <button
-                type="button"
-                class="absolute top-2 right-2 p-1 text-muted hover:text-text"
-                onClick={() => setRevealed((r) => !r)}
-                aria-label={revealed ? 'Hide secret' : 'Show secret'}
-                disabled={!isDone}
-              >
-                <EyeIcon class="size-4" />
-              </button>
+              {isDone && (
+                <button
+                  type="button"
+                  class="absolute top-2 right-2 p-1 text-muted hover:text-text"
+                  onClick={() => setRevealed((r) => !r)}
+                  aria-label={revealed ? 'Hide secret' : 'Show secret'}
+                >
+                  {revealed ? (
+                    <EyeSlashIcon class="size-4" />
+                  ) : (
+                    <EyeIcon class="size-4" />
+                  )}
+                </button>
+              )}
             </div>
 
-            <CopyButton
-              text={textContent}
-              class="btn-primary w-full tracking-wider uppercase"
-              label="Copy secret"
-              icon={<ClipboardIcon class="size-5" />}
-            />
+            {isDone && (
+              <CopyButton
+                text={textContent}
+                class="btn-primary w-full tracking-wider uppercase"
+                label="Copy secret"
+                icon={<ClipboardIcon class="size-5" />}
+              />
+            )}
           </div>
         )}
 
@@ -394,12 +345,9 @@ export function ClaimPage({ id }: ClaimPageProps) {
       {/* ── Passphrase modal overlay ── */}
       {isLocked && (
         <div class="fixed inset-0 z-50 flex items-start justify-center bg-black/30 px-4 pt-32">
-          <form
-            class="card w-full max-w-sm space-y-6"
-            onSubmit={handleDecrypt}
-          >
+          <form class="card w-full max-w-sm space-y-6" onSubmit={handleDecrypt}>
             <div class="flex flex-col items-center gap-2 text-center">
-              <LockIcon class="size-10 text-amber-500" />
+              <LockIcon class="size-10 text-accent" />
               <h2 class="text-lg font-semibold">Passphrase Required</h2>
               <p class="text-sm text-muted">
                 This secret is protected with a passphrase.
@@ -418,7 +366,6 @@ export function ClaimPage({ id }: ClaimPageProps) {
               </label>
               <div class="relative">
                 <input
-                  ref={passphraseInputRef}
                   id="claim-passphrase"
                   type={showPassphrase ? 'text' : 'password'}
                   class="input pr-10"

@@ -1,6 +1,6 @@
 import { useState, useCallback, useRef } from 'preact/hooks';
 import { UploadIcon, XMarkIcon } from '../../components/Icons';
-import { formatSize } from './format';
+import { formatSize } from '../../lib/format';
 
 interface FileDropZoneProps {
   file: File | null;

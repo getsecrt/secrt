@@ -1,5 +1,6 @@
 import { useState, useCallback } from 'preact/hooks';
 import type { ComponentChildren } from 'preact';
+import { copyToClipboard } from '../lib/clipboard';
 
 interface CopyButtonProps {
   text: string;
@@ -17,20 +18,8 @@ export function CopyButton({
   const [copied, setCopied] = useState(false);
 
   const handleClick = useCallback(async () => {
-    try {
-      await navigator.clipboard.writeText(text);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    } catch {
-      // Fallback for older browsers
-      const el = document.createElement('textarea');
-      el.value = text;
-      el.style.position = 'fixed';
-      el.style.opacity = '0';
-      document.body.appendChild(el);
-      el.select();
-      document.execCommand('copy');
-      document.body.removeChild(el);
+    const ok = await copyToClipboard(text);
+    if (ok) {
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     }
