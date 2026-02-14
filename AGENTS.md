@@ -1,5 +1,7 @@
 # secrt — Monorepo Agent Notes
 
+> **Note:** `CLAUDE.md` is a symlink to this file so that both Cursor (AGENTS.md) and Claude Code (CLAUDE.md) read the same instructions. Always edit `AGENTS.md` directly — never replace the symlink with a regular file.
+
 Zero-knowledge one-time secret sharing. All encryption is client-side (AES-256-GCM + HKDF-SHA256 + optional PBKDF2). The server never sees plaintext.
 
 ## Repository layout
