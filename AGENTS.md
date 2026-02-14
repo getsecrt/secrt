@@ -170,21 +170,30 @@ All crates share the workspace version in `Cargo.toml` (`[workspace.package] ver
 
 ### Release process
 
+There are **two separate release pipelines** — one for the CLI and one for the server. Both share the same workspace version, but each is triggered by its own tag prefix. **Always tag and push both** when releasing a new version.
+
 1. Update `version` in the workspace `Cargo.toml`
-2. Update `secrt-core` version in `crates/secrt-cli/Cargo.toml` dependency
-3. Add a changelog entry in `crates/secrt-cli/CHANGELOG.md`
+2. Update `secrt-core` version in `crates/secrt-cli/Cargo.toml` and `crates/secrt-server/Cargo.toml` dependencies
+3. Add changelog entries in `crates/secrt-cli/CHANGELOG.md` and `crates/secrt-server/CHANGELOG.md`
 4. Commit: `chore: bump version to X.Y.Z`
-5. Tag: `git tag cli/vX.Y.Z`
+5. Tag **both** releases: `git tag cli/vX.Y.Z && git tag server/vX.Y.Z`
 6. Push: `git push origin main --tags`
 
-The `cli/v*` tag triggers the release workflow which:
+**`cli/v*` tag** triggers the CLI release workflow (`.github/workflows/release-cli.yml`):
 - Runs `cargo test --workspace` and `cargo clippy --workspace`
 - Cross-compiles for 6 targets (macOS arm64/amd64, Linux amd64/arm64, Windows amd64/arm64)
 - Creates a universal macOS binary via `lipo`
 - Code-signs macOS binaries (Developer ID + notarization)
 - Code-signs Windows binaries (Azure Trusted Signing)
 - Generates SHA256 checksums
-- Publishes a GitHub Release with all artifacts
+- Publishes a GitHub Release with all CLI artifacts
+
+**`server/v*` tag** triggers the server release workflow (`.github/workflows/release-server.yml`):
+- Runs `cargo test --workspace` and `cargo clippy --workspace`
+- Builds the web frontend (`pnpm install --frozen-lockfile && pnpm run build`)
+- Cross-compiles server + admin binaries for Linux amd64/arm64 (musl)
+- Generates SHA256 checksums
+- Publishes a GitHub Release with server and admin artifacts
 
 ## Dependency policy
 
