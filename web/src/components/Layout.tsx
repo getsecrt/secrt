@@ -49,6 +49,17 @@ export function Layout({ children }: LayoutProps) {
         </div>
 
         <a
+          class="mb-2 underline-offset-3 hover:text-muted hover:underline"
+          href="/how-it-works"
+          onClick={(e: MouseEvent) => {
+            e.preventDefault();
+            navigate('/how-it-works');
+          }}
+        >
+          How it Works
+        </a>
+
+        <a
           class="mb-4 underline-offset-3 hover:text-muted hover:underline"
           href="https://github.com/getsecrt/secrt/releases"
         >

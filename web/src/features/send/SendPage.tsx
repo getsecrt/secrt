@@ -17,6 +17,7 @@ import type { ApiInfo, PayloadMeta } from '../../types';
 import { FileDropZone } from './FileDropZone';
 import { TtlSelector } from './TtlSelector';
 import { ShareResult } from './ShareResult';
+import { HowItWorks } from '../../components/HowItWorks';
 import { mapError } from './errors';
 
 type SendStatus =
@@ -164,7 +165,7 @@ export function SendPage() {
         : 'Create secret';
 
   return (
-    <div>
+    <div class="space-y-4">
       <form
         class="card space-y-6"
         onSubmit={handleSubmit}
@@ -312,6 +313,8 @@ export function SendPage() {
           {buttonLabel}
         </button>
       </form>
+
+      <HowItWorks />
     </div>
   );
 }

@@ -6,4 +6,9 @@ web/.env
 web/.env.*
 web/pnpm-debug.log*
 web/.pnpm-store
+web/test-results
+web/playwright-report
+web/.e2e-server.pid
+web/.e2e-vite.pid
+web/coverage
 .playwright-mcp

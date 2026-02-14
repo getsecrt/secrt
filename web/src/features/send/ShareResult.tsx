@@ -21,6 +21,7 @@ export function ShareResult({ shareUrl, expiresAt, onReset }: ShareResultProps) 
           class="select-all break-all font-mono text-sm"
           role="textbox"
           aria-label="Share URL"
+          data-testid="share-url"
         >
           {shareUrl}
         </p>

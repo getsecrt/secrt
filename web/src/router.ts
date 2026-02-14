@@ -3,6 +3,7 @@ import { useState, useEffect } from 'preact/hooks';
 export type Route =
   | { page: 'send' }
   | { page: 'claim'; id: string }
+  | { page: 'how-it-works' }
   | { page: 'theme' }
   | { page: 'test-claim' }
   | { page: 'not-found' };
@@ -15,6 +16,10 @@ export function matchRoute(path: string): Route {
   const match = path.match(/^\/s\/([a-zA-Z0-9_-]+)\/?$/);
   if (match) {
     return { page: 'claim', id: match[1] };
+  }
+
+  if (path === '/how-it-works') {
+    return { page: 'how-it-works' };
   }
 
   if (import.meta.env.DEV) {

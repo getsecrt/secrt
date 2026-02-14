@@ -34,6 +34,26 @@ export default defineConfig(({ mode }) => {
       environment: 'happy-dom',
       include: ['src/**/*.test.{ts,tsx}'],
       setupFiles: ['src/test-setup.ts'],
+      coverage: {
+        provider: 'v8',
+        include: ['src/**/*.{ts,tsx}'],
+        exclude: [
+          'src/main.tsx',
+          'src/features/test/**',
+          'src/components/Icons.tsx',
+          'src/components/Logo.tsx',
+          'src/crypto/constants.ts',
+          'src/types.ts',
+          'src/**/*.test.{ts,tsx}',
+          'src/test-setup.ts',
+        ],
+        thresholds: {
+          statements: 90,
+          branches: 85,
+          functions: 90,
+          lines: 90,
+        },
+      },
     }
   };
 });

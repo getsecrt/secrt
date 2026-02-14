@@ -25,6 +25,10 @@ describe('matchRoute', () => {
     expect(matchRoute('/s/abc123/')).toEqual({ page: 'claim', id: 'abc123' });
   });
 
+  it('"/how-it-works" -> how-it-works page', () => {
+    expect(matchRoute('/how-it-works')).toEqual({ page: 'how-it-works' });
+  });
+
   it('"/test/theme" -> theme page', () => {
     expect(matchRoute('/test/theme')).toEqual({ page: 'theme' });
   });
