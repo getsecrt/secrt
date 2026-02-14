@@ -32,7 +32,7 @@
   --color-accent-hover: var(--color-green-600);
 
   /* Status */
-  --color-error: var(--color-red-500);
+  --color-error: var(--color-red-600);
   --color-success: var(--color-green-600);
 
   /* Core scale */
@@ -103,7 +103,7 @@
 
 @layer components {
   .heading {
-    @apply border-b border-border pb-2 text-lg font-semibold tracking-wider text-neutral-700 uppercase dark:text-neutral-300 dark:text-shadow-black;
+    @apply border-b border-border pb-2 text-lg font-semibold tracking-widest text-neutral-700 uppercase dark:text-neutral-300 dark:text-shadow-black;
   }
 
   .btn {

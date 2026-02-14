@@ -78,7 +78,6 @@ const semantics = [
   { bg: 'bg-surface-raised', label: 'raised' },
   { bg: 'bg-border', label: 'border' },
   { bg: 'bg-accent', label: 'accent' },
-  { bg: 'bg-accent-bright', label: 'bright' },
   { bg: 'bg-accent-hover', label: 'hover' },
   { bg: 'bg-error', label: 'error' },
   { bg: 'bg-success', label: 'success' },
@@ -134,10 +133,10 @@ export function ThemePage() {
         <Section title="Green Palette">
           <p class="text-sm text-muted">
             Hue 140–147, chroma peaks at 400, even lightness steps. Utilities:{' '}
-            <code class="rounded bg-surface-raised px-1.5 py-0.5 font-mono text-xs">
+            <code class="rounded border border-border/50 bg-surface-raised px-1.5 py-0.5 font-mono text-xs">
               bg-green-500
             </code>{' '}
-            <code class="rounded bg-surface-raised px-1.5 py-0.5 font-mono text-xs">
+            <code class="rounded border border-border/50 bg-surface-raised px-1.5 py-0.5 font-mono text-xs">
               text-green-800
             </code>{' '}
             etc.
@@ -259,10 +258,10 @@ export function ThemePage() {
               </p>
             </div>
             <div class="rounded-lg border border-error/30 bg-error/5 p-6">
-              <h3 class="mb-2 font-semibold text-error">Error Card</h3>
-              <p class="text-sm text-error/80">
-                Using the error semantic token.
-              </p>
+              <h3 class="mb-2 font-semibold text-red-700 dark:text-red-400">
+                Error Card
+              </h3>
+              <p class="text-sm text-error">Using the error semantic token.</p>
             </div>
           </div>
         </Section>
@@ -400,7 +399,7 @@ export function ThemePage() {
         <Section title="Inline Code &amp; Monospace">
           <p class="text-sm">
             Secret ID:{' '}
-            <code class="rounded bg-surface-raised px-1.5 py-0.5 font-mono text-xs select-all">
+            <code class="rounded border border-border/50 bg-surface-raised px-1.5 py-0.5 font-mono text-xs select-all">
               abc123-def456-ghi789
             </code>
           </p>
