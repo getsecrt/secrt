@@ -185,8 +185,9 @@ export function Nav() {
   const isActive = (page: string) => route.page === page;
 
   return (
-    <nav class="sticky top-0 z-10 border-b border-border bg-neutral-200/50 shadow-sm backdrop-blur dark:bg-neutral-700/50">
-      <div class="mx-auto flex max-w-lg items-center justify-center gap-4 px-4 py-1.5">
+    <nav class="sticky top-0 z-10">
+      <div class="border-b border-border bg-neutral-200/50 shadow-sm backdrop-blur dark:bg-neutral-700/50">
+        <div class="mx-auto flex max-w-lg items-center justify-center gap-4 px-4 py-1.5">
         {/* Desktop links (hidden below sm) */}
         <div class="hidden items-center gap-6 sm:flex">
           <NavLink href="/" active={isActive('send')}>
@@ -250,12 +251,24 @@ export function Nav() {
           </button>
           <ThemeToggle />
         </div>
+        </div>
       </div>
 
-      {/* Mobile drawer */}
+      {/* Mobile drawer (overlay) */}
       {menuOpen && (
-        <div class="border-t border-border px-4 pt-2 pb-4 sm:hidden">
+        <>
+        <div class="fixed inset-0 sm:hidden" onClick={() => setMenuOpen(false)} />
+        <div class="absolute left-0 right-0 border-t border-border bg-neutral-200/70 px-4 pt-2 pb-4 shadow-lg backdrop-blur-xs sm:hidden dark:bg-neutral-700/80">
           <div class="flex flex-col gap-3">
+            {!auth.loading && auth.authenticated && (
+              <div class="mb-1 border-b border-border px-2 py-1 pb-2 text-sm text-black/55 dark:text-white/55">
+                <span class="flex items-center gap-1.5">
+                  <UserIcon class="size-4" />
+                  {auth.displayName}
+                </span>
+              </div>
+            )}
+
             <NavLink href="/" active={isActive('send')}>
               <span class="flex items-center gap-1 whitespace-nowrap">
                 <SquarePlusIcon class="size-4" />
@@ -286,13 +299,13 @@ export function Nav() {
             {!auth.loading &&
               (auth.authenticated ? (
                 <>
-                  <NavLink href="/dashboard">
+                  <NavLink href="/dashboard" active={isActive('dashboard')}>
                     <span class="flex items-center gap-1 whitespace-nowrap">
                       <TableIcon class="size-4" />
                       Dashboard
                     </span>
                   </NavLink>
-                  <NavLink href="/settings">
+                  <NavLink href="/settings" active={isActive('settings')}>
                     <span class="flex items-center gap-1 whitespace-nowrap">
                       <GearIcon class="size-4" />
                       Settings
@@ -317,6 +330,7 @@ export function Nav() {
               ))}
           </div>
         </div>
+        </>
       )}
     </nav>
   );
