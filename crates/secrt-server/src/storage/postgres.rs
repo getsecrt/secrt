@@ -8,8 +8,8 @@ use uuid::Uuid;
 
 use super::{
     ApiKeyRecord, ApiKeyRegistrationLimits, ApiKeysStore, AuthStore, ChallengeRecord,
-    PasskeyRecord, SecretQuotaLimits, SecretRecord, SecretsStore, SessionRecord, StorageError,
-    StorageUsage, UserId, UserRecord,
+    PasskeyRecord, SecretQuotaLimits, SecretRecord, SecretSummary, SecretsStore, SessionRecord,
+    StorageError, StorageUsage, UserId, UserRecord,
 };
 
 const POOL_MAX_SIZE: usize = 10;
@@ -281,6 +281,72 @@ impl SecretsStore for PgStore {
             total_bytes,
         })
     }
+
+    async fn list_by_owner_keys(
+        &self,
+        owner_keys: &[String],
+        now: DateTime<Utc>,
+        limit: i64,
+        offset: i64,
+    ) -> Result<Vec<SecretSummary>, StorageError> {
+        if owner_keys.is_empty() {
+            return Ok(vec![]);
+        }
+        let client = self.pool.get().await?;
+        let rows = client
+            .query(
+                "SELECT id, expires_at, created_at FROM secrets \
+                 WHERE owner_key = ANY($1) AND expires_at > $2 \
+                 ORDER BY created_at DESC LIMIT $3 OFFSET $4",
+                &[&owner_keys, &now, &limit, &offset],
+            )
+            .await?;
+        let mut out = Vec::with_capacity(rows.len());
+        for row in &rows {
+            out.push(SecretSummary {
+                id: row.try_get(0)?,
+                expires_at: row.try_get(1)?,
+                created_at: row.try_get(2)?,
+            });
+        }
+        Ok(out)
+    }
+
+    async fn count_by_owner_keys(
+        &self,
+        owner_keys: &[String],
+        now: DateTime<Utc>,
+    ) -> Result<i64, StorageError> {
+        if owner_keys.is_empty() {
+            return Ok(0);
+        }
+        let client = self.pool.get().await?;
+        let row = client
+            .query_one(
+                "SELECT COUNT(*) FROM secrets \
+                 WHERE owner_key = ANY($1) AND expires_at > $2",
+                &[&owner_keys, &now],
+            )
+            .await?;
+        Ok(row.try_get(0)?)
+    }
+
+    async fn burn_all_by_owner_keys(
+        &self,
+        owner_keys: &[String],
+    ) -> Result<i64, StorageError> {
+        if owner_keys.is_empty() {
+            return Ok(0);
+        }
+        let client = self.pool.get().await?;
+        let n = client
+            .execute(
+                "DELETE FROM secrets WHERE owner_key = ANY($1)",
+                &[&owner_keys],
+            )
+            .await?;
+        Ok(n as i64)
+    }
 }
 
 #[cfg(test)]
@@ -364,6 +430,42 @@ impl ApiKeysStore for PgStore {
             )
             .await?;
         Ok(n > 0)
+    }
+
+    async fn list_by_user_id(&self, user_id: UserId) -> Result<Vec<ApiKeyRecord>, StorageError> {
+        let client = self.pool.get().await?;
+        let rows = client
+            .query(
+                "SELECT id, key_prefix, auth_hash, scopes, user_id, created_at, revoked_at \
+                 FROM api_keys WHERE user_id=$1 ORDER BY created_at DESC",
+                &[&user_id],
+            )
+            .await?;
+        let mut out = Vec::with_capacity(rows.len());
+        for row in &rows {
+            out.push(ApiKeyRecord {
+                id: row.try_get(0)?,
+                prefix: row.try_get(1)?,
+                auth_hash: row.try_get(2)?,
+                scopes: row.try_get(3)?,
+                user_id: row.try_get(4)?,
+                created_at: row.try_get(5)?,
+                revoked_at: row.try_get(6)?,
+            });
+        }
+        Ok(out)
+    }
+
+    async fn revoke_all_by_user_id(&self, user_id: UserId) -> Result<i64, StorageError> {
+        let client = self.pool.get().await?;
+        let n = client
+            .execute(
+                "UPDATE api_keys SET revoked_at = now() \
+                 WHERE user_id=$1 AND revoked_at IS NULL",
+                &[&user_id],
+            )
+            .await?;
+        Ok(n as i64)
     }
 }
 
@@ -722,5 +824,13 @@ impl AuthStore for PgStore {
             )
             .await?;
         Ok(())
+    }
+
+    async fn delete_user(&self, user_id: UserId) -> Result<bool, StorageError> {
+        let client = self.pool.get().await?;
+        let n = client
+            .execute("DELETE FROM users WHERE id=$1", &[&user_id])
+            .await?;
+        Ok(n > 0)
     }
 }

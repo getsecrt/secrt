@@ -5,7 +5,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use axum::body::to_bytes;
-use axum::extract::{ConnectInfo, Path, Request, State};
+use axum::extract::{ConnectInfo, Path, Query, Request, State};
 use axum::http::header::{AUTHORIZATION, CACHE_CONTROL, CONTENT_LENGTH, CONTENT_TYPE};
 use axum::http::{HeaderMap, HeaderName, HeaderValue, Method, StatusCode};
 use axum::middleware::{self, Next};
@@ -21,7 +21,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::value::RawValue;
 use tower_http::catch_panic::CatchPanicLayer;
 use tower_http::services::ServeDir;
-use tracing::{info, warn};
+use tracing::{error, info, warn};
 
 use crate::config::Config;
 use crate::domain::auth::Authenticator;
@@ -204,6 +204,13 @@ struct SessionResponse {
     expires_at: Option<DateTime<Utc>>,
 }
 
+/// Query parameters for `GET /api/v1/secrets`.
+#[derive(Deserialize)]
+pub struct ListSecretsQuery {
+    limit: Option<i64>,
+    offset: Option<i64>,
+}
+
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct RegisterApiKeyRequest {
@@ -215,6 +222,42 @@ struct RegisterApiKeyRequest {
 struct RegisterApiKeyResponse {
     prefix: String,
     created_at: DateTime<Utc>,
+}
+
+#[derive(Serialize)]
+struct SecretMetadataItem {
+    id: String,
+    share_url: String,
+    expires_at: DateTime<Utc>,
+    created_at: DateTime<Utc>,
+}
+
+#[derive(Serialize)]
+struct ListSecretsResponse {
+    secrets: Vec<SecretMetadataItem>,
+    total: i64,
+    limit: i64,
+    offset: i64,
+}
+
+#[derive(Serialize)]
+struct ApiKeyListItem {
+    prefix: String,
+    scopes: String,
+    created_at: DateTime<Utc>,
+    revoked_at: Option<DateTime<Utc>>,
+}
+
+#[derive(Serialize)]
+struct ListApiKeysResponse {
+    api_keys: Vec<ApiKeyListItem>,
+}
+
+#[derive(Serialize)]
+struct DeleteAccountResponse {
+    ok: bool,
+    secrets_burned: i64,
+    keys_revoked: i64,
 }
 
 #[derive(Serialize)]
@@ -233,6 +276,8 @@ pub fn build_router(state: Arc<AppState>) -> Router {
         .route("/login", get(handle_index))
         .route("/register", get(handle_index))
         .route("/how-it-works", get(handle_index))
+        .route("/dashboard", get(handle_index))
+        .route("/settings", get(handle_index))
         .route("/robots.txt", get(handle_robots_txt));
 
     // Serve static files: env override → embedded assets → filesystem fallback
@@ -247,7 +292,7 @@ pub fn build_router(state: Arc<AppState>) -> Router {
     router
         .route("/api/v1/info", any(handle_info_entry))
         .route("/api/v1/public/secrets", any(handle_create_public_entry))
-        .route("/api/v1/secrets", any(handle_create_authed_entry))
+        .route("/api/v1/secrets", any(handle_secrets_entry))
         .route("/api/v1/secrets/{id}/claim", any(handle_claim_entry))
         .route("/api/v1/secrets/{id}/burn", any(handle_burn_entry))
         .route(
@@ -272,6 +317,12 @@ pub fn build_router(state: Arc<AppState>) -> Router {
             "/api/v1/apikeys/register",
             any(handle_apikey_register_entry),
         )
+        .route("/api/v1/apikeys", any(handle_list_apikeys_entry))
+        .route(
+            "/api/v1/apikeys/{prefix}/revoke",
+            any(handle_revoke_apikey_entry),
+        )
+        .route("/api/v1/auth/account", any(handle_delete_account_entry))
         .layer(CatchPanicLayer::custom(handle_panic))
         .route_layer(middleware::from_fn_with_state(
             state.clone(),
@@ -663,14 +714,20 @@ pub async fn handle_create_public_entry(
     create_secret(state.clone(), req, false, state.owner_hasher.hash_ip(&ip)).await
 }
 
-pub async fn handle_create_authed_entry(
+/// Combined dispatcher for `/api/v1/secrets` — GET lists, POST creates.
+pub async fn handle_secrets_entry(
     State(state): State<Arc<AppState>>,
+    query: Query<ListSecretsQuery>,
     req: Request,
 ) -> Response {
-    if req.method() != Method::POST {
-        return method_not_allowed();
+    match *req.method() {
+        Method::GET => handle_list_secrets(state, query, req).await,
+        Method::POST => handle_create_authed(state, req).await,
+        _ => method_not_allowed(),
     }
+}
 
+async fn handle_create_authed(state: Arc<AppState>, req: Request) -> Response {
     let raw_key = api_key_from_headers(req.headers());
     let api_key = match require_api_key(&state, raw_key).await {
         Ok(k) => k,
@@ -691,6 +748,87 @@ pub async fn handle_create_authed_entry(
         format!("apikey:{}", api_key.prefix),
     )
     .await
+}
+
+/// Resolve owner_keys for a user: "apikey:{prefix}" for each unrevoked key.
+async fn owner_keys_for_user(
+    state: &Arc<AppState>,
+    user_id: UserId,
+) -> Result<Vec<String>, Response> {
+    let keys = state
+        .api_keys
+        .list_by_user_id(user_id)
+        .await
+        .map_err(|_| internal_server_error())?;
+    Ok(keys
+        .iter()
+        .filter(|k| k.revoked_at.is_none())
+        .map(|k| format!("apikey:{}", k.prefix))
+        .collect())
+}
+
+async fn handle_list_secrets(
+    state: Arc<AppState>,
+    Query(query): Query<ListSecretsQuery>,
+    req: Request,
+) -> Response {
+    let limit = query.limit.unwrap_or(50).clamp(1, 100);
+    let offset = query.offset.unwrap_or(0).max(0);
+
+    // Try session auth first, then API key auth
+    let owner_keys =
+        if let Ok((user_id, _, _)) = require_session_user(&state, req.headers()).await {
+            match owner_keys_for_user(&state, user_id).await {
+                Ok(keys) => keys,
+                Err(resp) => return resp,
+            }
+        } else {
+            let raw_key = api_key_from_headers(req.headers());
+            let api_key = match require_api_key(&state, raw_key).await {
+                Ok(k) => k,
+                Err(resp) => return resp,
+            };
+            vec![format!("apikey:{}", api_key.prefix)]
+        };
+
+    let now = Utc::now();
+    let total = match state
+        .secrets
+        .count_by_owner_keys(&owner_keys, now)
+        .await
+    {
+        Ok(v) => v,
+        Err(_) => return internal_server_error(),
+    };
+
+    let summaries = match state
+        .secrets
+        .list_by_owner_keys(&owner_keys, now, limit, offset)
+        .await
+    {
+        Ok(v) => v,
+        Err(_) => return internal_server_error(),
+    };
+
+    let secrets = summaries
+        .into_iter()
+        .map(|s| SecretMetadataItem {
+            share_url: format!("{}/s/{}", state.cfg.public_base_url, s.id),
+            id: s.id,
+            expires_at: s.expires_at,
+            created_at: s.created_at,
+        })
+        .collect();
+
+    json_response(
+        StatusCode::OK,
+        ListSecretsResponse {
+            secrets,
+            total,
+            limit,
+            offset,
+        },
+    )
 }
 
 pub async fn handle_claim_entry(
@@ -754,23 +892,42 @@ pub async fn handle_burn_entry(
         return method_not_allowed();
     }
 
+    // Try API key auth first (original path), then fall back to session auth
     let raw_key = api_key_from_headers(req.headers());
-    let api_key = match require_api_key(&state, raw_key).await {
+    if let Ok(api_key) = require_api_key(&state, raw_key).await {
+        let owner_key = format!("apikey:{}", api_key.prefix);
+        let deleted = match state.secrets.burn(&id, &owner_key).await {
+            Ok(v) => v,
+            Err(_) => return internal_server_error(),
+        };
+        if !deleted {
+            return not_found();
+        }
+        return json_response(StatusCode::OK, serde_json::json!({ "ok": true }));
+    }
+
+    // Session auth fallback: try burn against each of the user's owner_keys
+    let (user_id, _, _) = match require_session_user(&state, req.headers()).await {
         Ok(v) => v,
         Err(resp) => return resp,
     };
 
-    let owner_key = format!("apikey:{}", api_key.prefix);
-    let deleted = match state.secrets.burn(&id, &owner_key).await {
-        Ok(v) => v,
-        Err(_) => return internal_server_error(),
+    let keys = match owner_keys_for_user(&state, user_id).await {
+        Ok(k) => k,
+        Err(resp) => return resp,
     };
 
-    if !deleted {
-        return not_found();
+    for owner_key in &keys {
+        match state.secrets.burn(&id, owner_key).await {
+            Ok(true) => {
+                return json_response(StatusCode::OK, serde_json::json!({ "ok": true }));
+            }
+            Ok(false) => continue,
+            Err(_) => return internal_server_error(),
+        }
     }
 
-    json_response(StatusCode::OK, serde_json::json!({ "ok": true }))
+    not_found()
 }
 
 const SESSION_TOKEN_PREFIX: &str = "uss_";
@@ -1215,7 +1372,10 @@ pub async fn handle_apikey_register_entry(
     for _ in 0..=3 {
         prefix = match crate::domain::auth::generate_api_key_prefix() {
             Ok(v) => v,
-            Err(_) => return internal_server_error(),
+            Err(e) => {
+                error!(error = %e, "failed to generate api key prefix");
+                return internal_server_error();
+            }
         };
         let auth_hash = match crate::domain::auth::hash_api_key_auth_token(
             &state.cfg.api_key_pepper,
@@ -1223,7 +1383,10 @@ pub async fn handle_apikey_register_entry(
             &auth_token,
         ) {
             Ok(v) => v,
-            Err(_) => return internal_server_error(),
+            Err(e) => {
+                error!(error = %e, "failed to hash api key auth token");
+                return internal_server_error();
+            }
         };
         let rec = ApiKeyRecord {
             id: 0,
@@ -1261,7 +1424,10 @@ pub async fn handle_apikey_register_entry(
                 };
                 return error_response(StatusCode::TOO_MANY_REQUESTS, detail);
             }
-            Err(_) => return internal_server_error(),
+            Err(e) => {
+                error!(error = %e, "failed to register api key");
+                return internal_server_error();
+            }
         }
     }
 
@@ -1270,6 +1436,117 @@ pub async fn handle_apikey_register_entry(
         RegisterApiKeyResponse {
             prefix,
             created_at: now,
+        },
+    )
+}
+
+pub async fn handle_list_apikeys_entry(
+    State(state): State<Arc<AppState>>,
+    req: Request,
+) -> Response {
+    if req.method() != Method::GET {
+        return method_not_allowed();
+    }
+    let (user_id, _, _) = match require_session_user(&state, req.headers()).await {
+        Ok(v) => v,
+        Err(resp) => return resp,
+    };
+
+    let keys = match state.api_keys.list_by_user_id(user_id).await {
+        Ok(v) => v,
+        Err(_) => return internal_server_error(),
+    };
+
+    let api_keys = keys
+        .into_iter()
+        .map(|k| ApiKeyListItem {
+            prefix: k.prefix,
+            scopes: k.scopes,
+            created_at: k.created_at,
+            revoked_at: k.revoked_at,
+        })
+        .collect();
+
+    json_response(StatusCode::OK, ListApiKeysResponse { api_keys })
+}
+
+pub async fn handle_revoke_apikey_entry(
+    State(state): State<Arc<AppState>>,
+    Path(prefix): Path<String>,
+    req: Request,
+) -> Response {
+    if req.method() != Method::POST {
+        return method_not_allowed();
+    }
+    let (user_id, _, _) = match require_session_user(&state, req.headers()).await {
+        Ok(v) => v,
+        Err(resp) => return resp,
+    };
+
+    // Verify the key belongs to this user
+    let key = match state.api_keys.get_by_prefix(&prefix).await {
+        Ok(k) => k,
+        Err(StorageError::NotFound) => return not_found(),
+        Err(_) => return internal_server_error(),
+    };
+    if key.user_id != Some(user_id) {
+        return not_found();
+    }
+
+    match state.api_keys.revoke_by_prefix(&prefix).await {
+        Ok(true) => json_response(StatusCode::OK, serde_json::json!({ "ok": true })),
+        Ok(false) => bad_request("key already revoked"),
+        Err(_) => internal_server_error(),
+    }
+}
+
+pub async fn handle_delete_account_entry(
+    State(state): State<Arc<AppState>>,
+    req: Request,
+) -> Response {
+    if req.method() != Method::DELETE {
+        return method_not_allowed();
+    }
+    let (user_id, _, _) = match require_session_user(&state, req.headers()).await {
+        Ok(v) => v,
+        Err(resp) => return resp,
+    };
+
+    // 1. Get all user's API key owner_keys (including revoked, for cleanup)
+    let all_keys = match state.api_keys.list_by_user_id(user_id).await {
+        Ok(v) => v,
+        Err(_) => return internal_server_error(),
+    };
+    let owner_keys: Vec<String> = all_keys
+        .iter()
+        .map(|k| format!("apikey:{}", k.prefix))
+        .collect();
+
+    // 2. Burn all owned secrets
+    let secrets_burned = match state.secrets.burn_all_by_owner_keys(&owner_keys).await {
+        Ok(v) => v,
+        Err(_) => return internal_server_error(),
+    };
+
+    // 3. Revoke all API keys
+    let keys_revoked = match state.api_keys.revoke_all_by_user_id(user_id).await {
+        Ok(v) => v,
+        Err(_) => return internal_server_error(),
+    };
+
+    // 4. Delete user (cascades passkeys, sessions, challenges)
+    match state.auth_store.delete_user(user_id).await {
+        Ok(true) => {}
+        Ok(false) => return not_found(),
+        Err(_) => return internal_server_error(),
+    }
+
+    json_response(
+        StatusCode::OK,
+        DeleteAccountResponse {
+            ok: true,
+            secrets_burned,
+            keys_revoked,
         },
     )
 }
@@ -1433,7 +1710,7 @@ mod tests {
     use crate::config::Config;
     use crate::storage::{
         ApiKeyRecord, ApiKeyRegistrationLimits, AuthStore, ChallengeRecord, PasskeyRecord,
-        SessionRecord, StorageUsage, UserRecord,
+        SecretSummary, SessionRecord, StorageUsage, UserRecord,
     };
     use async_trait::async_trait;
     use axum::body::Body;
@@ -1472,6 +1749,8 @@ mod tests {
     struct MemStore {
         secrets: Mutex<HashMap<String, SecretRecord>>,
         keys: Mutex<HashMap<String, ApiKeyRecord>>,
+        users: Mutex<HashMap<UserId, UserRecord>>,
+        sessions: Mutex<HashMap<String, SessionRecord>>,
     }
 
     #[async_trait]
@@ -1537,6 +1816,52 @@ mod tests {
             }
             Ok(usage)
         }
+
+        async fn list_by_owner_keys(
+            &self,
+            owner_keys: &[String],
+            now: DateTime<Utc>,
+            limit: i64,
+            offset: i64,
+        ) -> Result<Vec<SecretSummary>, StorageError> {
+            let m = self.secrets.lock().unwrap();
+            let mut matching: Vec<_> = m
+                .values()
+                .filter(|s| owner_keys.contains(&s.owner_key) && s.expires_at > now)
+                .collect();
+            matching.sort_by(|a, b| b.created_at.cmp(&a.created_at));
+            Ok(matching
+                .into_iter()
+                .skip(offset as usize)
+                .take(limit as usize)
+                .map(|s| SecretSummary {
+                    id: s.id.clone(),
+                    expires_at: s.expires_at,
+                    created_at: s.created_at,
+                })
+                .collect())
+        }
+
+        async fn count_by_owner_keys(
+            &self,
+            owner_keys: &[String],
+            now: DateTime<Utc>,
+        ) -> Result<i64, StorageError> {
+            let m = self.secrets.lock().unwrap();
+            Ok(m.values()
+                .filter(|s| owner_keys.contains(&s.owner_key) && s.expires_at > now)
+                .count() as i64)
+        }
+
+        async fn burn_all_by_owner_keys(
+            &self,
+            owner_keys: &[String],
+        ) -> Result<i64, StorageError> {
+            let mut m = self.secrets.lock().unwrap();
+            let before = m.len();
+            m.retain(|_, s| !owner_keys.contains(&s.owner_key));
+            Ok((before - m.len()) as i64)
+        }
     }
 
     #[async_trait]
@@ -1566,16 +1891,53 @@ mod tests {
             k.revoked_at = Some(Utc::now());
             Ok(true)
         }
+
+        async fn list_by_user_id(
+            &self,
+            user_id: UserId,
+        ) -> Result<Vec<ApiKeyRecord>, StorageError> {
+            let m = self.keys.lock().unwrap();
+            let mut result: Vec<_> = m
+                .values()
+                .filter(|k| k.user_id == Some(user_id))
+                .cloned()
+                .collect();
+            result.sort_by(|a, b| b.created_at.cmp(&a.created_at));
+            Ok(result)
+        }
+
+        async fn revoke_all_by_user_id(&self, user_id: UserId) -> Result<i64, StorageError> {
+            let mut m = self.keys.lock().unwrap();
+            let mut count = 0i64;
+            for k in m.values_mut() {
+                if k.user_id == Some(user_id) && k.revoked_at.is_none() {
+                    k.revoked_at = Some(Utc::now());
+                    count += 1;
+                }
+            }
+            Ok(count)
+        }
     }
 
     #[async_trait]
     impl AuthStore for MemStore {
-        async fn create_user(&self, _display_name: &str) -> Result<UserRecord, StorageError> {
-            Err(StorageError::Other("unsupported".into()))
+        async fn create_user(&self, display_name: &str) -> Result<UserRecord, StorageError> {
+            let user = UserRecord {
+                id: Uuid::now_v7(),
+                display_name: display_name.to_string(),
+                created_at: Utc::now(),
+            };
+            self.users.lock().unwrap().insert(user.id, user.clone());
+            Ok(user)
         }
 
-        async fn get_user_by_id(&self, _user_id: UserId) -> Result<UserRecord, StorageError> {
-            Err(StorageError::NotFound)
+        async fn get_user_by_id(&self, user_id: UserId) -> Result<UserRecord, StorageError> {
+            self.users
+                .lock()
+                .unwrap()
+                .get(&user_id)
+                .cloned()
+                .ok_or(StorageError::NotFound)
         }
 
         async fn insert_passkey(
@@ -1605,20 +1967,46 @@ mod tests {
 
         async fn insert_session(
             &self,
-            _sid: &str,
-            _user_id: UserId,
-            _token_hash: &str,
-            _expires_at: DateTime<Utc>,
+            sid: &str,
+            user_id: UserId,
+            token_hash: &str,
+            expires_at: DateTime<Utc>,
         ) -> Result<SessionRecord, StorageError> {
-            Err(StorageError::Other("unsupported".into()))
+            let sess = SessionRecord {
+                id: 0,
+                sid: sid.to_string(),
+                user_id,
+                token_hash: token_hash.to_string(),
+                expires_at,
+                created_at: Utc::now(),
+                revoked_at: None,
+            };
+            self.sessions
+                .lock()
+                .unwrap()
+                .insert(sid.to_string(), sess.clone());
+            Ok(sess)
         }
 
-        async fn get_session_by_sid(&self, _sid: &str) -> Result<SessionRecord, StorageError> {
-            Err(StorageError::NotFound)
+        async fn get_session_by_sid(&self, sid: &str) -> Result<SessionRecord, StorageError> {
+            self.sessions
+                .lock()
+                .unwrap()
+                .get(sid)
+                .cloned()
+                .ok_or(StorageError::NotFound)
         }
 
-        async fn revoke_session_by_sid(&self, _sid: &str) -> Result<bool, StorageError> {
-            Ok(false)
+        async fn revoke_session_by_sid(&self, sid: &str) -> Result<bool, StorageError> {
+            let mut m = self.sessions.lock().unwrap();
+            let Some(sess) = m.get_mut(sid) else {
+                return Ok(false);
+            };
+            if sess.revoked_at.is_some() {
+                return Ok(false);
+            }
+            sess.revoked_at = Some(Utc::now());
+            Ok(true)
         }
 
         async fn insert_challenge(
@@ -1659,12 +2047,13 @@ mod tests {
 
         async fn register_api_key(
             &self,
-            _key: ApiKeyRecord,
+            key: ApiKeyRecord,
             _ip_hash: &str,
             _now: DateTime<Utc>,
             _limits: ApiKeyRegistrationLimits,
         ) -> Result<(), StorageError> {
-            Err(StorageError::Other("unsupported".into()))
+            self.keys.lock().unwrap().insert(key.prefix.clone(), key);
+            Ok(())
         }
 
         async fn insert_apikey_registration_event(
@@ -1674,6 +2063,17 @@ mod tests {
             _now: DateTime<Utc>,
         ) -> Result<(), StorageError> {
             Ok(())
+        }
+
+        async fn delete_user(&self, user_id: UserId) -> Result<bool, StorageError> {
+            let removed = self.users.lock().unwrap().remove(&user_id).is_some();
+            if removed {
+                self.sessions
+                    .lock()
+                    .unwrap()
+                    .retain(|_, s| s.user_id != user_id);
+            }
+            Ok(removed)
         }
     }
 
@@ -2109,21 +2509,25 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn memstore_auth_stub_methods_are_exercised() {
+    async fn memstore_auth_methods_are_exercised() {
         let store = MemStore::default();
         let now = Utc::now();
-        let user_id = Uuid::now_v7();
 
+        // create_user + get_user_by_id
+        let user = store.create_user("alice").await.expect("create user");
+        assert_eq!(user.display_name, "alice");
+        let fetched = store.get_user_by_id(user.id).await.expect("get user");
+        assert_eq!(fetched.id, user.id);
+
+        let missing_id = Uuid::now_v7();
         assert!(matches!(
-            store.create_user("d").await,
-            Err(StorageError::Other(_))
-        ));
-        assert!(matches!(
-            store.get_user_by_id(user_id).await,
+            store.get_user_by_id(missing_id).await,
             Err(StorageError::NotFound)
         ));
+
+        // passkey stubs
         assert!(matches!(
-            store.insert_passkey(user_id, "c", "pk", 0).await,
+            store.insert_passkey(user.id, "c", "pk", 0).await,
             Err(StorageError::Other(_))
         ));
         assert!(matches!(
@@ -2134,18 +2538,26 @@ mod tests {
             store.update_passkey_sign_count("c", 1).await,
             Err(StorageError::NotFound)
         ));
-        assert!(matches!(
-            store.insert_session("sid", user_id, "hash", now).await,
-            Err(StorageError::Other(_))
-        ));
-        assert!(matches!(
-            store.get_session_by_sid("sid").await,
-            Err(StorageError::NotFound)
-        ));
-        assert!(!store
-            .revoke_session_by_sid("sid")
+
+        // sessions
+        let sess = store
+            .insert_session("sid1", user.id, "hash", now + chrono::Duration::hours(1))
             .await
-            .expect("revoke should not fail"));
+            .expect("insert session");
+        assert_eq!(sess.sid, "sid1");
+        let fetched_sess = store.get_session_by_sid("sid1").await.expect("get session");
+        assert_eq!(fetched_sess.user_id, user.id);
+        assert!(store.revoke_session_by_sid("sid1").await.expect("revoke"));
+        assert!(!store
+            .revoke_session_by_sid("sid1")
+            .await
+            .expect("revoke again"));
+        assert!(!store
+            .revoke_session_by_sid("missing")
+            .await
+            .expect("revoke missing"));
+
+        // challenge stubs
         assert!(matches!(
             store
                 .insert_challenge("cid", None, "p", "{}", now + chrono::Duration::minutes(1))
@@ -2156,9 +2568,14 @@ mod tests {
             store.consume_challenge("cid", "p", now).await,
             Err(StorageError::NotFound)
         ));
+
+        // rate limit helpers
         assert_eq!(
             store
-                .count_apikey_registrations_by_user_since(user_id, now - chrono::Duration::hours(1))
+                .count_apikey_registrations_by_user_since(
+                    user.id,
+                    now - chrono::Duration::hours(1)
+                )
                 .await
                 .expect("count by user"),
             0
@@ -2170,34 +2587,40 @@ mod tests {
                 .expect("count by ip"),
             0
         );
-        assert!(matches!(
-            store
-                .register_api_key(
-                    ApiKeyRecord {
-                        id: 0,
-                        prefix: "pref".into(),
-                        auth_hash: "a".repeat(64),
-                        scopes: String::new(),
-                        user_id: None,
-                        created_at: now,
-                        revoked_at: None,
-                    },
-                    "ip",
-                    now,
-                    ApiKeyRegistrationLimits {
-                        account_hour: 1,
-                        account_day: 1,
-                        ip_hour: 1,
-                        ip_day: 1,
-                    },
-                )
-                .await,
-            Err(StorageError::Other(_))
-        ));
+
+        // register_api_key now works
         store
-            .insert_apikey_registration_event(user_id, "ip", now)
+            .register_api_key(
+                ApiKeyRecord {
+                    id: 0,
+                    prefix: "pref".into(),
+                    auth_hash: "a".repeat(64),
+                    scopes: String::new(),
+                    user_id: Some(user.id),
+                    created_at: now,
+                    revoked_at: None,
+                },
+                "ip",
+                now,
+                ApiKeyRegistrationLimits {
+                    account_hour: 10,
+                    account_day: 10,
+                    ip_hour: 10,
+                    ip_day: 10,
+                },
+            )
+            .await
+            .expect("register api key");
+        assert!(store.get_by_prefix("pref").await.is_ok());
+
+        store
+            .insert_apikey_registration_event(user.id, "ip", now)
             .await
             .expect("insert reg event");
+
+        // delete_user
+        assert!(store.delete_user(user.id).await.expect("delete user"));
+        assert!(!store.delete_user(user.id).await.expect("delete again"));
     }
 
     fn test_state() -> Arc<AppState> {
@@ -2409,5 +2832,574 @@ mod tests {
             store.get_by_prefix("missing").await,
             Err(StorageError::NotFound)
         ));
+    }
+
+    // ── Helpers for dashboard/settings endpoint tests ───────────────
+
+    /// Create a MemStore-backed state with a user, session token, and API key.
+    /// Returns (state, session_token, user_id, api_key_prefix).
+    async fn test_state_with_session() -> (Arc<AppState>, String, UserId, String) {
+        let state = test_state();
+
+        // Create a user
+        let user = state
+            .auth_store
+            .create_user("alice")
+            .await
+            .expect("create user");
+
+        // Issue a session
+        let (token, _expires) = issue_session_token(&state, user.id)
+            .await
+            .expect("issue session");
+
+        // Register an API key
+        let auth_token = [42u8; 32];
+        let prefix = "test1234".to_string();
+        let auth_hash = crate::domain::auth::hash_api_key_auth_token(
+            &state.cfg.api_key_pepper,
+            &prefix,
+            &auth_token,
+        )
+        .expect("hash");
+
+        let key = ApiKeyRecord {
+            id: 0,
+            prefix: prefix.clone(),
+            auth_hash,
+            scopes: String::new(),
+            user_id: Some(user.id),
+            created_at: Utc::now(),
+            revoked_at: None,
+        };
+        state
+            .api_keys
+            .insert(key)
+            .await
+            .expect("insert api key");
+
+        (state, token, user.id, prefix)
+    }
+
+    /// Create a secret owned by the given owner_key.
+    async fn create_test_secret(state: &Arc<AppState>, owner_key: &str, id: &str) {
+        let sec = SecretRecord {
+            id: id.to_string(),
+            claim_hash: format!("claim_{id}"),
+            envelope: r#"{"ct":"test"}"#.into(),
+            expires_at: Utc::now() + chrono::Duration::hours(1),
+            created_at: Utc::now(),
+            owner_key: owner_key.to_string(),
+        };
+        state.secrets.create(sec).await.expect("create secret");
+    }
+
+    fn authed_get(uri: &str, token: &str) -> Request<Body> {
+        Request::builder()
+            .method("GET")
+            .uri(uri)
+            .header("authorization", format!("Bearer {token}"))
+            .body(Body::empty())
+            .expect("request")
+    }
+
+    fn authed_post(uri: &str, token: &str) -> Request<Body> {
+        Request::builder()
+            .method("POST")
+            .uri(uri)
+            .header("authorization", format!("Bearer {token}"))
+            .body(Body::empty())
+            .expect("request")
+    }
+
+    fn authed_delete(uri: &str, token: &str) -> Request<Body> {
+        Request::builder()
+            .method("DELETE")
+            .uri(uri)
+            .header("authorization", format!("Bearer {token}"))
+            .body(Body::empty())
+            .expect("request")
+    }
+
+    // ── Auth gate tests ────────────────────────────────────
+
+    #[tokio::test]
+    async fn list_secrets_requires_auth() {
+        let state = test_state();
+        let resp = handle_secrets_entry(
+            State(state),
+            Query(ListSecretsQuery {
+                limit: None,
+                offset: None,
+            }),
+            Request::builder()
+                .method("GET")
+                .uri("/api/v1/secrets")
+                .body(Body::empty())
+                .expect("request"),
+        )
+        .await;
+        assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
+    }
+
+    #[tokio::test]
+    async fn list_apikeys_requires_session_auth() {
+        let state = test_state();
+        // No auth at all
+        let resp = handle_list_apikeys_entry(
+            State(state.clone()),
+            Request::builder()
+                .method("GET")
+                .uri("/x")
+                .body(Body::empty())
+                .expect("request"),
+        )
+        .await;
+        assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
+
+        // API key auth should not work (session-only endpoint)
+        let resp2 = handle_list_apikeys_entry(
+            State(state),
+            Request::builder()
+                .method("GET")
+                .uri("/x")
+                .header("x-api-key", "ak2_fake.key")
+                .body(Body::empty())
+                .expect("request"),
+        )
+        .await;
+        assert_eq!(resp2.status(), StatusCode::UNAUTHORIZED);
+    }
+
+    #[tokio::test]
+    async fn revoke_apikey_requires_auth() {
+        let state = test_state();
+        let resp = handle_revoke_apikey_entry(
+            State(state),
+            Path("some_prefix".into()),
+            Request::builder()
+                .method("POST")
+                .uri("/x")
+                .body(Body::empty())
+                .expect("request"),
+        )
+        .await;
+        assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
+    }
+
+    #[tokio::test]
+    async fn delete_account_requires_auth() {
+        let state = test_state();
+        let resp = handle_delete_account_entry(
+            State(state),
+            Request::builder()
+                .method("DELETE")
+                .uri("/x")
+                .body(Body::empty())
+                .expect("request"),
+        )
+        .await;
+        assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
+    }
+
+    #[tokio::test]
+    async fn new_endpoints_reject_wrong_methods() {
+        let state = test_state();
+
+        // list_apikeys: POST -> 405
+        let resp = handle_list_apikeys_entry(
+            State(state.clone()),
+            Request::builder()
+                .method("POST")
+                .uri("/x")
+                .body(Body::empty())
+                .expect("request"),
+        )
+        .await;
+        assert_eq!(resp.status(), StatusCode::METHOD_NOT_ALLOWED);
+
+        // revoke_apikey: GET -> 405
+        let resp = handle_revoke_apikey_entry(
+            State(state.clone()),
+            Path("pref".into()),
+            Request::builder()
+                .method("GET")
+                .uri("/x")
+                .body(Body::empty())
+                .expect("request"),
+        )
+        .await;
+        assert_eq!(resp.status(), StatusCode::METHOD_NOT_ALLOWED);
+
+        // delete_account: POST -> 405
+        let resp = handle_delete_account_entry(
+            State(state),
+            Request::builder()
+                .method("POST")
+                .uri("/x")
+                .body(Body::empty())
+                .expect("request"),
+        )
+        .await;
+        assert_eq!(resp.status(), StatusCode::METHOD_NOT_ALLOWED);
+    }
+
+    // ── Functional tests ───────────────────────────────────
+
+    #[tokio::test]
+    async fn list_secrets_returns_owned_secrets() {
+        let (state, token, _user_id, prefix) = test_state_with_session().await;
+        let owner_key = format!("apikey:{prefix}");
+
+        create_test_secret(&state, &owner_key, "sec1").await;
+        create_test_secret(&state, &owner_key, "sec2").await;
+        create_test_secret(&state, "apikey:other", "sec3").await; // different owner
+
+        let resp = handle_secrets_entry(
+            State(state),
+            Query(ListSecretsQuery {
+                limit: None,
+                offset: None,
+            }),
+            authed_get("/api/v1/secrets", &token),
+        )
+        .await;
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body: serde_json::Value =
+            serde_json::from_str(&response_text(resp).await).expect("json");
+        assert_eq!(body["total"], 2);
+        assert_eq!(body["secrets"].as_array().unwrap().len(), 2);
+    }
+
+    #[tokio::test]
+    async fn list_secrets_respects_limit_offset() {
+        let (state, token, _user_id, prefix) = test_state_with_session().await;
+        let owner_key = format!("apikey:{prefix}");
+
+        for i in 0..5 {
+            create_test_secret(&state, &owner_key, &format!("s{i}")).await;
+        }
+
+        let resp = handle_secrets_entry(
+            State(state),
+            Query(ListSecretsQuery {
+                limit: Some(2),
+                offset: Some(1),
+            }),
+            authed_get("/api/v1/secrets?limit=2&offset=1", &token),
+        )
+        .await;
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body: serde_json::Value =
+            serde_json::from_str(&response_text(resp).await).expect("json");
+        assert_eq!(body["total"], 5);
+        assert_eq!(body["secrets"].as_array().unwrap().len(), 2);
+        assert_eq!(body["limit"], 2);
+        assert_eq!(body["offset"], 1);
+    }
+
+    #[tokio::test]
+    async fn list_secrets_empty_state() {
+        let (state, token, _user_id, _prefix) = test_state_with_session().await;
+        let resp = handle_secrets_entry(
+            State(state),
+            Query(ListSecretsQuery {
+                limit: None,
+                offset: None,
+            }),
+            authed_get("/api/v1/secrets", &token),
+        )
+        .await;
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body: serde_json::Value =
+            serde_json::from_str(&response_text(resp).await).expect("json");
+        assert_eq!(body["total"], 0);
+        assert_eq!(body["secrets"].as_array().unwrap().len(), 0);
+    }
+
+    #[tokio::test]
+    async fn burn_with_session_auth_works() {
+        let (state, token, _user_id, prefix) = test_state_with_session().await;
+        let owner_key = format!("apikey:{prefix}");
+        create_test_secret(&state, &owner_key, "burnable").await;
+
+        let resp = handle_burn_entry(
+            State(state),
+            Path("burnable".into()),
+            authed_post("/api/v1/secrets/burnable/burn", &token),
+        )
+        .await;
+        assert_eq!(resp.status(), StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn list_apikeys_returns_user_keys() {
+        let (state, token, _user_id, prefix) = test_state_with_session().await;
+        let resp = handle_list_apikeys_entry(
+            State(state),
+            authed_get("/api/v1/apikeys", &token),
+        )
+        .await;
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body: serde_json::Value =
+            serde_json::from_str(&response_text(resp).await).expect("json");
+        let keys = body["api_keys"].as_array().unwrap();
+        assert_eq!(keys.len(), 1);
+        assert_eq!(keys[0]["prefix"], prefix);
+    }
+
+    #[tokio::test]
+    async fn revoke_apikey_works() {
+        let (state, token, _user_id, prefix) = test_state_with_session().await;
+        let resp = handle_revoke_apikey_entry(
+            State(state),
+            Path(prefix),
+            authed_post("/api/v1/apikeys/test1234/revoke", &token),
+        )
+        .await;
+        assert_eq!(resp.status(), StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn delete_account_burns_secrets_revokes_keys() {
+        let (state, token, user_id, prefix) = test_state_with_session().await;
+        let owner_key = format!("apikey:{prefix}");
+        create_test_secret(&state, &owner_key, "owned1").await;
+        create_test_secret(&state, &owner_key, "owned2").await;
+
+        let resp = handle_delete_account_entry(
+            State(state.clone()),
+            authed_delete("/api/v1/auth/account", &token),
+        )
+        .await;
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body: serde_json::Value =
+            serde_json::from_str(&response_text(resp).await).expect("json");
+        assert_eq!(body["ok"], true);
+        assert_eq!(body["secrets_burned"], 2);
+        assert_eq!(body["keys_revoked"], 1);
+
+        // User should be gone
+        assert!(matches!(
+            state.auth_store.get_user_by_id(user_id).await,
+            Err(StorageError::NotFound)
+        ));
+    }
+
+    // ── Cross-user isolation tests ─────────────────────────
+
+    #[tokio::test]
+    async fn cross_user_list_secrets_isolation() {
+        // Create user A with secrets
+        let (state, _token_a, _user_a, prefix_a) = test_state_with_session().await;
+        let owner_key_a = format!("apikey:{prefix_a}");
+        create_test_secret(&state, &owner_key_a, "user_a_secret").await;
+
+        // Create user B
+        let user_b = state
+            .auth_store
+            .create_user("bob")
+            .await
+            .expect("create user b");
+        let (token_b, _) = issue_session_token(&state, user_b.id)
+            .await
+            .expect("session b");
+        // Give user B their own API key
+        let key_b = ApiKeyRecord {
+            id: 0,
+            prefix: "bobkey01".into(),
+            auth_hash: "x".repeat(64),
+            scopes: String::new(),
+            user_id: Some(user_b.id),
+            created_at: Utc::now(),
+            revoked_at: None,
+        };
+        state.api_keys.insert(key_b).await.expect("insert key b");
+
+        // User B should NOT see user A's secrets
+        let resp = handle_secrets_entry(
+            State(state),
+            Query(ListSecretsQuery {
+                limit: None,
+                offset: None,
+            }),
+            authed_get("/api/v1/secrets", &token_b),
+        )
+        .await;
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body: serde_json::Value =
+            serde_json::from_str(&response_text(resp).await).expect("json");
+        assert_eq!(body["total"], 0);
+    }
+
+    #[tokio::test]
+    async fn cross_user_burn_isolation() {
+        let (state, _token_a, _user_a, prefix_a) = test_state_with_session().await;
+        let owner_key_a = format!("apikey:{prefix_a}");
+        create_test_secret(&state, &owner_key_a, "a_secret").await;
+
+        // Create user B
+        let user_b = state
+            .auth_store
+            .create_user("bob")
+            .await
+            .expect("create user b");
+        let (token_b, _) = issue_session_token(&state, user_b.id)
+            .await
+            .expect("session b");
+        let key_b = ApiKeyRecord {
+            id: 0,
+            prefix: "bobkey02".into(),
+            auth_hash: "x".repeat(64),
+            scopes: String::new(),
+            user_id: Some(user_b.id),
+            created_at: Utc::now(),
+            revoked_at: None,
+        };
+        state.api_keys.insert(key_b).await.expect("insert key b");
+
+        // User B tries to burn user A's secret — should get 404
+        let resp = handle_burn_entry(
+            State(state.clone()),
+            Path("a_secret".into()),
+            authed_post("/api/v1/secrets/a_secret/burn", &token_b),
+        )
+        .await;
+        assert_eq!(resp.status(), StatusCode::NOT_FOUND);
+
+        // Secret should still exist
+        let count = state
+            .secrets
+            .count_by_owner_keys(&[owner_key_a], Utc::now())
+            .await
+            .expect("count");
+        assert_eq!(count, 1);
+    }
+
+    #[tokio::test]
+    async fn cross_user_apikey_list_isolation() {
+        let (state, _token_a, _user_a, _prefix_a) = test_state_with_session().await;
+
+        let user_b = state
+            .auth_store
+            .create_user("bob")
+            .await
+            .expect("create user b");
+        let (token_b, _) = issue_session_token(&state, user_b.id)
+            .await
+            .expect("session b");
+
+        // User B should see no API keys
+        let resp = handle_list_apikeys_entry(
+            State(state),
+            authed_get("/api/v1/apikeys", &token_b),
+        )
+        .await;
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body: serde_json::Value =
+            serde_json::from_str(&response_text(resp).await).expect("json");
+        assert_eq!(body["api_keys"].as_array().unwrap().len(), 0);
+    }
+
+    #[tokio::test]
+    async fn cross_user_revoke_apikey_isolation() {
+        let (state, _token_a, _user_a, prefix_a) = test_state_with_session().await;
+
+        let user_b = state
+            .auth_store
+            .create_user("bob")
+            .await
+            .expect("create user b");
+        let (token_b, _) = issue_session_token(&state, user_b.id)
+            .await
+            .expect("session b");
+
+        // User B tries to revoke user A's key — should get 404
+        let resp = handle_revoke_apikey_entry(
+            State(state),
+            Path(prefix_a.clone()),
+            authed_post(&format!("/api/v1/apikeys/{prefix_a}/revoke"), &token_b),
+        )
+        .await;
+        assert_eq!(resp.status(), StatusCode::NOT_FOUND);
+    }
+
+    #[tokio::test]
+    async fn delete_account_does_not_affect_other_users() {
+        let (state, _token_a, user_a, prefix_a) = test_state_with_session().await;
+
+        // Create user B with their own secret + key
+        let user_b = state
+            .auth_store
+            .create_user("bob")
+            .await
+            .expect("create user b");
+        let (token_b, _) = issue_session_token(&state, user_b.id)
+            .await
+            .expect("session b");
+        let key_b = ApiKeyRecord {
+            id: 0,
+            prefix: "bobkey03".into(),
+            auth_hash: "x".repeat(64),
+            scopes: String::new(),
+            user_id: Some(user_b.id),
+            created_at: Utc::now(),
+            revoked_at: None,
+        };
+        state.api_keys.insert(key_b).await.expect("insert key b");
+        create_test_secret(&state, "apikey:bobkey03", "bob_secret").await;
+        create_test_secret(&state, &format!("apikey:{prefix_a}"), "alice_secret").await;
+
+        // Delete user A
+        let (token_a_fresh, _) = issue_session_token(&state, user_a)
+            .await
+            .expect("fresh session");
+        let resp = handle_delete_account_entry(
+            State(state.clone()),
+            authed_delete("/api/v1/auth/account", &token_a_fresh),
+        )
+        .await;
+        assert_eq!(resp.status(), StatusCode::OK);
+
+        // User B should still exist and their secret should be intact
+        assert!(state.auth_store.get_user_by_id(user_b.id).await.is_ok());
+        let count = state
+            .secrets
+            .count_by_owner_keys(&["apikey:bobkey03".to_string()], Utc::now())
+            .await
+            .expect("count");
+        assert_eq!(count, 1);
+
+        // User B can still list their secrets
+        let resp_b = handle_secrets_entry(
+            State(state),
+            Query(ListSecretsQuery {
+                limit: None,
+                offset: None,
+            }),
+            authed_get("/api/v1/secrets", &token_b),
+        )
+        .await;
+        assert_eq!(resp_b.status(), StatusCode::OK);
+        let body: serde_json::Value =
+            serde_json::from_str(&response_text(resp_b).await).expect("json");
+        assert_eq!(body["total"], 1);
+    }
+
+    // ── SPA route tests ────────────────────────────────────
+
+    #[tokio::test]
+    async fn dashboard_and_settings_spa_routes() {
+        let app = build_router(test_state());
+
+        for path in ["/dashboard", "/settings"] {
+            let req = Request::builder()
+                .method("GET")
+                .uri(path)
+                .body(Body::empty())
+                .expect("request");
+            let resp = app.clone().oneshot(req).await.expect("response");
+            assert_eq!(resp.status(), StatusCode::OK, "SPA route {path} should serve index");
+        }
     }
 }

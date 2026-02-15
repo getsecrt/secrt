@@ -11,8 +11,8 @@ use secrt_server::domain::auth::hash_api_key_auth_token;
 use secrt_server::http::{build_router, AppState};
 use secrt_server::storage::{
     ApiKeyRecord, ApiKeyRegistrationLimits, ApiKeysStore, AuthStore, ChallengeRecord,
-    PasskeyRecord, SecretRecord, SecretsStore, SessionRecord, StorageError, StorageUsage, UserId,
-    UserRecord,
+    PasskeyRecord, SecretRecord, SecretSummary, SecretsStore, SessionRecord, StorageError,
+    StorageUsage, UserId, UserRecord,
 };
 use tower::ServiceExt;
 
@@ -147,6 +147,16 @@ impl SecretsStore for ErrStore {
             })
         }
     }
+
+    async fn list_by_owner_keys(&self, _owner_keys: &[String], _now: DateTime<Utc>, _limit: i64, _offset: i64) -> Result<Vec<SecretSummary>, StorageError> {
+        Err(StorageError::Other("error".into()))
+    }
+    async fn count_by_owner_keys(&self, _owner_keys: &[String], _now: DateTime<Utc>) -> Result<i64, StorageError> {
+        Err(StorageError::Other("error".into()))
+    }
+    async fn burn_all_by_owner_keys(&self, _owner_keys: &[String]) -> Result<i64, StorageError> {
+        Err(StorageError::Other("error".into()))
+    }
 }
 
 #[async_trait]
@@ -168,6 +178,13 @@ impl ApiKeysStore for ErrStore {
 
     async fn revoke_by_prefix(&self, _prefix: &str) -> Result<bool, StorageError> {
         Ok(false)
+    }
+
+    async fn list_by_user_id(&self, _user_id: UserId) -> Result<Vec<ApiKeyRecord>, StorageError> {
+        Err(StorageError::Other("error".into()))
+    }
+    async fn revoke_all_by_user_id(&self, _user_id: UserId) -> Result<i64, StorageError> {
+        Err(StorageError::Other("error".into()))
     }
 }
 
@@ -277,6 +294,10 @@ impl AuthStore for ErrStore {
         _now: DateTime<Utc>,
     ) -> Result<(), StorageError> {
         Ok(())
+    }
+
+    async fn delete_user(&self, _user_id: UserId) -> Result<bool, StorageError> {
+        Err(StorageError::Other("error".into()))
     }
 }
 
@@ -556,13 +577,23 @@ async fn method_not_allowed_on_burn_and_info() {
 async fn method_not_allowed_on_authed_create_and_claim() {
     let app = app_with_store(Arc::new(ErrStore::default()));
 
+    // GET /api/v1/secrets is now valid (list secrets) — returns 401 without auth
     let authed_req = Request::builder()
         .method("GET")
         .uri("/api/v1/secrets")
         .body(Body::empty())
         .unwrap();
     let authed_resp = app.clone().oneshot(authed_req).await.unwrap();
-    assert_eq!(authed_resp.status(), StatusCode::METHOD_NOT_ALLOWED);
+    assert_eq!(authed_resp.status(), StatusCode::UNAUTHORIZED);
+
+    // PUT /api/v1/secrets is not a valid method
+    let put_req = Request::builder()
+        .method("PUT")
+        .uri("/api/v1/secrets")
+        .body(Body::empty())
+        .unwrap();
+    let put_resp = app.clone().oneshot(put_req).await.unwrap();
+    assert_eq!(put_resp.status(), StatusCode::METHOD_NOT_ALLOWED);
 
     let claim_req = Request::builder()
         .method("GET")

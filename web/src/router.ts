@@ -6,6 +6,8 @@ export type Route =
   | { page: 'how-it-works' }
   | { page: 'login' }
   | { page: 'register' }
+  | { page: 'dashboard' }
+  | { page: 'settings' }
   | { page: 'theme' }
   | { page: 'test-claim' }
   | { page: 'not-found' };
@@ -30,6 +32,14 @@ export function matchRoute(path: string): Route {
 
   if (path === '/register') {
     return { page: 'register' };
+  }
+
+  if (path === '/dashboard') {
+    return { page: 'dashboard' };
+  }
+
+  if (path === '/settings') {
+    return { page: 'settings' };
   }
 
   if (import.meta.env.DEV) {

@@ -7,7 +7,7 @@ use chrono::{DateTime, Utc};
 use secrt_server::reaper::{
     run_expiry_reaper_once, start_expiry_reaper, EXPIRY_REAPER_DELETE_TIMEOUT,
 };
-use secrt_server::storage::{SecretRecord, SecretsStore, StorageError, StorageUsage};
+use secrt_server::storage::{SecretRecord, SecretSummary, SecretsStore, StorageError, StorageUsage};
 
 struct CountingStore {
     calls: AtomicUsize,
@@ -43,6 +43,16 @@ impl SecretsStore for CountingStore {
             total_bytes: 0,
         })
     }
+
+    async fn list_by_owner_keys(&self, _owner_keys: &[String], _now: DateTime<Utc>, _limit: i64, _offset: i64) -> Result<Vec<SecretSummary>, StorageError> {
+        Ok(vec![])
+    }
+    async fn count_by_owner_keys(&self, _owner_keys: &[String], _now: DateTime<Utc>) -> Result<i64, StorageError> {
+        Ok(0)
+    }
+    async fn burn_all_by_owner_keys(&self, _owner_keys: &[String]) -> Result<i64, StorageError> {
+        Ok(0)
+    }
 }
 
 struct ErrorStore;
@@ -75,6 +85,16 @@ impl SecretsStore for ErrorStore {
             secret_count: 0,
             total_bytes: 0,
         })
+    }
+
+    async fn list_by_owner_keys(&self, _owner_keys: &[String], _now: DateTime<Utc>, _limit: i64, _offset: i64) -> Result<Vec<SecretSummary>, StorageError> {
+        Ok(vec![])
+    }
+    async fn count_by_owner_keys(&self, _owner_keys: &[String], _now: DateTime<Utc>) -> Result<i64, StorageError> {
+        Ok(0)
+    }
+    async fn burn_all_by_owner_keys(&self, _owner_keys: &[String]) -> Result<i64, StorageError> {
+        Ok(0)
     }
 }
 
@@ -109,6 +129,16 @@ impl SecretsStore for DeletedStore {
             total_bytes: 0,
         })
     }
+
+    async fn list_by_owner_keys(&self, _owner_keys: &[String], _now: DateTime<Utc>, _limit: i64, _offset: i64) -> Result<Vec<SecretSummary>, StorageError> {
+        Ok(vec![])
+    }
+    async fn count_by_owner_keys(&self, _owner_keys: &[String], _now: DateTime<Utc>) -> Result<i64, StorageError> {
+        Ok(0)
+    }
+    async fn burn_all_by_owner_keys(&self, _owner_keys: &[String]) -> Result<i64, StorageError> {
+        Ok(0)
+    }
 }
 
 struct SlowStore;
@@ -142,6 +172,16 @@ impl SecretsStore for SlowStore {
             secret_count: 0,
             total_bytes: 0,
         })
+    }
+
+    async fn list_by_owner_keys(&self, _owner_keys: &[String], _now: DateTime<Utc>, _limit: i64, _offset: i64) -> Result<Vec<SecretSummary>, StorageError> {
+        Ok(vec![])
+    }
+    async fn count_by_owner_keys(&self, _owner_keys: &[String], _now: DateTime<Utc>) -> Result<i64, StorageError> {
+        Ok(0)
+    }
+    async fn burn_all_by_owner_keys(&self, _owner_keys: &[String]) -> Result<i64, StorageError> {
+        Ok(0)
     }
 }
 

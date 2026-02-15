@@ -11,6 +11,7 @@ import {
   CircleQuestionIcon,
   SquarePlusIcon,
   TableIcon,
+  GearIcon,
   ChevronDownIcon,
 } from './Icons';
 import { navigate, useRoute } from '../router';
@@ -135,6 +136,18 @@ function UserMenu({
         >
           <TableIcon class="size-4" />
           Dashboard
+        </a>
+        <a
+          href="/settings"
+          class={itemClass}
+          onClick={(e: MouseEvent) => {
+            e.preventDefault();
+            menuRef.current?.hidePopover();
+            navigate('/settings');
+          }}
+        >
+          <GearIcon class="size-4" />
+          Settings
         </a>
         <button
           type="button"
@@ -277,6 +290,12 @@ export function Nav() {
                     <span class="flex items-center gap-1 whitespace-nowrap">
                       <TableIcon class="size-4" />
                       Dashboard
+                    </span>
+                  </NavLink>
+                  <NavLink href="/settings">
+                    <span class="flex items-center gap-1 whitespace-nowrap">
+                      <GearIcon class="size-4" />
+                      Settings
                     </span>
                   </NavLink>
                   <button

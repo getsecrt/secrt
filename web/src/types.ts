@@ -131,3 +131,36 @@ export interface SessionResponse {
   display_name: string | null;
   expires_at: string | null;
 }
+
+/** Dashboard API types. */
+export interface SecretMetadata {
+  id: string;
+  share_url: string;
+  expires_at: string;
+  created_at: string;
+  state: string;
+}
+
+export interface ListSecretsResponse {
+  secrets: SecretMetadata[];
+  total: number;
+  limit: number;
+  offset: number;
+}
+
+export interface ApiKeyItem {
+  prefix: string;
+  scopes: string;
+  created_at: string;
+  revoked_at: string | null;
+}
+
+export interface ListApiKeysResponse {
+  api_keys: ApiKeyItem[];
+}
+
+export interface DeleteAccountResponse {
+  ok: boolean;
+  secrets_burned: number;
+  keys_revoked: number;
+}

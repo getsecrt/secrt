@@ -16,6 +16,12 @@ vi.mock('./features/auth/LoginPage', () => ({
 vi.mock('./features/auth/RegisterPage', () => ({
   RegisterPage: () => <div data-testid="register-page">RegisterPage</div>,
 }));
+vi.mock('./features/dashboard/DashboardPage', () => ({
+  DashboardPage: () => <div data-testid="dashboard-page">DashboardPage</div>,
+}));
+vi.mock('./features/settings/SettingsPage', () => ({
+  SettingsPage: () => <div data-testid="settings-page">SettingsPage</div>,
+}));
 vi.mock('./features/test/ThemePage', () => ({
   ThemePage: () => <div data-testid="theme-page">ThemePage</div>,
 }));
@@ -95,6 +101,18 @@ describe('App', () => {
     mockUseRoute.mockReturnValue({ page: 'register' });
     render(<App />);
     expect(screen.getByTestId('register-page')).toBeInTheDocument();
+  });
+
+  it('renders DashboardPage for "dashboard" route', () => {
+    mockUseRoute.mockReturnValue({ page: 'dashboard' });
+    render(<App />);
+    expect(screen.getByTestId('dashboard-page')).toBeInTheDocument();
+  });
+
+  it('renders SettingsPage for "settings" route', () => {
+    mockUseRoute.mockReturnValue({ page: 'settings' });
+    render(<App />);
+    expect(screen.getByTestId('settings-page')).toBeInTheDocument();
   });
 
   it('renders TestClaimPage in DEV mode for "test-claim" route', () => {

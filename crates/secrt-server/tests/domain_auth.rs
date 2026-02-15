@@ -8,7 +8,7 @@ use secrt_server::domain::auth::{
     generate_api_key_prefix, hash_api_key_auth_token, parse_api_key, secure_equals_hex,
     Authenticator,
 };
-use secrt_server::storage::{ApiKeyRecord, ApiKeysStore, StorageError};
+use secrt_server::storage::{ApiKeyRecord, ApiKeysStore, StorageError, UserId};
 
 #[derive(Default)]
 struct KeyStore {
@@ -38,6 +38,14 @@ impl ApiKeysStore for KeyStore {
 
     async fn revoke_by_prefix(&self, _prefix: &str) -> Result<bool, StorageError> {
         Ok(false)
+    }
+
+    async fn list_by_user_id(&self, _user_id: UserId) -> Result<Vec<ApiKeyRecord>, StorageError> {
+        Ok(vec![])
+    }
+
+    async fn revoke_all_by_user_id(&self, _user_id: UserId) -> Result<i64, StorageError> {
+        Ok(0)
     }
 }
 

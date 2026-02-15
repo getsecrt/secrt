@@ -37,6 +37,14 @@ describe('matchRoute', () => {
     expect(matchRoute('/register')).toEqual({ page: 'register' });
   });
 
+  it('"/dashboard" -> dashboard page', () => {
+    expect(matchRoute('/dashboard')).toEqual({ page: 'dashboard' });
+  });
+
+  it('"/settings" -> settings page', () => {
+    expect(matchRoute('/settings')).toEqual({ page: 'settings' });
+  });
+
   it('"/test/theme" -> theme page', () => {
     expect(matchRoute('/test/theme')).toEqual({ page: 'theme' });
   });

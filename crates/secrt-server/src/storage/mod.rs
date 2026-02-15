@@ -9,6 +9,13 @@ pub mod postgres;
 
 pub type UserId = Uuid;
 
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct SecretSummary {
+    pub id: String,
+    pub expires_at: DateTime<Utc>,
+    pub created_at: DateTime<Utc>,
+}
+
 #[derive(Clone, Debug)]
 pub struct SecretRecord {
     pub id: String,
@@ -166,6 +173,22 @@ pub trait SecretsStore: Send + Sync {
     async fn burn(&self, id: &str, owner_key: &str) -> Result<bool, StorageError>;
     async fn delete_expired(&self, now: DateTime<Utc>) -> Result<i64, StorageError>;
     async fn get_usage(&self, owner_key: &str) -> Result<StorageUsage, StorageError>;
+    async fn list_by_owner_keys(
+        &self,
+        owner_keys: &[String],
+        now: DateTime<Utc>,
+        limit: i64,
+        offset: i64,
+    ) -> Result<Vec<SecretSummary>, StorageError>;
+    async fn count_by_owner_keys(
+        &self,
+        owner_keys: &[String],
+        now: DateTime<Utc>,
+    ) -> Result<i64, StorageError>;
+    async fn burn_all_by_owner_keys(
+        &self,
+        owner_keys: &[String],
+    ) -> Result<i64, StorageError>;
 }
 
 #[async_trait]
@@ -173,6 +196,8 @@ pub trait ApiKeysStore: Send + Sync {
     async fn get_by_prefix(&self, prefix: &str) -> Result<ApiKeyRecord, StorageError>;
     async fn insert(&self, key: ApiKeyRecord) -> Result<(), StorageError>;
     async fn revoke_by_prefix(&self, prefix: &str) -> Result<bool, StorageError>;
+    async fn list_by_user_id(&self, user_id: UserId) -> Result<Vec<ApiKeyRecord>, StorageError>;
+    async fn revoke_all_by_user_id(&self, user_id: UserId) -> Result<i64, StorageError>;
 }
 
 #[async_trait]
@@ -245,6 +270,7 @@ pub trait AuthStore: Send + Sync {
         ip_hash: &str,
         now: DateTime<Utc>,
     ) -> Result<(), StorageError>;
+    async fn delete_user(&self, user_id: UserId) -> Result<bool, StorageError>;
 }
 
 #[async_trait]
@@ -285,6 +311,31 @@ where
     async fn get_usage(&self, owner_key: &str) -> Result<StorageUsage, StorageError> {
         (**self).get_usage(owner_key).await
     }
+
+    async fn list_by_owner_keys(
+        &self,
+        owner_keys: &[String],
+        now: DateTime<Utc>,
+        limit: i64,
+        offset: i64,
+    ) -> Result<Vec<SecretSummary>, StorageError> {
+        (**self).list_by_owner_keys(owner_keys, now, limit, offset).await
+    }
+
+    async fn count_by_owner_keys(
+        &self,
+        owner_keys: &[String],
+        now: DateTime<Utc>,
+    ) -> Result<i64, StorageError> {
+        (**self).count_by_owner_keys(owner_keys, now).await
+    }
+
+    async fn burn_all_by_owner_keys(
+        &self,
+        owner_keys: &[String],
+    ) -> Result<i64, StorageError> {
+        (**self).burn_all_by_owner_keys(owner_keys).await
+    }
 }
 
 #[async_trait]
@@ -302,6 +353,14 @@ where
 
     async fn revoke_by_prefix(&self, prefix: &str) -> Result<bool, StorageError> {
         (**self).revoke_by_prefix(prefix).await
+    }
+
+    async fn list_by_user_id(&self, user_id: UserId) -> Result<Vec<ApiKeyRecord>, StorageError> {
+        (**self).list_by_user_id(user_id).await
+    }
+
+    async fn revoke_all_by_user_id(&self, user_id: UserId) -> Result<i64, StorageError> {
+        (**self).revoke_all_by_user_id(user_id).await
     }
 }
 
@@ -428,6 +487,10 @@ where
         (**self)
             .insert_apikey_registration_event(user_id, ip_hash, now)
             .await
+    }
+
+    async fn delete_user(&self, user_id: UserId) -> Result<bool, StorageError> {
+        (**self).delete_user(user_id).await
     }
 }
 

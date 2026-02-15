@@ -14,8 +14,8 @@ use secrt_server::domain::auth::{generate_api_key_prefix, hash_api_key_auth_toke
 use secrt_server::http::{build_router, AppState};
 use secrt_server::storage::{
     ApiKeyRecord, ApiKeyRegistrationLimits, ApiKeysStore, AuthStore, ChallengeRecord,
-    PasskeyRecord, SecretQuotaLimits, SecretRecord, SecretsStore, SessionRecord, StorageError,
-    StorageUsage, UserId, UserRecord,
+    PasskeyRecord, SecretQuotaLimits, SecretRecord, SecretSummary, SecretsStore, SessionRecord,
+    StorageError, StorageUsage, UserId, UserRecord,
 };
 use uuid::Uuid;
 
@@ -137,6 +137,52 @@ impl SecretsStore for MemStore {
 
         Ok(usage)
     }
+
+    async fn list_by_owner_keys(
+        &self,
+        owner_keys: &[String],
+        now: DateTime<Utc>,
+        limit: i64,
+        offset: i64,
+    ) -> Result<Vec<SecretSummary>, StorageError> {
+        let m = self.secrets.lock().expect("secrets mutex poisoned");
+        let mut matching: Vec<_> = m
+            .values()
+            .filter(|s| owner_keys.contains(&s.owner_key) && s.expires_at > now)
+            .collect();
+        matching.sort_by(|a, b| b.created_at.cmp(&a.created_at));
+        Ok(matching
+            .into_iter()
+            .skip(offset as usize)
+            .take(limit as usize)
+            .map(|s| SecretSummary {
+                id: s.id.clone(),
+                expires_at: s.expires_at,
+                created_at: s.created_at,
+            })
+            .collect())
+    }
+
+    async fn count_by_owner_keys(
+        &self,
+        owner_keys: &[String],
+        now: DateTime<Utc>,
+    ) -> Result<i64, StorageError> {
+        let m = self.secrets.lock().expect("secrets mutex poisoned");
+        Ok(m.values()
+            .filter(|s| owner_keys.contains(&s.owner_key) && s.expires_at > now)
+            .count() as i64)
+    }
+
+    async fn burn_all_by_owner_keys(
+        &self,
+        owner_keys: &[String],
+    ) -> Result<i64, StorageError> {
+        let mut m = self.secrets.lock().expect("secrets mutex poisoned");
+        let before = m.len();
+        m.retain(|_, s| !owner_keys.contains(&s.owner_key));
+        Ok((before - m.len()) as i64)
+    }
 }
 
 #[async_trait]
@@ -168,6 +214,32 @@ impl ApiKeysStore for MemStore {
         }
         k.revoked_at = Some(Utc::now());
         Ok(true)
+    }
+
+    async fn list_by_user_id(
+        &self,
+        user_id: UserId,
+    ) -> Result<Vec<ApiKeyRecord>, StorageError> {
+        let m = self.keys.lock().expect("keys mutex poisoned");
+        let mut result: Vec<_> = m
+            .values()
+            .filter(|k| k.user_id == Some(user_id))
+            .cloned()
+            .collect();
+        result.sort_by(|a, b| b.created_at.cmp(&a.created_at));
+        Ok(result)
+    }
+
+    async fn revoke_all_by_user_id(&self, user_id: UserId) -> Result<i64, StorageError> {
+        let mut m = self.keys.lock().expect("keys mutex poisoned");
+        let mut count = 0i64;
+        for k in m.values_mut() {
+            if k.user_id == Some(user_id) && k.revoked_at.is_none() {
+                k.revoked_at = Some(Utc::now());
+                count += 1;
+            }
+        }
+        Ok(count)
     }
 }
 
@@ -425,6 +497,22 @@ impl AuthStore for MemStore {
             .expect("apikey_regs mutex poisoned")
             .push((user_id, ip_hash.to_string(), now));
         Ok(())
+    }
+
+    async fn delete_user(&self, user_id: UserId) -> Result<bool, StorageError> {
+        let removed = self
+            .users
+            .lock()
+            .expect("users mutex poisoned")
+            .remove(&user_id)
+            .is_some();
+        if removed {
+            self.sessions
+                .lock()
+                .expect("sessions mutex poisoned")
+                .retain(|_, s| s.user_id != user_id);
+        }
+        Ok(removed)
     }
 }
 

@@ -11,6 +11,9 @@ import type {
   ChallengeResponse,
   AuthFinishResponse,
   SessionResponse,
+  ListSecretsResponse,
+  ListApiKeysResponse,
+  DeleteAccountResponse,
 } from '../types';
 
 type ApiErrorBody = { error?: string };
@@ -182,6 +185,101 @@ export async function logout(
     '/api/v1/auth/logout',
     {
       method: 'POST',
+      headers: { authorization: `Bearer ${token}` },
+    },
+    signal,
+  );
+}
+
+/* ── Dashboard API ───────────────────────────────────── */
+
+export async function listSecrets(
+  token: string,
+  limit = 50,
+  offset = 0,
+  signal?: AbortSignal,
+): Promise<ListSecretsResponse> {
+  return requestJson<ListSecretsResponse>(
+    `/api/v1/secrets?limit=${limit}&offset=${offset}`,
+    {
+      method: 'GET',
+      headers: { authorization: `Bearer ${token}` },
+    },
+    signal,
+  );
+}
+
+export async function burnSecretAuthed(
+  token: string,
+  id: string,
+  signal?: AbortSignal,
+): Promise<void> {
+  await requestJson<{ ok: boolean }>(
+    `/api/v1/secrets/${encodeURIComponent(id)}/burn`,
+    {
+      method: 'POST',
+      headers: { authorization: `Bearer ${token}` },
+    },
+    signal,
+  );
+}
+
+export async function listApiKeys(
+  token: string,
+  signal?: AbortSignal,
+): Promise<ListApiKeysResponse> {
+  return requestJson<ListApiKeysResponse>(
+    '/api/v1/apikeys',
+    {
+      method: 'GET',
+      headers: { authorization: `Bearer ${token}` },
+    },
+    signal,
+  );
+}
+
+export async function revokeApiKey(
+  token: string,
+  prefix: string,
+  signal?: AbortSignal,
+): Promise<void> {
+  await requestJson<{ ok: boolean }>(
+    `/api/v1/apikeys/${encodeURIComponent(prefix)}/revoke`,
+    {
+      method: 'POST',
+      headers: { authorization: `Bearer ${token}` },
+    },
+    signal,
+  );
+}
+
+export async function registerApiKey(
+  token: string,
+  authTokenB64: string,
+  signal?: AbortSignal,
+): Promise<{ prefix: string; scopes: string }> {
+  return requestJson<{ prefix: string; scopes: string }>(
+    '/api/v1/apikeys/register',
+    {
+      method: 'POST',
+      headers: {
+        authorization: `Bearer ${token}`,
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({ auth_token: authTokenB64 }),
+    },
+    signal,
+  );
+}
+
+export async function deleteAccount(
+  token: string,
+  signal?: AbortSignal,
+): Promise<DeleteAccountResponse> {
+  return requestJson<DeleteAccountResponse>(
+    '/api/v1/auth/account',
+    {
+      method: 'DELETE',
       headers: { authorization: `Bearer ${token}` },
     },
     signal,

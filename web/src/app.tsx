@@ -6,6 +6,8 @@ import { ClaimPage } from './features/claim/ClaimPage';
 import { HowItWorksPage } from './features/trust/HowItWorksPage';
 import { LoginPage } from './features/auth/LoginPage';
 import { RegisterPage } from './features/auth/RegisterPage';
+import { DashboardPage } from './features/dashboard/DashboardPage';
+import { SettingsPage } from './features/settings/SettingsPage';
 import { ThemePage } from './features/test/ThemePage';
 import { TestClaimPage } from './features/test/TestClaimPage';
 
@@ -32,6 +34,12 @@ export function App() {
       break;
     case 'register':
       page = <RegisterPage />;
+      break;
+    case 'dashboard':
+      page = <DashboardPage />;
+      break;
+    case 'settings':
+      page = <SettingsPage />;
       break;
     case 'test-claim':
       if (import.meta.env.DEV) {

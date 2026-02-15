@@ -12,8 +12,8 @@ use chrono::{DateTime, Utc};
 use helpers::{create_api_key, test_app_with_store, test_config, with_proxy_ip, MemStore};
 use secrt_server::http::{build_router, AppState};
 use secrt_server::storage::{
-    ApiKeysStore, AuthStore, SecretQuotaLimits, SecretRecord, SecretsStore, StorageError,
-    StorageUsage,
+    ApiKeysStore, AuthStore, SecretQuotaLimits, SecretRecord, SecretSummary, SecretsStore,
+    StorageError, StorageUsage,
 };
 use serde_json::Value;
 use tokio::sync::Barrier;
@@ -152,6 +152,31 @@ impl SecretsStore for QuotaRaceStore {
             usage
         };
         Ok(usage)
+    }
+
+    async fn list_by_owner_keys(
+        &self,
+        _owner_keys: &[String],
+        _now: DateTime<Utc>,
+        _limit: i64,
+        _offset: i64,
+    ) -> Result<Vec<SecretSummary>, StorageError> {
+        Ok(vec![])
+    }
+
+    async fn count_by_owner_keys(
+        &self,
+        _owner_keys: &[String],
+        _now: DateTime<Utc>,
+    ) -> Result<i64, StorageError> {
+        Ok(0)
+    }
+
+    async fn burn_all_by_owner_keys(
+        &self,
+        _owner_keys: &[String],
+    ) -> Result<i64, StorageError> {
+        Ok(0)
     }
 }
 
