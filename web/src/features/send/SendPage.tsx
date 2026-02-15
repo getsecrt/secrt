@@ -444,7 +444,7 @@ export function SendPage() {
             role="alert"
             class="flex items-start gap-2 rounded-md border border-error/30 bg-error/5 px-3 py-2.5 text-error"
           >
-            <TriangleExclamationIcon class="mt-0.5 size-4 shrink-0" />
+            <TriangleExclamationIcon class="mt-0.5 size-5 shrink-0" />
             <span>
               {status.message.split('\n').map((line, i, arr) => (
                 <>

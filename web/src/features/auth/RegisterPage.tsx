@@ -259,7 +259,7 @@ export function RegisterPage() {
               aria-label="Generate random name"
               tabIndex={-1}
             >
-              <ShuffleIcon class="size-4" />
+              <ShuffleIcon class="size-5" />
             </button>
           </div>
           <p class="text-xs text-faint">
@@ -272,7 +272,7 @@ export function RegisterPage() {
             role="alert"
             class="flex items-start gap-2 rounded-md border border-error/30 bg-error/5 px-3 py-2.5 text-error"
           >
-            <TriangleExclamationIcon class="mt-0.5 size-4 shrink-0" />
+            <TriangleExclamationIcon class="mt-0.5 size-5 shrink-0" />
             {state.message}
           </div>
         )}
