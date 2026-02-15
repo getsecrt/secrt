@@ -46,10 +46,11 @@ test.describe('File upload flow', () => {
     const parsed = new URL(shareUrl!);
     const pathWithHash = parsed.pathname + parsed.hash;
 
-    // Claim on a new page
+    // Claim on a new page — click through the confirm screen
     const claimPage = await context.newPage();
     await claimPage.goto(pathWithHash);
 
+    await claimPage.getByRole('button', { name: 'View Secret' }).click();
     await expect(claimPage.getByText('Secret Decrypted')).toBeVisible({
       timeout: 15_000,
     });

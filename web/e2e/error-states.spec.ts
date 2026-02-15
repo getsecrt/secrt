@@ -26,6 +26,13 @@ test.describe('Error states', () => {
     // Valid-format base64url key (32 bytes = 43 chars base64url)
     const fakeKey = 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA';
     await page.goto(`/s/does-not-exist-000#${fakeKey}`);
+
+    // Valid fragment shows confirm screen — click through to trigger the claim
+    await expect(
+      page.getByRole('button', { name: 'View Secret' }),
+    ).toBeVisible({ timeout: 10_000 });
+    await page.getByRole('button', { name: 'View Secret' }).click();
+
     await expect(page.getByText('Secret Unavailable')).toBeVisible({
       timeout: 10_000,
     });

@@ -28,9 +28,14 @@ test.describe('Send and claim flow', () => {
     const parsed = new URL(shareUrl);
     const pathWithHash = parsed.pathname + parsed.hash;
 
-    // Claim on a fresh page
+    // Claim on a fresh page — click through the confirm screen first
     const claimPage = await context.newPage();
     await claimPage.goto(pathWithHash);
+
+    await expect(
+      claimPage.getByRole('button', { name: 'View Secret' }),
+    ).toBeVisible({ timeout: 15_000 });
+    await claimPage.getByRole('button', { name: 'View Secret' }).click();
 
     await expect(claimPage.getByText('Passphrase Required')).toBeVisible({
       timeout: 15_000,
@@ -50,8 +55,7 @@ test.describe('Send and claim flow', () => {
       timeout: 15_000,
     });
 
-    await claimPage.getByRole('button', { name: 'Show secret' }).click();
-    const content = await claimPage.locator('pre').textContent();
+    const content = await claimPage.locator('textarea').inputValue();
     expect(content?.trim()).toBe(secret);
 
     await claimPage.close();
@@ -64,11 +68,17 @@ test.describe('Send and claim flow', () => {
     // First claim succeeds
     await claimSecret(page, shareUrl);
 
-    // Second claim on a new page should fail
+    // Second claim on a new page should fail after clicking "View Secret"
     const parsed = new URL(shareUrl);
     const pathWithHash = parsed.pathname + parsed.hash;
     const page2 = await context.newPage();
     await page2.goto(pathWithHash);
+
+    await expect(
+      page2.getByRole('button', { name: 'View Secret' }),
+    ).toBeVisible({ timeout: 15_000 });
+    await page2.getByRole('button', { name: 'View Secret' }).click();
+
     await expect(page2.getByText('Secret Unavailable')).toBeVisible({
       timeout: 15_000,
     });

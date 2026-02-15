@@ -148,6 +148,12 @@ export async function claimSecret(
   const pathWithHash = url.pathname + url.hash;
   await page.goto(pathWithHash, { waitUntil: 'load' });
 
+  // Click "View Secret" on the confirm screen to initiate the claim
+  await expect(
+    page.getByRole('button', { name: 'View Secret' }),
+  ).toBeVisible({ timeout: 15_000 });
+  await page.getByRole('button', { name: 'View Secret' }).click();
+
   if (opts?.passphrase) {
     await expect(page.getByText('Passphrase Required')).toBeVisible({
       timeout: 15_000,
@@ -160,10 +166,7 @@ export async function claimSecret(
     timeout: 15_000,
   });
 
-  // Click the show button to reveal the secret
-  await page.getByRole('button', { name: 'Show secret' }).click();
-
-  const content = await page.locator('pre').textContent();
+  const content = await page.locator('textarea').inputValue();
   if (content === null) throw new Error('Secret content not found');
   return content.trim();
 }
