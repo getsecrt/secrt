@@ -1646,41 +1646,49 @@ pub async fn handle_secret_page(
     State(state): State<Arc<AppState>>,
     Path(id): Path<String>,
 ) -> Response {
-    // SPA handles /s/{id} client-side; fall back to minimal HTML if no frontend built.
-    let html = crate::assets::spa_index_html().unwrap_or_else(|| {
-        let escaped_id = escape_html(&id);
-        format!(
-            "<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\"><title>Secret {escaped_id}</title></head><body><h1>Secret {escaped_id}</h1></body></html>"
-        )
-    });
-
-    // Rewrite OG/Twitter meta tags so social previews say "You've been sent a secret!"
     let base = &state.cfg.public_base_url;
     let escaped_id = escape_html(&id);
     let secret_url = format!("{base}/s/{escaped_id}");
     let secret_image = format!("{base}/static/og-secret.png");
 
-    let html = html
-        .replace(
-            "content=\"secrt — Private One-Time Secret Sharing\"",
-            "content=\"You've been sent a secret!\"",
-        )
-        .replace(
-            "content=\"Share passwords, keys, and sensitive data with zero-knowledge encryption. Secrets self-destruct after being read.\"",
-            "content=\"Open to view your secret. It can only be viewed once.\"",
-        )
-        .replace(
-            "content=\"https://secrt.ca/static/og-image.png\"",
-            &format!("content=\"{secret_image}\""),
-        )
-        .replace(
-            "content=\"https://secrt.ca\"",
-            &format!("content=\"{secret_url}\""),
-        )
-        .replace(
-            "<title>secrt</title>",
-            "<title>You've been sent a secret! — secrt</title>",
-        );
+    let html = match crate::assets::spa_index_html() {
+        Some(spa) => {
+            // Rewrite generic OG/Twitter meta tags for secret-specific previews
+            spa.replace(
+                "content=\"secrt — Private One-Time Secret Sharing\"",
+                "content=\"You've been sent a secret!\"",
+            )
+            .replace(
+                "content=\"Share passwords, keys, and sensitive data with zero-knowledge encryption. Secrets self-destruct after being read.\"",
+                "content=\"Open to view your secret. It can only be viewed once.\"",
+            )
+            .replace(
+                "content=\"https://secrt.ca/static/og-image.png\"",
+                &format!("content=\"{secret_image}\""),
+            )
+            .replace(
+                "content=\"https://secrt.ca\"",
+                &format!("content=\"{secret_url}\""),
+            )
+            .replace(
+                "<title>secrt</title>",
+                "<title>You've been sent a secret! — secrt</title>",
+            )
+        }
+        None => {
+            // No SPA built — serve minimal fallback with secret-specific OG tags
+            format!(
+                "<!doctype html><html lang=\"en\"><head>\
+                 <meta charset=\"utf-8\">\
+                 <title>You've been sent a secret! — secrt</title>\
+                 <meta property=\"og:title\" content=\"You've been sent a secret!\">\
+                 <meta property=\"og:description\" content=\"Open to view your secret. It can only be viewed once.\">\
+                 <meta property=\"og:image\" content=\"{secret_image}\">\
+                 <meta property=\"og:url\" content=\"{secret_url}\">\
+                 </head><body><h1>Secret {escaped_id}</h1></body></html>"
+            )
+        }
+    };
 
     let mut resp = Html(html).into_response();
     insert_header(resp.headers_mut(), "cache-control", "no-store");
