@@ -155,7 +155,7 @@ export function TestClaimPage() {
       <div class="space-y-6">
         <div class="card space-y-4">
           <h2 class="heading text-center">Claim Page Test Scenarios</h2>
-          <p class="text-sm text-muted">
+          <p class="text-muted">
             Each scenario seals a test secret client-side, simulates the claim
             API delay, then exercises the real decrypt and reveal UI.
           </p>
@@ -268,7 +268,7 @@ export function TestClaimPage() {
         <div class="flex justify-center">
           <div class="size-8 animate-spin rounded-full border-2 border-border border-t-accent" />
         </div>
-        <p class="text-sm text-muted">
+        <p class="text-muted">
           {status.step === 'sealing'
             ? 'Encrypting test secret\u2026'
             : 'Retrieving your secret\u2026'}
@@ -284,7 +284,7 @@ export function TestClaimPage() {
         <div class="flex justify-center">
           <div class="size-8 animate-spin rounded-full border-2 border-border border-t-accent" />
         </div>
-        <p class="text-sm text-muted">Decrypting\u2026</p>
+        <p class="text-muted">Decrypting\u2026</p>
       </div>
     );
   }
@@ -295,10 +295,10 @@ export function TestClaimPage() {
       <div class="card space-y-5">
         <div class="flex flex-col items-center gap-2 text-center">
           <CircleXmarkIcon class="size-10 text-error" />
-          <h2 class="text-lg font-semibold">Secret Unavailable</h2>
+          <h2 class="text-xl font-semibold">Secret Unavailable</h2>
         </div>
 
-        <p class="text-center text-sm whitespace-pre-line text-muted">
+        <p class="text-center whitespace-pre-line text-muted">
           {status.message}
         </p>
 
@@ -336,12 +336,12 @@ export function TestClaimPage() {
           {isLocked ? (
             <>
               <CircleXmarkIcon class="size-10 text-muted" />
-              <h2 class="text-lg font-semibold">Secret Protected</h2>
+              <h2 class="text-xl font-semibold">Secret Protected</h2>
             </>
           ) : (
             <>
               <CheckCircleIcon class="size-10 text-success" />
-              <h2 class="text-lg font-semibold">Secret Decrypted</h2>
+              <h2 class="text-xl font-semibold">Secret Decrypted</h2>
             </>
           )}
         </div>
@@ -350,7 +350,7 @@ export function TestClaimPage() {
           <div class="space-y-4">
             <div class="flex items-center gap-3 rounded-md border border-border bg-surface-raised px-3 py-3">
               <div class="min-w-0 flex-1">
-                <p class="truncate text-sm font-medium">
+                <p class="truncate font-medium">
                   {status.meta.filename ?? 'secret'}
                 </p>
                 <p class="text-xs text-muted">
@@ -376,11 +376,11 @@ export function TestClaimPage() {
           <div class="space-y-3">
             <div class="relative rounded-md border border-border bg-surface px-3 py-2.5 inset-shadow-sm">
               {isDone && revealed ? (
-                <pre class="font-mono text-sm break-all whitespace-pre-wrap">
+                <pre class="font-mono break-all whitespace-pre-wrap">
                   {textContent}
                 </pre>
               ) : (
-                <p class="cursor-pointer font-mono text-sm tracking-wider text-muted select-none">
+                <p class="cursor-pointer font-mono tracking-wider text-muted select-none">
                   {'\u25CF'.repeat(PLACEHOLDER_DOTS)}
                 </p>
               )}
@@ -419,8 +419,8 @@ export function TestClaimPage() {
           <form class="card w-full max-w-sm space-y-6" onSubmit={handleDecrypt}>
             <div class="flex flex-col items-center gap-2 text-center">
               <LockIcon class="size-10 text-amber-500" />
-              <h2 class="text-lg font-semibold">Passphrase Required</h2>
-              <p class="text-sm text-muted">
+              <h2 class="text-xl font-semibold">Passphrase Required</h2>
+              <p class="text-muted">
                 This secret is protected with a passphrase.
                 <br />
                 Enter it below to decrypt.
@@ -429,7 +429,7 @@ export function TestClaimPage() {
 
             <div class="space-y-1">
               <label
-                class="flex items-center gap-1.5 text-sm font-medium text-muted"
+                class="flex items-center gap-1.5 font-medium text-muted"
                 for="test-passphrase"
               >
                 <LockIcon class="size-4" />
@@ -470,7 +470,7 @@ export function TestClaimPage() {
             {passphraseError && (
               <div
                 role="alert"
-                class="flex items-start gap-2 rounded-md border border-error/30 bg-error/5 px-3 py-2.5 text-sm text-error"
+                class="flex items-start gap-2 rounded-md border border-error/30 bg-error/5 px-3 py-2.5 text-error"
               >
                 <TriangleExclamationIcon class="mt-0.5 size-4 shrink-0" />
                 {passphraseError}

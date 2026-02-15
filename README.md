@@ -28,10 +28,10 @@ Monorepo for the [secrt.ca](https://secrt.ca) protocol. Share secrets that self-
 | Platform | Download |
 |----------|----------|
 | macOS (Universal) | [secrt-darwin-universal](https://github.com/getsecrt/secrt/releases/latest/download/secrt-darwin-universal) |
-| Linux x64 | [secrt-linux-amd64](https://github.com/getsecrt/secrt/releases/latest/download/secrt-linux-amd64) |
-| Linux ARM64 | [secrt-linux-arm64](https://github.com/getsecrt/secrt/releases/latest/download/secrt-linux-arm64) |
 | Windows x64 | [secrt-windows-amd64.exe](https://github.com/getsecrt/secrt/releases/latest/download/secrt-windows-amd64.exe) |
 | Windows ARM64 | [secrt-windows-arm64.exe](https://github.com/getsecrt/secrt/releases/latest/download/secrt-windows-arm64.exe) |
+| Linux x64 | [secrt-linux-amd64](https://github.com/getsecrt/secrt/releases/latest/download/secrt-linux-amd64) |
+| Linux ARM64 | [secrt-linux-arm64](https://github.com/getsecrt/secrt/releases/latest/download/secrt-linux-arm64) |
 
 ### Server
 

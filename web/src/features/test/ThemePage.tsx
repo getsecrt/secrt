@@ -98,7 +98,7 @@ export function ThemePage() {
         <div class="flex items-center justify-between">
           <div>
             <h1 class="text-2xl font-bold tracking-wide">Theme Test</h1>
-            <p class="text-sm text-muted">
+            <p class="text-muted">
               Design token reference &middot;{' '}
               <a
                 href="/"
@@ -136,7 +136,7 @@ export function ThemePage() {
 
         {/* Green palette */}
         <Section title="Green Palette">
-          <p class="text-sm text-muted">
+          <p class="text-muted">
             Hue 140–147, chroma peaks at 400, even lightness steps. Utilities:{' '}
             <code class="rounded border border-border/50 bg-surface-raised px-1.5 py-0.5 font-mono text-xs">
               bg-green-500
@@ -179,12 +179,8 @@ export function ThemePage() {
             </h1>
             <div class="heading">Secondary Heading `.heading`</div>
             <p>Body (base) — The quick brown fox jumps over the lazy dog.</p>
-            <p class="text-sm">
-              Small — The quick brown fox jumps over the lazy dog.
-            </p>
-            <p class="text-sm text-muted">
-              Small / muted — Secondary information
-            </p>
+            <p class="">Small — The quick brown fox jumps over the lazy dog.</p>
+            <p class="text-muted">Small / muted — Secondary information</p>
             <p class="border-sm text font-mono">
               Monospace — const secret = "abc123"
             </p>
@@ -259,14 +255,14 @@ export function ThemePage() {
               </a>{' '}
               within text.
             </p>
-            <p class="text-sm text-muted">
+            <p class="text-muted">
               Muted context:{' '}
               <a class="link" href="#demo">
                 link in muted text
               </a>
               .
             </p>
-            <div class="flex gap-6 text-sm">
+            <div class="flex gap-6">
               <a class="link" href="#demo">
                 Nav link one
               </a>
@@ -285,21 +281,17 @@ export function ThemePage() {
           <div class="grid gap-4 sm:grid-cols-2">
             <div class="card">
               <h3 class="mb-2 font-semibold">Default Card</h3>
-              <p class="text-sm text-muted">
-                Standard surface with border and shadow.
-              </p>
+              <p class="text-muted">Standard surface with border and shadow.</p>
             </div>
             <div class="card bg-surface-raised shadow-lg">
               <h3 class="mb-2 font-semibold">Raised Card</h3>
-              <p class="text-sm text-muted">
-                Surface-raised background variant.
-              </p>
+              <p class="text-muted">Surface-raised background variant.</p>
             </div>
             <div class="rounded-lg border border-green-600/30 bg-green-50 p-6 dark:border-green-400/20 dark:bg-green-950">
               <h3 class="mb-2 font-semibold text-green-800 dark:text-green-200">
                 Success Card
               </h3>
-              <p class="text-sm text-green-700 dark:text-green-300">
+              <p class="text-green-700 dark:text-green-300">
                 Using the green palette directly.
               </p>
             </div>
@@ -307,7 +299,7 @@ export function ThemePage() {
               <h3 class="mb-2 font-semibold text-red-700 dark:text-red-400">
                 Error Card
               </h3>
-              <p class="text-sm text-error">Using the error semantic token.</p>
+              <p class="text-error">Using the error semantic token.</p>
             </div>
           </div>
         </Section>
@@ -317,7 +309,7 @@ export function ThemePage() {
           <div class="grid gap-6 sm:grid-cols-2">
             <div class="space-y-4">
               <div>
-                <label class="mb-1 block text-sm font-medium">Text Input</label>
+                <label class="mb-1 block font-medium">Text Input</label>
                 <input
                   type="text"
                   placeholder="Placeholder text"
@@ -325,9 +317,7 @@ export function ThemePage() {
                 />
               </div>
               <div>
-                <label class="mb-1 block text-sm font-medium">
-                  Disabled Input
-                </label>
+                <label class="mb-1 block font-medium">Disabled Input</label>
                 <input
                   type="text"
                   value="Can't edit this"
@@ -336,9 +326,7 @@ export function ThemePage() {
                 />
               </div>
               <div>
-                <label class="mb-1 block text-sm font-medium">
-                  Input with Error
-                </label>
+                <label class="mb-1 block font-medium">Input with Error</label>
                 <input
                   type="text"
                   value="Bad value"
@@ -347,7 +335,7 @@ export function ThemePage() {
                 <p class="mt-1 text-xs text-error">This field has an error.</p>
               </div>
               <div>
-                <label class="mb-1 block text-sm font-medium">Select</label>
+                <label class="mb-1 block font-medium">Select</label>
                 <select class="select">
                   <option>Option one</option>
                   <option>Option two</option>
@@ -357,7 +345,7 @@ export function ThemePage() {
             </div>
             <div class="space-y-4">
               <div>
-                <label class="mb-1 block text-sm font-medium">Textarea</label>
+                <label class="mb-1 block font-medium">Textarea</label>
                 <textarea
                   placeholder="Write something..."
                   rows={4}
@@ -365,21 +353,19 @@ export function ThemePage() {
                 />
               </div>
               <div class="space-y-2">
-                <label class="mb-1 block text-sm font-medium">Checkboxes</label>
-                <label class="flex items-center gap-2 text-sm">
+                <label class="mb-1 block font-medium">Checkboxes</label>
+                <label class="flex items-center gap-2">
                   <input type="checkbox" checked class="accent-green-600" />
                   Checked option
                 </label>
-                <label class="flex items-center gap-2 text-sm">
+                <label class="flex items-center gap-2">
                   <input type="checkbox" class="accent-green-600" />
                   Unchecked option
                 </label>
               </div>
               <div class="space-y-2">
-                <label class="mb-1 block text-sm font-medium">
-                  Radio Buttons
-                </label>
-                <label class="flex items-center gap-2 text-sm">
+                <label class="mb-1 block font-medium">Radio Buttons</label>
+                <label class="flex items-center gap-2">
                   <input
                     type="radio"
                     name="demo-radio"
@@ -388,7 +374,7 @@ export function ThemePage() {
                   />
                   Option A
                 </label>
-                <label class="flex items-center gap-2 text-sm">
+                <label class="flex items-center gap-2">
                   <input
                     type="radio"
                     name="demo-radio"
@@ -403,7 +389,7 @@ export function ThemePage() {
 
         {/* Focus States */}
         <Section title="Focus States">
-          <p class="text-sm text-muted">
+          <p class="text-muted">
             Tab through these elements to verify consistent keyboard focus
             indicators.
           </p>
@@ -418,7 +404,7 @@ export function ThemePage() {
               <a class="link" href="#demo">
                 Link
               </a>
-              <a href="#demo" class="link text-sm text-muted">
+              <a href="#demo" class="link text-muted">
                 Muted Link
               </a>
             </div>
@@ -427,11 +413,11 @@ export function ThemePage() {
               <select class="select w-40">
                 <option>Select</option>
               </select>
-              <label class="flex items-center gap-2 text-sm">
+              <label class="flex items-center gap-2">
                 <input type="checkbox" class="accent-green-600" />
                 Checkbox
               </label>
-              <label class="flex items-center gap-2 text-sm">
+              <label class="flex items-center gap-2">
                 <input
                   type="radio"
                   name="focus-demo"
@@ -445,13 +431,13 @@ export function ThemePage() {
 
         {/* Code */}
         <Section title="Inline Code &amp; Monospace">
-          <p class="text-sm">
+          <p class="">
             Secret ID:{' '}
             <code class="rounded border border-border/50 bg-surface-raised px-1.5 py-0.5 font-mono text-xs select-all">
               abc123-def456-ghi789
             </code>
           </p>
-          <div class="mt-2 overflow-x-auto rounded-lg bg-green-950 p-4 font-mono text-sm text-green-100">
+          <div class="mt-2 overflow-x-auto rounded-lg bg-green-950 p-4 font-mono text-green-100">
             <pre>{`$ secrt send --ttl 1h "my secret"
 https://secrt.ca/s/abc123#key=...`}</pre>
           </div>

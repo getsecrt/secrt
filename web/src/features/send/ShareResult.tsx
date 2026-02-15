@@ -18,7 +18,7 @@ export function ShareResult({
     <div class="card space-y-5">
       <div class="flex flex-col items-center gap-2 text-center">
         <CheckCircleIcon class="size-10 text-success" />
-        <h2 class="text-lg font-semibold">Secret Created</h2>
+        <h2 class="text-xl font-semibold">Secret Created</h2>
       </div>
 
       <div class="rounded-md border border-border bg-surface px-3 py-2.5 inset-shadow-sm">
@@ -39,9 +39,13 @@ export function ShareResult({
         label="Copy Link"
       />
 
-      <p class="text-center text-xs text-muted">
-        Expires {formatExpiryDate(expiresAt)}. This link works exactly once.
-      </p>
+      <div>
+        <p class="mb-1 text-center text-sm">
+          Expires {formatExpiryDate(expiresAt)}
+        </p>
+
+        <p class="text-center text-sm text-muted">This link only works once.</p>
+      </div>
 
       <button type="button" class="link mx-auto block" onClick={onReset}>
         Send Another Secret

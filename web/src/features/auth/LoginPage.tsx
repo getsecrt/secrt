@@ -90,7 +90,7 @@ export function LoginPage() {
       <div class="card space-y-4 text-center">
         <TriangleExclamationIcon class="text-warning mx-auto size-8" />
         <h2 class="label">Passkeys not supported</h2>
-        <p class="text-sm text-muted">
+        <p class="text-muted">
           Your browser doesn't support passkeys (WebAuthn). Please use a modern
           browser like Chrome, Safari, or Firefox.
         </p>
@@ -104,7 +104,7 @@ export function LoginPage() {
         <div>
           <PasskeyIcon class="text-primary mx-auto mb-2 size-10" />
           <h2 class="heading">Log In</h2>
-          <p class="mt-1 text-sm text-muted">
+          <p class="mt-1 text-muted">
             Use your passkey to sign in anonymously.
             <br />
             Your browser will show available passkeys.
@@ -114,7 +114,7 @@ export function LoginPage() {
         {state.step === 'error' && (
           <div
             role="alert"
-            class="flex items-start gap-2 rounded-md border border-error/30 bg-error/5 px-3 py-2.5 text-left text-sm text-error"
+            class="flex items-start gap-2 rounded-md border border-error/30 bg-error/5 px-3 py-2.5 text-left text-error"
           >
             <TriangleExclamationIcon class="mt-0.5 size-4 shrink-0" />
             {state.message}
@@ -131,7 +131,7 @@ export function LoginPage() {
         </button>
       </div>
 
-      <p class="text-center text-sm text-muted">
+      <p class="text-center text-muted">
         <a
           href="/register"
           class="link"

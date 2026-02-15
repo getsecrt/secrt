@@ -41,8 +41,6 @@
   --spacing: 0.25rem;
   --font-sans: system-ui, -apple-system, sans-serif;
   --font-mono: 'SF Mono', Menlo, Consolas, monospace;
-  --text-base: 0.9375rem;
-  --text-base--line-height: 1.5;
   --radius-lg: 10px;
   --shadow-sm: 0 1px 2px oklch(0 0 0 / 0.05);
   --max-width-sm: 480px;
@@ -67,9 +65,6 @@
 @layer base {
   body {
     @apply bg-bg text-text antialiased;
-
-    font-family: var(--font-sans);
-    font-size: var(--text-base);
   }
 
   .dark body {
@@ -132,6 +127,7 @@
   }
 
   button:focus-visible,
+  summary:focus-visible,
   input[type='checkbox']:focus-visible,
   input[type='radio']:focus-visible {
     outline: 2px solid color-mix(in oklch, var(--color-accent) 40%, transparent);

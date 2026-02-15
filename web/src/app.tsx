@@ -50,7 +50,7 @@ export function App() {
       page = (
         <div class="card text-center">
           <h2 class="label">Not found</h2>
-          <p class="text-sm text-muted">This page doesn't exist.</p>
+          <p class="text-muted">This page doesn't exist.</p>
         </div>
       );
       break;

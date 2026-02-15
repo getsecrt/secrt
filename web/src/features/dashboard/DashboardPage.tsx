@@ -129,7 +129,7 @@ function BurnPopover({
         class="btn-destructive-subtle"
         onClick={() => setOpen(true)}
       >
-        <FireIcon class="size-4" />
+        <FireIcon class="size-4 text-error" />
         <span class="hidden sm:inline">Burn</span>
       </button>
       {open && (
@@ -286,10 +286,10 @@ function DashboardContent() {
       )}
 
       {loading && allSecrets.length === 0 ? (
-        <p class="text-sm text-muted">Loading...</p>
+        <p class="text-muted">Loading...</p>
       ) : allSecrets.length === 0 ? (
         <div class="text-center">
-          <p class="mb-4 text-sm text-muted">You have no active secrets.</p>
+          <p class="mb-4 text-muted">You have no active secrets.</p>
           <button type="button" class="link" onClick={() => navigate('/')}>
             Create a Secret
           </button>

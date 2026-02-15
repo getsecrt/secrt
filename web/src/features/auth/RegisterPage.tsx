@@ -214,7 +214,7 @@ export function RegisterPage() {
       <div class="card space-y-4 text-center">
         <TriangleExclamationIcon class="text-warning mx-auto size-8" />
         <h2 class="label">Passkeys not supported</h2>
-        <p class="text-sm text-muted">
+        <p class="text-muted">
           Your browser doesn't support passkeys (WebAuthn). Please use a modern
           browser like Chrome, Safari, or Firefox.
         </p>
@@ -228,17 +228,14 @@ export function RegisterPage() {
         <div class="text-center">
           <PasskeyIcon class="text-primary mx-auto mb-2 size-10" />
           <h2 class="heading">Create an Account</h2>
-          <p class="mt-1 text-sm text-muted">
+          <p class="mt-1 text-muted">
             Register with a passkey for higher limits, larger files, and secret
             management.
           </p>
         </div>
 
         <div class="space-y-1.5">
-          <label
-            class="block text-sm font-medium text-muted"
-            for="display-name"
-          >
+          <label class="block font-medium text-muted" for="display-name">
             Account Nickname
           </label>
           <div class="relative">
@@ -273,7 +270,7 @@ export function RegisterPage() {
         {state.step === 'error' && (
           <div
             role="alert"
-            class="flex items-start gap-2 rounded-md border border-error/30 bg-error/5 px-3 py-2.5 text-sm text-error"
+            class="flex items-start gap-2 rounded-md border border-error/30 bg-error/5 px-3 py-2.5 text-error"
           >
             <TriangleExclamationIcon class="mt-0.5 size-4 shrink-0" />
             {state.message}
@@ -289,7 +286,7 @@ export function RegisterPage() {
         </button>
       </form>
 
-      <p class="text-center text-sm text-muted">
+      <p class="text-center text-muted">
         Already have an account?
         <br />
         <a

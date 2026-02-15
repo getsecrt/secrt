@@ -130,7 +130,7 @@ function ApiKeysCard() {
       {error && (
         <div
           role="alert"
-          class="mb-4 rounded-md bg-red-100 px-3 py-2 text-sm text-red-700 dark:bg-red-900/30 dark:text-red-400"
+          class="mb-4 rounded-md bg-red-100 px-3 py-2 text-red-700 dark:bg-red-900/30 dark:text-red-400"
         >
           {error}
         </div>
@@ -157,12 +157,12 @@ function ApiKeysCard() {
       )}
 
       {loading && keys.length === 0 ? (
-        <p class="text-sm text-muted">Loading...</p>
+        <p class="text-muted">Loading...</p>
       ) : keys.length === 0 ? (
-        <p class="text-sm text-muted">No API keys yet.</p>
+        <p class="text-muted">No API keys yet.</p>
       ) : (
         <div class="overflow-x-auto">
-          <table class="w-full text-sm">
+          <table class="w-full">
             <thead>
               <tr class="border-b border-border text-left text-muted">
                 <th class="pr-3 pb-2 font-medium">Prefix</th>
@@ -197,7 +197,7 @@ function ApiKeysCard() {
                         disabled={revoking === k.prefix}
                         onClick={() => handleRevoke(k.prefix)}
                       >
-                        <CircleXmarkIcon class="size-4" />
+                        <CircleXmarkIcon class="size-4 text-error" />
                         {revoking === k.prefix ? 'Revoking...' : 'Revoke'}
                       </button>
                     )}
@@ -241,7 +241,7 @@ function AccountCard() {
       </h2>
 
       <div class="mb-4">
-        <p class="text-center text-sm text-muted">
+        <p class="text-center text-muted">
           Signed in as{' '}
           <span class="font-medium text-text">{auth.displayName}</span>
         </p>
@@ -250,7 +250,7 @@ function AccountCard() {
       {error && (
         <div
           role="alert"
-          class="mb-4 rounded-md bg-red-100 px-3 py-2 text-sm text-red-700 dark:bg-red-900/30 dark:text-red-400"
+          class="mb-4 rounded-md bg-red-100 px-3 py-2 text-red-700 dark:bg-red-900/30 dark:text-red-400"
         >
           {error}
         </div>
@@ -272,11 +272,11 @@ function AccountCard() {
           <h3 class="mb-2 text-center font-semibold text-red-700 dark:text-red-400">
             Really Delete Your Account?
           </h3>
-          <p class="mb-2 text-sm text-red-700 dark:text-red-400">
+          <p class="mb-2 text-red-700 dark:text-red-400">
             This will permanently delete your account, burn all secrets, and
             revoke all API keys.
           </p>
-          <p class="mb-2 text-sm text-red-700 dark:text-red-400">
+          <p class="mb-2 text-red-700 dark:text-red-400">
             Type <strong>DELETE</strong> to confirm.
           </p>
           <div class="flex items-center gap-2">

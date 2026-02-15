@@ -313,7 +313,7 @@ export function SendPage() {
 
         {/* Content input */}
         <div class="space-y-1">
-          <label class="flex items-center gap-1.5 text-sm font-medium text-muted">
+          <label class="flex items-center gap-1.5 font-medium text-muted">
             {mode === 'text' ? (
               <>
                 <NoteIcon class="size-4" /> Secret Message
@@ -382,7 +382,7 @@ export function SendPage() {
         {/* Passphrase */}
         <div class="space-y-1">
           <label
-            class="flex items-center gap-1.5 text-sm font-medium text-muted"
+            class="flex items-center gap-1.5 font-medium text-muted"
             for="passphrase"
           >
             <LockIcon class="size-4" />
@@ -442,7 +442,7 @@ export function SendPage() {
         {status.step === 'error' && (
           <div
             role="alert"
-            class="flex items-start gap-2 rounded-md border border-error/30 bg-error/5 px-3 py-2.5 text-sm text-error"
+            class="flex items-start gap-2 rounded-md border border-error/30 bg-error/5 px-3 py-2.5 text-error"
           >
             <TriangleExclamationIcon class="mt-0.5 size-4 shrink-0" />
             <span>
