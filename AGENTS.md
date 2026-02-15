@@ -106,6 +106,18 @@ SECRET_E2E_BASE_URL=https://secrt.ca cargo test -p secrt-cli e2e -- --ignored
 SECRET_E2E_BASE_URL=https://secrt.ca SECRET_E2E_API_KEY=sk_... cargo test -p secrt-cli e2e -- --ignored
 ```
 
+### Local Postgres-backed tests
+
+Server runtime and Postgres integration tests use `TEST_DATABASE_URL` when present.
+
+```sh
+# Known local option (default system user + local `secrt` DB)
+TEST_DATABASE_URL='postgresql://jdlien@localhost/secrt?sslmode=disable' cargo test -p secrt-server postgres_integration -- --nocapture
+
+# Include DB-backed paths in coverage runs
+TEST_DATABASE_URL='postgresql://jdlien@localhost/secrt?sslmode=disable' cargo llvm-cov --workspace --summary-only
+```
+
 ### Test architecture
 
 - **secrt-core** tests: crypto unit tests with deterministic RNG injection, TTL parsing, URL handling
