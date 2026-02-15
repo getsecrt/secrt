@@ -1,6 +1,7 @@
 #![allow(dead_code)]
 
 use std::collections::HashMap;
+use std::hash::{DefaultHasher, Hash, Hasher};
 use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
@@ -190,6 +191,29 @@ impl SecretsStore for MemStore {
         let before = m.len();
         m.retain(|_, s| !owner_keys.contains(&s.owner_key));
         Ok((before - m.len()) as i64)
+    }
+
+    async fn checksum_by_owner_keys(
+        &self,
+        owner_keys: &[String],
+        now: DateTime<Utc>,
+    ) -> Result<(i64, String), StorageError> {
+        let m = self.secrets.lock().expect("secrets mutex poisoned");
+        let mut ids: Vec<&str> = m
+            .values()
+            .filter(|s| owner_keys.contains(&s.owner_key) && s.expires_at > now)
+            .map(|s| s.id.as_str())
+            .collect();
+        ids.sort();
+        let count = ids.len() as i64;
+        if ids.is_empty() {
+            return Ok((0, String::new()));
+        }
+        let joined = ids.join(",");
+        let mut hasher = DefaultHasher::new();
+        joined.hash(&mut hasher);
+        let checksum = format!("{:016x}", hasher.finish());
+        Ok((count, checksum))
     }
 }
 

@@ -53,6 +53,9 @@ impl SecretsStore for CountingStore {
     async fn burn_all_by_owner_keys(&self, _owner_keys: &[String]) -> Result<i64, StorageError> {
         Ok(0)
     }
+    async fn checksum_by_owner_keys(&self, _owner_keys: &[String], _now: DateTime<Utc>) -> Result<(i64, String), StorageError> {
+        Ok((0, String::new()))
+    }
 }
 
 struct ErrorStore;
@@ -95,6 +98,9 @@ impl SecretsStore for ErrorStore {
     }
     async fn burn_all_by_owner_keys(&self, _owner_keys: &[String]) -> Result<i64, StorageError> {
         Ok(0)
+    }
+    async fn checksum_by_owner_keys(&self, _owner_keys: &[String], _now: DateTime<Utc>) -> Result<(i64, String), StorageError> {
+        Ok((0, String::new()))
     }
 }
 
@@ -139,6 +145,9 @@ impl SecretsStore for DeletedStore {
     async fn burn_all_by_owner_keys(&self, _owner_keys: &[String]) -> Result<i64, StorageError> {
         Ok(0)
     }
+    async fn checksum_by_owner_keys(&self, _owner_keys: &[String], _now: DateTime<Utc>) -> Result<(i64, String), StorageError> {
+        Ok((0, String::new()))
+    }
 }
 
 struct SlowStore;
@@ -182,6 +191,9 @@ impl SecretsStore for SlowStore {
     }
     async fn burn_all_by_owner_keys(&self, _owner_keys: &[String]) -> Result<i64, StorageError> {
         Ok(0)
+    }
+    async fn checksum_by_owner_keys(&self, _owner_keys: &[String], _now: DateTime<Utc>) -> Result<(i64, String), StorageError> {
+        Ok((0, String::new()))
     }
 }
 

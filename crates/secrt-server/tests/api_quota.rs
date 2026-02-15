@@ -178,6 +178,14 @@ impl SecretsStore for QuotaRaceStore {
     ) -> Result<i64, StorageError> {
         Ok(0)
     }
+
+    async fn checksum_by_owner_keys(
+        &self,
+        _owner_keys: &[String],
+        _now: DateTime<Utc>,
+    ) -> Result<(i64, String), StorageError> {
+        Ok((0, String::new()))
+    }
 }
 
 fn test_app_with_custom_secrets(

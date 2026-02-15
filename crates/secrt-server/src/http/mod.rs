@@ -243,6 +243,12 @@ struct ListSecretsResponse {
 }
 
 #[derive(Serialize)]
+struct SecretsCheckResponse {
+    count: i64,
+    checksum: String,
+}
+
+#[derive(Serialize)]
 struct ApiKeyListItem {
     prefix: String,
     scopes: String,
@@ -294,6 +300,7 @@ pub fn build_router(state: Arc<AppState>) -> Router {
     router
         .route("/api/v1/info", any(handle_info_entry))
         .route("/api/v1/public/secrets", any(handle_create_public_entry))
+        .route("/api/v1/secrets/check", any(handle_secrets_check_entry))
         .route("/api/v1/secrets", any(handle_secrets_entry))
         .route("/api/v1/secrets/{id}/claim", any(handle_claim_entry))
         .route("/api/v1/secrets/{id}/burn", any(handle_burn_entry))
@@ -837,6 +844,44 @@ async fn handle_list_secrets(
             offset,
         },
     )
+}
+
+pub async fn handle_secrets_check_entry(
+    State(state): State<Arc<AppState>>,
+    req: Request,
+) -> Response {
+    if req.method() != Method::GET {
+        return method_not_allowed();
+    }
+
+    // Same auth pattern as list_secrets: session first, API key fallback
+    let owner_keys =
+        if let Ok((user_id, _, _)) = require_session_user(&state, req.headers()).await {
+            match owner_keys_for_user(&state, user_id).await {
+                Ok(keys) => keys,
+                Err(resp) => return resp,
+            }
+        } else {
+            let raw_key = api_key_from_headers(req.headers());
+            let api_key = match require_api_key(&state, raw_key).await {
+                Ok(k) => k,
+                Err(resp) => return resp,
+            };
+            vec![format!("apikey:{}", api_key.prefix)]
+        };
+
+    let now = Utc::now();
+    match state
+        .secrets
+        .checksum_by_owner_keys(&owner_keys, now)
+        .await
+    {
+        Ok((count, checksum)) => json_response(
+            StatusCode::OK,
+            SecretsCheckResponse { count, checksum },
+        ),
+        Err(_) => internal_server_error(),
+    }
 }
 
 pub async fn handle_claim_entry(
@@ -1883,6 +1928,29 @@ mod tests {
             let before = m.len();
             m.retain(|_, s| !owner_keys.contains(&s.owner_key));
             Ok((before - m.len()) as i64)
+        }
+
+        async fn checksum_by_owner_keys(
+            &self,
+            owner_keys: &[String],
+            now: DateTime<Utc>,
+        ) -> Result<(i64, String), StorageError> {
+            let m = self.secrets.lock().unwrap();
+            let mut ids: Vec<&str> = m
+                .values()
+                .filter(|s| owner_keys.contains(&s.owner_key) && s.expires_at > now)
+                .map(|s| s.id.as_str())
+                .collect();
+            ids.sort();
+            let count = ids.len() as i64;
+            if ids.is_empty() {
+                return Ok((0, String::new()));
+            }
+            let joined = ids.join(",");
+            let mut hasher = std::hash::DefaultHasher::new();
+            std::hash::Hash::hash(&joined, &mut hasher);
+            let checksum = format!("{:016x}", std::hash::Hasher::finish(&hasher));
+            Ok((count, checksum))
         }
     }
 
@@ -3560,5 +3628,114 @@ mod tests {
             let resp = app.clone().oneshot(req).await.expect("response");
             assert_eq!(resp.status(), StatusCode::OK, "SPA route {path} should serve index");
         }
+    }
+
+    // ── Secrets check endpoint tests ──────────────────────
+
+    #[tokio::test]
+    async fn secrets_check_requires_auth() {
+        let state = test_state();
+        let resp = handle_secrets_check_entry(
+            State(state),
+            Request::builder()
+                .method("GET")
+                .uri("/api/v1/secrets/check")
+                .body(Body::empty())
+                .expect("request"),
+        )
+        .await;
+        assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
+    }
+
+    #[tokio::test]
+    async fn secrets_check_returns_count_and_checksum() {
+        let (state, token, _user_id, prefix) = test_state_with_session().await;
+        let owner_key = format!("apikey:{prefix}");
+
+        create_test_secret(&state, &owner_key, "chk1").await;
+        create_test_secret(&state, &owner_key, "chk2").await;
+
+        let resp = handle_secrets_check_entry(
+            State(state),
+            authed_get("/api/v1/secrets/check", &token),
+        )
+        .await;
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body: serde_json::Value =
+            serde_json::from_str(&response_text(resp).await).expect("json");
+        assert_eq!(body["count"], 2);
+        assert!(body["checksum"].as_str().unwrap().len() > 0);
+    }
+
+    #[tokio::test]
+    async fn secrets_check_changes_on_mutation() {
+        let (state, token, _user_id, prefix) = test_state_with_session().await;
+        let owner_key = format!("apikey:{prefix}");
+
+        create_test_secret(&state, &owner_key, "mut1").await;
+
+        let resp1 = handle_secrets_check_entry(
+            State(state.clone()),
+            authed_get("/api/v1/secrets/check", &token),
+        )
+        .await;
+        let body1: serde_json::Value =
+            serde_json::from_str(&response_text(resp1).await).expect("json");
+        let cs1 = body1["checksum"].as_str().unwrap().to_string();
+
+        // Burn the secret
+        state.secrets.burn("mut1", &owner_key).await.expect("burn");
+
+        let resp2 = handle_secrets_check_entry(
+            State(state),
+            authed_get("/api/v1/secrets/check", &token),
+        )
+        .await;
+        let body2: serde_json::Value =
+            serde_json::from_str(&response_text(resp2).await).expect("json");
+        let cs2 = body2["checksum"].as_str().unwrap().to_string();
+
+        assert_ne!(cs1, cs2, "checksum should change after burning a secret");
+        assert_eq!(body2["count"], 0);
+    }
+
+    #[tokio::test]
+    async fn secrets_check_only_shows_own() {
+        let (state, _token_a, _user_a, prefix_a) = test_state_with_session().await;
+        let owner_key_a = format!("apikey:{prefix_a}");
+        create_test_secret(&state, &owner_key_a, "own1").await;
+        create_test_secret(&state, &owner_key_a, "own2").await;
+
+        // Create user B
+        let user_b = state
+            .auth_store
+            .create_user("bob")
+            .await
+            .expect("create user b");
+        let (token_b, _) = issue_session_token(&state, user_b.id)
+            .await
+            .expect("session b");
+        let key_b = ApiKeyRecord {
+            id: 0,
+            prefix: "bobchk01".into(),
+            auth_hash: "x".repeat(64),
+            scopes: String::new(),
+            user_id: Some(user_b.id),
+            created_at: Utc::now(),
+            revoked_at: None,
+        };
+        state.api_keys.insert(key_b).await.expect("insert key b");
+
+        // User B should see 0 secrets
+        let resp = handle_secrets_check_entry(
+            State(state),
+            authed_get("/api/v1/secrets/check", &token_b),
+        )
+        .await;
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body: serde_json::Value =
+            serde_json::from_str(&response_text(resp).await).expect("json");
+        assert_eq!(body["count"], 0);
+        assert_eq!(body["checksum"], "");
     }
 }

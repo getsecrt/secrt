@@ -157,6 +157,9 @@ impl SecretsStore for ErrStore {
     async fn burn_all_by_owner_keys(&self, _owner_keys: &[String]) -> Result<i64, StorageError> {
         Err(StorageError::Other("error".into()))
     }
+    async fn checksum_by_owner_keys(&self, _owner_keys: &[String], _now: DateTime<Utc>) -> Result<(i64, String), StorageError> {
+        Err(StorageError::Other("error".into()))
+    }
 }
 
 #[async_trait]

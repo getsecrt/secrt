@@ -191,6 +191,11 @@ pub trait SecretsStore: Send + Sync {
         &self,
         owner_keys: &[String],
     ) -> Result<i64, StorageError>;
+    async fn checksum_by_owner_keys(
+        &self,
+        owner_keys: &[String],
+        now: DateTime<Utc>,
+    ) -> Result<(i64, String), StorageError>;
 }
 
 #[async_trait]
@@ -337,6 +342,14 @@ where
         owner_keys: &[String],
     ) -> Result<i64, StorageError> {
         (**self).burn_all_by_owner_keys(owner_keys).await
+    }
+
+    async fn checksum_by_owner_keys(
+        &self,
+        owner_keys: &[String],
+        now: DateTime<Utc>,
+    ) -> Result<(i64, String), StorageError> {
+        (**self).checksum_by_owner_keys(owner_keys, now).await
     }
 }
 

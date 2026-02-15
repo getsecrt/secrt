@@ -352,6 +352,29 @@ impl SecretsStore for PgStore {
             .await?;
         Ok(n as i64)
     }
+
+    async fn checksum_by_owner_keys(
+        &self,
+        owner_keys: &[String],
+        now: DateTime<Utc>,
+    ) -> Result<(i64, String), StorageError> {
+        if owner_keys.is_empty() {
+            return Ok((0, String::new()));
+        }
+        let client = self.pool.get().await?;
+        let row = client
+            .query_one(
+                "SELECT COUNT(*), \
+                        COALESCE(md5(string_agg(id, ',' ORDER BY id)), '') \
+                 FROM secrets \
+                 WHERE owner_key = ANY($1) AND expires_at > $2",
+                &[&owner_keys, &now],
+            )
+            .await?;
+        let count: i64 = row.try_get(0)?;
+        let checksum: String = row.try_get(1)?;
+        Ok((count, checksum))
+    }
 }
 
 #[cfg(test)]
