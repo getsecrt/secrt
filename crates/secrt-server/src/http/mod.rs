@@ -728,29 +728,31 @@ pub async fn handle_secrets_entry(
 }
 
 async fn handle_create_authed(state: Arc<AppState>, req: Request) -> Response {
-    let raw_key = api_key_from_headers(req.headers());
-    let api_key = match require_api_key(&state, raw_key).await {
-        Ok(k) => k,
-        Err(resp) => return resp,
-    };
+    // Try session auth first, then fall back to API key auth.
+    let (owner_key, rate_key) =
+        if let Ok((user_id, _, _)) = require_session_user(&state, req.headers()).await {
+            let uid = user_id.to_string();
+            (format!("user:{uid}"), format!("user:{uid}"))
+        } else {
+            let raw_key = api_key_from_headers(req.headers());
+            let api_key = match require_api_key(&state, raw_key).await {
+                Ok(k) => k,
+                Err(resp) => return resp,
+            };
+            let prefix = &api_key.prefix;
+            (format!("apikey:{prefix}"), format!("apikey:{prefix}"))
+        };
 
-    if !state
-        .api_limiter
-        .allow(&format!("apikey:{}", api_key.prefix))
-    {
+    if !state.api_limiter.allow(&rate_key) {
         return rate_limited();
     }
 
-    create_secret(
-        state.clone(),
-        req,
-        true,
-        format!("apikey:{}", api_key.prefix),
-    )
-    .await
+    create_secret(state.clone(), req, true, owner_key).await
 }
 
-/// Resolve owner_keys for a user: "apikey:{prefix}" for each unrevoked key.
+/// Resolve owner_keys for a user: "user:{id}" plus "apikey:{prefix}" for each
+/// unrevoked key. This lets listing/burn find secrets created via either session
+/// or API key.
 async fn owner_keys_for_user(
     state: &Arc<AppState>,
     user_id: UserId,
@@ -760,11 +762,13 @@ async fn owner_keys_for_user(
         .list_by_user_id(user_id)
         .await
         .map_err(|_| internal_server_error())?;
-    Ok(keys
-        .iter()
-        .filter(|k| k.revoked_at.is_none())
-        .map(|k| format!("apikey:{}", k.prefix))
-        .collect())
+    let mut owner_keys = vec![format!("user:{user_id}")];
+    owner_keys.extend(
+        keys.iter()
+            .filter(|k| k.revoked_at.is_none())
+            .map(|k| format!("apikey:{}", k.prefix)),
+    );
+    Ok(owner_keys)
 }
 
 async fn handle_list_secrets(
@@ -1512,15 +1516,13 @@ pub async fn handle_delete_account_entry(
         Err(resp) => return resp,
     };
 
-    // 1. Get all user's API key owner_keys (including revoked, for cleanup)
+    // 1. Get all user's owner_keys (including revoked API keys, for cleanup)
     let all_keys = match state.api_keys.list_by_user_id(user_id).await {
         Ok(v) => v,
         Err(_) => return internal_server_error(),
     };
-    let owner_keys: Vec<String> = all_keys
-        .iter()
-        .map(|k| format!("apikey:{}", k.prefix))
-        .collect();
+    let mut owner_keys: Vec<String> = vec![format!("user:{user_id}")];
+    owner_keys.extend(all_keys.iter().map(|k| format!("apikey:{}", k.prefix)));
 
     // 2. Burn all owned secrets
     let secrets_burned = match state.secrets.burn_all_by_owner_keys(&owner_keys).await {
@@ -3384,6 +3386,143 @@ mod tests {
         let body: serde_json::Value =
             serde_json::from_str(&response_text(resp_b).await).expect("json");
         assert_eq!(body["total"], 1);
+    }
+
+    // ── Session-authenticated create tests ─────────────────
+
+    /// Build a valid create-secret JSON payload.
+    fn valid_create_payload() -> String {
+        let claim = URL_SAFE_NO_PAD.encode([1u8; 32]);
+        let claim_hash = secrt_core::hash_claim_token(&claim).expect("claim hash");
+        serde_json::json!({
+            "envelope": {"ct":"test"},
+            "claim_hash": claim_hash,
+        })
+        .to_string()
+    }
+
+    /// POST /api/v1/secrets with session token and JSON body.
+    fn authed_create_request(token: &str, payload: &str) -> Request<Body> {
+        Request::builder()
+            .method("POST")
+            .uri("/api/v1/secrets")
+            .header("authorization", format!("Bearer {token}"))
+            .header("content-type", "application/json")
+            .body(Body::from(payload.to_string()))
+            .expect("request")
+    }
+
+    #[tokio::test]
+    async fn session_auth_create_secret_succeeds() {
+        let (state, token, _user_id, _prefix) = test_state_with_session().await;
+        let payload = valid_create_payload();
+
+        let resp = handle_secrets_entry(
+            State(state),
+            Query(ListSecretsQuery {
+                limit: None,
+                offset: None,
+            }),
+            authed_create_request(&token, &payload),
+        )
+        .await;
+        assert_eq!(resp.status(), StatusCode::CREATED);
+        let body: serde_json::Value =
+            serde_json::from_str(&response_text(resp).await).expect("json");
+        assert!(body["id"].as_str().is_some(), "response should contain id");
+    }
+
+    #[tokio::test]
+    async fn session_created_secret_appears_in_listing() {
+        let (state, token, _user_id, _prefix) = test_state_with_session().await;
+        let payload = valid_create_payload();
+
+        // Create via session auth
+        let resp = handle_secrets_entry(
+            State(state.clone()),
+            Query(ListSecretsQuery {
+                limit: None,
+                offset: None,
+            }),
+            authed_create_request(&token, &payload),
+        )
+        .await;
+        assert_eq!(resp.status(), StatusCode::CREATED);
+
+        // List via session auth — should see the secret we just created
+        let resp = handle_secrets_entry(
+            State(state),
+            Query(ListSecretsQuery {
+                limit: None,
+                offset: None,
+            }),
+            authed_get("/api/v1/secrets", &token),
+        )
+        .await;
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body: serde_json::Value =
+            serde_json::from_str(&response_text(resp).await).expect("json");
+        assert_eq!(body["total"], 1);
+    }
+
+    #[tokio::test]
+    async fn session_created_secret_can_be_burned() {
+        let (state, token, user_id, _prefix) = test_state_with_session().await;
+        let owner_key = format!("user:{user_id}");
+        create_test_secret(&state, &owner_key, "sess_secret").await;
+
+        let resp = handle_burn_entry(
+            State(state),
+            Path("sess_secret".into()),
+            authed_post("/api/v1/secrets/sess_secret/burn", &token),
+        )
+        .await;
+        assert_eq!(resp.status(), StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn delete_account_burns_session_created_secrets() {
+        let (state, token, user_id, prefix) = test_state_with_session().await;
+
+        // Create secrets with both owner_key formats
+        create_test_secret(&state, &format!("user:{user_id}"), "sess_owned").await;
+        create_test_secret(&state, &format!("apikey:{prefix}"), "key_owned").await;
+
+        let resp = handle_delete_account_entry(
+            State(state.clone()),
+            authed_delete("/api/v1/auth/account", &token),
+        )
+        .await;
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body: serde_json::Value =
+            serde_json::from_str(&response_text(resp).await).expect("json");
+        assert_eq!(body["ok"], true);
+        assert_eq!(body["secrets_burned"], 2, "both session and apikey secrets should be burned");
+    }
+
+    #[tokio::test]
+    async fn mixed_ownership_listing_shows_all_secrets() {
+        let (state, token, user_id, prefix) = test_state_with_session().await;
+
+        // Create secrets with both owner_key formats
+        create_test_secret(&state, &format!("user:{user_id}"), "sess1").await;
+        create_test_secret(&state, &format!("user:{user_id}"), "sess2").await;
+        create_test_secret(&state, &format!("apikey:{prefix}"), "key1").await;
+        create_test_secret(&state, "apikey:other_user", "foreign").await; // different owner
+
+        let resp = handle_secrets_entry(
+            State(state),
+            Query(ListSecretsQuery {
+                limit: None,
+                offset: None,
+            }),
+            authed_get("/api/v1/secrets", &token),
+        )
+        .await;
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body: serde_json::Value =
+            serde_json::from_str(&response_text(resp).await).expect("json");
+        assert_eq!(body["total"], 3, "should see session + apikey secrets, not foreign");
     }
 
     // ── SPA route tests ────────────────────────────────────
