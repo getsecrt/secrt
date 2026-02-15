@@ -6,6 +6,37 @@ All notable changes to the secrt monorepo are documented here. Individual crate 
 - [secrt-core](crates/secrt-core/CHANGELOG.md)
 - [secrt-server](crates/secrt-server/CHANGELOG.md)
 
+## 0.9.0 — 2026-02-14
+
+### Added
+
+- **Secrets check endpoint:** `GET /api/v1/secrets/check` returns count + opaque checksum for lightweight dashboard change-detection polling.
+- **Dashboard live polling:** dashboard polls the check endpoint every 4 seconds and auto-refreshes on changes.
+
+### Changed
+
+- **Settings page redesign:** centered headings, clearer API key creation success state, destructive-subtle button style for revoke, polished delete-account confirmation flow.
+- **Dashboard page size:** increased from 5 to 10 secrets per page.
+- **Spec updates:** documented session auth, list/check endpoints, API key list/revoke, account deletion, and owner key types.
+
+## 0.8.0 — 2026-02-14
+
+### Added
+
+- **Dashboard page:** authenticated users can view their secrets with status, expiry, and burn controls.
+- **Settings page:** account management with display name editing and account deletion.
+- **Open Graph and Twitter Card meta tags** for rich link previews when sharing secrt.ca URLs.
+
+### Changed
+
+- **Nav bar overhaul:** popover user menu with avatar, display name, dashboard/settings links, and logout.
+- **Session token auth for secret creation:** authenticated web users can now create secrets using their session token (not just API keys).
+
+### Fixed
+
+- **Friendly passkey login errors:** "unknown credential" server errors now show a user-friendly explanation instead of the raw error string.
+- **OG tags in fallback HTML:** secret pages now include proper Open Graph meta tags even when no SPA frontend is built.
+
 ## 0.7.0 — 2026-02-14
 
 ### Added

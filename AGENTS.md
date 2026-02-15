@@ -13,11 +13,14 @@ secrt/
 │   ├── secrt-core/             # shared: crypto, envelope types, TTL, URL, API traits
 │   │   └── src/
 │   │       ├── lib.rs          # re-exports
+│   │       ├── api.rs          # CreateRequest/Response, ClaimRequest/Response, SecretApi trait
+│   │       ├── apikey.rs       # API key v2 derivation and validation
 │   │       ├── crypto.rs       # seal(), open(), HKDF, PBKDF2, AES-GCM
-│   │       ├── types.rs        # Envelope, EncBlock, HkdfBlock, KDF types, errors
+│   │       ├── payload.rs      # sealed payload frame encoding/decoding
+│   │       ├── server.rs       # server-shared logic
 │   │       ├── ttl.rs          # parse_ttl()
-│   │       ├── url.rs          # parse_share_url(), format_share_link()
-│   │       └── api.rs          # CreateRequest/Response, ClaimRequest/Response, SecretApi trait
+│   │       ├── types.rs        # Envelope, EncBlock, HkdfBlock, KDF types, errors
+│   │       └── url.rs          # parse_share_url(), format_share_link()
 │   ├── secrt-cli/              # CLI binary (`secrt`)
 │   │   ├── AGENTS.md           # CLI-specific notes
 │   │   └── src/
@@ -45,8 +48,8 @@ secrt/
         ├── cli.md              # CLI interface and TTL grammar
         ├── server.md           # server runtime behavior
         ├── openapi.yaml        # OpenAPI 3.1 schema
-        ├── envelope.vectors.json   # crypto test vectors (7 vectors)
-        └── cli.vectors.json    # TTL test vectors (17 valid + 17 invalid)
+        ├── envelope.vectors.json   # crypto test vectors (5 vectors)
+        └── cli.vectors.json    # TTL test vectors (17 valid + 18 invalid)
 ```
 
 ## Security non-negotiables

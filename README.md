@@ -39,8 +39,8 @@ Server releases use separate tags (`server/v*`). Download from the [latest serve
 
 | Platform | Download |
 |----------|----------|
-| Linux x64 | [secrt-server-linux-amd64](https://github.com/getsecrt/secrt/releases/download/server%2Fv0.5.0/secrt-server-linux-amd64) |
-| Linux ARM64 | [secrt-server-linux-arm64](https://github.com/getsecrt/secrt/releases/download/server%2Fv0.5.0/secrt-server-linux-arm64) |
+| Linux x64 | [secrt-server-linux-amd64](https://github.com/getsecrt/secrt/releases/download/server%2Fv0.9.0/secrt-server-linux-amd64) |
+| Linux ARM64 | [secrt-server-linux-arm64](https://github.com/getsecrt/secrt/releases/download/server%2Fv0.9.0/secrt-server-linux-arm64) |
 
 ## Quick start
 
@@ -50,6 +50,9 @@ echo "s3cret-password" | secrt send
 
 # Claim a secret
 secrt get https://secrt.ca/s/abc123#key...
+
+# Or just paste the URL directly (implicit get)
+secrt https://secrt.ca/s/abc123#key...
 
 # Generate and share a password
 secrt send gen --ttl 1h

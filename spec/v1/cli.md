@@ -1,6 +1,6 @@
 # CLI Specification (v1)
 
-Status: Draft v1 (normative for CLI interoperability once accepted)
+Status: Active (normative for CLI interoperability)
 
 This document defines a v1-compatible CLI for `secrt.ca`.
 

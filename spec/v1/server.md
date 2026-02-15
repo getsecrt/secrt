@@ -43,10 +43,10 @@ On startup, the server:
 
 HTTP server timeouts:
 
-- `ReadHeaderTimeout`: 5s
-- `ReadTimeout`: 15s
-- `WriteTimeout`: 15s
-- `IdleTimeout`: 60s
+- `read_header_timeout`: 5s
+- `request_timeout`: 15s
+- `write_timeout`: 15s
+- `idle_timeout`: 60s
 
 On shutdown, the server performs graceful HTTP shutdown with a 10s timeout.
 
@@ -54,15 +54,14 @@ On shutdown, the server performs graceful HTTP shutdown with a 10s timeout.
 
 Runtime database is Postgres (via `tokio-postgres` + `deadpool-postgres`).
 
-Connection pool settings:
+Connection pool settings (`deadpool-postgres`):
 
-- max open conns: 10
-- max idle conns: 10
+- max size: 10
 - conn max lifetime: 30m
 
 Primary tables:
 
-- `secrets(id, claim_hash, envelope, expires_at, created_at, owner_key)`
+- `secrets(id, claim_hash, envelope, expires_at, created_at, owner_key, meta_key_version SMALLINT, enc_meta JSONB)`
 - `api_keys(id, key_prefix, auth_hash, scopes, user_id, created_at, revoked_at)`
 - `users(id UUIDv7, display_name, created_at)`
 - `passkeys(id, user_id, credential_id, public_key, sign_count, created_at, revoked_at)`
@@ -79,8 +78,11 @@ Indexes:
 
 - `secrets_expires_at_idx` for expiry-related queries
 - `secrets_owner_key_idx` for owner-scoped usage queries
-- `api_key_registrations_user_created_idx` for account window quotas
-- `api_key_registrations_ip_created_idx` for IP window quotas
+- `passkeys_user_id_idx` on passkeys (user_id, revoked_at)
+- `sessions_user_id_idx` on sessions (user_id, expires_at)
+- `webauthn_challenges_purpose_idx` on webauthn_challenges (purpose, expires_at)
+- `apikey_regs_user_created_idx` for account window quotas
+- `apikey_regs_ip_created_idx` for IP window quotas
 
 ## 4. Middleware and Request Processing
 
@@ -234,7 +236,7 @@ Limiter implementation is an in-memory token bucket keyed by string.
 
 **Privacy:** Rate limiter keys are HMAC-SHA256 hashed with a per-process random key before use as map keys. Raw client IPs never appear in process memory data structures.
 
-**Garbage collection:** A background goroutine sweeps stale buckets every 2 minutes, evicting any bucket idle for more than 10 minutes. This bounds memory growth and limits the window during which any IP-derived data exists in memory.
+**Garbage collection:** A background Tokio task sweeps stale buckets every 2 minutes, evicting any bucket idle for more than 10 minutes. This bounds memory growth and limits the window during which any IP-derived data exists in memory.
 
 Configured limits:
 
@@ -364,7 +366,7 @@ Properties:
 
 ## 13. Background Expired-Secret Reaper
 
-A best-effort cleanup goroutine runs every 5 minutes:
+A best-effort cleanup Tokio task runs every 5 minutes:
 
 - Calls storage `delete_expired(nowUTC)` with a 10s timeout.
 - Deletes:

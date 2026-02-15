@@ -112,11 +112,20 @@ paths:
               $ref: "#/components/schemas/CreateSecretRequest"
             example:
               envelope:
-                ct: "base64-encoded-ciphertext"
-                nonce: "base64-encoded-nonce"
+                v: 1
+                suite: "v1-pbkdf2-hkdf-aes256gcm-sealed-payload"
+                enc:
+                  alg: "A256GCM"
+                  nonce: "<base64url, 12 bytes>"
+                  ciphertext: "<base64url, ciphertext + 16-byte GCM tag>"
                 kdf:
-                  alg: "PBKDF2"
-                  iterations: 600000
+                  name: "none"
+                hkdf:
+                  hash: "SHA-256"
+                  salt: "<base64url, 32 bytes>"
+                  enc_info: "secrt:v1:enc:sealed-payload"
+                  claim_info: "secrt:v1:claim:sealed-payload"
+                  length: 32
               claim_hash: "dGhpcyBpcyBhIGJhc2U2NHVybCBoYXNo"
               ttl_seconds: 86400
       responses:

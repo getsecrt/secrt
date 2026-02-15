@@ -76,7 +76,7 @@ secrt gen
 secrt send gen --ttl 1h
 
 # Burn a secret (requires API key)
-secrt burn abc123 --api-key sk_prefix.secret
+secrt burn abc123 --api-key sk2_abcdef.AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
 ```
 
 ## Commands
@@ -101,6 +101,7 @@ Reads the secret interactively on a TTY, or from **stdin** when piped. Use `--te
 | `-p`, `--passphrase-prompt` | Interactively prompt for a passphrase             |
 | `--passphrase-env <name>`   | Read passphrase from an environment variable      |
 | `--passphrase-file <path>`  | Read passphrase from a file                       |
+| `-n`, `--no-passphrase`     | Skip configured default passphrase                |
 | `--json`                    | Output as JSON                                    |
 | `--silent`                  | Suppress status output                            |
 
@@ -148,6 +149,8 @@ If the secret is passphrase-protected and a TTY is attached, `get` automatically
 | `-p`, `--passphrase-prompt` | Prompt for the passphrase                    |
 | `--passphrase-env <name>`   | Read passphrase from an environment variable |
 | `--passphrase-file <path>`  | Read passphrase from a file                  |
+| `-n`, `--no-passphrase`     | Skip configured passphrases                  |
+| `-o`, `--output <path>`     | Write decrypted output to a file (`-` for stdout) |
 | `--json`                    | Output as JSON                               |
 | `--silent`                  | Suppress status output                       |
 
@@ -183,10 +186,10 @@ secrt burn <id-or-url> [options]
 
 ```sh
 # Burn by ID
-secrt burn abc123 --api-key sk_prefix.secret
+secrt burn abc123 --api-key sk2_abcdef.AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
 
 # Burn by share URL
-secrt burn https://secrt.ca/s/abc123#key... --api-key sk_prefix.secret
+secrt burn https://secrt.ca/s/abc123#key... --api-key sk2_abcdef.AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
 ```
 
 ### `gen` — Generate a random password
@@ -278,7 +281,7 @@ Settings can be persisted in a TOML config file so you don't need to pass flags 
 
 ```toml
 # API key for authenticated access (send, burn)
-api_key = "sk_live_abc123"
+api_key = "sk2_abcdef.AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
 
 # Custom server URL (default: https://secrt.ca)
 base_url = "https://my-secrt-server.example.com"

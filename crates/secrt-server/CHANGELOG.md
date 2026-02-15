@@ -113,7 +113,7 @@
 - **Secret reaper** — background task that deletes expired secrets on a configurable interval.
 - **Admin CLI** (`secrt-admin`) — API key management (create, revoke, list).
 - **Privacy-aware logging** — `X-Privacy-Log` header check, IP hashing for owner keys, truncated IP support.
-- **Security headers** — `X-Content-Type-Options`, `Referrer-Policy`, `X-Frame-Options`, `X-Robots-Tag` on all responses.
+- **Security headers** — `X-Content-Type-Options`, `Referrer-Policy`, `X-Frame-Options` on all responses; `X-Robots-Tag` on `/s/{id}` route.
 - **Request middleware** — request ID generation, timing, cache-control defaults.
 - **Placeholder HTML pages** for `/` and `/s/{id}` routes.
 - **`/healthz` endpoint** for health checks.

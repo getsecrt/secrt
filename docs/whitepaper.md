@@ -315,7 +315,7 @@ Rate limiting uses in-memory token buckets with HMAC-hashed keys (raw IPs never 
 |----------|------|-------|-----|
 | Public secret creation | 0.5 rps | 6 | HMAC(client IP) |
 | Secret claiming | 1.0 rps | 10 | HMAC(client IP) |
-| Authenticated creation | 2.0 rps | 20 | API key prefix |
+| Authenticated creation | 2.0 rps | 20 | `user:<uuid>` (session) or `apikey:<prefix>` (API key) |
 | API key registration | 0.5 rps | 6 | HMAC(client IP) |
 
 All rate limits are configurable per deployment.
@@ -442,8 +442,8 @@ The protocol is defined by a versioned specification at [`spec/v1/`](https://git
 
 **Test vectors are mandatory.** The specification includes:
 
-- **7 cryptographic test vectors** ([`envelope.vectors.json`](https://github.com/getsecrt/secrt/blob/main/spec/v1/envelope.vectors.json)) covering text with and without passphrase, file metadata encryption, compression, and pre-compressed file detection.
-- **34 TTL parsing vectors** ([`cli.vectors.json`](https://github.com/getsecrt/secrt/blob/main/spec/v1/cli.vectors.json)) — 17 valid and 17 invalid inputs.
+- **5 cryptographic test vectors** ([`envelope.vectors.json`](https://github.com/getsecrt/secrt/blob/main/spec/v1/envelope.vectors.json)) covering text with and without passphrase, file metadata encryption, compression, and pre-compressed file detection.
+- **35 TTL parsing vectors** ([`cli.vectors.json`](https://github.com/getsecrt/secrt/blob/main/spec/v1/cli.vectors.json)) — 17 valid and 18 invalid inputs.
 - **API key derivation vectors** ([`apikey.vectors.json`](https://github.com/getsecrt/secrt/blob/main/spec/v1/apikey.vectors.json)) for v2 key format.
 
 Every implementation — Rust CLI, Rust server, TypeScript web client — must pass all test vectors. When spec and code disagree, code is fixed to match the spec (or the spec is updated first with rationale, then code is updated in the same changeset).
@@ -617,6 +617,8 @@ See: [`crates/secrt-server/migrations/001_initial.sql`](https://github.com/getse
 | `expires_at` | TIMESTAMPTZ | When the secret expires |
 | `created_at` | TIMESTAMPTZ | Creation timestamp |
 | `owner_key` | TEXT | `ip:<hmac_hash>` or `apikey:<prefix>` — for quota enforcement only |
+| `meta_key_version` | SMALLINT | Reserved for future encrypted metadata key versioning (nullable) |
+| `enc_meta` | JSONB | Reserved for future encrypted metadata (nullable) |
 
 **`users`** — Minimal account records (id, display_name, created_at). No PII collected.
 
