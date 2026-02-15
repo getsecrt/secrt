@@ -14,6 +14,7 @@ import type {
   ListSecretsResponse,
   ListApiKeysResponse,
   DeleteAccountResponse,
+  SecretsCheckResponse,
 } from '../types';
 
 type ApiErrorBody = { error?: string };
@@ -201,6 +202,20 @@ export async function listSecrets(
 ): Promise<ListSecretsResponse> {
   return requestJson<ListSecretsResponse>(
     `/api/v1/secrets?limit=${limit}&offset=${offset}`,
+    {
+      method: 'GET',
+      headers: { authorization: `Bearer ${token}` },
+    },
+    signal,
+  );
+}
+
+export async function checkSecrets(
+  token: string,
+  signal?: AbortSignal,
+): Promise<SecretsCheckResponse> {
+  return requestJson<SecretsCheckResponse>(
+    '/api/v1/secrets/check',
     {
       method: 'GET',
       headers: { authorization: `Bearer ${token}` },

@@ -1,13 +1,14 @@
 import {
   useState,
   useEffect,
+  useLayoutEffect,
   useCallback,
   useRef,
   useMemo,
 } from 'preact/hooks';
 import { AuthGuard } from '../../components/AuthGuard';
 import { useAuth } from '../../lib/auth-context';
-import { listSecrets, burnSecretAuthed } from '../../lib/api';
+import { listSecrets, checkSecrets, burnSecretAuthed } from '../../lib/api';
 import {
   FireIcon,
   LockIcon,
@@ -19,7 +20,7 @@ import {
 import { navigate } from '../../router';
 import type { SecretMetadata } from '../../types';
 
-const PAGE_SIZE = 5;
+const PAGE_SIZE = 10;
 const FETCH_LIMIT = 20_000;
 
 type SortColumn = 'created_at' | 'expires_at' | 'ciphertext_size';
@@ -43,20 +44,12 @@ function timeRemaining(expiresAt: string, now: number) {
         {ss}
       </>
     );
-  if (hrs > 0)
-    return (
-      <>
-        {hrs}:{pad(mins)}
-        {ss}
-      </>
-    );
-  if (mins > 0)
-    return (
-      <>
-        {mins}:{pad(secs)}
-      </>
-    );
-  return <>0:{pad(secs)}</>;
+  return (
+    <>
+      {hrs}:{pad(mins)}
+      {ss}
+    </>
+  );
 }
 
 function formatDate(iso: string): string {
@@ -104,8 +97,8 @@ function BurnPopover({
   const [open, setOpen] = useState(false);
   const popoverRef = useRef<HTMLDivElement>(null);
 
-  // Position and show the popover once it mounts
-  useEffect(() => {
+  // Position and show the popover before first paint
+  useLayoutEffect(() => {
     const popover = popoverRef.current;
     const trigger = triggerRef.current;
     if (!open || !popover || !trigger) return;
@@ -133,7 +126,7 @@ function BurnPopover({
       <button
         ref={triggerRef}
         type="button"
-        class="flex items-center gap-1 rounded-md border border-transparent px-1 py-0.5 text-error/50 hover:border-error hover:bg-error/10 hover:text-error"
+        class="btn-destructive-subtle"
         onClick={() => setOpen(true)}
       >
         <FireIcon class="size-4" />
@@ -207,6 +200,29 @@ function DashboardContent() {
   useEffect(() => {
     fetchSecrets();
   }, [fetchSecrets]);
+
+  // Poll for changes via lightweight checksum endpoint
+  const lastChecksum = useRef<string>('');
+  useEffect(() => {
+    if (!auth.sessionToken) return;
+    const controller = new AbortController();
+    const id = setInterval(async () => {
+      if (loading) return;
+      try {
+        const res = await checkSecrets(auth.sessionToken!, controller.signal);
+        if (res.checksum !== lastChecksum.current) {
+          lastChecksum.current = res.checksum;
+          fetchSecrets();
+        }
+      } catch {
+        // Silently ignore poll errors (network blips, unmount abort)
+      }
+    }, 4000);
+    return () => {
+      clearInterval(id);
+      controller.abort();
+    };
+  }, [auth.sessionToken, loading, fetchSecrets]);
 
   const sorted = useMemo(() => {
     const copy = [...allSecrets];

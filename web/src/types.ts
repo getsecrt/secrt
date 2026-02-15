@@ -166,3 +166,8 @@ export interface DeleteAccountResponse {
   secrets_burned: number;
   keys_revoked: number;
 }
+
+export interface SecretsCheckResponse {
+  count: number;
+  checksum: string;
+}
