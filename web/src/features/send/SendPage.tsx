@@ -306,8 +306,9 @@ export function SendPage() {
         onDragOver={handlePageDragOver}
       >
         <p class="text-center text-sm text-muted">
-          Add secret text or a file below. The data is encrypted in your browser
-          and the server can never see the original message.
+          Add a secret message or file. The data is encrypted in your browser.
+          <br />
+          The server never sees the original message.
         </p>
 
         {/* Content input */}

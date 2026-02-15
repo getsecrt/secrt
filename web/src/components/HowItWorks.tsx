@@ -7,8 +7,8 @@ export function HowItWorks() {
   };
 
   return (
-    <details class="group rounded-lg border border-border bg-surface px-4 py-3">
-      <summary class="cursor-pointer select-none text-sm font-medium text-muted hover:text-text">
+    <details class="group card">
+      <summary class="cursor-pointer text-sm font-medium text-muted select-none hover:text-text">
         How does secrt keep my data safe?
       </summary>
       <div class="mt-3 space-y-2 text-sm text-muted">

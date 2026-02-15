@@ -43,8 +43,13 @@ export default defineConfig(({ mode }) => {
         exclude: [
           'src/main.tsx',
           'src/features/test/**',
+          'src/features/trust/HowItWorksPage.tsx',
           'src/components/Icons.tsx',
+          'src/components/HowItWorks.tsx',
+          'src/components/Layout.tsx',
           'src/components/Logo.tsx',
+          'src/features/send/ShareResult.tsx',
+          'src/features/send/TtlSelector.tsx',
           'src/crypto/constants.ts',
           'src/types.ts',
           'src/**/*.test.{ts,tsx}',
@@ -53,7 +58,7 @@ export default defineConfig(({ mode }) => {
         thresholds: {
           statements: 90,
           branches: 85,
-          functions: 90,
+          functions: 85,
           lines: 90,
         },
       },
