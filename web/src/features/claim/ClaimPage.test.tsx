@@ -146,20 +146,16 @@ describe('ClaimPage', () => {
     });
   });
 
-  it('content hidden by default (dots), revealed on click', async () => {
+  it('secret text visible immediately in a readonly textarea', async () => {
     setHash(fakeFragment);
     render(<ClaimPage id="test123" />);
     await waitFor(() => {
       expect(screen.getByText('Secret Decrypted')).toBeInTheDocument();
     });
 
-    // Should show dots initially (not the actual text)
-    expect(screen.queryByText('hello secret')).not.toBeInTheDocument();
-
-    // Click reveal button
-    const user = userEvent.setup();
-    await user.click(screen.getByLabelText('Show secret'));
-    expect(screen.getByText('hello secret')).toBeInTheDocument();
+    const textarea = screen.getByDisplayValue('hello secret');
+    expect(textarea).toBeInTheDocument();
+    expect(textarea).toHaveAttribute('readonly');
   });
 
   it('copy button present with "Copy secret" label', async () => {
@@ -187,7 +183,7 @@ describe('ClaimPage', () => {
     await waitFor(() => {
       expect(screen.getByText('Secret Decrypted')).toBeInTheDocument();
     });
-    await user.click(screen.getByText('Create a new secret'));
+    await user.click(screen.getByText('Create a New Secret'));
     expect(mockNavigate).toHaveBeenCalledWith('/');
   });
 

@@ -404,7 +404,7 @@ export function TestClaimPage() {
           </div>
         )}
 
-        <p class="text-center text-xs text-muted">
+        <p class="text-center text-sm text-muted">
           This secret has been permanently deleted from the server.
         </p>
 

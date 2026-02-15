@@ -47,8 +47,8 @@ export function ClaimPage({ id }: ClaimPageProps) {
   const [passphrase, setPassphrase] = useState('');
   const [showPassphrase, setShowPassphrase] = useState(false);
   const [passphraseError, setPassphraseError] = useState('');
-  const [revealed, setRevealed] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
+  const textareaRef = useRef<HTMLTextAreaElement | null>(null);
 
   const passphraseInputRef = useRef<HTMLInputElement | null>(null);
 
@@ -65,6 +65,16 @@ export function ClaimPage({ id }: ClaimPageProps) {
     if (status.step === 'passphrase') {
       passphraseInputRef.current?.focus();
     }
+  }, [status.step]);
+
+  // Auto-size textarea for browsers without field-sizing: content (Safari)
+  useEffect(() => {
+    const ta = textareaRef.current;
+    if (!ta || status.step !== 'done') return;
+    // Skip if the browser supports field-sizing natively
+    if (CSS.supports('field-sizing', 'content')) return;
+    ta.style.height = 'auto';
+    ta.style.height = `${Math.min(ta.scrollHeight, 256)}px`;
   }, [status.step]);
 
   // Parse fragment and initiate claim on mount
@@ -296,35 +306,20 @@ export function ClaimPage({ id }: ClaimPageProps) {
         ) : (
           /* ── Text result (or placeholder when locked) ── */
           <div class="space-y-3">
-            <div class="relative rounded-md border border-border bg-surface px-3 py-2.5 inset-shadow-sm">
-              {isDone && revealed ? (
-                <pre class="font-mono break-all whitespace-pre-wrap">
-                  {textContent}
-                </pre>
-              ) : (
-                <p class="cursor-pointer font-mono tracking-wider text-muted select-none">
-                  {'\u25CF'.repeat(
-                    isDone
-                      ? Math.min(textContent.length || 12, 40)
-                      : PLACEHOLDER_DOTS,
-                  )}
+            {isDone ? (
+              <textarea
+                ref={textareaRef}
+                readonly
+                class="input [field-sizing:content] max-h-64 w-full resize-y font-mono text-sm break-all whitespace-pre-wrap"
+                value={textContent}
+              />
+            ) : (
+              <div class="rounded-md border border-border bg-surface px-3 py-2.5 inset-shadow-sm">
+                <p class="font-mono tracking-wider text-muted select-none">
+                  {'\u25CF'.repeat(PLACEHOLDER_DOTS)}
                 </p>
-              )}
-              {isDone && (
-                <button
-                  type="button"
-                  class="absolute top-2 right-2 p-1 text-muted hover:text-text"
-                  onClick={() => setRevealed((r) => !r)}
-                  aria-label={revealed ? 'Hide secret' : 'Show secret'}
-                >
-                  {revealed ? (
-                    <EyeSlashIcon class="size-4" />
-                  ) : (
-                    <EyeIcon class="size-4" />
-                  )}
-                </button>
-              )}
-            </div>
+              </div>
+            )}
 
             {isDone && (
               <CopyButton
@@ -337,7 +332,7 @@ export function ClaimPage({ id }: ClaimPageProps) {
           </div>
         )}
 
-        <p class="text-center text-xs text-muted">
+        <p class="text-center text-sm text-muted">
           This secret has been permanently deleted from the server.
         </p>
         <div class="text-center">
