@@ -98,7 +98,7 @@ describe('LoginPage', () => {
     expect(mockNavigate).toHaveBeenCalledWith('/');
   });
 
-  it('shows error when login fails', async () => {
+  it('shows friendly error for unknown credential', async () => {
     const user = userEvent.setup();
     vi.mocked(getPasskeyCredential).mockRejectedValue(
       new Error('unknown credential'),
@@ -107,7 +107,21 @@ describe('LoginPage', () => {
     render(<LoginPage />);
     await user.click(screen.getByText('Log in with Passkey'));
 
-    expect(screen.getByRole('alert')).toHaveTextContent('unknown credential');
+    expect(screen.getByRole('alert')).toHaveTextContent(
+      'This passkey is not recognized',
+    );
+  });
+
+  it('shows raw error for other failures', async () => {
+    const user = userEvent.setup();
+    vi.mocked(getPasskeyCredential).mockRejectedValue(
+      new Error('network error'),
+    );
+
+    render(<LoginPage />);
+    await user.click(screen.getByText('Log in with Passkey'));
+
+    expect(screen.getByRole('alert')).toHaveTextContent('network error');
   });
 
   it('shows cancelled message on NotAllowedError', async () => {

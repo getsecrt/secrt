@@ -13,6 +13,14 @@ type LoginState =
   | { step: 'error'; message: string }
   | { step: 'unsupported' };
 
+/** Map terse server errors to user-friendly messages. */
+function friendlyLoginError(raw: string): string {
+  const lower = raw.toLowerCase();
+  if (lower.includes('unknown credential'))
+    return 'This passkey is not recognized. The account may have been deleted or the passkey is not registered with this server.';
+  return raw;
+}
+
 export function LoginPage() {
   const auth = useAuth();
   const [state, setState] = useState<LoginState>(() =>
@@ -71,10 +79,8 @@ export function LoginPage() {
       if (err instanceof DOMException && err.name === 'NotAllowedError') {
         setState({ step: 'error', message: 'Login was cancelled.' });
       } else {
-        setState({
-          step: 'error',
-          message: err instanceof Error ? err.message : 'Login failed.',
-        });
+        const raw = err instanceof Error ? err.message : 'Login failed.';
+        setState({ step: 'error', message: friendlyLoginError(raw) });
       }
     }
   }, [busy, auth]);
