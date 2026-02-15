@@ -78,7 +78,7 @@ secrt.ca {
         X-Frame-Options           "SAMEORIGIN"
         X-Content-Type-Options    "nosniff"
         Referrer-Policy           "strict-origin-when-cross-origin"
-        Content-Security-Policy   "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; connect-src 'self'; frame-ancestors 'self'"
+        Content-Security-Policy   "default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; connect-src 'self'; frame-ancestors 'self'"
     }
 
     # Reverse proxy to the secrt Rust backend

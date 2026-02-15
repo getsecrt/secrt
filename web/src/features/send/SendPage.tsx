@@ -300,9 +300,6 @@ export function SendPage() {
 
   return (
     <div class="space-y-4">
-      <p class="text-center text-xs text-muted">
-        Private, Zero-Knowledge, One-Time Secret Sharing
-      </p>
       <form
         class="card space-y-6"
         onSubmit={handleSubmit}
@@ -419,7 +416,7 @@ export function SendPage() {
               )}
             </button>
           </div>
-          <p class="text-xs text-faint">
+          <p class="text-center text-xs text-faint">
             {passphrase ? 'The recipient must enter this password' : '\u00A0'}
           </p>
         </div>
