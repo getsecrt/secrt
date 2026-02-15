@@ -139,8 +139,17 @@ The header is an internal signal between the reverse proxy and the application a
 - `GET /healthz`
 - `GET /`
 - `GET /s/{id}`
+- `GET /login`
+- `GET /register`
+- `GET /how-it-works`
+- `GET /dashboard`
+- `GET /settings`
 - `GET /robots.txt`
+- `GET /static/*` (embedded or filesystem assets)
+- `GET /api/v1/info`
 - `POST /api/v1/public/secrets`
+- `GET /api/v1/secrets/check`
+- `GET /api/v1/secrets`
 - `POST /api/v1/secrets`
 - `POST /api/v1/secrets/{id}/claim`
 - `POST /api/v1/secrets/{id}/burn`
@@ -151,14 +160,22 @@ The header is an internal signal between the reverse proxy and the application a
 - `GET /api/v1/auth/session`
 - `POST /api/v1/auth/logout`
 - `POST /api/v1/apikeys/register`
+- `GET /api/v1/apikeys`
+- `POST /api/v1/apikeys/{prefix}/revoke`
+- `DELETE /api/v1/auth/account`
 
 ## 6. Auth and Authorization
 
 Authenticated endpoints:
 
+- `GET /api/v1/secrets`
+- `GET /api/v1/secrets/check`
 - `POST /api/v1/secrets`
 - `POST /api/v1/secrets/{id}/burn`
 - `POST /api/v1/apikeys/register` (session-authenticated)
+- `GET /api/v1/apikeys` (session-authenticated)
+- `POST /api/v1/apikeys/{prefix}/revoke` (session-authenticated)
+- `DELETE /api/v1/auth/account` (session-authenticated)
 
 Credential sources:
 
@@ -179,9 +196,9 @@ Verification model:
 3. Build verifier message:
    - `"secrt-apikey-v2-verifier" || u16be(len(prefix)) || prefix_utf8 || auth_token_bytes`
 4. Compute `HMAC-SHA256(API_KEY_PEPPER, message)` (hex encoded).
-3. Lookup by prefix.
-4. Reject revoked keys.
-5. Constant-time compare stored hash vs computed hash.
+5. Lookup by prefix.
+6. Reject revoked keys.
+7. Constant-time compare stored hash vs computed hash.
 
 Notes:
 
@@ -190,13 +207,16 @@ Notes:
 - API key `scopes` are stored but not currently enforced by runtime handlers.
 - Passkey session tokens use `Authorization: Bearer uss_<sid>.<secret>` and are valid for 24h.
 - Passkey `/finish` handlers in v1 are challenge-id bearer flows: they consume a valid, unexpired `challenge_id` and verify credential linkage, but do not verify WebAuthn signatures.
+- `GET/POST /api/v1/secrets` and `GET /api/v1/secrets/check` try session auth first, then API key fallback.
+- `POST /api/v1/secrets/{id}/burn` tries API key auth first, then session fallback.
 
 ## 7. Ownership and Quota Model
 
 The server tracks an internal `owner_key` for each secret:
 
 - Public create: owner key is `ip:<HMAC-SHA256(client_ip)>`, keyed with a per-process random secret. Raw IPs are **never persisted** to the database.
-- Authenticated create: owner key is `apikey:<prefix>`.
+- Session-authenticated create: owner key is `user:<uuid>`.
+- API-key-authenticated create: owner key is `apikey:<prefix>`.
 
 Because the HMAC key is per-process, public quota tracking resets on server restart. This is acceptable because secrets expire via TTL and the reaper deletes them; a brief window of relaxed quotas after restart is not a meaningful abuse vector.
 
@@ -204,7 +224,7 @@ This owner key drives policy only:
 
 - per-owner active-secret quota checks
 - per-owner active-byte quota checks
-- owner-scoped burn authorization for authenticated secrets
+- owner-scoped list/check/burn authorization for authenticated secrets
 
 Ownership metadata does not affect claim/decrypt semantics. Claim remains bearer-by-token.
 
@@ -220,7 +240,7 @@ Configured limits:
 
 - Public create: `0.5 rps`, burst `6` (about 30/min, burst 6) keyed by client IP hash.
 - Claim: `1.0 rps`, burst `10` keyed by client IP hash.
-- Authenticated create: `2.0 rps`, burst `20` keyed by API key prefix.
+- Authenticated create: `2.0 rps`, burst `20`, keyed by `user:<id>` (session auth) or `apikey:<prefix>` (API key auth).
 - API-key registration: `0.5 rps`, burst `6` keyed by client IP.
 - Burn: no dedicated limiter in v1 (API key auth + owner checks apply).
 
@@ -263,6 +283,22 @@ API-key registration request (`POST /api/v1/apikeys/register`):
   - account: `5/hour`, `20/day`
   - IP: `5/hour`, `20/day`
 
+List request (`GET /api/v1/secrets`):
+
+- Requires auth (session or API key).
+- Query params:
+  - `limit` default `50`, clamped to `1..20000`
+  - `offset` default `0`, clamped to `>= 0`
+- Session auth scope: `user:<id>` plus each unrevoked owned `apikey:<prefix>`.
+- API key scope: only `apikey:<prefix>` for that key.
+
+Secrets check request (`GET /api/v1/secrets/check`):
+
+- Requires auth (session or API key).
+- No body.
+- Same ownership scope rules as `GET /api/v1/secrets`.
+- Returns `{count, checksum}` for lightweight dashboard polling.
+
 Claim request (`POST /api/v1/secrets/{id}/claim`):
 
 - Requires `Content-Type: application/json`
@@ -270,6 +306,18 @@ Claim request (`POST /api/v1/secrets/{id}/claim`):
 - JSON unknown fields rejected
 - Requires non-empty `claim`
 - Invalid claim token encoding/length is treated as `404` to reduce existence leaks
+
+Burn request (`POST /api/v1/secrets/{id}/burn`):
+
+- Requires auth (session or API key).
+- No request body required.
+- API key auth burns only `apikey:<prefix>` owned rows.
+- Session auth attempts `user:<id>` and each unrevoked owned `apikey:<prefix>`.
+
+API key listing/revocation/account deletion:
+
+- `GET /api/v1/apikeys`, `POST /api/v1/apikeys/{prefix}/revoke`, and `DELETE /api/v1/auth/account` require session auth.
+- Revoke returns `400` when key is already revoked.
 
 ## 10. TTL and Expiry Semantics
 
@@ -294,11 +342,14 @@ Properties:
 - Wrong claim token, expired secret, or already-claimed secret all resolve to not found behavior.
 - API returns `404` for all those cases.
 
-## 12. Owner-Scoped Burn
+## 12. Owner-Scoped Authorization
 
-Burn authorization uses authenticated owner keys.
+Burn/list/check authorization uses authenticated owner keys.
 
-- Handler authenticates API key, computes owner key `apikey:<prefix>`, and passes that to storage.
+- List/check handlers try session auth first, then API key fallback.
+- Burn handler tries API key auth first, then session fallback.
+- API key path computes owner key `apikey:<prefix>`.
+- Session path resolves owner keys as `user:<id>` plus unrevoked owned `apikey:<prefix>` keys.
 - Storage delete condition includes both `id` and `owner_key`.
 
 Postgres query shape:
@@ -308,27 +359,32 @@ Postgres query shape:
 Properties:
 
 - API keys can only burn secrets they created.
+- Session users can burn/list/check secrets for their user owner key and their unrevoked API key owner keys.
 - Missing ID and wrong owner are indistinguishable to clients (`404`).
 
 ## 13. Background Expired-Secret Reaper
 
 A best-effort cleanup goroutine runs every 5 minutes:
 
-- Calls `DeleteExpired(nowUTC)` with a 10s context timeout.
-- Deletes rows where `expires_at <= now`.
+- Calls storage `delete_expired(nowUTC)` with a 10s timeout.
+- Deletes:
+  - expired `secrets`
+  - expired `webauthn_challenges`
+  - expired or revoked `sessions`
+  - `api_key_registrations` older than 24 hours
 
 Important:
 
 - Reaper is not required for correctness of one-time claim behavior.
-- Reaper failures are currently ignored (best-effort housekeeping).
+- Reaper failures are logged and ignored (best-effort housekeeping).
 
 ## 14. Error Mapping (Current)
 
 Common responses:
 
 - `400` invalid JSON / field/type/validation issues
-- `401` missing or invalid API key
-- `404` secret not found, expired, already claimed, wrong/invalid claim token, or burn not owned
+- `401` missing or invalid API key/session token
+- `404` secret not found, expired, already claimed, wrong/invalid claim token, or owner mismatch
 - `405` wrong method
 - `413` storage quota exceeded
 - `429` rate limited

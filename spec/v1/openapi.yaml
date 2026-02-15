@@ -8,14 +8,20 @@ info:
 
     ## Authentication
 
-    Authenticated secret endpoints accept v2 wire API keys via either header:
+    v2 wire API keys are accepted via either header:
 
     - `X-API-Key: ak2_<prefix>.<auth_b64>`
     - `Authorization: Bearer ak2_<prefix>.<auth_b64>`
 
-    API-key registration requires passkey session bearer tokens:
+    Session-authenticated endpoints use passkey session bearer tokens:
 
     - `Authorization: Bearer uss_<sid>.<secret>`
+
+    `GET/POST /api/v1/secrets`, `GET /api/v1/secrets/check`, and
+    `POST /api/v1/secrets/{id}/burn` accept either session or API key auth.
+    Runtime auth order:
+    - `/api/v1/secrets` and `/api/v1/secrets/check`: session first, API key fallback
+    - `/api/v1/secrets/{id}/burn`: API key first, session fallback
 
     v1 passkey auth currently uses challenge-id bearer semantics in `/finish`
     endpoints (valid, unexpired `challenge_id` + credential linkage). WebAuthn
@@ -23,7 +29,7 @@ info:
 
     ## Policy Tiers
 
-    | Limit                  | Public (anonymous)    | Authenticated (API key) |
+    | Limit                  | Public (anonymous)    | Authenticated (session/API key) |
     |------------------------|-----------------------|-------------------------|
     | Max envelope size      | 256 KB (configurable) | 1 MB (configurable)     |
     | Max active secrets     | 10 (configurable)     | 1000 (configurable)     |
@@ -132,17 +138,91 @@ paths:
         "500":
           $ref: "#/components/responses/InternalError"
 
+  /api/v1/secrets/check:
+    get:
+      operationId: checkSecrets
+      summary: Check owned secret set checksum
+      description: |
+        Lightweight change-detection endpoint for high-frequency dashboard sync.
+        Returns `count` and an opaque `checksum` for active secrets visible to
+        the current auth scope.
+
+        Uses the same auth scope as `GET /api/v1/secrets`:
+        - session auth: `user:<id>` + unrevoked owned API key owner keys
+        - API key auth: only `apikey:<prefix>` for that key
+      tags: [secrets]
+      security:
+        - sessionBearer: []
+        - apiKey: []
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Count + checksum for owned active secrets
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SecretsCheckResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
   /api/v1/secrets:
+    get:
+      operationId: listSecrets
+      summary: List owned secrets (metadata)
+      description: |
+        Returns metadata for active secrets visible to the current auth scope.
+        Supports session and API key auth.
+
+        Query behavior:
+        - `limit`: default `50`, clamped to `1..20000`
+        - `offset`: default `0`, clamped to `>=0`
+      tags: [secrets]
+      security:
+        - sessionBearer: []
+        - apiKey: []
+        - bearerAuth: []
+      parameters:
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            format: int64
+            minimum: 1
+            maximum: 20000
+            default: 50
+        - name: offset
+          in: query
+          required: false
+          schema:
+            type: integer
+            format: int64
+            minimum: 0
+            default: 0
+      responses:
+        "200":
+          description: Owned secret metadata list
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ListSecretsResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/InternalError"
     post:
       operationId: createAuthedSecret
       summary: Create a secret (authenticated)
       description: |
         Store a client-encrypted envelope for one-time retrieval.
-        Requires API key. Subject to authenticated rate limits and quota tier.
+        Requires session or API key auth and uses authenticated limits.
 
-        Ownership is bound to the authenticated API key prefix.
+        Runtime auth resolution order is session first, then API key fallback.
       tags: [secrets]
       security:
+        - sessionBearer: []
         - apiKey: []
         - bearerAuth: []
       requestBody:
@@ -219,12 +299,15 @@ paths:
       operationId: burnSecret
       summary: Burn a secret (delete without claiming)
       description: |
-        Deletes a secret without returning its envelope. Requires API key.
+        Deletes a secret without returning its envelope.
+        Accepts session or API key auth.
 
-        The API key must own the secret (`owner_key == "apikey:<prefix>"`).
-        Returns 404 for unknown secrets or secrets not owned by the caller.
+        API key auth burns only `owner_key == "apikey:<prefix>"`.
+        Session auth checks `user:<id>` plus unrevoked owned API key owner keys.
+        Returns 404 for unknown secrets or owner mismatches.
       tags: [secrets]
       security:
+        - sessionBearer: []
         - apiKey: []
         - bearerAuth: []
       parameters:
@@ -384,6 +467,8 @@ paths:
                 $ref: "#/components/schemas/BurnResponse"
         "401":
           $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/InternalError"
 
   /api/v1/apikeys/register:
     post:
@@ -417,6 +502,74 @@ paths:
         "500":
           $ref: "#/components/responses/InternalError"
 
+  /api/v1/apikeys:
+    get:
+      operationId: listApiKeys
+      summary: List API keys for current session user
+      tags: [apikeys]
+      security:
+        - sessionBearer: []
+      responses:
+        "200":
+          description: API keys for current user
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ListApiKeysResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /api/v1/apikeys/{prefix}/revoke:
+    post:
+      operationId: revokeApiKey
+      summary: Revoke one API key
+      tags: [apikeys]
+      security:
+        - sessionBearer: []
+      parameters:
+        - $ref: "#/components/parameters/apiKeyPrefix"
+      responses:
+        "200":
+          description: API key revoked
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BurnResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /api/v1/auth/account:
+    delete:
+      operationId: deleteAccount
+      summary: Delete account and owned resources
+      description: |
+        Deletes the current session-authenticated user account.
+        Burns owned secrets, revokes all user API keys, then deletes the user.
+      tags: [auth]
+      security:
+        - sessionBearer: []
+      responses:
+        "200":
+          description: Account deleted and cleanup completed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DeleteAccountResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
 components:
   securitySchemes:
     apiKey:
@@ -439,6 +592,13 @@ components:
       in: path
       required: true
       description: URL-safe base64-encoded secret identifier (server-generated)
+      schema:
+        type: string
+    apiKeyPrefix:
+      name: prefix
+      in: path
+      required: true
+      description: API key prefix
       schema:
         type: string
 
@@ -495,6 +655,56 @@ components:
           format: date-time
           description: Expiration timestamp (RFC 3339, UTC)
 
+    SecretMetadataItem:
+      type: object
+      required: [id, share_url, expires_at, created_at, ciphertext_size, passphrase_protected]
+      properties:
+        id:
+          type: string
+        share_url:
+          type: string
+          format: uri
+        expires_at:
+          type: string
+          format: date-time
+        created_at:
+          type: string
+          format: date-time
+        ciphertext_size:
+          type: integer
+          format: int64
+        passphrase_protected:
+          type: boolean
+
+    ListSecretsResponse:
+      type: object
+      required: [secrets, total, limit, offset]
+      properties:
+        secrets:
+          type: array
+          items:
+            $ref: "#/components/schemas/SecretMetadataItem"
+        total:
+          type: integer
+          format: int64
+        limit:
+          type: integer
+          format: int64
+        offset:
+          type: integer
+          format: int64
+
+    SecretsCheckResponse:
+      type: object
+      required: [count, checksum]
+      properties:
+        count:
+          type: integer
+          format: int64
+        checksum:
+          type: string
+          description: Opaque change-detection value for currently visible active secrets
+
     ClaimSecretRequest:
       type: object
       required:
@@ -524,6 +734,44 @@ components:
         ok:
           type: boolean
           description: Always `true` on success
+
+    ApiKeyListItem:
+      type: object
+      required: [prefix, scopes, created_at]
+      properties:
+        prefix:
+          type: string
+        scopes:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        revoked_at:
+          type: string
+          format: date-time
+          nullable: true
+
+    ListApiKeysResponse:
+      type: object
+      required: [api_keys]
+      properties:
+        api_keys:
+          type: array
+          items:
+            $ref: "#/components/schemas/ApiKeyListItem"
+
+    DeleteAccountResponse:
+      type: object
+      required: [ok, secrets_burned, keys_revoked]
+      properties:
+        ok:
+          type: boolean
+        secrets_burned:
+          type: integer
+          format: int64
+        keys_revoked:
+          type: integer
+          format: int64
 
     PasskeyRegisterStartRequest:
       type: object
@@ -750,7 +998,7 @@ components:
           examples:
             rateLimited:
               value:
-                error: "rate limited"
+                error: "rate limit exceeded; please try again in a few seconds"
             secretLimitExceeded:
               value:
                 error: "secret limit exceeded (max 10 active secrets)"
@@ -792,4 +1040,4 @@ tags:
   - name: auth
     description: Passkey registration/login and browser session management
   - name: apikeys
-    description: API key registration endpoints
+    description: API key registration, listing, and revocation endpoints

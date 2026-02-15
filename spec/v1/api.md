@@ -10,19 +10,19 @@ Server-side runtime behavior (atomic claim semantics, reaper cadence, middleware
 
 ## Content types
 
-- Requests: `Content-Type: application/json`
-- Responses: `application/json` (and `Cache-Control: no-store`)
+- Requests with bodies: `Content-Type: application/json`
+- Responses: `application/json` (default `Cache-Control: no-store` unless overridden)
 
 ## TTL
 
 - Default: **24 hours** (`86400` seconds) when `ttl_seconds` is omitted.
 - API clients MAY set any positive integer `ttl_seconds` up to **1 year** (`31536000` seconds).
-- Frontend UI MAY present opinionated presets, but API validation should not be restricted to those preset values.
-- The wire contract is integer seconds only; CLI input parsing rules (e.g., `5m`, `2h`, `2d`, `1w`) are defined in `spec/v1/cli.md`.
+- Frontend UI MAY present opinionated presets, but API validation is integer seconds, not preset labels.
+- CLI input parsing rules (e.g., `5m`, `2h`, `2d`, `1w`) are defined in `spec/v1/cli.md`.
 
 ## Envelope
 
-`envelope` is an opaque JSON object produced by the client (ciphertext, nonce, KDF params, etc.). The backend treats it as a blob and does not inspect its contents beyond basic validation.
+`envelope` is an opaque JSON object produced by the client (ciphertext, nonce, KDF params, etc.). The backend treats it as a blob and does not inspect its contents beyond basic shape/size validation.
 
 Advisory metadata (`type`, `filename`, `mime`, and similar fields) is encrypted inside the payload frame ciphertext. It MUST NOT be present in plaintext envelope JSON. The server stores the envelope unchanged and cannot read metadata values.
 
@@ -40,7 +40,9 @@ The stored `claim_hash` must match for the claim to succeed.
 
 ## Authentication and Ownership
 
-Authenticated secret endpoints are API-key based and accept only v2 wire credentials:
+### API key credentials
+
+v2 wire API keys are accepted via either header:
 
 - `X-API-Key: ak2_<prefix>.<auth_b64>`
 - `Authorization: Bearer ak2_<prefix>.<auth_b64>`
@@ -60,12 +62,23 @@ Verifier contract:
 - `msg = "secrt-apikey-v2-verifier" || u16be(len(prefix)) || prefix_utf8 || auth_token_bytes`
 - `auth_hash = hex(HMAC_SHA256(API_KEY_PEPPER, msg))`
 
-Legacy `sk_` credentials are not accepted in v1 runtime.
+Legacy `sk_` credentials are not accepted in the v1 runtime.
+
+### Session credentials
+
+Passkey auth issues session bearer tokens:
+
+- `Authorization: Bearer uss_<sid>.<secret>`
+
+Session TTL is fixed at 24h in v1 (no refresh flow).
+
+### Owner keys
 
 Ownership is tracked server-side for policy and management actions:
 
-- Public create (`POST /api/v1/public/secrets`) stores an internal owner key derived from client IP.
-- Authenticated create (`POST /api/v1/secrets`) stores owner key `apikey:<prefix>`.
+- Public create (`POST /api/v1/public/secrets`) stores owner key derived from client IP (`ip:<hmac>`).
+- Session-authenticated create (`POST /api/v1/secrets` with `uss_` token) stores owner key `user:<uuid>`.
+- API-key-authenticated create (`POST /api/v1/secrets` with `ak2_`) stores owner key `apikey:<prefix>`.
 
 Important:
 
@@ -77,7 +90,7 @@ Important:
 The API uses two policy tiers:
 
 - Public (anonymous): stricter limits.
-- Authenticated (API key): higher limits for automation and trusted clients.
+- Authenticated (session or API key): higher limits.
 
 Current server defaults are:
 
@@ -106,37 +119,9 @@ Quota and size failures:
 
 `GET /api/v1/info`
 
-Returns server defaults and per-tier limits. Authentication is optional;
-if a valid API key is provided, `authenticated` is `true`.
+Returns server defaults and per-tier limits. Authentication is optional; if a valid API key is provided, `authenticated` is `true`.
 
 Caching: `Cache-Control: public, max-age=300`
-
-Response (`200`):
-
-```json
-{
-  "authenticated": false,
-  "ttl": {
-    "default_seconds": 86400,
-    "max_seconds": 31536000
-  },
-  "limits": {
-    "public": {
-      "max_envelope_bytes": 262144,
-      "max_secrets": 10,
-      "max_total_bytes": 2097152,
-      "rate": { "requests_per_second": 0.5, "burst": 6 }
-    },
-    "authed": {
-      "max_envelope_bytes": 1048576,
-      "max_secrets": 1000,
-      "max_total_bytes": 20971520,
-      "rate": { "requests_per_second": 2.0, "burst": 20 }
-    }
-  },
-  "claim_rate": { "requests_per_second": 1.0, "burst": 10 }
-}
-```
 
 Policy notes:
 
@@ -153,7 +138,7 @@ Request:
 
 ```json
 {
-  "envelope": { "ciphertext": "...", "nonce": "...", "kdf": { } },
+  "envelope": { "ciphertext": "...", "nonce": "...", "kdf": {} },
   "claim_hash": "base64url(sha256(claim_token_bytes))",
   "ttl_seconds": 86400
 }
@@ -169,25 +154,81 @@ Response (`201`):
 }
 ```
 
-Policy notes:
-
-- No API key required.
-- Subject to public rate limits and public quota tier.
-
-### Create (API key / automation)
+### Create (authenticated)
 
 `POST /api/v1/secrets`
 
-Headers:
+Accepted auth:
 
-- `X-API-Key: ak2_<prefix>.<auth_b64>` (or `Authorization: Bearer ...`)
+- Session bearer token `uss_<sid>.<secret>`
+- API key (`X-API-Key` or `Authorization: Bearer ak2_...`)
 
 Body is the same as the public endpoint.
 
-Policy notes:
+Auth resolution order in runtime:
 
-- Subject to authenticated rate limits and authenticated quota tier.
-- Secret ownership is bound to the authenticated API key prefix.
+1. Session auth is attempted first.
+2. If session auth fails, API key auth is attempted.
+
+### List Secrets (metadata)
+
+`GET /api/v1/secrets`
+
+Accepted auth:
+
+- Session bearer token `uss_<sid>.<secret>`
+- API key (`X-API-Key` or `Authorization: Bearer ak2_...`)
+
+Query params:
+
+- `limit` (default `50`, clamped to `1..20000`)
+- `offset` (default `0`, min `0`)
+
+Response (`200`):
+
+```json
+{
+  "secrets": [
+    {
+      "id": "…",
+      "share_url": "https://secrt.ca/s/…",
+      "expires_at": "2026-02-04T00:00:00Z",
+      "created_at": "2026-02-03T00:00:00Z",
+      "ciphertext_size": 1234,
+      "passphrase_protected": true
+    }
+  ],
+  "total": 1,
+  "limit": 50,
+  "offset": 0
+}
+```
+
+Session-authenticated listing includes owner keys:
+
+- `user:<session_user_id>`
+- `apikey:<prefix>` for each **unrevoked** API key owned by that user
+
+API-key-authenticated listing only includes `apikey:<that_prefix>`.
+
+### Secrets Check (dashboard polling)
+
+`GET /api/v1/secrets/check`
+
+Accepted auth is the same as `GET /api/v1/secrets`.
+
+Purpose: lightweight high-frequency dashboard sync check before refetching full metadata.
+
+Response (`200`):
+
+```json
+{
+  "count": 12,
+  "checksum": "opaque-change-token"
+}
+```
+
+`checksum` is an opaque server value over currently visible active secret IDs (empty string when count is `0`). Treat it as a change detector, not a cryptographic integrity primitive.
 
 ### Claim (one-time)
 
@@ -203,24 +244,27 @@ Response (`200`):
 
 ```json
 {
-  "envelope": { "ciphertext": "...", "nonce": "...", "kdf": { } },
+  "envelope": { "ciphertext": "...", "nonce": "...", "kdf": {} },
   "expires_at": "2026-02-04T00:00:00Z"
 }
 ```
 
-If the secret is expired, already claimed, or the claim token is wrong, the response is `404`.
+If the secret is expired, already claimed, unknown, or claim token validation fails, response is `404`.
 
-### Burn (API key)
+### Burn (delete without claiming)
 
 `POST /api/v1/secrets/{id}/burn`
 
-Deletes a secret without claiming it (requires API key).
+Accepted auth:
+
+- Session bearer token `uss_<sid>.<secret>`
+- API key (`X-API-Key` or `Authorization: Bearer ak2_...`)
 
 Authorization rules:
 
-- The API key MUST own the secret (`owner_key == "apikey:<prefix>"`).
-- Missing/invalid API key returns `401`.
-- Unknown secret ID or wrong owner returns `404`.
+- API key auth: key must own secret (`owner_key == "apikey:<prefix>"`).
+- Session auth: burn is attempted against `user:<id>` and each unrevoked `apikey:<prefix>` for the session user.
+- Unknown secret or not owned by caller returns `404`.
 
 Response (`200`):
 
@@ -230,7 +274,7 @@ Response (`200`):
 
 ### Passkey Registration and Login
 
-Passkey endpoints establish a short-lived authenticated browser session used for API-key registration:
+Passkey endpoints establish authenticated browser sessions and account identity:
 
 - `POST /api/v1/auth/passkeys/register/start`
 - `POST /api/v1/auth/passkeys/register/finish`
@@ -241,21 +285,13 @@ Passkey endpoints establish a short-lived authenticated browser session used for
 
 v1 passkey model note:
 
-- v1 does **not** perform WebAuthn cryptographic assertion verification in the `/finish` endpoints.
-- The `/start` endpoint issues a random `challenge_id` and opaque `challenge` value.
-- The `/finish` endpoint authorizes using a valid, unexpired `challenge_id` plus expected credential linkage.
-- Security of this flow depends on `challenge_id` entropy and confidentiality.
-- Full WebAuthn signature verification is planned for a future version.
+- v1 does **not** perform WebAuthn cryptographic assertion verification in `/finish`.
+- `/start` issues random `challenge_id` and opaque `challenge`.
+- `/finish` authorizes via valid unexpired `challenge_id` + expected credential linkage.
 
-Session bearer token format:
+### API key management (session required)
 
-- `Authorization: Bearer uss_<sid>.<secret>`
-- Session TTL is fixed at 24h in v1 (no refresh flow).
-- `register/finish` and `login/finish` return `session_token`, `display_name`, and `expires_at`.
-- `GET /api/v1/auth/session` returns `authenticated`, `display_name`, and `expires_at`.
-- Auth/session responses intentionally do **not** expose `user_id`.
-
-### API-Key Registration (Passkey Session Required)
+#### Register API key auth token
 
 `POST /api/v1/apikeys/register`
 
@@ -289,39 +325,79 @@ Policy notes:
   - IP: default `5/hour`, `20/day`
 - Quota checks and registration writes execute atomically in one DB transaction.
 
+#### List API keys
+
+`GET /api/v1/apikeys`
+
+Response (`200`):
+
+```json
+{
+  "api_keys": [
+    {
+      "prefix": "abcdef",
+      "scopes": "",
+      "created_at": "2026-02-13T00:00:00Z",
+      "revoked_at": null
+    }
+  ]
+}
+```
+
+#### Revoke API key
+
+`POST /api/v1/apikeys/{prefix}/revoke`
+
+Response (`200`):
+
+```json
+{ "ok": true }
+```
+
+Other outcomes:
+
+- `400` if key is already revoked (`"key already revoked"`)
+- `404` if key does not exist or is not owned by session user
+
+### Delete account (session required)
+
+`DELETE /api/v1/auth/account`
+
+Deletes the current user account and performs cleanup:
+
+1. Burn secrets for `user:<id>` and **all** API key owner keys for the account (including revoked keys).
+2. Revoke all API keys for the account.
+3. Delete the user record (cascades passkeys/sessions/challenges).
+
+Response (`200`):
+
+```json
+{
+  "ok": true,
+  "secrets_burned": 2,
+  "keys_revoked": 1
+}
+```
+
 ## Error Semantics
 
 Common responses:
 
-- `400` invalid request JSON, content type, or field validation
-- `401` missing or invalid API key/session token (authenticated endpoints)
-- `404` not found / expired / already claimed / invalid claim token / burn not owned
+- `400` invalid request JSON, content type, field types, or validation
+- `401` missing/invalid API key or session token (for protected endpoints)
+- `404` not found / expired / already claimed / invalid claim token / not owned by caller
+- `405` wrong method
 - `413` storage quota exceeded
 - `429` request rate limited or secret-count quota exceeded
 - `500` internal server/storage errors
 
-## Future Authenticated Metadata Endpoints (v1.1 Draft)
+## Future Metadata Endpoint (v1.1 Draft)
 
-Not part of v1 runtime contract yet. Intended for dashboard and automation use:
+Not part of current runtime contract yet:
 
-- `GET /api/v1/secrets`
-  - List secrets owned by current API key (metadata only).
-- `GET /api/v1/secrets/{id}`
-  - Return status/metadata for one owned secret.
+- `GET /api/v1/secrets/{id}` (owned single-secret metadata lookup)
 
-Draft response shape for metadata endpoints:
-
-```json
-{
-  "id": "…",
-  "share_url": "https://secrt.ca/s/…",
-  "expires_at": "2026-02-04T00:00:00Z",
-  "created_at": "2026-02-03T00:00:00Z",
-  "state": "active"
-}
-```
-
-Constraints for these endpoints:
+Constraints:
 
 - Must not return plaintext, passphrase material, URL fragment keys, or claim tokens.
 - Should not return raw `claim_hash` to clients unless there is a strong operational need.
