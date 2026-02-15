@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.9.1 — 2026-02-15
+
+### Added
+
+- **Claim confirmation screen:** visitors now see a "Someone Sent You a Secret" dialog and must click "View Secret" before the secret is claimed and destroyed, preventing accidental one-time secret consumption.
+- **Auto-sizing secret textarea:** decrypted text is displayed in a readonly textarea that auto-sizes to content (with a 256 px max), replacing the fixed-height display.
+
+### Changed
+
+- **Frontend layout and styling refresh:** polished card layouts, spacing, and typography across the web UI.
+- **GitHub link moved to CLI Downloads menu:** consolidated external links into the downloads popover.
+
 ## 0.9.0 — 2026-02-14
 
 ### Added
