@@ -16,6 +16,7 @@
 ### Fixed
 
 - **Friendly passkey login errors:** "unknown credential" server errors now show a user-friendly explanation instead of the raw error string.
+- **OG tags in fallback HTML:** secret pages now include proper Open Graph meta tags even when no SPA frontend is built, fixing CI test failures and ensuring social previews work in all configurations.
 
 ## 0.7.0 — 2026-02-14
 
