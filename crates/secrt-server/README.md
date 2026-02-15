@@ -130,7 +130,7 @@ Hard caps on API key creation, enforced atomically in the database.
 
 ## Database setup
 
-**Requirements:** PostgreSQL (tested with 14–18).
+**Requirements:** PostgreSQL (tested with 18; likely compatible with 14+).
 
 **Migrations** run automatically on startup — no manual migration step needed. The initial schema creates tables for secrets, users, passkeys, sessions, challenges, API keys, and registration accounting.
 
