@@ -8,13 +8,41 @@
         "priority": "high",
         "dependencies": [],
         "subtasks": [
-          { "id": 1, "title": "Add toml + dirs crate dependencies", "status": "done" },
-          { "id": 2, "title": "Create config module (src/config.rs)", "status": "done" },
-          { "id": 3, "title": "Add file permission checks", "status": "done" },
-          { "id": 4, "title": "Integrate config into CLI resolution", "status": "done" },
-          { "id": 5, "title": "Auto-set 0600 permissions on config creation", "status": "deferred" },
-          { "id": 6, "title": "Add tests for config loading and precedence", "status": "done" },
-          { "id": 7, "title": "Update help text to mention config file", "status": "done" }
+          {
+            "id": 1,
+            "title": "Add toml + dirs crate dependencies",
+            "status": "done"
+          },
+          {
+            "id": 2,
+            "title": "Create config module (src/config.rs)",
+            "status": "done"
+          },
+          {
+            "id": 3,
+            "title": "Add file permission checks",
+            "status": "done"
+          },
+          {
+            "id": 4,
+            "title": "Integrate config into CLI resolution",
+            "status": "done"
+          },
+          {
+            "id": 5,
+            "title": "Auto-set 0600 permissions on config creation",
+            "status": "deferred"
+          },
+          {
+            "id": 6,
+            "title": "Add tests for config loading and precedence",
+            "status": "done"
+          },
+          {
+            "id": 7,
+            "title": "Update help text to mention config file",
+            "status": "done"
+          }
         ]
       },
       {
@@ -22,12 +50,31 @@
         "title": "Add optional OS keychain support",
         "status": "done",
         "priority": "medium",
-        "dependencies": [1],
+        "dependencies": [
+          1
+        ],
         "subtasks": [
-          { "id": 1, "title": "Add keyring dependency with feature flag", "status": "done" },
-          { "id": 2, "title": "Implement keychain get/set helpers", "status": "done" },
-          { "id": 3, "title": "Integrate keychain into CLI resolution", "status": "done" },
-          { "id": 4, "title": "Add tests for keychain integration", "status": "deferred", "description": "Keychain tests require OS interaction; covered by stub/compile tests for now." }
+          {
+            "id": 1,
+            "title": "Add keyring dependency with feature flag",
+            "status": "done"
+          },
+          {
+            "id": 2,
+            "title": "Implement keychain get/set helpers",
+            "status": "done"
+          },
+          {
+            "id": 3,
+            "title": "Integrate keychain into CLI resolution",
+            "status": "done"
+          },
+          {
+            "id": 4,
+            "title": "Add tests for keychain integration",
+            "status": "deferred",
+            "description": "Keychain tests require OS interaction; covered by stub/compile tests for now."
+          }
         ]
       },
       {
@@ -37,10 +84,29 @@
         "priority": "high",
         "dependencies": [],
         "subtasks": [
-          { "id": 1, "title": "Record baseline release binary size", "description": "1,334,496 bytes", "status": "done" },
-          { "id": 2, "title": "Measure size after config file support", "description": "1,450,976 bytes (+116,480 / +8.7%)", "status": "done" },
-          { "id": 3, "title": "Measure size after keychain support", "description": "1,452,208 bytes (+1,232 / +0.08% over config-only)", "status": "done" },
-          { "id": 4, "title": "Report size comparison", "status": "done" }
+          {
+            "id": 1,
+            "title": "Record baseline release binary size",
+            "description": "1,334,496 bytes",
+            "status": "done"
+          },
+          {
+            "id": 2,
+            "title": "Measure size after config file support",
+            "description": "1,450,976 bytes (+116,480 / +8.7%)",
+            "status": "done"
+          },
+          {
+            "id": 3,
+            "title": "Measure size after keychain support",
+            "description": "1,452,208 bytes (+1,232 / +0.08% over config-only)",
+            "status": "done"
+          },
+          {
+            "id": 4,
+            "title": "Report size comparison",
+            "status": "done"
+          }
         ]
       },
       {
@@ -51,11 +117,32 @@
         "priority": "high",
         "dependencies": [],
         "subtasks": [
-          { "id": 1, "title": "Build macOS binaries (universal + arch-specific)", "status": "done" },
-          { "id": 2, "title": "Code sign with Developer ID Application certificate", "status": "done" },
-          { "id": 3, "title": "Notarize with Apple via notarytool", "status": "done" },
-          { "id": 4, "title": "Staple the notarization ticket", "status": "done", "description": "N/A for standalone binaries — macOS checks the ticket online. Stapling only applies to .app/.pkg/.dmg bundles." },
-          { "id": 5, "title": "Add GitHub Actions CI workflow for macOS signing", "status": "done" }
+          {
+            "id": 1,
+            "title": "Build macOS binaries (universal + arch-specific)",
+            "status": "done"
+          },
+          {
+            "id": 2,
+            "title": "Code sign with Developer ID Application certificate",
+            "status": "done"
+          },
+          {
+            "id": 3,
+            "title": "Notarize with Apple via notarytool",
+            "status": "done"
+          },
+          {
+            "id": 4,
+            "title": "Staple the notarization ticket",
+            "status": "done",
+            "description": "N/A for standalone binaries \u2014 macOS checks the ticket online. Stapling only applies to .app/.pkg/.dmg bundles."
+          },
+          {
+            "id": 5,
+            "title": "Add GitHub Actions CI workflow for macOS signing",
+            "status": "done"
+          }
         ]
       },
       {
@@ -66,10 +153,26 @@
         "priority": "high",
         "dependencies": [],
         "subtasks": [
-          { "id": 1, "title": "Cross-compile Windows binary (amd64 + arm64)", "status": "done" },
-          { "id": 2, "title": "Sign with Azure Trusted Signing", "status": "done" },
-          { "id": 3, "title": "Verify Authenticode signature", "status": "done" },
-          { "id": 4, "title": "Add GitHub Actions CI workflow for Windows signing", "status": "done" }
+          {
+            "id": 1,
+            "title": "Cross-compile Windows binary (amd64 + arm64)",
+            "status": "done"
+          },
+          {
+            "id": 2,
+            "title": "Sign with Azure Trusted Signing",
+            "status": "done"
+          },
+          {
+            "id": 3,
+            "title": "Verify Authenticode signature",
+            "status": "done"
+          },
+          {
+            "id": 4,
+            "title": "Add GitHub Actions CI workflow for Windows signing",
+            "status": "done"
+          }
         ]
       },
       {
@@ -80,11 +183,32 @@
         "priority": "medium",
         "dependencies": [],
         "subtasks": [
-          { "id": 1, "title": "Build static Linux binaries (musl)", "status": "done" },
-          { "id": 2, "title": "Generate SHA-256 checksums and GPG signatures", "status": "pending", "description": "SHA-256 checksums are generated in CI. GPG signing of the checksums file is not yet implemented." },
-          { "id": 3, "title": "Create Homebrew tap", "status": "pending" },
-          { "id": 4, "title": "Publish to crates.io", "status": "pending" },
-          { "id": 5, "title": "Evaluate APT/RPM/AUR packaging", "status": "pending" }
+          {
+            "id": 1,
+            "title": "Build static Linux binaries (musl)",
+            "status": "done"
+          },
+          {
+            "id": 2,
+            "title": "Generate SHA-256 checksums and GPG signatures",
+            "status": "pending",
+            "description": "SHA-256 checksums are generated in CI. GPG signing of the checksums file is not yet implemented."
+          },
+          {
+            "id": 3,
+            "title": "Create Homebrew tap",
+            "status": "pending"
+          },
+          {
+            "id": 4,
+            "title": "Publish to crates.io",
+            "status": "pending"
+          },
+          {
+            "id": 5,
+            "title": "Evaluate APT/RPM/AUR packaging",
+            "status": "pending"
+          }
         ]
       },
       {
@@ -93,14 +217,43 @@
         "description": "Unified CI workflows that build, sign, and publish releases for all platforms on git tag push. Two workflows exist: release-cli.yml (cli/v* tags) and release-server.yml (server/v* tags). Core workflow is complete. Remaining: Homebrew auto-update.",
         "status": "done",
         "priority": "high",
-        "dependencies": [4, 5, 6],
+        "dependencies": [
+          4,
+          5,
+          6
+        ],
         "subtasks": [
-          { "id": 1, "title": "Define stable artifact naming convention", "status": "done" },
-          { "id": 2, "title": "Create release workflow triggered on version tags", "status": "done" },
-          { "id": 3, "title": "Auto-create GitHub Release with artifacts", "status": "done" },
-          { "id": 4, "title": "Add download links to README", "status": "done" },
-          { "id": 5, "title": "Update Homebrew formula on release", "status": "pending", "description": "Blocked on Homebrew tap creation (task 6 subtask 3)." },
-          { "id": 6, "title": "Document release workflow in CLAUDE.md for agent automation", "status": "done" }
+          {
+            "id": 1,
+            "title": "Define stable artifact naming convention",
+            "status": "done"
+          },
+          {
+            "id": 2,
+            "title": "Create release workflow triggered on version tags",
+            "status": "done"
+          },
+          {
+            "id": 3,
+            "title": "Auto-create GitHub Release with artifacts",
+            "status": "done"
+          },
+          {
+            "id": 4,
+            "title": "Add download links to README",
+            "status": "done"
+          },
+          {
+            "id": 5,
+            "title": "Update Homebrew formula on release",
+            "status": "pending",
+            "description": "Blocked on Homebrew tap creation (task 6 subtask 3)."
+          },
+          {
+            "id": 6,
+            "title": "Document release workflow in CLAUDE.md for agent automation",
+            "status": "done"
+          }
         ]
       },
       {
@@ -111,11 +264,31 @@
         "priority": "medium",
         "dependencies": [],
         "subtasks": [
-          { "id": 1, "title": "Add --multi-line (-m) and --trim flags to arg parser", "status": "done" },
-          { "id": 2, "title": "Refactor read_plaintext for single-line vs multi-line TTY input", "status": "done" },
-          { "id": 3, "title": "Implement --trim flag behavior", "status": "done" },
-          { "id": 4, "title": "Add tests for new flags and input modes", "status": "done" },
-          { "id": 5, "title": "Update help text and documentation", "status": "done" }
+          {
+            "id": 1,
+            "title": "Add --multi-line (-m) and --trim flags to arg parser",
+            "status": "done"
+          },
+          {
+            "id": 2,
+            "title": "Refactor read_plaintext for single-line vs multi-line TTY input",
+            "status": "done"
+          },
+          {
+            "id": 3,
+            "title": "Implement --trim flag behavior",
+            "status": "done"
+          },
+          {
+            "id": 4,
+            "title": "Add tests for new flags and input modes",
+            "status": "done"
+          },
+          {
+            "id": 5,
+            "title": "Update help text and documentation",
+            "status": "done"
+          }
         ]
       },
       {
@@ -126,27 +299,73 @@
         "priority": "high",
         "dependencies": [],
         "subtasks": [
-          { "id": 1, "title": "Add HMAC-SHA256 helper with rotating daily secret", "status": "done" },
-          { "id": 2, "title": "Replace raw IP storage with hashed owner_key in Create handler", "status": "done" },
-          { "id": 3, "title": "Update clientIP/ownerKey resolution in Burn handler", "status": "done" },
-          { "id": 4, "title": "Write migration to hash existing owner_key values", "status": "done", "description": "Not needed — project was pre-production when this shipped." },
-          { "id": 5, "title": "Add tests for hashed quota enforcement and burn auth", "status": "done" },
-          { "id": 6, "title": "Review server access logs for IP leakage", "status": "done", "description": "Covered by Caddy privacy logging guide (docs/caddy-privacy-logging.md)." }
+          {
+            "id": 1,
+            "title": "Add HMAC-SHA256 helper with rotating daily secret",
+            "status": "done"
+          },
+          {
+            "id": 2,
+            "title": "Replace raw IP storage with hashed owner_key in Create handler",
+            "status": "done"
+          },
+          {
+            "id": 3,
+            "title": "Update clientIP/ownerKey resolution in Burn handler",
+            "status": "done"
+          },
+          {
+            "id": 4,
+            "title": "Write migration to hash existing owner_key values",
+            "status": "done",
+            "description": "Not needed \u2014 project was pre-production when this shipped."
+          },
+          {
+            "id": 5,
+            "title": "Add tests for hashed quota enforcement and burn auth",
+            "status": "done"
+          },
+          {
+            "id": 6,
+            "title": "Review server access logs for IP leakage",
+            "status": "done",
+            "description": "Covered by Caddy privacy logging guide (docs/caddy-privacy-logging.md)."
+          }
         ]
       },
       {
         "id": 11,
         "title": "Investigate release binary size optimization",
-        "description": "Explore options for reducing the release binary size (~1.45 MB currently). Two main approaches to evaluate, both with trade-offs:\n\n1. **UPX compression** — compresses the binary with runtime decompression. Can cut size significantly but may trigger false positives on antivirus/malware scanners (especially Windows Defender, VirusTotal). Test on macOS, Linux, and Windows. Measure decompression startup latency.\n\n2. **opt-level = \"z\" (optimize for size)** — compiler optimization level that prioritizes code size over speed. Can reduce binary substantially but roughly halves the speed of PBKDF2 passphrase derivation (CPU-bound crypto). Measure the actual impact on `--passphrase-*` operations. Consider whether a profile override for just the `ring` crate (opt-level = 3) could preserve crypto speed while shrinking everything else.\n\nOther options to consider:\n- `lto = true` (already may be set — check Cargo.toml [profile.release])\n- `codegen-units = 1` (better optimization, slower compile)\n- `strip = true` (strip debug symbols)\n- `panic = \"abort\"` (smaller than unwind, already may be set)\n- Auditing dependencies for lighter alternatives\n\nGoal: understand the trade-off space, not necessarily ship a change. Document findings in a comment or subtask.",
+        "description": "Explore options for reducing the release binary size (~1.45 MB currently). Two main approaches to evaluate, both with trade-offs:\n\n1. **UPX compression** \u2014 compresses the binary with runtime decompression. Can cut size significantly but may trigger false positives on antivirus/malware scanners (especially Windows Defender, VirusTotal). Test on macOS, Linux, and Windows. Measure decompression startup latency.\n\n2. **opt-level = \"z\" (optimize for size)** \u2014 compiler optimization level that prioritizes code size over speed. Can reduce binary substantially but roughly halves the speed of PBKDF2 passphrase derivation (CPU-bound crypto). Measure the actual impact on `--passphrase-*` operations. Consider whether a profile override for just the `ring` crate (opt-level = 3) could preserve crypto speed while shrinking everything else.\n\nOther options to consider:\n- `lto = true` (already may be set \u2014 check Cargo.toml [profile.release])\n- `codegen-units = 1` (better optimization, slower compile)\n- `strip = true` (strip debug symbols)\n- `panic = \"abort\"` (smaller than unwind, already may be set)\n- Auditing dependencies for lighter alternatives\n\nGoal: understand the trade-off space, not necessarily ship a change. Document findings in a comment or subtask.",
         "status": "pending",
         "priority": "low",
         "dependencies": [],
         "subtasks": [
-          { "id": 1, "title": "Audit current Cargo.toml [profile.release] settings", "status": "pending" },
-          { "id": 2, "title": "Test UPX compression — measure size reduction and check for AV false positives", "status": "pending" },
-          { "id": 3, "title": "Test opt-level = \"z\" — measure size reduction and PBKDF2 speed impact", "status": "pending" },
-          { "id": 4, "title": "Test per-crate opt-level override (ring at opt-level 3, rest at z)", "status": "pending" },
-          { "id": 5, "title": "Document findings and recommendation", "status": "pending" }
+          {
+            "id": 1,
+            "title": "Audit current Cargo.toml [profile.release] settings",
+            "status": "pending"
+          },
+          {
+            "id": 2,
+            "title": "Test UPX compression \u2014 measure size reduction and check for AV false positives",
+            "status": "pending"
+          },
+          {
+            "id": 3,
+            "title": "Test opt-level = \"z\" \u2014 measure size reduction and PBKDF2 speed impact",
+            "status": "pending"
+          },
+          {
+            "id": 4,
+            "title": "Test per-crate opt-level override (ring at opt-level 3, rest at z)",
+            "status": "pending"
+          },
+          {
+            "id": 5,
+            "title": "Document findings and recommendation",
+            "status": "pending"
+          }
         ]
       },
       {
@@ -193,18 +412,48 @@
         "priority": "medium",
         "dependencies": [],
         "subtasks": [
-          { "id": 1, "title": "Fix burn buttons: use .btn .btn-danger for 'Yes, burn' and .btn for 'Cancel'", "status": "pending", "description": "Lines 138-162: burn confirmation and initial burn button use raw Tailwind (text-xs text-red-600 hover:text-red-700). Should use .btn .btn-danger (small variant) and .btn respectively." },
-          { "id": 2, "title": "Fix pagination buttons: use .btn class", "status": "pending", "description": "Lines 174-192: Previous/Next buttons use raw Tailwind (text-sm text-muted hover:text-text disabled:opacity-50). Should use .btn with appropriate sizing." },
-          { "id": 3, "title": "Fix settings link: use .link class", "status": "pending", "description": "Lines 199-205: 'Manage API Keys & Account Settings' is a <button> styled as text. Should be an <a> with .link class or a proper .btn." },
-          { "id": 4, "title": "Improve empty state design", "status": "pending", "description": "Lines 94-104: The empty state is minimal. Consider adding an icon, better spacing, and a more inviting call-to-action using design system components." },
-          { "id": 5, "title": "Add table styling to design system", "status": "pending", "description": "The secrets table uses ad-hoc border/spacing classes. Consider adding a .table component class to styles.css for consistent table styling across Dashboard and Settings pages. Both pages share the same table pattern (border-b border-border, text-muted headers, etc.)." },
-          { "id": 6, "title": "Standardize error alert pattern", "status": "pending", "description": "Lines 87-89: Error alert uses inline Tailwind (rounded-md bg-red-100 px-3 py-2 text-sm text-red-700 dark:bg-red-900/30 dark:text-red-400). This exact pattern is duplicated in SettingsPage. Extract to a reusable .alert-error class or component." }
+          {
+            "id": 1,
+            "title": "Fix burn buttons: use .btn .btn-danger for 'Yes, burn' and .btn for 'Cancel'",
+            "status": "pending",
+            "description": "Lines 138-162: burn confirmation and initial burn button use raw Tailwind (text-xs text-red-600 hover:text-red-700). Should use .btn .btn-danger (small variant) and .btn respectively."
+          },
+          {
+            "id": 2,
+            "title": "Fix pagination buttons: use .btn class",
+            "status": "pending",
+            "description": "Lines 174-192: Previous/Next buttons use raw Tailwind (text-sm text-muted hover:text-text disabled:opacity-50). Should use .btn with appropriate sizing."
+          },
+          {
+            "id": 3,
+            "title": "Fix settings link: use .link class",
+            "status": "pending",
+            "description": "Lines 199-205: 'Manage API Keys & Account Settings' is a <button> styled as text. Should be an <a> with .link class or a proper .btn."
+          },
+          {
+            "id": 4,
+            "title": "Improve empty state design",
+            "status": "pending",
+            "description": "Lines 94-104: The empty state is minimal. Consider adding an icon, better spacing, and a more inviting call-to-action using design system components."
+          },
+          {
+            "id": 5,
+            "title": "Add table styling to design system",
+            "status": "pending",
+            "description": "The secrets table uses ad-hoc border/spacing classes. Consider adding a .table component class to styles.css for consistent table styling across Dashboard and Settings pages. Both pages share the same table pattern (border-b border-border, text-muted headers, etc.)."
+          },
+          {
+            "id": 6,
+            "title": "Standardize error alert pattern",
+            "status": "pending",
+            "description": "Lines 87-89: Error alert uses inline Tailwind (rounded-md bg-red-100 px-3 py-2 text-sm text-red-700 dark:bg-red-900/30 dark:text-red-400). This exact pattern is duplicated in SettingsPage. Extract to a reusable .alert-error class or component."
+          }
         ]
       },
       {
         "id": 17,
         "title": "Define .label heading class or migrate to .heading",
-        "description": "Multiple pages use class='label' on h2 headings (DashboardPage, SettingsPage, LoginPage, RegisterPage, app.tsx NotFound), but .label is NOT defined in styles.css. The design system defines .heading but not .label, so these headings are effectively unstyled. Either: (a) define .label as a distinct class for card-level section headings (smaller/lighter than .heading), or (b) replace all .label usages with .heading. The choice depends on whether a visual distinction between page-level headings (.heading) and card-level section headings is desired.\n\nAffected files:\n- src/app.tsx (Not Found heading)\n- src/features/dashboard/DashboardPage.tsx\n- src/features/settings/SettingsPage.tsx (2 headings)\n- src/features/auth/LoginPage.tsx\n- src/features/auth/RegisterPage.tsx\n\nNote: This overlaps with task #13 (ensure all headings use header class) but is more specific — task #13 should reference this task's resolution.",
+        "description": "Multiple pages use class='label' on h2 headings (DashboardPage, SettingsPage, LoginPage, RegisterPage, app.tsx NotFound), but .label is NOT defined in styles.css. The design system defines .heading but not .label, so these headings are effectively unstyled. Either: (a) define .label as a distinct class for card-level section headings (smaller/lighter than .heading), or (b) replace all .label usages with .heading. The choice depends on whether a visual distinction between page-level headings (.heading) and card-level section headings is desired.\n\nAffected files:\n- src/app.tsx (Not Found heading)\n- src/features/dashboard/DashboardPage.tsx\n- src/features/settings/SettingsPage.tsx (2 headings)\n- src/features/auth/LoginPage.tsx\n- src/features/auth/RegisterPage.tsx\n\nNote: This overlaps with task #13 (ensure all headings use header class) but is more specific \u2014 task #13 should reference this task's resolution.",
         "status": "pending",
         "priority": "high",
         "dependencies": [],
@@ -222,17 +471,104 @@
       {
         "id": 15,
         "title": "Investigate app-layer IP privacy and deployment posture signaling",
-        "description": "Explore whether secrt-server should truncate/hash IP addresses at the application layer (before rate limiting, owner_key derivation, or any logging) so the app itself never processes full IPs — regardless of reverse proxy configuration.\n\nRelated but distinct from task #10 (hash owner_key): this is broader and includes investigating what observable privacy properties the server could honestly assert and signal to clients.\n\nAreas to investigate:\n\n1. **App-layer IP truncation** — Truncate IPs (zero last octet for IPv4, last 80 bits for IPv6) immediately on receipt, before any use. This is a real, code-level guarantee the app controls. Evaluate impact on rate limiting accuracy and quota enforcement. Compare with the HMAC approach in task #10.\n\n2. **Client-observable signals** — What can the CLI or web client actually verify from the outside? E.g., TLS version, HSTS, absence of Server header, response headers. Identify which deployment properties are externally testable vs. trust-based.\n\n3. **Privacy posture endpoint/header** — Evaluate whether a lightweight mechanism (e.g., a response header or /.well-known/secrt.json) declaring the server's privacy posture is worthwhile. Prior art: security.txt (RFC 9116, successful), P3P (dead), Tk header (deprecated), privacy.txt IETF draft (stalled), GPC .well-known/gpc.json (active but different scope). Key tension: these are self-attested and unverifiable. Only worth doing if the CLI would act on it (e.g., warn if a server doesn't claim zero-knowledge).\n\n4. **Scope boundary** — Clearly document what the app layer can guarantee vs. what requires operator trust (reverse proxy log config, TLS termination, etc.). This is important for the project's security narrative.\n\nGoal: produce a recommendation on what (if anything) to implement, with clear rationale. May result in concrete subtasks or a 'not worth it' conclusion.",
+        "description": "Explore whether secrt-server should truncate/hash IP addresses at the application layer (before rate limiting, owner_key derivation, or any logging) so the app itself never processes full IPs \u2014 regardless of reverse proxy configuration.\n\nRelated but distinct from task #10 (hash owner_key): this is broader and includes investigating what observable privacy properties the server could honestly assert and signal to clients.\n\nAreas to investigate:\n\n1. **App-layer IP truncation** \u2014 Truncate IPs (zero last octet for IPv4, last 80 bits for IPv6) immediately on receipt, before any use. This is a real, code-level guarantee the app controls. Evaluate impact on rate limiting accuracy and quota enforcement. Compare with the HMAC approach in task #10.\n\n2. **Client-observable signals** \u2014 What can the CLI or web client actually verify from the outside? E.g., TLS version, HSTS, absence of Server header, response headers. Identify which deployment properties are externally testable vs. trust-based.\n\n3. **Privacy posture endpoint/header** \u2014 Evaluate whether a lightweight mechanism (e.g., a response header or /.well-known/secrt.json) declaring the server's privacy posture is worthwhile. Prior art: security.txt (RFC 9116, successful), P3P (dead), Tk header (deprecated), privacy.txt IETF draft (stalled), GPC .well-known/gpc.json (active but different scope). Key tension: these are self-attested and unverifiable. Only worth doing if the CLI would act on it (e.g., warn if a server doesn't claim zero-knowledge).\n\n4. **Scope boundary** \u2014 Clearly document what the app layer can guarantee vs. what requires operator trust (reverse proxy log config, TLS termination, etc.). This is important for the project's security narrative.\n\nGoal: produce a recommendation on what (if anything) to implement, with clear rationale. May result in concrete subtasks or a 'not worth it' conclusion.",
         "status": "pending",
         "priority": "low",
         "dependencies": [],
         "subtasks": [
-          { "id": 1, "title": "Evaluate app-layer IP truncation: impact on rate limiting and quota accuracy", "status": "pending" },
-          { "id": 2, "title": "Inventory client-observable deployment properties (TLS, headers, etc.)", "status": "pending" },
-          { "id": 3, "title": "Assess privacy posture signaling: header vs .well-known vs skip", "status": "pending" },
-          { "id": 4, "title": "Document app-layer vs operator-layer privacy guarantees boundary", "status": "pending" },
-          { "id": 5, "title": "Write recommendation with rationale", "status": "pending" }
+          {
+            "id": 1,
+            "title": "Evaluate app-layer IP truncation: impact on rate limiting and quota accuracy",
+            "status": "pending"
+          },
+          {
+            "id": 2,
+            "title": "Inventory client-observable deployment properties (TLS, headers, etc.)",
+            "status": "pending"
+          },
+          {
+            "id": 3,
+            "title": "Assess privacy posture signaling: header vs .well-known vs skip",
+            "status": "pending"
+          },
+          {
+            "id": 4,
+            "title": "Document app-layer vs operator-layer privacy guarantees boundary",
+            "status": "pending"
+          },
+          {
+            "id": 5,
+            "title": "Write recommendation with rationale",
+            "status": "pending"
+          }
         ]
+      },
+      {
+        "id": 19,
+        "title": "Fix iOS auto-zoom on input focus (font-size < 16px)",
+        "description": "iOS Safari auto-zooms when focusing inputs with font-size below 16px. Current --text-base is 0.9375rem (15px), triggering zoom on every text input on iPhone.",
+        "status": "pending",
+        "priority": "high",
+        "dependencies": [],
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "Bump --text-base to 1rem or set .input/.textarea/.select to font-size: 1rem",
+            "status": "pending"
+          },
+          {
+            "id": 2,
+            "title": "Test on iOS Safari to confirm zoom no longer triggers",
+            "status": "pending"
+          }
+        ]
+      },
+      {
+        "id": 20,
+        "title": "Increase base font size for mobile readability",
+        "description": "Fonts are microscopic on iPhone. Base font 0.9375rem (15px) is too small. Review --text-xs (12px) and --text-sm (14px) usage on mobile too. Could be combined with iOS zoom fix by bumping --text-base to 1rem.",
+        "status": "pending",
+        "priority": "high",
+        "dependencies": [
+          19
+        ],
+        "subtasks": []
+      },
+      {
+        "id": 21,
+        "title": "Add safe-area-inset padding for notched iPhones",
+        "description": "No env(safe-area-inset-*) handling. Nav/footer content can get clipped on iPhones with notch/Dynamic Island. Need viewport-fit=cover meta tag and env() padding on nav, footer, and layout container.",
+        "status": "pending",
+        "priority": "medium",
+        "dependencies": [],
+        "subtasks": []
+      },
+      {
+        "id": 22,
+        "title": "Verify touch-friendly file selection in FileDropZone",
+        "description": "FileDropZone uses drag-and-drop which does not work on mobile. Verify there is a visible tap-to-select affordance. Consider showing different copy on touch devices via @media (hover: none).",
+        "status": "pending",
+        "priority": "medium",
+        "dependencies": [],
+        "subtasks": []
+      },
+      {
+        "id": 23,
+        "title": "Enable server-side compression (gzip/brotli)",
+        "description": "No Content-Encoding served. Assets transfer at full size (157KB vs ~46KB gzip / ~38KB brotli). Caddy needs encode br gzip (brotli requires xcaddy custom build). Alternatively, Rust server could serve pre-compressed files.",
+        "status": "done",
+        "priority": "high",
+        "dependencies": [],
+        "subtasks": []
+      },
+      {
+        "id": 24,
+        "title": "Exclude test pages from Tailwind content scanning",
+        "description": "ThemePage.tsx and TestClaimPage.tsx are excluded from JS bundle via import.meta.env.DEV but Tailwind still scans their classes, adding unused utilities (e.g. full bg-green-* scale) to production CSS.",
+        "status": "pending",
+        "priority": "low",
+        "dependencies": [],
+        "subtasks": []
       }
     ]
   }
