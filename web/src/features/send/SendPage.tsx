@@ -299,7 +299,7 @@ export function SendPage() {
         : 'Create secret';
 
   return (
-    <div class="space-y-4">
+    <div class="max-w-xl space-y-4">
       <form
         class="card space-y-6"
         onSubmit={handleSubmit}

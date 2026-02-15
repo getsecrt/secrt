@@ -5,7 +5,7 @@ interface LogoProps {
 export function Logo({ class: className }: LogoProps) {
   return (
     <svg
-      class={`h-auto w-65 ${className ?? ''}`}
+      class={`h-auto w-48 md:w-65 ${className ?? ''}`}
       xmlns="http://www.w3.org/2000/svg"
       viewBox="0 0 100 36"
       aria-label="secrt"

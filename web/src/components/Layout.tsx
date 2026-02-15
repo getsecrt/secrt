@@ -27,7 +27,7 @@ export function Layout({ children }: LayoutProps) {
         </p>
       </div>
 
-      <main class="mx-auto flex w-full max-w-sm flex-col gap-6 px-4 py-6">
+      <main class="mx-auto flex w-full max-w-2xl flex-col gap-6 px-4 py-6">
         {children}
       </main>
 

@@ -94,19 +94,25 @@ export function HowItWorksPage() {
         </p>
       </section>
 
-      <div class="text-center">
-        <a href="/" class="link" onClick={handleHome}>
-          Create a secret
-        </a>
-      </div>
-
       <div>
         <h2 class="heading text-center">Technical Whitepaper</h2>
         <p class="text-center text-sm text-muted">
-          A deep-dive into our secure architecture
+          For an in depth analysis of the architecture of secrt, please refer to
+          the{' '}
+          <a
+            class="link"
+            href="https://github.com/getsecrt/secrt/blob/main/docs/whitepaper.md"
+          >
+            secrt technical whitepaper
+          </a>{' '}
+          on GitHub.
         </p>
+      </div>
 
-        <section></section>
+      <div class="text-center">
+        <a href="/" class="link" onClick={handleHome}>
+          Home &mdash; Create a Secret
+        </a>
       </div>
     </div>
   );
