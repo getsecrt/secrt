@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
-import { render, screen, cleanup } from '@testing-library/preact';
+import { render, screen, cleanup, waitFor } from '@testing-library/preact';
 import userEvent from '@testing-library/user-event';
 
 // Mock dependencies
@@ -118,7 +118,9 @@ describe('Nav', () => {
     const menu = document.getElementById('user-menu') as HTMLDivElement;
     expect(menu).toBeTruthy();
     menu.hidePopover();
-    expect(document.getElementById('user-menu')).toBeNull();
+    await waitFor(() => {
+      expect(document.getElementById('user-menu')).toBeNull();
+    });
   });
 
   it('navigates when Create link is clicked', async () => {

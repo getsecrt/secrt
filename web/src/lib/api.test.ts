@@ -10,6 +10,13 @@ import {
   loginPasskeyFinish,
   fetchSession,
   logout,
+  listSecrets,
+  checkSecrets,
+  burnSecretAuthed,
+  listApiKeys,
+  revokeApiKey,
+  registerApiKey,
+  deleteAccount,
 } from './api';
 import type {
   ApiInfo,
@@ -307,6 +314,92 @@ describe('burnSecret', () => {
     expect(fetch).toHaveBeenCalledWith(
       expect.anything(),
       expect.objectContaining({ signal: controller.signal }),
+    );
+  });
+});
+
+describe('dashboard and account endpoints', () => {
+  it('listSecrets calls authenticated list endpoint', async () => {
+    const payload = { secrets: [], total: 0, limit: 50, offset: 0 };
+    vi.mocked(fetch).mockResolvedValue(jsonResponse(payload));
+
+    const result = await listSecrets('uss_tok.secret', 25, 10);
+    expect(result).toEqual(payload);
+    expect(fetch).toHaveBeenCalledWith(
+      '/api/v1/secrets?limit=25&offset=10',
+      expect.objectContaining({ method: 'GET' }),
+    );
+  });
+
+  it('checkSecrets calls checksum endpoint', async () => {
+    const payload = { count: 3, checksum: 'abc123' };
+    vi.mocked(fetch).mockResolvedValue(jsonResponse(payload));
+
+    const result = await checkSecrets('uss_tok.secret');
+    expect(result).toEqual(payload);
+    expect(fetch).toHaveBeenCalledWith(
+      '/api/v1/secrets/check',
+      expect.objectContaining({ method: 'GET' }),
+    );
+  });
+
+  it('burnSecretAuthed posts with bearer auth', async () => {
+    vi.mocked(fetch).mockResolvedValue(jsonResponse({ ok: true }));
+
+    await burnSecretAuthed('uss_tok.secret', 'id/with/slash');
+    expect(fetch).toHaveBeenCalledWith(
+      '/api/v1/secrets/id%2Fwith%2Fslash/burn',
+      expect.objectContaining({ method: 'POST' }),
+    );
+    const init = vi.mocked(fetch).mock.calls[0][1] as RequestInit;
+    const headers = new Headers(init.headers);
+    expect(headers.get('authorization')).toBe('Bearer uss_tok.secret');
+  });
+
+  it('listApiKeys calls API key listing endpoint', async () => {
+    const payload = { api_keys: [] };
+    vi.mocked(fetch).mockResolvedValue(jsonResponse(payload));
+
+    const result = await listApiKeys('uss_tok.secret');
+    expect(result).toEqual(payload);
+    expect(fetch).toHaveBeenCalledWith(
+      '/api/v1/apikeys',
+      expect.objectContaining({ method: 'GET' }),
+    );
+  });
+
+  it('revokeApiKey posts to revocation endpoint', async () => {
+    vi.mocked(fetch).mockResolvedValue(jsonResponse({ ok: true }));
+
+    await revokeApiKey('uss_tok.secret', 'abc123');
+    expect(fetch).toHaveBeenCalledWith(
+      '/api/v1/apikeys/abc123/revoke',
+      expect.objectContaining({ method: 'POST' }),
+    );
+  });
+
+  it('registerApiKey posts auth token payload', async () => {
+    const payload = { prefix: 'abc123', scopes: 'full' };
+    vi.mocked(fetch).mockResolvedValue(jsonResponse(payload));
+
+    const result = await registerApiKey('uss_tok.secret', 'dGVzdA');
+    expect(result).toEqual(payload);
+    const call = vi.mocked(fetch).mock.calls[0];
+    expect(call[0]).toBe('/api/v1/apikeys/register');
+    const init = call[1] as RequestInit;
+    expect(init.method).toBe('POST');
+    expect(JSON.parse(init.body as string)).toEqual({ auth_token: 'dGVzdA' });
+  });
+
+  it('deleteAccount calls account deletion endpoint', async () => {
+    const payload = { ok: true, secrets_burned: 2, keys_revoked: 1 };
+    vi.mocked(fetch).mockResolvedValue(jsonResponse(payload));
+
+    const result = await deleteAccount('uss_tok.secret');
+    expect(result).toEqual(payload);
+    expect(fetch).toHaveBeenCalledWith(
+      '/api/v1/auth/account',
+      expect.objectContaining({ method: 'DELETE' }),
     );
   });
 });

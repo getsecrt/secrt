@@ -177,4 +177,29 @@ describe('AuthProvider', () => {
 
     expect(screen.getByTestId('authenticated').textContent).toBe('false');
   });
+
+  it('useAuth() outside provider exposes safe no-op handlers', async () => {
+    const user = userEvent.setup();
+    let completed = false;
+
+    function BareConsumer() {
+      const auth = useAuth();
+      return (
+        <button
+          data-testid="bare-auth-btn"
+          onClick={async () => {
+            auth.login('tok_any', 'anon');
+            await auth.logout();
+            completed = true;
+          }}
+        >
+          Run
+        </button>
+      );
+    }
+
+    render(<BareConsumer />);
+    await user.click(screen.getByTestId('bare-auth-btn'));
+    expect(completed).toBe(true);
+  });
 });

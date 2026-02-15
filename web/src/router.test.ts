@@ -1,5 +1,16 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { matchRoute, navigate } from './router';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { render, screen, cleanup, waitFor } from '@testing-library/preact';
+import { h } from 'preact';
+import { matchRoute, navigate, useRoute } from './router';
+
+function RouteConsumer() {
+  const route = useRoute();
+  return h(
+    'span',
+    { 'data-testid': 'route' },
+    route.page === 'claim' ? `claim:${route.id}` : route.page,
+  );
+}
 
 describe('matchRoute', () => {
   it('"/" -> send page', () => {
@@ -84,5 +95,27 @@ describe('navigate', () => {
   it('dispatches PopStateEvent', () => {
     navigate('/');
     expect(window.dispatchEvent).toHaveBeenCalledWith(expect.any(PopStateEvent));
+  });
+});
+
+describe('useRoute', () => {
+  beforeEach(() => {
+    window.history.pushState(null, '', '/');
+  });
+
+  afterEach(() => {
+    cleanup();
+  });
+
+  it('tracks route changes from popstate events', async () => {
+    render(h(RouteConsumer, {}));
+    expect(screen.getByTestId('route')).toHaveTextContent('send');
+
+    window.history.pushState(null, '', '/s/abc123');
+    window.dispatchEvent(new PopStateEvent('popstate'));
+
+    await waitFor(() => {
+      expect(screen.getByTestId('route')).toHaveTextContent('claim:abc123');
+    });
   });
 });
