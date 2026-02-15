@@ -1363,7 +1363,10 @@ fn escape_html(input: &str) -> String {
     out
 }
 
-pub async fn handle_secret_page(Path(id): Path<String>) -> Response {
+pub async fn handle_secret_page(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<String>,
+) -> Response {
     // SPA handles /s/{id} client-side; fall back to minimal HTML if no frontend built.
     let html = crate::assets::spa_index_html().unwrap_or_else(|| {
         let escaped_id = escape_html(&id);
@@ -1371,6 +1374,35 @@ pub async fn handle_secret_page(Path(id): Path<String>) -> Response {
             "<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\"><title>Secret {escaped_id}</title></head><body><h1>Secret {escaped_id}</h1></body></html>"
         )
     });
+
+    // Rewrite OG/Twitter meta tags so social previews say "You've been sent a secret!"
+    let base = &state.cfg.public_base_url;
+    let escaped_id = escape_html(&id);
+    let secret_url = format!("{base}/s/{escaped_id}");
+    let secret_image = format!("{base}/static/og-secret.png");
+
+    let html = html
+        .replace(
+            "content=\"secrt — Private One-Time Secret Sharing\"",
+            "content=\"You've been sent a secret!\"",
+        )
+        .replace(
+            "content=\"Share passwords, keys, and sensitive data with zero-knowledge encryption. Secrets self-destruct after being read.\"",
+            "content=\"Open to view your secret. It can only be viewed once.\"",
+        )
+        .replace(
+            "content=\"https://secrt.ca/static/og-image.png\"",
+            &format!("content=\"{secret_image}\""),
+        )
+        .replace(
+            "content=\"https://secrt.ca\"",
+            &format!("content=\"{secret_url}\""),
+        )
+        .replace(
+            "<title>secrt</title>",
+            "<title>You've been sent a secret! — secrt</title>",
+        );
+
     let mut resp = Html(html).into_response();
     insert_header(resp.headers_mut(), "cache-control", "no-store");
     insert_header(resp.headers_mut(), "x-robots-tag", "noindex");
@@ -2233,7 +2265,7 @@ mod tests {
 
     #[tokio::test]
     async fn secret_page_includes_id_and_noindex_headers() {
-        let resp = handle_secret_page(Path("abc123".to_string())).await;
+        let resp = handle_secret_page(State(test_state()), Path("abc123".to_string())).await;
         assert_eq!(resp.status(), StatusCode::OK);
         assert_eq!(
             resp.headers()
@@ -2256,12 +2288,46 @@ mod tests {
     async fn secret_page_does_not_reflect_id_into_html() {
         // With SPA serving, the ID should never appear in the server-rendered HTML
         let reflected = "<script>alert(1)</script>";
-        let resp = handle_secret_page(Path(reflected.to_string())).await;
+        let resp = handle_secret_page(State(test_state()), Path(reflected.to_string())).await;
         assert_eq!(resp.status(), StatusCode::OK);
         let body = response_text(resp).await;
         assert!(
             !body.contains(reflected),
             "id must not be reflected into HTML; body={body}"
+        );
+    }
+
+    #[tokio::test]
+    async fn secret_page_rewrites_og_tags() {
+        let state = test_state();
+        let resp = handle_secret_page(State(state), Path("test-id-42".to_string())).await;
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body = response_text(resp).await;
+
+        // OG title should be rewritten for secret pages
+        assert!(
+            body.contains("content=\"You've been sent a secret!\""),
+            "og:title should be rewritten; body={body}"
+        );
+        // OG description should be rewritten
+        assert!(
+            body.contains("content=\"Open to view your secret. It can only be viewed once.\""),
+            "og:description should be rewritten; body={body}"
+        );
+        // OG image should point to og-secret.png
+        assert!(
+            body.contains("og-secret.png"),
+            "og:image should use og-secret.png; body={body}"
+        );
+        // OG url should contain the secret path
+        assert!(
+            body.contains("/s/test-id-42"),
+            "og:url should contain secret path; body={body}"
+        );
+        // Title should be rewritten
+        assert!(
+            body.contains("<title>You've been sent a secret! — secrt</title>"),
+            "title should be rewritten; body={body}"
         );
     }
 
