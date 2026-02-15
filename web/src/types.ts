@@ -139,6 +139,8 @@ export interface SecretMetadata {
   expires_at: string;
   created_at: string;
   state: string;
+  ciphertext_size: number;
+  passphrase_protected: boolean;
 }
 
 export interface ListSecretsResponse {

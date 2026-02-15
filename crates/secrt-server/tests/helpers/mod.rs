@@ -155,10 +155,18 @@ impl SecretsStore for MemStore {
             .into_iter()
             .skip(offset as usize)
             .take(limit as usize)
-            .map(|s| SecretSummary {
-                id: s.id.clone(),
-                expires_at: s.expires_at,
-                created_at: s.created_at,
+            .map(|s| {
+                let passphrase_protected = serde_json::from_str::<serde_json::Value>(&s.envelope)
+                    .ok()
+                    .and_then(|v| v.get("kdf")?.get("name")?.as_str().map(|n| n != "none"))
+                    .unwrap_or(false);
+                SecretSummary {
+                    id: s.id.clone(),
+                    expires_at: s.expires_at,
+                    created_at: s.created_at,
+                    ciphertext_size: s.envelope.len() as i64,
+                    passphrase_protected,
+                }
             })
             .collect())
     }

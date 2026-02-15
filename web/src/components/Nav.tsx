@@ -74,33 +74,30 @@ function UserMenu({
   const menuRef = useRef<HTMLDivElement>(null);
   const [open, setOpen] = useState(false);
 
+  // Position and show the popover once it mounts
   useEffect(() => {
-    const trigger = triggerRef.current;
     const menu = menuRef.current;
-    if (!trigger || !menu) return;
+    const trigger = triggerRef.current;
+    if (!open || !menu || !trigger) return;
 
-    // Set popover attributes (not yet in Preact's JSX type defs)
     menu.setAttribute('popover', 'auto');
-    trigger.setAttribute('popovertarget', menu.id);
 
-    // Position the menu below the trigger and track open state
+    const rect = trigger.getBoundingClientRect();
+    menu.style.position = 'fixed';
+    menu.style.top = `${rect.bottom}px`;
+    menu.style.right = `${window.innerWidth - rect.right}px`;
+    menu.style.left = 'auto';
+    menu.style.margin = '0';
+    menu.style.minWidth = `${rect.width}px`;
+
+    menu.showPopover();
+
     const onToggle = () => {
-      const isOpen = menu.matches(':popover-open');
-      setOpen(isOpen);
-      if (isOpen) {
-        const rect = trigger.getBoundingClientRect();
-        menu.style.position = 'fixed';
-        menu.style.top = `${rect.bottom}px`;
-        menu.style.right = `${window.innerWidth - rect.right}px`;
-        menu.style.left = 'auto';
-        menu.style.margin = '0';
-        menu.style.minWidth = `${rect.width}px`;
-      }
+      if (!menu.matches(':popover-open')) setOpen(false);
     };
-
     menu.addEventListener('toggle', onToggle);
     return () => menu.removeEventListener('toggle', onToggle);
-  }, []);
+  }, [open]);
 
   const itemClass =
     'flex w-full items-center gap-2 whitespace-nowrap rounded-md px-3 py-1.5 text-sm text-muted transition-colors hover:bg-text/10 hover:text-text';
@@ -115,52 +112,55 @@ function UserMenu({
         ref={triggerRef}
         type="button"
         class={triggerClass}
+        onClick={() => setOpen(true)}
       >
         <UserIcon class="size-4" />
         {displayName}
         <ChevronDownIcon class="size-3" />
       </button>
-      <div
-        ref={menuRef}
-        id="user-menu"
-        class="rounded-b-lg border border-t-0 border-border/50 bg-neutral-200/70 p-1 shadow-lg backdrop-blur dark:bg-neutral-700/70"
-      >
-        <a
-          href="/dashboard"
-          class={itemClass}
-          onClick={(e: MouseEvent) => {
-            e.preventDefault();
-            menuRef.current?.hidePopover();
-            navigate('/dashboard');
-          }}
+      {open && (
+        <div
+          ref={menuRef}
+          id="user-menu"
+          class="rounded-b-lg inset-shadow-border-3 bg-neutral-200/70 p-1 shadow-lg backdrop-blur dark:bg-neutral-700/70"
         >
-          <TableIcon class="size-4" />
-          Dashboard
-        </a>
-        <a
-          href="/settings"
-          class={itemClass}
-          onClick={(e: MouseEvent) => {
-            e.preventDefault();
-            menuRef.current?.hidePopover();
-            navigate('/settings');
-          }}
-        >
-          <GearIcon class="size-4" />
-          Settings
-        </a>
-        <button
-          type="button"
-          class={itemClass}
-          onClick={() => {
-            menuRef.current?.hidePopover();
-            onLogout();
-          }}
-        >
-          <LogoutIcon class="size-4" />
-          Log out
-        </button>
-      </div>
+          <a
+            href="/dashboard"
+            class={itemClass}
+            onClick={(e: MouseEvent) => {
+              e.preventDefault();
+              setOpen(false);
+              navigate('/dashboard');
+            }}
+          >
+            <TableIcon class="size-4" />
+            Dashboard
+          </a>
+          <a
+            href="/settings"
+            class={itemClass}
+            onClick={(e: MouseEvent) => {
+              e.preventDefault();
+              setOpen(false);
+              navigate('/settings');
+            }}
+          >
+            <GearIcon class="size-4" />
+            Settings
+          </a>
+          <button
+            type="button"
+            class={itemClass}
+            onClick={() => {
+              setOpen(false);
+              onLogout();
+            }}
+          >
+            <LogoutIcon class="size-4" />
+            Log out
+          </button>
+        </div>
+      )}
     </>
   );
 }

@@ -295,7 +295,10 @@ impl SecretsStore for PgStore {
         let client = self.pool.get().await?;
         let rows = client
             .query(
-                "SELECT id, expires_at, created_at FROM secrets \
+                "SELECT id, expires_at, created_at, \
+                        octet_length(envelope::text)::bigint AS ciphertext_size, \
+                        COALESCE(envelope->'kdf'->>'name', 'none') <> 'none' AS passphrase_protected \
+                 FROM secrets \
                  WHERE owner_key = ANY($1) AND expires_at > $2 \
                  ORDER BY created_at DESC LIMIT $3 OFFSET $4",
                 &[&owner_keys, &now, &limit, &offset],
@@ -307,6 +310,8 @@ impl SecretsStore for PgStore {
                 id: row.try_get(0)?,
                 expires_at: row.try_get(1)?,
                 created_at: row.try_get(2)?,
+                ciphertext_size: row.try_get(3)?,
+                passphrase_protected: row.try_get(4)?,
             });
         }
         Ok(out)

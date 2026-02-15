@@ -228,6 +228,10 @@
     }
   }
 
+  .btn-sm {
+    @apply rounded-sm px-1.5 py-1 text-xs;
+  }
+
   /* ── Inputs ── */
   .input,
   .select,
@@ -267,4 +271,12 @@
 }
 @utility text-faint {
   color: var(--color-text-faint);
+}
+@utility inset-shadow-border-3 {
+  --tw-inset-shadow: inset 1px 0 0 0
+      color-mix(in srgb, var(--color-border) 50%, transparent),
+    inset -1px 0 0 0
+      color-mix(in srgb, var(--color-border) 50%, transparent),
+    inset 0 -1px 0 0
+      color-mix(in srgb, var(--color-border) 50%, transparent);
 }

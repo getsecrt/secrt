@@ -1,12 +1,29 @@
-import { useState, useEffect, useCallback, useRef } from 'preact/hooks';
+import {
+  useState,
+  useEffect,
+  useCallback,
+  useRef,
+  useMemo,
+} from 'preact/hooks';
 import { AuthGuard } from '../../components/AuthGuard';
 import { useAuth } from '../../lib/auth-context';
 import { listSecrets, burnSecretAuthed } from '../../lib/api';
-import { FireIcon } from '../../components/Icons';
+import {
+  FireIcon,
+  LockIcon,
+  ChevronLeftIcon,
+  ChevronRightIcon,
+  ChevronDownIcon,
+  ChevronUpIcon,
+} from '../../components/Icons';
 import { navigate } from '../../router';
 import type { SecretMetadata } from '../../types';
 
-const PAGE_SIZE = 50;
+const PAGE_SIZE = 5;
+const FETCH_LIMIT = 20_000;
+
+type SortColumn = 'created_at' | 'expires_at' | 'ciphertext_size';
+type SortOrder = 'asc' | 'desc';
 
 const pad = (n: number) => String(n).padStart(2, '0');
 
@@ -51,6 +68,29 @@ function formatDate(iso: string): string {
   });
 }
 
+function formatSize(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function SortIndicator({
+  column,
+  sortBy,
+  sortOrder,
+}: {
+  column: SortColumn;
+  sortBy: SortColumn;
+  sortOrder: SortOrder;
+}) {
+  if (column !== sortBy) return null;
+  return sortOrder === 'asc' ? (
+    <ChevronUpIcon class="ml-0.5 inline size-3" />
+  ) : (
+    <ChevronDownIcon class="ml-0.5 inline size-3" />
+  );
+}
+
 function BurnPopover({
   id,
   burning,
@@ -61,30 +101,32 @@ function BurnPopover({
   onBurn: (id: string) => void;
 }) {
   const triggerRef = useRef<HTMLButtonElement>(null);
+  const [open, setOpen] = useState(false);
   const popoverRef = useRef<HTMLDivElement>(null);
 
+  // Position and show the popover once it mounts
   useEffect(() => {
-    const trigger = triggerRef.current;
     const popover = popoverRef.current;
-    if (!trigger || !popover) return;
+    const trigger = triggerRef.current;
+    if (!open || !popover || !trigger) return;
 
     popover.setAttribute('popover', 'auto');
-    trigger.setAttribute('popovertarget', popover.id);
+
+    const rect = trigger.getBoundingClientRect();
+    popover.style.position = 'fixed';
+    popover.style.top = `${rect.bottom + 4}px`;
+    popover.style.right = `${window.innerWidth - rect.right}px`;
+    popover.style.left = 'auto';
+    popover.style.margin = '0';
+
+    popover.showPopover();
 
     const onToggle = () => {
-      if (popover.matches(':popover-open')) {
-        const rect = trigger.getBoundingClientRect();
-        popover.style.position = 'fixed';
-        popover.style.top = `${rect.bottom + 4}px`;
-        popover.style.right = `${window.innerWidth - rect.right}px`;
-        popover.style.left = 'auto';
-        popover.style.margin = '0';
-      }
+      if (!popover.matches(':popover-open')) setOpen(false);
     };
-
     popover.addEventListener('toggle', onToggle);
     return () => popover.removeEventListener('toggle', onToggle);
-  }, []);
+  }, [open]);
 
   return (
     <>
@@ -92,78 +134,108 @@ function BurnPopover({
         ref={triggerRef}
         type="button"
         class="flex items-center gap-1 rounded-md border border-transparent px-1 py-0.5 text-error/50 hover:border-error hover:bg-error/10 hover:text-error"
+        onClick={() => setOpen(true)}
       >
         <FireIcon class="size-4" />
         <span class="hidden sm:inline">Burn</span>
       </button>
-      <div
-        ref={popoverRef}
-        id={`burn-${id}`}
-        class="rounded-lg border border-border/90 bg-surface-raised/80 p-2 text-text shadow-lg backdrop-blur"
-      >
-        <p class="mb-2 text-center text-sm">Burn this secret?</p>
-        <div class="flex gap-4">
-          <button
-            type="button"
-            class="btn btn-danger p-1 py-0.5 text-xs"
-            disabled={burning}
-            onClick={() => {
-              onBurn(id);
-              popoverRef.current?.hidePopover();
-            }}
-          >
-            {burning ? 'Burning...' : 'Yes, burn'}
-          </button>
-          <button
-            type="button"
-            class="btn p-1 py-0.5 text-xs"
-            onClick={() => popoverRef.current?.hidePopover()}
-          >
-            Cancel
-          </button>
+      {open && (
+        <div
+          ref={popoverRef}
+          id={`burn-${id}`}
+          class="rounded-lg border border-border/90 bg-surface-raised/80 p-2 text-text shadow-lg backdrop-blur"
+        >
+          <p class="mb-2 text-center text-sm">Burn this secret?</p>
+          <div class="flex gap-4">
+            <button
+              type="button"
+              class="btn btn-danger p-1 py-0.5 text-xs"
+              disabled={burning}
+              onClick={() => {
+                onBurn(id);
+                setOpen(false);
+              }}
+            >
+              {burning ? 'Burning...' : 'Yes, burn'}
+            </button>
+            <button
+              type="button"
+              class="btn p-1 py-0.5 text-xs"
+              onClick={() => setOpen(false)}
+            >
+              Cancel
+            </button>
+          </div>
         </div>
-      </div>
+      )}
     </>
   );
 }
 
 function DashboardContent() {
   const auth = useAuth();
-  const [secrets, setSecrets] = useState<SecretMetadata[]>([]);
-  const [total, setTotal] = useState(0);
-  const [offset, setOffset] = useState(0);
+  const [allSecrets, setAllSecrets] = useState<SecretMetadata[]>([]);
+  const [serverTotal, setServerTotal] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [burning, setBurning] = useState<string | null>(null);
   const [now, setNow] = useState(Date.now());
+  const [sortBy, setSortBy] = useState<SortColumn>('created_at');
+  const [sortOrder, setSortOrder] = useState<SortOrder>('desc');
+  const [page, setPage] = useState(0);
 
   useEffect(() => {
     const id = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(id);
   }, []);
 
-  const fetchSecrets = useCallback(
-    async (newOffset: number) => {
-      if (!auth.sessionToken) return;
-      setLoading(true);
-      setError(null);
-      try {
-        const res = await listSecrets(auth.sessionToken, PAGE_SIZE, newOffset);
-        setSecrets(res.secrets);
-        setTotal(res.total);
-        setOffset(newOffset);
-      } catch (err) {
-        setError(err instanceof Error ? err.message : 'Failed to load secrets');
-      } finally {
-        setLoading(false);
-      }
-    },
-    [auth.sessionToken],
-  );
+  const fetchSecrets = useCallback(async () => {
+    if (!auth.sessionToken) return;
+    setLoading(true);
+    setError(null);
+    try {
+      const res = await listSecrets(auth.sessionToken, FETCH_LIMIT, 0);
+      setAllSecrets(res.secrets);
+      setServerTotal(res.total);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to load secrets');
+    } finally {
+      setLoading(false);
+    }
+  }, [auth.sessionToken]);
 
   useEffect(() => {
-    fetchSecrets(0);
+    fetchSecrets();
   }, [fetchSecrets]);
+
+  const sorted = useMemo(() => {
+    const copy = [...allSecrets];
+    const dir = sortOrder === 'asc' ? 1 : -1;
+    copy.sort((a, b) => {
+      if (sortBy === 'ciphertext_size') {
+        return (a.ciphertext_size - b.ciphertext_size) * dir;
+      }
+      // String compare for date ISO strings (lexicographic = chronological)
+      const av = a[sortBy];
+      const bv = b[sortBy];
+      return av < bv ? -dir : av > bv ? dir : 0;
+    });
+    return copy;
+  }, [allSecrets, sortBy, sortOrder]);
+
+  const total = allSecrets.length;
+  const totalPages = Math.ceil(total / PAGE_SIZE);
+  const pageSecrets = sorted.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);
+
+  const toggleSort = (column: SortColumn) => {
+    if (sortBy === column) {
+      setSortOrder((prev) => (prev === 'asc' ? 'desc' : 'asc'));
+    } else {
+      setSortBy(column);
+      setSortOrder('desc');
+    }
+    setPage(0);
+  };
 
   const handleBurn = useCallback(
     async (id: string) => {
@@ -171,8 +243,8 @@ function DashboardContent() {
       setBurning(id);
       try {
         await burnSecretAuthed(auth.sessionToken, id);
-        setSecrets((prev) => prev.filter((s) => s.id !== id));
-        setTotal((prev) => prev - 1);
+        setAllSecrets((prev) => prev.filter((s) => s.id !== id));
+        setServerTotal((prev) => prev - 1);
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Failed to burn secret');
       } finally {
@@ -182,9 +254,11 @@ function DashboardContent() {
     [auth.sessionToken],
   );
 
+  const thSortable = 'cursor-pointer select-none';
+
   return (
     <div class="">
-      <h2 class="heading text-center">Your Secrets</h2>
+      <h2 class="heading mb text-center">Your Secrets</h2>
 
       {error && (
         <div
@@ -195,9 +269,9 @@ function DashboardContent() {
         </div>
       )}
 
-      {loading && secrets.length === 0 ? (
+      {loading && allSecrets.length === 0 ? (
         <p class="text-sm text-muted">Loading...</p>
-      ) : secrets.length === 0 ? (
+      ) : allSecrets.length === 0 ? (
         <div class="text-center">
           <p class="mb-4 text-sm text-muted">You have no active secrets.</p>
           <button type="button" class="link" onClick={() => navigate('/')}>
@@ -206,29 +280,75 @@ function DashboardContent() {
         </div>
       ) : (
         <>
+          {serverTotal > allSecrets.length && (
+            <p class="mb-2 text-sm text-muted">
+              Showing {allSecrets.length} of {serverTotal} secrets
+            </p>
+          )}
+
           <div class="overflow-x-auto">
             <table class="w-full text-sm">
               <thead>
                 <tr class="border-b border-border text-left">
                   <th class="pr-3 pb-2 font-medium">ID</th>
-                  <th class="pr-3 pb-2 font-medium">Created</th>
-                  <th class="w-[119px] pr-3 pb-2 font-medium">
-                    <span class="flex items-center gap-1">
-                      {/*<ClockIcon class="size-3.5" />*/}
-                      Remaining
-                    </span>
+                  <th
+                    class={`pr-3 pb-2 font-medium ${thSortable}`}
+                    onClick={() => toggleSort('created_at')}
+                  >
+                    Created
+                    <SortIndicator
+                      column="created_at"
+                      sortBy={sortBy}
+                      sortOrder={sortOrder}
+                    />
+                  </th>
+                  <th
+                    class={`hidden pr-3 pb-2 font-medium sm:table-cell ${thSortable}`}
+                    onClick={() => toggleSort('ciphertext_size')}
+                  >
+                    Size
+                    <SortIndicator
+                      column="ciphertext_size"
+                      sortBy={sortBy}
+                      sortOrder={sortOrder}
+                    />
+                  </th>
+                  <th class="pr-3 pb-2 font-medium">
+                    <LockIcon class="size-3.5" />
+                  </th>
+                  <th
+                    class={`w-[119px] pr-3 pb-2 font-medium ${thSortable}`}
+                    onClick={() => toggleSort('expires_at')}
+                  >
+                    Remaining
+                    <SortIndicator
+                      column="expires_at"
+                      sortBy={sortBy}
+                      sortOrder={sortOrder}
+                    />
                   </th>
                   <th class="pb-2 font-medium"></th>
                 </tr>
               </thead>
               <tbody>
-                {secrets.map((s) => (
+                {pageSecrets.map((s) => (
                   <tr key={s.id} class="border-b border-border/50">
                     <td class="max-w-[8rem] truncate py-2 pr-3 font-mono text-xs sm:max-w-[12rem] md:max-w-[18rem] lg:max-w-none">
                       {s.id}
                     </td>
                     <td class="py-2 pr-3 whitespace-nowrap">
                       {formatDate(s.created_at)}
+                    </td>
+                    <td class="hidden py-2 pr-3 whitespace-nowrap sm:table-cell">
+                      {formatSize(s.ciphertext_size)}
+                    </td>
+                    <td class="py-2 pr-3">
+                      {s.passphrase_protected && (
+                        <LockIcon
+                          class="size-4 text-muted"
+                          title="Passphrase protected"
+                        />
+                      )}
                     </td>
                     <td class="py-2 pr-3 whitespace-nowrap">
                       {timeRemaining(s.expires_at, now)}
@@ -251,31 +371,34 @@ function DashboardContent() {
             <div class="mt-4 flex items-center justify-between">
               <button
                 type="button"
-                class="text-sm text-muted hover:text-text disabled:opacity-50"
-                disabled={offset === 0 || loading}
-                onClick={() => fetchSecrets(Math.max(0, offset - PAGE_SIZE))}
+                class="btn btn-sm"
+                disabled={page === 0 || loading}
+                onClick={() => setPage((p) => p - 1)}
               >
-                Previous
+                <ChevronLeftIcon class="size-4" />
+                Prev
               </button>
-              <span class="text-xs text-muted">
-                {offset + 1}–{Math.min(offset + PAGE_SIZE, total)} of {total}
+              <span class="text-sm text-muted">
+                {page * PAGE_SIZE + 1}–{Math.min((page + 1) * PAGE_SIZE, total)}{' '}
+                <span class="text-faint">of</span> {total}
               </span>
               <button
                 type="button"
-                class="text-sm text-muted hover:text-text disabled:opacity-50"
-                disabled={offset + PAGE_SIZE >= total || loading}
-                onClick={() => fetchSecrets(offset + PAGE_SIZE)}
+                class="btn btn-sm"
+                disabled={page + 1 >= totalPages || loading}
+                onClick={() => setPage((p) => p + 1)}
               >
                 Next
+                <ChevronRightIcon class="size-4" />
               </button>
             </div>
           )}
         </>
       )}
 
-      <div class="mt-6 flex flex-col justify-center gap-4">
+      <div class="mt-6 flex flex-col items-center gap-4">
         <button type="button" class="link" onClick={() => navigate('/')}>
-          Send A New Secret
+          Send a New Secret
         </button>
 
         <button
@@ -283,7 +406,7 @@ function DashboardContent() {
           class="link"
           onClick={() => navigate('/settings')}
         >
-          Manage API Keys & Account Settings
+          API Keys & Account Settings
         </button>
       </div>
     </div>

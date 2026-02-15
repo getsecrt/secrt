@@ -14,6 +14,8 @@ pub struct SecretSummary {
     pub id: String,
     pub expires_at: DateTime<Utc>,
     pub created_at: DateTime<Utc>,
+    pub ciphertext_size: i64,
+    pub passphrase_protected: bool,
 }
 
 #[derive(Clone, Debug)]

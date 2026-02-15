@@ -4,11 +4,12 @@ export interface TtlPreset {
 }
 
 export const TTL_PRESETS: TtlPreset[] = [
-  { label: '5 min', seconds: 300 },
-  { label: '1 hour', seconds: 3600 },
-  { label: '24 hours', seconds: 86_400 },
+  { label: '10 min', seconds: 600 },
+  { label: '1 hr', seconds: 3600 },
+  { label: '24 hrs', seconds: 86_400 },
   { label: '7 days', seconds: 604_800 },
   { label: '30 days', seconds: 2_592_000 },
+  { label: '90 days', seconds: 7_776_000 },
 ];
 
 export const TTL_MIN = 1;

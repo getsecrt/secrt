@@ -230,6 +230,8 @@ struct SecretMetadataItem {
     share_url: String,
     expires_at: DateTime<Utc>,
     created_at: DateTime<Utc>,
+    ciphertext_size: i64,
+    passphrase_protected: bool,
 }
 
 #[derive(Serialize)]
@@ -776,7 +778,7 @@ async fn handle_list_secrets(
     Query(query): Query<ListSecretsQuery>,
     req: Request,
 ) -> Response {
-    let limit = query.limit.unwrap_or(50).clamp(1, 100);
+    let limit = query.limit.unwrap_or(50).clamp(1, 20_000);
     let offset = query.offset.unwrap_or(0).max(0);
 
     // Try session auth first, then API key auth
@@ -821,6 +823,8 @@ async fn handle_list_secrets(
             id: s.id,
             expires_at: s.expires_at,
             created_at: s.created_at,
+            ciphertext_size: s.ciphertext_size,
+            passphrase_protected: s.passphrase_protected,
         })
         .collect();
 
@@ -1844,10 +1848,18 @@ mod tests {
                 .into_iter()
                 .skip(offset as usize)
                 .take(limit as usize)
-                .map(|s| SecretSummary {
-                    id: s.id.clone(),
-                    expires_at: s.expires_at,
-                    created_at: s.created_at,
+                .map(|s| {
+                    let passphrase_protected = serde_json::from_str::<serde_json::Value>(&s.envelope)
+                        .ok()
+                        .and_then(|v| v.get("kdf")?.get("name")?.as_str().map(|n| n != "none"))
+                        .unwrap_or(false);
+                    SecretSummary {
+                        id: s.id.clone(),
+                        expires_at: s.expires_at,
+                        created_at: s.created_at,
+                        ciphertext_size: s.envelope.len() as i64,
+                        passphrase_protected,
+                    }
                 })
                 .collect())
         }
