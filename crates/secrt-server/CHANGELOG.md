@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.9.0 — 2026-02-14
+
+### Added
+
+- **Secrets check endpoint:** `GET /api/v1/secrets/check` returns count + opaque checksum for lightweight dashboard polling without refetching full metadata.
+- **Dashboard live polling:** dashboard polls the check endpoint every 4 seconds and auto-refreshes on changes.
+
+### Changed
+
+- **Settings page redesign:** centered headings, clearer API key creation success state, destructive-subtle button style for revoke, polished delete-account confirmation flow.
+- **Dashboard page size:** increased from 5 to 10 secrets per page.
+- **Popover positioning:** user menu and burn confirmation popovers now use `useLayoutEffect` to prevent position flash on mount.
+- **Shared UI components:** added `btn-destructive-subtle` and `code` utility classes.
+- **v1 spec updates:** documented session auth, list/check endpoints, API key list/revoke, account deletion, and owner key types.
+
 ## 0.8.0 — 2026-02-14
 
 ### Added
