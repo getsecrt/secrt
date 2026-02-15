@@ -290,9 +290,6 @@ function DashboardContent() {
       ) : allSecrets.length === 0 ? (
         <div class="text-center">
           <p class="mb-4 text-muted">You have no active secrets.</p>
-          <button type="button" class="link" onClick={() => navigate('/')}>
-            Create a Secret
-          </button>
         </div>
       ) : (
         <>
