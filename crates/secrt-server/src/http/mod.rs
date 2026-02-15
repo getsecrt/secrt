@@ -789,27 +789,23 @@ async fn handle_list_secrets(
     let offset = query.offset.unwrap_or(0).max(0);
 
     // Try session auth first, then API key auth
-    let owner_keys =
-        if let Ok((user_id, _, _)) = require_session_user(&state, req.headers()).await {
-            match owner_keys_for_user(&state, user_id).await {
-                Ok(keys) => keys,
-                Err(resp) => return resp,
-            }
-        } else {
-            let raw_key = api_key_from_headers(req.headers());
-            let api_key = match require_api_key(&state, raw_key).await {
-                Ok(k) => k,
-                Err(resp) => return resp,
-            };
-            vec![format!("apikey:{}", api_key.prefix)]
+    let owner_keys = if let Ok((user_id, _, _)) = require_session_user(&state, req.headers()).await
+    {
+        match owner_keys_for_user(&state, user_id).await {
+            Ok(keys) => keys,
+            Err(resp) => return resp,
+        }
+    } else {
+        let raw_key = api_key_from_headers(req.headers());
+        let api_key = match require_api_key(&state, raw_key).await {
+            Ok(k) => k,
+            Err(resp) => return resp,
         };
+        vec![format!("apikey:{}", api_key.prefix)]
+    };
 
     let now = Utc::now();
-    let total = match state
-        .secrets
-        .count_by_owner_keys(&owner_keys, now)
-        .await
-    {
+    let total = match state.secrets.count_by_owner_keys(&owner_keys, now).await {
         Ok(v) => v,
         Err(_) => return internal_server_error(),
     };
@@ -855,31 +851,26 @@ pub async fn handle_secrets_check_entry(
     }
 
     // Same auth pattern as list_secrets: session first, API key fallback
-    let owner_keys =
-        if let Ok((user_id, _, _)) = require_session_user(&state, req.headers()).await {
-            match owner_keys_for_user(&state, user_id).await {
-                Ok(keys) => keys,
-                Err(resp) => return resp,
-            }
-        } else {
-            let raw_key = api_key_from_headers(req.headers());
-            let api_key = match require_api_key(&state, raw_key).await {
-                Ok(k) => k,
-                Err(resp) => return resp,
-            };
-            vec![format!("apikey:{}", api_key.prefix)]
+    let owner_keys = if let Ok((user_id, _, _)) = require_session_user(&state, req.headers()).await
+    {
+        match owner_keys_for_user(&state, user_id).await {
+            Ok(keys) => keys,
+            Err(resp) => return resp,
+        }
+    } else {
+        let raw_key = api_key_from_headers(req.headers());
+        let api_key = match require_api_key(&state, raw_key).await {
+            Ok(k) => k,
+            Err(resp) => return resp,
         };
+        vec![format!("apikey:{}", api_key.prefix)]
+    };
 
     let now = Utc::now();
-    match state
-        .secrets
-        .checksum_by_owner_keys(&owner_keys, now)
-        .await
-    {
-        Ok((count, checksum)) => json_response(
-            StatusCode::OK,
-            SecretsCheckResponse { count, checksum },
-        ),
+    match state.secrets.checksum_by_owner_keys(&owner_keys, now).await {
+        Ok((count, checksum)) => {
+            json_response(StatusCode::OK, SecretsCheckResponse { count, checksum })
+        }
         Err(_) => internal_server_error(),
     }
 }
@@ -1894,10 +1885,11 @@ mod tests {
                 .skip(offset as usize)
                 .take(limit as usize)
                 .map(|s| {
-                    let passphrase_protected = serde_json::from_str::<serde_json::Value>(&s.envelope)
-                        .ok()
-                        .and_then(|v| v.get("kdf")?.get("name")?.as_str().map(|n| n != "none"))
-                        .unwrap_or(false);
+                    let passphrase_protected =
+                        serde_json::from_str::<serde_json::Value>(&s.envelope)
+                            .ok()
+                            .and_then(|v| v.get("kdf")?.get("name")?.as_str().map(|n| n != "none"))
+                            .unwrap_or(false);
                     SecretSummary {
                         id: s.id.clone(),
                         expires_at: s.expires_at,
@@ -1920,10 +1912,7 @@ mod tests {
                 .count() as i64)
         }
 
-        async fn burn_all_by_owner_keys(
-            &self,
-            owner_keys: &[String],
-        ) -> Result<i64, StorageError> {
+        async fn burn_all_by_owner_keys(&self, owner_keys: &[String]) -> Result<i64, StorageError> {
             let mut m = self.secrets.lock().unwrap();
             let before = m.len();
             m.retain(|_, s| !owner_keys.contains(&s.owner_key));
@@ -2662,10 +2651,7 @@ mod tests {
         // rate limit helpers
         assert_eq!(
             store
-                .count_apikey_registrations_by_user_since(
-                    user.id,
-                    now - chrono::Duration::hours(1)
-                )
+                .count_apikey_registrations_by_user_since(user.id, now - chrono::Duration::hours(1))
                 .await
                 .expect("count by user"),
             0
@@ -2962,11 +2948,7 @@ mod tests {
             created_at: Utc::now(),
             revoked_at: None,
         };
-        state
-            .api_keys
-            .insert(key)
-            .await
-            .expect("insert api key");
+        state.api_keys.insert(key).await.expect("insert api key");
 
         (state, token, user.id, prefix)
     }
@@ -3225,11 +3207,8 @@ mod tests {
     #[tokio::test]
     async fn list_apikeys_returns_user_keys() {
         let (state, token, _user_id, prefix) = test_state_with_session().await;
-        let resp = handle_list_apikeys_entry(
-            State(state),
-            authed_get("/api/v1/apikeys", &token),
-        )
-        .await;
+        let resp =
+            handle_list_apikeys_entry(State(state), authed_get("/api/v1/apikeys", &token)).await;
         assert_eq!(resp.status(), StatusCode::OK);
         let body: serde_json::Value =
             serde_json::from_str(&response_text(resp).await).expect("json");
@@ -3380,11 +3359,8 @@ mod tests {
             .expect("session b");
 
         // User B should see no API keys
-        let resp = handle_list_apikeys_entry(
-            State(state),
-            authed_get("/api/v1/apikeys", &token_b),
-        )
-        .await;
+        let resp =
+            handle_list_apikeys_entry(State(state), authed_get("/api/v1/apikeys", &token_b)).await;
         assert_eq!(resp.status(), StatusCode::OK);
         let body: serde_json::Value =
             serde_json::from_str(&response_text(resp).await).expect("json");
@@ -3585,7 +3561,10 @@ mod tests {
         let body: serde_json::Value =
             serde_json::from_str(&response_text(resp).await).expect("json");
         assert_eq!(body["ok"], true);
-        assert_eq!(body["secrets_burned"], 2, "both session and apikey secrets should be burned");
+        assert_eq!(
+            body["secrets_burned"], 2,
+            "both session and apikey secrets should be burned"
+        );
     }
 
     #[tokio::test]
@@ -3610,7 +3589,10 @@ mod tests {
         assert_eq!(resp.status(), StatusCode::OK);
         let body: serde_json::Value =
             serde_json::from_str(&response_text(resp).await).expect("json");
-        assert_eq!(body["total"], 3, "should see session + apikey secrets, not foreign");
+        assert_eq!(
+            body["total"], 3,
+            "should see session + apikey secrets, not foreign"
+        );
     }
 
     // ── SPA route tests ────────────────────────────────────
@@ -3626,7 +3608,11 @@ mod tests {
                 .body(Body::empty())
                 .expect("request");
             let resp = app.clone().oneshot(req).await.expect("response");
-            assert_eq!(resp.status(), StatusCode::OK, "SPA route {path} should serve index");
+            assert_eq!(
+                resp.status(),
+                StatusCode::OK,
+                "SPA route {path} should serve index"
+            );
         }
     }
 
@@ -3655,11 +3641,9 @@ mod tests {
         create_test_secret(&state, &owner_key, "chk1").await;
         create_test_secret(&state, &owner_key, "chk2").await;
 
-        let resp = handle_secrets_check_entry(
-            State(state),
-            authed_get("/api/v1/secrets/check", &token),
-        )
-        .await;
+        let resp =
+            handle_secrets_check_entry(State(state), authed_get("/api/v1/secrets/check", &token))
+                .await;
         assert_eq!(resp.status(), StatusCode::OK);
         let body: serde_json::Value =
             serde_json::from_str(&response_text(resp).await).expect("json");
@@ -3686,11 +3670,9 @@ mod tests {
         // Burn the secret
         state.secrets.burn("mut1", &owner_key).await.expect("burn");
 
-        let resp2 = handle_secrets_check_entry(
-            State(state),
-            authed_get("/api/v1/secrets/check", &token),
-        )
-        .await;
+        let resp2 =
+            handle_secrets_check_entry(State(state), authed_get("/api/v1/secrets/check", &token))
+                .await;
         let body2: serde_json::Value =
             serde_json::from_str(&response_text(resp2).await).expect("json");
         let cs2 = body2["checksum"].as_str().unwrap().to_string();
@@ -3727,11 +3709,9 @@ mod tests {
         state.api_keys.insert(key_b).await.expect("insert key b");
 
         // User B should see 0 secrets
-        let resp = handle_secrets_check_entry(
-            State(state),
-            authed_get("/api/v1/secrets/check", &token_b),
-        )
-        .await;
+        let resp =
+            handle_secrets_check_entry(State(state), authed_get("/api/v1/secrets/check", &token_b))
+                .await;
         assert_eq!(resp.status(), StatusCode::OK);
         let body: serde_json::Value =
             serde_json::from_str(&response_text(resp).await).expect("json");

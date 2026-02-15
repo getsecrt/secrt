@@ -183,10 +183,7 @@ impl SecretsStore for MemStore {
             .count() as i64)
     }
 
-    async fn burn_all_by_owner_keys(
-        &self,
-        owner_keys: &[String],
-    ) -> Result<i64, StorageError> {
+    async fn burn_all_by_owner_keys(&self, owner_keys: &[String]) -> Result<i64, StorageError> {
         let mut m = self.secrets.lock().expect("secrets mutex poisoned");
         let before = m.len();
         m.retain(|_, s| !owner_keys.contains(&s.owner_key));
@@ -248,10 +245,7 @@ impl ApiKeysStore for MemStore {
         Ok(true)
     }
 
-    async fn list_by_user_id(
-        &self,
-        user_id: UserId,
-    ) -> Result<Vec<ApiKeyRecord>, StorageError> {
+    async fn list_by_user_id(&self, user_id: UserId) -> Result<Vec<ApiKeyRecord>, StorageError> {
         let m = self.keys.lock().expect("keys mutex poisoned");
         let mut result: Vec<_> = m
             .values()

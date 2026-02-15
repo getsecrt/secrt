@@ -187,10 +187,7 @@ pub trait SecretsStore: Send + Sync {
         owner_keys: &[String],
         now: DateTime<Utc>,
     ) -> Result<i64, StorageError>;
-    async fn burn_all_by_owner_keys(
-        &self,
-        owner_keys: &[String],
-    ) -> Result<i64, StorageError>;
+    async fn burn_all_by_owner_keys(&self, owner_keys: &[String]) -> Result<i64, StorageError>;
     async fn checksum_by_owner_keys(
         &self,
         owner_keys: &[String],
@@ -326,7 +323,9 @@ where
         limit: i64,
         offset: i64,
     ) -> Result<Vec<SecretSummary>, StorageError> {
-        (**self).list_by_owner_keys(owner_keys, now, limit, offset).await
+        (**self)
+            .list_by_owner_keys(owner_keys, now, limit, offset)
+            .await
     }
 
     async fn count_by_owner_keys(
@@ -337,10 +336,7 @@ where
         (**self).count_by_owner_keys(owner_keys, now).await
     }
 
-    async fn burn_all_by_owner_keys(
-        &self,
-        owner_keys: &[String],
-    ) -> Result<i64, StorageError> {
+    async fn burn_all_by_owner_keys(&self, owner_keys: &[String]) -> Result<i64, StorageError> {
         (**self).burn_all_by_owner_keys(owner_keys).await
     }
 

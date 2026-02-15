@@ -336,10 +336,7 @@ impl SecretsStore for PgStore {
         Ok(row.try_get(0)?)
     }
 
-    async fn burn_all_by_owner_keys(
-        &self,
-        owner_keys: &[String],
-    ) -> Result<i64, StorageError> {
+    async fn burn_all_by_owner_keys(&self, owner_keys: &[String]) -> Result<i64, StorageError> {
         if owner_keys.is_empty() {
             return Ok(0);
         }

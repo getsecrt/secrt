@@ -172,10 +172,7 @@ impl SecretsStore for QuotaRaceStore {
         Ok(0)
     }
 
-    async fn burn_all_by_owner_keys(
-        &self,
-        _owner_keys: &[String],
-    ) -> Result<i64, StorageError> {
+    async fn burn_all_by_owner_keys(&self, _owner_keys: &[String]) -> Result<i64, StorageError> {
         Ok(0)
     }
 

@@ -148,16 +148,30 @@ impl SecretsStore for ErrStore {
         }
     }
 
-    async fn list_by_owner_keys(&self, _owner_keys: &[String], _now: DateTime<Utc>, _limit: i64, _offset: i64) -> Result<Vec<SecretSummary>, StorageError> {
+    async fn list_by_owner_keys(
+        &self,
+        _owner_keys: &[String],
+        _now: DateTime<Utc>,
+        _limit: i64,
+        _offset: i64,
+    ) -> Result<Vec<SecretSummary>, StorageError> {
         Err(StorageError::Other("error".into()))
     }
-    async fn count_by_owner_keys(&self, _owner_keys: &[String], _now: DateTime<Utc>) -> Result<i64, StorageError> {
+    async fn count_by_owner_keys(
+        &self,
+        _owner_keys: &[String],
+        _now: DateTime<Utc>,
+    ) -> Result<i64, StorageError> {
         Err(StorageError::Other("error".into()))
     }
     async fn burn_all_by_owner_keys(&self, _owner_keys: &[String]) -> Result<i64, StorageError> {
         Err(StorageError::Other("error".into()))
     }
-    async fn checksum_by_owner_keys(&self, _owner_keys: &[String], _now: DateTime<Utc>) -> Result<(i64, String), StorageError> {
+    async fn checksum_by_owner_keys(
+        &self,
+        _owner_keys: &[String],
+        _now: DateTime<Utc>,
+    ) -> Result<(i64, String), StorageError> {
         Err(StorageError::Other("error".into()))
     }
 }
