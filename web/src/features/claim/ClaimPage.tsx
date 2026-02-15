@@ -29,6 +29,7 @@ interface ClaimPageProps {
 
 type ClaimStatus =
   | { step: 'init' }
+  | { step: 'confirm' }
   | { step: 'claiming' }
   | { step: 'passphrase'; envelope: EnvelopeJson; urlKey: Uint8Array }
   | { step: 'decrypting' }
@@ -77,76 +78,79 @@ export function ClaimPage({ id }: ClaimPageProps) {
     ta.style.height = `${Math.min(ta.scrollHeight, 256)}px`;
   }, [status.step]);
 
-  // Parse fragment and initiate claim on mount
+  // Validate fragment on mount — stop at confirm screen, don't claim yet
   useEffect(() => {
+    const fragment = window.location.hash.slice(1);
+    if (!fragment) {
+      setStatus({
+        step: 'error',
+        code: 'no-fragment',
+        message:
+          'This link is incomplete. The decryption key is missing from the URL.',
+      });
+      return;
+    }
+
+    let urlKey: Uint8Array;
+    try {
+      urlKey = base64urlDecode(fragment);
+      if (urlKey.length !== URL_KEY_LEN) throw new Error('bad length');
+    } catch {
+      setStatus({
+        step: 'error',
+        code: 'invalid-fragment',
+        message:
+          'This link is malformed. The decryption key in the URL is invalid.',
+      });
+      return;
+    }
+
+    urlKeyRef.current = urlKey;
+    setStatus({ step: 'confirm' });
+
+    return () => {
+      abortRef.current?.abort();
+      abortRef.current = null;
+    };
+  }, [id]);
+
+  // Claim and decrypt — triggered by the "View Secret" button
+  const handleClaim = useCallback(async () => {
+    const urlKey = urlKeyRef.current;
+    if (!urlKey) return;
+
     const controller = new AbortController();
     abortRef.current = controller;
 
-    void (async () => {
-      // 1. Parse URL fragment
-      const fragment = window.location.hash.slice(1);
-      if (!fragment) {
-        setStatus({
-          step: 'error',
-          code: 'no-fragment',
-          message:
-            'This link is incomplete. The decryption key is missing from the URL.',
-        });
+    setStatus({ step: 'claiming' });
+    try {
+      const claimToken = await deriveClaimToken(urlKey);
+      if (controller.signal.aborted) return;
+
+      const res = await claimSecret(
+        id,
+        { claim: base64urlEncode(claimToken) },
+        controller.signal,
+      );
+
+      envelopeRef.current = res.envelope;
+
+      // Check if passphrase required
+      if (res.envelope.kdf.name !== 'none') {
+        setStatus({ step: 'passphrase', envelope: res.envelope, urlKey });
         return;
       }
 
-      let urlKey: Uint8Array;
-      try {
-        urlKey = base64urlDecode(fragment);
-        if (urlKey.length !== URL_KEY_LEN) throw new Error('bad length');
-      } catch {
-        setStatus({
-          step: 'error',
-          code: 'invalid-fragment',
-          message:
-            'This link is malformed. The decryption key in the URL is invalid.',
-        });
-        return;
-      }
+      // Decrypt immediately (no passphrase)
+      setStatus({ step: 'decrypting' });
+      const result = await open(res.envelope, urlKey);
+      if (controller.signal.aborted) return;
 
-      urlKeyRef.current = urlKey;
-
-      // 2. Derive claim_token and call claim API
-      setStatus({ step: 'claiming' });
-      try {
-        const claimToken = await deriveClaimToken(urlKey);
-        if (controller.signal.aborted) return;
-
-        const res = await claimSecret(
-          id,
-          { claim: base64urlEncode(claimToken) },
-          controller.signal,
-        );
-
-        envelopeRef.current = res.envelope;
-
-        // 3. Check if passphrase required
-        if (res.envelope.kdf.name !== 'none') {
-          setStatus({ step: 'passphrase', envelope: res.envelope, urlKey });
-          return;
-        }
-
-        // 4. Decrypt immediately (no passphrase)
-        setStatus({ step: 'decrypting' });
-        const result = await open(res.envelope, urlKey);
-        if (controller.signal.aborted) return;
-
-        setStatus({ step: 'done', content: result.content, meta: result.meta });
-      } catch (err) {
-        if (controller.signal.aborted) return;
-        setStatus(mapClaimError(err));
-      }
-    })();
-
-    return () => {
-      controller.abort();
-      abortRef.current = null;
-    };
+      setStatus({ step: 'done', content: result.content, meta: result.meta });
+    } catch (err) {
+      if (controller.signal.aborted) return;
+      setStatus(mapClaimError(err));
+    }
   }, [id]);
 
   // Handle passphrase submission
@@ -196,18 +200,94 @@ export function ClaimPage({ id }: ClaimPageProps) {
     navigate('/');
   }, []);
 
-  // ── Loading / claiming ──
-  if (status.step === 'init' || status.step === 'claiming') {
+  // ── Validating fragment ──
+  if (status.step === 'init') {
     return (
       <div class="card space-y-4 text-center">
         <div class="flex justify-center">
           <div class="size-8 animate-spin rounded-full border-2 border-border border-t-accent" />
         </div>
-        <p class="text-muted">
-          {status.step === 'init'
-            ? 'Preparing\u2026'
-            : 'Retrieving your secret\u2026'}
-        </p>
+        <p class="text-muted">Preparing&hellip;</p>
+      </div>
+    );
+  }
+
+  // ── Confirm before claiming ──
+  if (status.step === 'confirm') {
+    return (
+      <>
+        {/* Dimmed placeholder behind the confirm modal — matches done layout */}
+        <div class="card pointer-events-none space-y-5 opacity-50 select-none">
+          <div class="flex flex-col items-center gap-2 text-center">
+            <LockIcon class="size-10 text-muted" />
+            <h2 class="text-xl font-semibold">Secret Ready</h2>
+          </div>
+          <div class="space-y-3">
+            <textarea
+              readonly
+              disabled
+              tabIndex={-1}
+              class="input [field-sizing:content] max-h-64 w-full resize-y font-mono text-sm tracking-wider"
+              value={'\u25CF'.repeat(PLACEHOLDER_DOTS)}
+            />
+            <button
+              type="button"
+              disabled
+              class="btn btn-sm btn-secondary btn-primary w-full tracking-wider uppercase"
+            >
+              <ClipboardIcon class="size-5" />
+              Copy secret
+            </button>
+          </div>
+          <p class="text-center text-sm text-muted">
+            This secret will be permanently deleted from the server.
+          </p>
+          <div class="text-center">
+            <a class="link">Create a New Secret</a>
+          </div>
+        </div>
+
+        {/* Confirm modal */}
+        <div class="fixed inset-0 z-50 flex items-start justify-center bg-black/30 px-4 pt-32">
+          <div class="card w-full max-w-sm space-y-6 text-center">
+            <div class="flex flex-col items-center gap-2">
+              <LockIcon class="size-10 text-accent" />
+              <h2 class="mb-2 text-xl font-semibold">
+                Someone Sent You a Secret
+              </h2>
+              <p class="text-muted">
+                This secret can only be viewed once.
+                <br />
+                <span class="text-black dark:text-white">
+                  After you open it, it will be permanently deleted.
+                </span>
+              </p>
+              <p class="mt-4 text-sm text-muted">
+                Be ready to save it and ensure no one else can see your screen.
+              </p>
+            </div>
+
+            <button
+              type="button"
+              class="btn btn-primary w-full tracking-wider uppercase"
+              onClick={handleClaim}
+            >
+              View Secret
+            </button>
+          </div>
+        </div>
+      </>
+    );
+  }
+
+  // ── Loading / claiming ──
+  if (status.step === 'claiming') {
+    return (
+      <div class="card space-y-4 text-center">
+        <div class="flex justify-center">
+          <div class="size-8 animate-spin rounded-full border-2 border-border border-t-accent" />
+        </div>
+        <p class="text-muted">Retrieving your secret&hellip;</p>
       </div>
     );
   }
@@ -272,8 +352,17 @@ export function ClaimPage({ id }: ClaimPageProps) {
         class={`card space-y-5 ${isLocked ? 'pointer-events-none opacity-50 select-none' : ''}`}
       >
         <div class="flex flex-col items-center gap-2 text-center">
-          <CheckCircleIcon class="size-10 text-success" />
-          <h2 class="text-xl font-semibold">Secret Decrypted</h2>
+          {isLocked ? (
+            <>
+              <LockIcon class="size-10 text-muted" />
+              <h2 class="text-xl font-semibold">Secret Ready</h2>
+            </>
+          ) : (
+            <>
+              <CheckCircleIcon class="size-10 text-success" />
+              <h2 class="text-xl font-semibold">Secret Decrypted</h2>
+            </>
+          )}
         </div>
 
         {isDone && isFile ? (
@@ -306,20 +395,14 @@ export function ClaimPage({ id }: ClaimPageProps) {
         ) : (
           /* ── Text result (or placeholder when locked) ── */
           <div class="space-y-3">
-            {isDone ? (
-              <textarea
-                ref={textareaRef}
-                readonly
-                class="input [field-sizing:content] max-h-64 w-full resize-y font-mono text-sm break-all whitespace-pre-wrap"
-                value={textContent}
-              />
-            ) : (
-              <div class="rounded-md border border-border bg-surface px-3 py-2.5 inset-shadow-sm">
-                <p class="font-mono tracking-wider text-muted select-none">
-                  {'\u25CF'.repeat(PLACEHOLDER_DOTS)}
-                </p>
-              </div>
-            )}
+            <textarea
+              ref={isDone ? textareaRef : undefined}
+              readonly
+              disabled={!isDone}
+              tabIndex={isDone ? undefined : -1}
+              class="input [field-sizing:content] max-h-64 w-full resize-y font-mono text-sm break-all whitespace-pre-wrap"
+              value={isDone ? textContent : '\u25CF'.repeat(PLACEHOLDER_DOTS)}
+            />
 
             {isDone && (
               <CopyButton
@@ -348,7 +431,7 @@ export function ClaimPage({ id }: ClaimPageProps) {
           <form class="card w-full max-w-sm space-y-6" onSubmit={handleDecrypt}>
             <div class="flex flex-col items-center gap-2 text-center">
               <LockIcon class="size-10 text-accent" />
-              <h2 class="text-xl font-semibold">Passphrase Required</h2>
+              <h2 class="mb-2 text-xl font-semibold">Passphrase Required</h2>
               <p class="text-muted">
                 This secret is protected with a passphrase.
                 <br />

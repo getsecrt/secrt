@@ -68,6 +68,18 @@ function setHash(hash: string) {
   });
 }
 
+/** Wait for the confirm screen, then click "View Secret" to proceed. */
+async function clickViewSecret() {
+  const user = userEvent.setup();
+  await waitFor(() => {
+    expect(
+      screen.getByRole('button', { name: /View Secret/i }),
+    ).toBeInTheDocument();
+  });
+  await user.click(screen.getByRole('button', { name: /View Secret/i }));
+  return user;
+}
+
 describe('ClaimPage', () => {
   beforeEach(() => {
     mockDeriveClaimToken.mockResolvedValue(new Uint8Array(32));
@@ -89,7 +101,7 @@ describe('ClaimPage', () => {
     });
   });
 
-  // ── Error states ──
+  // ── Error states (fragment validation — no confirm screen) ──
 
   it('no fragment shows "incomplete" error', async () => {
     Object.defineProperty(window, 'location', {
@@ -118,10 +130,28 @@ describe('ClaimPage', () => {
     });
   });
 
+  // ── Confirm screen ──
+
+  it('shows confirm screen with "View Secret" button', async () => {
+    setHash(fakeFragment);
+    render(<ClaimPage id="test123" />);
+    await waitFor(() => {
+      expect(screen.getByText(/Someone sent you a secret/i)).toBeInTheDocument();
+    });
+    expect(
+      screen.getByRole('button', { name: /View Secret/i }),
+    ).toBeInTheDocument();
+    // Secret is NOT claimed yet
+    expect(mockClaim).not.toHaveBeenCalled();
+  });
+
+  // ── Error states (claim errors — after clicking View Secret) ──
+
   it('claimSecret 404 shows "no longer available"', async () => {
     setHash(fakeFragment);
     mockClaim.mockRejectedValue(new Error('404 Not Found'));
     render(<ClaimPage id="test123" />);
+    await clickViewSecret();
     await waitFor(() => {
       expect(screen.getByText(/no longer available/i)).toBeInTheDocument();
     });
@@ -131,6 +161,7 @@ describe('ClaimPage', () => {
     setHash(fakeFragment);
     mockClaim.mockRejectedValue(new Error('Failed to fetch'));
     render(<ClaimPage id="test123" />);
+    await clickViewSecret();
     await waitFor(() => {
       expect(screen.getByText(/could not reach/i)).toBeInTheDocument();
     });
@@ -141,6 +172,7 @@ describe('ClaimPage', () => {
   it('shows "Secret Decrypted" after claim+decrypt', async () => {
     setHash(fakeFragment);
     render(<ClaimPage id="test123" />);
+    await clickViewSecret();
     await waitFor(() => {
       expect(screen.getByText('Secret Decrypted')).toBeInTheDocument();
     });
@@ -149,6 +181,7 @@ describe('ClaimPage', () => {
   it('secret text visible immediately in a readonly textarea', async () => {
     setHash(fakeFragment);
     render(<ClaimPage id="test123" />);
+    await clickViewSecret();
     await waitFor(() => {
       expect(screen.getByText('Secret Decrypted')).toBeInTheDocument();
     });
@@ -161,6 +194,7 @@ describe('ClaimPage', () => {
   it('copy button present with "Copy secret" label', async () => {
     setHash(fakeFragment);
     render(<ClaimPage id="test123" />);
+    await clickViewSecret();
     await waitFor(() => {
       expect(
         screen.getByRole('button', { name: /Copy secret/ }),
@@ -171,6 +205,7 @@ describe('ClaimPage', () => {
   it('"permanently deleted" message shown', async () => {
     setHash(fakeFragment);
     render(<ClaimPage id="test123" />);
+    await clickViewSecret();
     await waitFor(() => {
       expect(screen.getByText(/permanently deleted/)).toBeInTheDocument();
     });
@@ -178,8 +213,8 @@ describe('ClaimPage', () => {
 
   it('"Create a new secret" calls navigate("/")', async () => {
     setHash(fakeFragment);
-    const user = userEvent.setup();
     render(<ClaimPage id="test123" />);
+    const user = await clickViewSecret();
     await waitFor(() => {
       expect(screen.getByText('Secret Decrypted')).toBeInTheDocument();
     });
@@ -196,6 +231,7 @@ describe('ClaimPage', () => {
       meta: { type: 'file', filename: 'report.pdf', mime: 'application/pdf' },
     });
     render(<ClaimPage id="test123" />);
+    await clickViewSecret();
     await waitFor(() => {
       expect(screen.getByText('report.pdf')).toBeInTheDocument();
     });
@@ -211,6 +247,7 @@ describe('ClaimPage', () => {
     setHash(fakeFragment);
     mockClaim.mockResolvedValue({ envelope: passEnvelope });
     render(<ClaimPage id="test123" />);
+    await clickViewSecret();
     await waitFor(() => {
       expect(screen.getByText('Passphrase Required')).toBeInTheDocument();
     });
@@ -220,6 +257,7 @@ describe('ClaimPage', () => {
     setHash(fakeFragment);
     mockClaim.mockResolvedValue({ envelope: passEnvelope });
     render(<ClaimPage id="test123" />);
+    await clickViewSecret();
     await waitFor(() => {
       expect(screen.getByText('Passphrase Required')).toBeInTheDocument();
     });
@@ -234,8 +272,8 @@ describe('ClaimPage', () => {
       meta: { type: 'text' },
     });
 
-    const user = userEvent.setup();
     render(<ClaimPage id="test123" />);
+    const user = await clickViewSecret();
     await waitFor(() => {
       expect(screen.getByText('Passphrase Required')).toBeInTheDocument();
     });
@@ -258,8 +296,8 @@ describe('ClaimPage', () => {
     mockClaim.mockResolvedValue({ envelope: passEnvelope });
     mockOpen.mockRejectedValueOnce(new Error('decrypt failed'));
 
-    const user = userEvent.setup();
     render(<ClaimPage id="test123" />);
+    const user = await clickViewSecret();
     await waitFor(() => {
       expect(screen.getByText('Passphrase Required')).toBeInTheDocument();
     });
@@ -278,8 +316,8 @@ describe('ClaimPage', () => {
   it('passphrase visibility toggle works', async () => {
     setHash(fakeFragment);
     mockClaim.mockResolvedValue({ envelope: passEnvelope });
-    const user = userEvent.setup();
     render(<ClaimPage id="test123" />);
+    const user = await clickViewSecret();
     await waitFor(() => {
       expect(screen.getByText('Passphrase Required')).toBeInTheDocument();
     });
