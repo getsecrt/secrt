@@ -569,6 +569,15 @@
         "priority": "low",
         "dependencies": [],
         "subtasks": []
+      },
+      {
+        "id": 25,
+        "title": "Investigate dropdown menu wider than username button",
+        "description": "The navigation dropdown menu appears wider than the username button that triggers it. Investigate why the menu is wider and see if we can fix it so the menu width is constrained to match or align with the trigger button. Check Nav component styling, any min-width or whitespace issues in menu items, and whether Tailwind utility classes or the design system has a pattern for this.",
+        "status": "pending",
+        "priority": "medium",
+        "dependencies": [],
+        "subtasks": []
       }
     ]
   }

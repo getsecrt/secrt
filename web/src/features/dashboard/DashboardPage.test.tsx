@@ -22,11 +22,12 @@ vi.mock('../../router', () => ({
 
 vi.mock('../../lib/api', () => ({
   listSecrets: vi.fn(),
+  checkSecrets: vi.fn(),
   burnSecretAuthed: vi.fn(),
 }));
 
 import { DashboardPage } from './DashboardPage';
-import { listSecrets, burnSecretAuthed } from '../../lib/api';
+import { listSecrets, checkSecrets, burnSecretAuthed } from '../../lib/api';
 
 const futureDate = new Date(Date.now() + 3600000).toISOString();
 
@@ -36,6 +37,8 @@ function makeSecret(overrides: Partial<{
   expires_at: string;
   created_at: string;
   state: string;
+  ciphertext_size: number;
+  passphrase_protected: boolean;
 }> = {}) {
   return {
     id: 'abc123def456gh',
@@ -43,6 +46,8 @@ function makeSecret(overrides: Partial<{
     expires_at: futureDate,
     created_at: '2026-01-15T10:00:00Z',
     state: 'active',
+    ciphertext_size: 1024,
+    passphrase_protected: false,
     ...overrides,
   };
 }
@@ -57,6 +62,7 @@ describe('DashboardPage', () => {
     mockAuth.logout.mockClear();
     mockNavigate.mockClear();
     vi.mocked(listSecrets).mockReset();
+    vi.mocked(checkSecrets).mockResolvedValue({ count: 0, checksum: 'steady' });
     vi.mocked(burnSecretAuthed).mockReset();
   });
 
@@ -87,7 +93,7 @@ describe('DashboardPage', () => {
     });
 
     render(<DashboardPage />);
-    expect(await screen.findByText('No active secrets.')).toBeInTheDocument();
+    expect(await screen.findByText('You have no active secrets.')).toBeInTheDocument();
     expect(screen.getByText('Create a Secret')).toBeInTheDocument();
   });
 
@@ -104,9 +110,9 @@ describe('DashboardPage', () => {
 
     render(<DashboardPage />);
 
-    // Truncated IDs should appear
-    expect(await screen.findByText('aaaa1111bbbb...')).toBeInTheDocument();
-    expect(screen.getByText('cccc3333dddd...')).toBeInTheDocument();
+    // IDs should appear
+    expect(await screen.findByText('aaaa1111bbbb2222')).toBeInTheDocument();
+    expect(screen.getByText('cccc3333dddd4444')).toBeInTheDocument();
 
     // The "Remaining" column header should appear
     expect(screen.getByText('Remaining')).toBeInTheDocument();
@@ -130,13 +136,13 @@ describe('DashboardPage', () => {
     render(<DashboardPage />);
 
     // Wait for the secret to appear
-    await screen.findByText('aaaa1111bbbb...');
+    await screen.findByText('aaaa1111bbbb2222');
 
     // Click the Burn button
     await user.click(screen.getByText('Burn'));
 
     // Should show confirmation UI, not call the API yet
-    expect(screen.getByText('Sure?')).toBeInTheDocument();
+    expect(screen.getByText('Burn this secret?')).toBeInTheDocument();
     expect(screen.getByText('Yes, burn')).toBeInTheDocument();
     expect(screen.getByText('Cancel')).toBeInTheDocument();
     expect(burnSecretAuthed).not.toHaveBeenCalled();
@@ -157,7 +163,7 @@ describe('DashboardPage', () => {
     render(<DashboardPage />);
 
     // Wait for the secret to appear
-    await screen.findByText('aaaa1111bbbb...');
+    await screen.findByText('aaaa1111bbbb2222');
 
     // Click Burn, then confirm
     await user.click(screen.getByText('Burn'));
@@ -167,9 +173,9 @@ describe('DashboardPage', () => {
 
     // Secret should be removed, empty state should appear
     await waitFor(() => {
-      expect(screen.queryByText('aaaa1111bbbb...')).toBeNull();
+      expect(screen.queryByText('aaaa1111bbbb2222')).toBeNull();
     });
-    expect(screen.getByText('No active secrets.')).toBeInTheDocument();
+    expect(screen.getByText('You have no active secrets.')).toBeInTheDocument();
   });
 
   it('displays error message on API error during fetch', async () => {
@@ -195,7 +201,7 @@ describe('DashboardPage', () => {
 
     render(<DashboardPage />);
 
-    await screen.findByText('aaaa1111bbbb...');
+    await screen.findByText('aaaa1111bbbb2222');
     await user.click(screen.getByText('Burn'));
     await user.click(screen.getByText('Yes, burn'));
 

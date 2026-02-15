@@ -227,9 +227,11 @@ export function ClaimPage({ id }: ClaimPageProps) {
           {status.message}
         </p>
 
-        <a href="/" class="btn w-full text-center" onClick={handleGoHome}>
-          Create a new secret
-        </a>
+        <div class="text-center">
+          <a href="/" class="link" onClick={handleGoHome}>
+            Create a new secret
+          </a>
+        </div>
       </div>
     );
   }

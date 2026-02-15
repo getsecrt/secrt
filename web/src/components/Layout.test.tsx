@@ -52,7 +52,7 @@ describe('Layout', () => {
   it('renders copyright footer', () => {
     render(<Layout>content</Layout>);
     const year = new Date().getFullYear().toString();
-    expect(screen.getByText(new RegExp(`${year}.*secrt`))).toBeInTheDocument();
+    expect(screen.getByText(new RegExp(`${year}\\s+JD Lien`))).toBeInTheDocument();
   });
 
   it('wraps children in main element', () => {

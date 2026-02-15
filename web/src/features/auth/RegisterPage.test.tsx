@@ -50,7 +50,7 @@ describe('RegisterPage', () => {
   it('renders registration form', () => {
     render(<RegisterPage />);
     expect(screen.getByText('Create an Account')).toBeInTheDocument();
-    expect(screen.getByLabelText('Display Name')).toBeInTheDocument();
+    expect(screen.getByLabelText('Account Nickname')).toBeInTheDocument();
     expect(screen.getByText('Register with Passkey')).toBeInTheDocument();
   });
 
@@ -70,7 +70,7 @@ describe('RegisterPage', () => {
     const user = userEvent.setup();
     render(<RegisterPage />);
     // Clear the pre-filled random name
-    const input = screen.getByLabelText('Display Name');
+    const input = screen.getByLabelText('Account Nickname');
     await user.clear(input);
     await user.click(screen.getByText('Register with Passkey'));
     expect(screen.getByRole('alert')).toHaveTextContent('Please enter a display name');
@@ -100,7 +100,7 @@ describe('RegisterPage', () => {
 
     render(<RegisterPage />);
     // Clear pre-filled name and type a specific one
-    const input = screen.getByLabelText('Display Name');
+    const input = screen.getByLabelText('Account Nickname');
     await user.clear(input);
     await user.type(input, 'Alice');
     await user.click(screen.getByText('Register with Passkey'));
@@ -119,7 +119,7 @@ describe('RegisterPage', () => {
     );
 
     render(<RegisterPage />);
-    await user.type(screen.getByLabelText('Display Name'), 'Bob');
+    await user.type(screen.getByLabelText('Account Nickname'), 'Bob');
     await user.click(screen.getByText('Register with Passkey'));
 
     expect(screen.getByRole('alert')).toHaveTextContent('server down');
@@ -136,7 +136,7 @@ describe('RegisterPage', () => {
     vi.mocked(createPasskeyCredential).mockRejectedValue(err);
 
     render(<RegisterPage />);
-    await user.type(screen.getByLabelText('Display Name'), 'Carol');
+    await user.type(screen.getByLabelText('Account Nickname'), 'Carol');
     await user.click(screen.getByText('Register with Passkey'));
 
     expect(screen.getByRole('alert')).toHaveTextContent(

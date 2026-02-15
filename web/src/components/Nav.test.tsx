@@ -60,11 +60,13 @@ describe('Nav', () => {
     expect(screen.getAllByText('Log In').length).toBeGreaterThan(0);
   });
 
-  it('shows displayName and Log out when authenticated', () => {
+  it('shows displayName and Log out when authenticated', async () => {
+    const user = userEvent.setup();
     mockAuth.authenticated = true;
     mockAuth.displayName = 'alice';
     render(<Nav />);
     expect(screen.getAllByText('alice').length).toBeGreaterThan(0);
+    await user.click(screen.getByRole('button', { name: 'alice' }));
     expect(screen.getAllByText('Log out').length).toBeGreaterThan(0);
   });
 
@@ -80,10 +82,43 @@ describe('Nav', () => {
     mockAuth.authenticated = true;
     mockAuth.displayName = 'bob';
     render(<Nav />);
+    await user.click(screen.getByRole('button', { name: 'bob' }));
     const logoutBtns = screen.getAllByText('Log out');
     await user.click(logoutBtns[0]);
     expect(mockAuth.logout).toHaveBeenCalled();
     expect(mockNavigate).toHaveBeenCalledWith('/');
+  });
+
+  it('navigates to dashboard from the user menu', async () => {
+    const user = userEvent.setup();
+    mockAuth.authenticated = true;
+    mockAuth.displayName = 'alice';
+    render(<Nav />);
+    await user.click(screen.getByRole('button', { name: 'alice' }));
+    await user.click(screen.getByText('Dashboard'));
+    expect(mockNavigate).toHaveBeenCalledWith('/dashboard');
+  });
+
+  it('navigates to settings from the user menu', async () => {
+    const user = userEvent.setup();
+    mockAuth.authenticated = true;
+    mockAuth.displayName = 'alice';
+    render(<Nav />);
+    await user.click(screen.getByRole('button', { name: 'alice' }));
+    await user.click(screen.getByText('Settings'));
+    expect(mockNavigate).toHaveBeenCalledWith('/settings');
+  });
+
+  it('closes user popover when it is hidden', async () => {
+    const user = userEvent.setup();
+    mockAuth.authenticated = true;
+    mockAuth.displayName = 'alice';
+    render(<Nav />);
+    await user.click(screen.getByRole('button', { name: 'alice' }));
+    const menu = document.getElementById('user-menu') as HTMLDivElement;
+    expect(menu).toBeTruthy();
+    menu.hidePopover();
+    expect(document.getElementById('user-menu')).toBeNull();
   });
 
   it('navigates when Create link is clicked', async () => {
@@ -101,5 +136,15 @@ describe('Nav', () => {
     const hamburger = screen.getByLabelText('Open menu');
     await user.click(hamburger);
     expect(screen.getByLabelText('Close menu')).toBeInTheDocument();
+  });
+
+  it('closes mobile menu when backdrop is clicked', async () => {
+    const user = userEvent.setup();
+    const { container } = render(<Nav />);
+    await user.click(screen.getByLabelText('Open menu'));
+    const backdrop = container.querySelector('div.fixed.inset-0') as HTMLElement;
+    expect(backdrop).toBeTruthy();
+    await user.click(backdrop);
+    expect(screen.getByLabelText('Open menu')).toBeInTheDocument();
   });
 });

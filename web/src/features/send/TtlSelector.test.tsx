@@ -7,7 +7,7 @@ import { TTL_PRESETS } from '../../lib/ttl';
 describe('TtlSelector', () => {
   afterEach(() => cleanup());
 
-  it('renders all 5 TTL preset buttons', () => {
+  it('renders all TTL preset buttons', () => {
     render(<TtlSelector value={86400} onChange={() => {}} />);
     for (const preset of TTL_PRESETS) {
       expect(screen.getByRole('button', { name: preset.label })).toBeInTheDocument();
@@ -16,11 +16,11 @@ describe('TtlSelector', () => {
 
   it('active preset has aria-pressed="true"', () => {
     render(<TtlSelector value={3600} onChange={() => {}} />);
-    expect(screen.getByRole('button', { name: '1 hour' })).toHaveAttribute(
+    expect(screen.getByRole('button', { name: '1 hr' })).toHaveAttribute(
       'aria-pressed',
       'true',
     );
-    expect(screen.getByRole('button', { name: '5 min' })).toHaveAttribute(
+    expect(screen.getByRole('button', { name: '10 min' })).toHaveAttribute(
       'aria-pressed',
       'false',
     );

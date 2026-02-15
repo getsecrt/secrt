@@ -188,7 +188,7 @@ describe('SettingsPage', () => {
     await user.click(deleteBtn);
 
     // Confirm button should be disabled
-    const confirmBtn = screen.getByText('Confirm Delete');
+    const confirmBtn = screen.getByRole('button', { name: 'Delete' });
     expect(confirmBtn).toBeDisabled();
 
     // Type something other than DELETE
@@ -227,7 +227,7 @@ describe('SettingsPage', () => {
     const input = screen.getByPlaceholderText('Type DELETE');
     await user.type(input, 'DELETE');
 
-    const confirmBtn = screen.getByText('Confirm Delete');
+    const confirmBtn = screen.getByRole('button', { name: 'Delete' });
     await user.click(confirmBtn);
 
     // Verify the full flow

@@ -39,7 +39,7 @@ describe('HowItWorksPage', () => {
   it('renders CTA button that navigates home', async () => {
     const user = userEvent.setup();
     render(<HowItWorksPage />);
-    const cta = screen.getByText('Create a secret');
+    const cta = screen.getByRole('link', { name: /Create a Secret/i });
     expect(cta).toHaveAttribute('href', '/');
     await user.click(cta);
     expect(mockNavigate).toHaveBeenCalledWith('/');
