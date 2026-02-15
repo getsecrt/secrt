@@ -232,6 +232,14 @@
     @apply rounded-sm px-1.5 py-1 text-xs;
   }
 
+  .btn-destructive-subtle {
+    @apply flex items-center gap-1 rounded-md border border-transparent px-1 py-0.5 text-xs text-error/50 hover:border-error hover:bg-error/10 hover:text-error;
+  }
+
+  .code {
+    @apply rounded border border-border/70 bg-surface-raised/70 px-1.5 py-0.5 font-mono text-xs;
+  }
+
   /* ── Inputs ── */
   .input,
   .select,
@@ -273,10 +281,8 @@
   color: var(--color-text-faint);
 }
 @utility inset-shadow-border-3 {
-  --tw-inset-shadow: inset 1px 0 0 0
-      color-mix(in srgb, var(--color-border) 50%, transparent),
-    inset -1px 0 0 0
-      color-mix(in srgb, var(--color-border) 50%, transparent),
-    inset 0 -1px 0 0
-      color-mix(in srgb, var(--color-border) 50%, transparent);
+  --tw-inset-shadow:
+    inset 1px 0 0 0 color-mix(in srgb, var(--color-border) 50%, transparent),
+    inset -1px 0 0 0 color-mix(in srgb, var(--color-border) 50%, transparent),
+    inset 0 -1px 0 0 color-mix(in srgb, var(--color-border) 50%, transparent);
 }

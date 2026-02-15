@@ -8,7 +8,14 @@ import {
   deleteAccount,
 } from '../../lib/api';
 import { generateApiKeyMaterial, formatWireApiKey } from '../../crypto/apikey';
-import { KeyIcon, TrashIcon, ClipboardIcon, SquarePlusIcon } from '../../components/Icons';
+import {
+  KeyIcon,
+  TrashIcon,
+  UserIcon,
+  ClipboardIcon,
+  SquarePlusIcon,
+  CircleXmarkIcon,
+} from '../../components/Icons';
 import { navigate } from '../../router';
 import type { ApiKeyItem } from '../../types';
 
@@ -63,9 +70,7 @@ function ApiKeysCard() {
       setNewKey(wireKey);
       await fetchKeys();
     } catch (err) {
-      setError(
-        err instanceof Error ? err.message : 'Failed to create API key',
-      );
+      setError(err instanceof Error ? err.message : 'Failed to create API key');
     } finally {
       setCreating(false);
     }
@@ -103,50 +108,55 @@ function ApiKeysCard() {
 
   return (
     <div class="card mb-4">
-      <div class="mb-4 flex items-center justify-between">
-        <h2 class="label flex items-center gap-2">
+      <div class="mb-4">
+        <h2 class="heading flex w-full items-center justify-center gap-2">
           <KeyIcon class="size-4" />
           API Keys
         </h2>
-        <button
-          type="button"
-          class="btn btn-primary text-sm"
-          disabled={creating}
-          onClick={handleCreate}
-        >
-          <SquarePlusIcon class="size-4" />
-          {creating ? 'Creating...' : 'Create Key'}
-        </button>
+
+        <div class="flex justify-end">
+          <button
+            type="button"
+            class="btn btn-primary btn-sm tracking-wider uppercase"
+            disabled={creating}
+            onClick={handleCreate}
+          >
+            <SquarePlusIcon class="size-4" />
+            {creating ? 'Creating...' : 'Create Key'}
+          </button>
+        </div>
       </div>
 
       {error && (
-        <div role="alert" class="mb-4 rounded-md bg-red-100 px-3 py-2 text-sm text-red-700 dark:bg-red-900/30 dark:text-red-400">
+        <div
+          role="alert"
+          class="mb-4 rounded-md bg-red-100 px-3 py-2 text-sm text-red-700 dark:bg-red-900/30 dark:text-red-400"
+        >
           {error}
         </div>
       )}
 
       {newKey && (
-        <div class="mb-4 rounded-md border border-amber-300 bg-amber-50 p-3 dark:border-amber-600 dark:bg-amber-900/20">
-          <p class="mb-2 text-sm font-medium text-amber-800 dark:text-amber-300">
-            Save this key now — it won't be shown again.
+        <div class="mb-6 rounded-lg border border-green-600/30 bg-green-50 p-6 text-center dark:border-green-400/20 dark:bg-green-950">
+          <h3 class="mb-2 text-center font-semibold text-green-800 dark:text-green-200">
+            API Key Created
+          </h3>
+          <p class="mb-3 text-center text-sm text-green-700 dark:text-green-300">
+            Save this key now &mdash; it won't be shown again.
           </p>
-          <div class="flex items-center gap-2">
-            <code class="flex-1 break-all rounded bg-white/50 px-2 py-1 font-mono text-xs dark:bg-black/20">
-              {newKey}
-            </code>
-            <button
-              type="button"
-              class="inline-flex items-center gap-1 rounded px-2 py-1 text-xs text-muted hover:text-text"
-              onClick={handleCopy}
-            >
-              <ClipboardIcon class="size-3.5" />
-              {copied ? 'Copied!' : 'Copy'}
-            </button>
-          </div>
+          <code class="code block break-all">{newKey}</code>
+          <button
+            type="button"
+            class="btn btn-primary btn-sm mt-2 w-24 tracking-wider uppercase"
+            onClick={handleCopy}
+          >
+            <ClipboardIcon class="size-3.5" />
+            {copied ? 'Copied' : 'Copy'}
+          </button>
         </div>
       )}
 
-      {loading ? (
+      {loading && keys.length === 0 ? (
         <p class="text-sm text-muted">Loading...</p>
       ) : keys.length === 0 ? (
         <p class="text-sm text-muted">No API keys yet.</p>
@@ -155,9 +165,9 @@ function ApiKeysCard() {
           <table class="w-full text-sm">
             <thead>
               <tr class="border-b border-border text-left text-muted">
-                <th class="pb-2 pr-3 font-medium">Prefix</th>
-                <th class="pb-2 pr-3 font-medium">Created</th>
-                <th class="pb-2 pr-3 font-medium">Status</th>
+                <th class="pr-3 pb-2 font-medium">Prefix</th>
+                <th class="pr-3 pb-2 font-medium">Created</th>
+                <th class="pr-3 pb-2 font-medium">Status</th>
                 <th class="pb-2 font-medium"></th>
               </tr>
             </thead>
@@ -183,10 +193,11 @@ function ApiKeysCard() {
                     {!k.revoked_at && (
                       <button
                         type="button"
-                        class="text-xs text-muted hover:text-red-600 dark:hover:text-red-400"
+                        class="btn-destructive-subtle"
                         disabled={revoking === k.prefix}
                         onClick={() => handleRevoke(k.prefix)}
                       >
+                        <CircleXmarkIcon class="size-4" />
                         {revoking === k.prefix ? 'Revoking...' : 'Revoke'}
                       </button>
                     )}
@@ -217,50 +228,61 @@ function AccountCard() {
       await auth.logout();
       navigate('/');
     } catch (err) {
-      setError(
-        err instanceof Error ? err.message : 'Failed to delete account',
-      );
+      setError(err instanceof Error ? err.message : 'Failed to delete account');
       setDeleting(false);
     }
   }, [auth, confirmText]);
 
   return (
     <div class="card">
-      <h2 class="label mb-4 flex items-center gap-2">
-        <TrashIcon class="size-4" />
-        Account
+      <h2 class="heading flex w-full items-center justify-center gap-2">
+        <UserIcon class="size-4" />
+        Your Account
       </h2>
 
       <div class="mb-4">
-        <p class="text-sm text-muted">
-          Signed in as <span class="font-medium text-text">{auth.displayName}</span>
+        <p class="text-center text-sm text-muted">
+          Signed in as{' '}
+          <span class="font-medium text-text">{auth.displayName}</span>
         </p>
       </div>
 
       {error && (
-        <div role="alert" class="mb-4 rounded-md bg-red-100 px-3 py-2 text-sm text-red-700 dark:bg-red-900/30 dark:text-red-400">
+        <div
+          role="alert"
+          class="mb-4 rounded-md bg-red-100 px-3 py-2 text-sm text-red-700 dark:bg-red-900/30 dark:text-red-400"
+        >
           {error}
         </div>
       )}
 
       {!showConfirm ? (
-        <button
-          type="button"
-          class="rounded-md border border-red-300 px-3 py-1.5 text-sm text-red-600 hover:bg-red-50 dark:border-red-700 dark:text-red-400 dark:hover:bg-red-900/20"
-          onClick={() => setShowConfirm(true)}
-        >
-          Delete Account
-        </button>
+        <div class="flex justify-center">
+          <button
+            type="button"
+            class="btn btn-sm btn-danger inline-flex tracking-wider uppercase"
+            onClick={() => setShowConfirm(true)}
+          >
+            <TrashIcon class="size-3.5" />
+            Delete Account
+          </button>
+        </div>
       ) : (
         <div class="rounded-md border border-red-300 bg-red-50 p-3 dark:border-red-700 dark:bg-red-900/20">
+          <h3 class="mb-2 text-center font-semibold text-red-700 dark:text-red-400">
+            Really Delete Your Account?
+          </h3>
           <p class="mb-2 text-sm text-red-700 dark:text-red-400">
-            This will permanently delete your account, burn all secrets, and revoke all API keys.
+            This will permanently delete your account, burn all secrets, and
+            revoke all API keys.
+          </p>
+          <p class="mb-2 text-sm text-red-700 dark:text-red-400">
             Type <strong>DELETE</strong> to confirm.
           </p>
           <div class="flex items-center gap-2">
             <input
               type="text"
-              class="flex-1 rounded border border-red-300 bg-white px-2 py-1 text-sm dark:border-red-700 dark:bg-neutral-800"
+              class="input flex-1 border-red-300 dark:border-red-700"
               placeholder="Type DELETE"
               value={confirmText}
               onInput={(e) =>
@@ -269,15 +291,15 @@ function AccountCard() {
             />
             <button
               type="button"
-              class="rounded-md bg-red-600 px-3 py-1 text-sm text-white hover:bg-red-700 disabled:opacity-50"
+              class="btn btn-danger"
               disabled={confirmText !== 'DELETE' || deleting}
               onClick={handleDelete}
             >
-              {deleting ? 'Deleting...' : 'Confirm Delete'}
+              {deleting ? 'Deleting...' : 'Delete'}
             </button>
             <button
               type="button"
-              class="text-sm text-muted hover:text-text"
+              class="btn"
               onClick={() => {
                 setShowConfirm(false);
                 setConfirmText('');

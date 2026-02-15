@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'preact/hooks';
+import { useState, useEffect, useLayoutEffect, useCallback, useRef } from 'preact/hooks';
 import { ThemeToggle } from './ThemeToggle';
 import {
   MenuIcon,
@@ -74,8 +74,8 @@ function UserMenu({
   const menuRef = useRef<HTMLDivElement>(null);
   const [open, setOpen] = useState(false);
 
-  // Position and show the popover once it mounts
-  useEffect(() => {
+  // Position and show the popover before first paint
+  useLayoutEffect(() => {
     const menu = menuRef.current;
     const trigger = triggerRef.current;
     if (!open || !menu || !trigger) return;
