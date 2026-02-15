@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.8.0 — 2026-02-14
+
+### Added
+
+- **Dashboard page:** authenticated users can view their secrets with status, expiry, and burn controls.
+- **Settings page:** account management with display name editing and account deletion.
+- **Open Graph and Twitter Card meta tags** for rich link previews when sharing secrt.ca URLs.
+
+### Changed
+
+- **Nav bar overhaul:** popover user menu with avatar, display name, dashboard/settings links, and logout.
+- **Session token auth for secret creation:** authenticated web users can now create secrets using their session token (not just API keys).
+
+### Fixed
+
+- **Friendly passkey login errors:** "unknown credential" server errors now show a user-friendly explanation instead of the raw error string.
+
 ## 0.7.0 — 2026-02-14
 
 ### Added

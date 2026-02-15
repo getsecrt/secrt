@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.8.0 — 2026-02-14
+
+No CLI behavior changes in this release. Version bump to align workspace at 0.8.0.
+
 ## 0.7.0 — 2026-02-14
 
 No CLI behavior changes in this release. Version bump to align workspace at 0.7.0.
