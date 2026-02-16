@@ -252,7 +252,7 @@ describe('SendPage', () => {
     expect(
       screen.getByRole('heading', { name: 'Generate Password' }),
     ).toBeInTheDocument();
-    expect(screen.getByLabelText('Password preview')).toHaveValue(
+    expect(screen.getByLabelText('Password Preview')).toHaveValue(
       'Bb2@Bb2@Bb2@Bb2@',
     );
     expect(screen.getByPlaceholderText('Enter your secret...')).toHaveValue(
@@ -267,7 +267,7 @@ describe('SendPage', () => {
       });
     });
     expect(mockCopyToClipboard).toHaveBeenCalledWith('Cc3#Cc3#Cc3#Cc3#');
-    expect(screen.getByLabelText('Password preview')).toHaveValue(
+    expect(screen.getByLabelText('Password Preview')).toHaveValue(
       'Cc3#Cc3#Cc3#Cc3#',
     );
     expect(screen.getByPlaceholderText('Enter your secret...')).toHaveValue(
@@ -287,11 +287,11 @@ describe('SendPage', () => {
       screen.getByRole('button', { name: 'Password generator settings' }),
     );
 
-    const preview = screen.getByLabelText('Password preview');
+    const preview = screen.getByLabelText('Password Preview');
     await user.clear(preview);
     await user.type(preview, 'edited-password-value');
 
-    expect(screen.getByLabelText('Password preview')).toHaveValue(
+    expect(screen.getByLabelText('Password Preview')).toHaveValue(
       'edited-password-value',
     );
     expect(screen.getByPlaceholderText('Enter your secret...')).toHaveValue(

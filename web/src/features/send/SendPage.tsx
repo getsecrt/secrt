@@ -32,7 +32,7 @@ import type { ApiInfo, PayloadMeta } from '../../types';
 import { FileDropZone } from './FileDropZone';
 import { TtlSelector } from './TtlSelector';
 import { ShareResult } from './ShareResult';
-import { HowItWorks } from '../../components/HowItWorks';
+import { HowItWorksLink } from '../../components/HowItWorks';
 import { useAuth } from '../../lib/auth-context';
 import { mapError } from './errors';
 import {
@@ -441,7 +441,7 @@ export function SendPage() {
         {/* Content input */}
         <div class="space-y-1">
           <div class="flex items-center justify-between gap-2">
-            <label class="flex items-center gap-1.5 font-medium text-muted">
+            <label class="label">
               {mode === 'text' ? (
                 <>
                   <NoteIcon class="size-4" /> Secret Message
@@ -471,12 +471,12 @@ export function SendPage() {
                 </button>
                 <button
                   type="button"
-                  class="rounded p-1 text-muted transition-colors hover:text-text"
+                  class="rounded p-1 transition-colors hover:text-text"
                   onClick={() => setPasswordModalOpen(true)}
                   aria-label="Password generator settings"
                   disabled={busy}
                 >
-                  <GearIcon class="size-4" />
+                  <GearIcon class="label size-4 hover:text-black dark:hover:text-white" />
                 </button>
               </div>
             )}
@@ -505,7 +505,7 @@ export function SendPage() {
               />
             )}
           </div>
-          <p class="text-center text-xs text-faint">
+          <p class="text-center text-sm">
             {mode === 'text' ? (
               <>
                 <button
@@ -515,7 +515,7 @@ export function SendPage() {
                 >
                   Choose a file
                 </button>{' '}
-                or drag one onto this page to upload
+                or drag one here to upload
                 <input
                   ref={fileInputRef}
                   type="file"
@@ -539,10 +539,7 @@ export function SendPage() {
 
         {/* Passphrase */}
         <div class="space-y-1">
-          <label
-            class="flex items-center gap-1.5 font-medium text-muted"
-            for="passphrase"
-          >
+          <label class="label" for="passphrase">
             <LockIcon class="size-4" />
             Passphrase{' '}
             <span class="text-sm font-normal text-faint">optional</span>
@@ -562,7 +559,7 @@ export function SendPage() {
             />
             <button
               type="button"
-              class="absolute top-1/2 right-2 -translate-y-1/2 p-1 text-muted hover:text-text"
+              class="absolute top-1/2 right-2 -translate-y-1/2 p-1 hover:text-text"
               onClick={() => setShowPassphrase((s) => !s)}
               aria-label={
                 showPassphrase ? 'Hide passphrase' : 'Show passphrase'
@@ -570,13 +567,13 @@ export function SendPage() {
               tabIndex={-1}
             >
               {showPassphrase ? (
-                <EyeSlashIcon class="size-4" />
+                <EyeSlashIcon class="label size-4 hover:text-black dark:hover:text-white" />
               ) : (
-                <EyeIcon class="size-4" />
+                <EyeIcon class="label size-4 hover:text-black dark:hover:text-white" />
               )}
             </button>
           </div>
-          <p class="text-center text-xs text-faint">
+          <p class="text-center text-sm">
             {passphrase ? 'The recipient must enter this password' : '\u00A0'}
           </p>
         </div>
@@ -640,18 +637,16 @@ export function SendPage() {
             <div class="flex flex-col items-center gap-2 text-center">
               <KeyIcon class="size-10 text-accent" />
               <h2 class="mb-2 text-xl font-semibold">Generate Password</h2>
-              <p class="text-muted">
-                Replace the message with a random password and copy it to your
-                clipboard.
+              <p class="text-sm text-muted">
+                Replace the message with a random password
+                <br />
+                and copies it directly to your clipboard.
               </p>
             </div>
 
             <div class="space-y-1">
-              <label
-                class="flex items-center gap-1.5 font-medium text-muted"
-                for="password-generator-preview"
-              >
-                Password preview
+              <label class="label text-muted" for="password-generator-preview">
+                Password Preview
               </label>
               <input
                 id="password-generator-preview"
@@ -661,16 +656,13 @@ export function SendPage() {
                 onInput={handlePasswordPreviewInput}
                 autocomplete="off"
               />
-              <p class="text-xs text-faint">
+              <p class="text-sm text-muted">
                 Edit this value directly. It stays synced with Secret Message.
               </p>
             </div>
 
             <div class="space-y-1">
-              <label
-                class="flex items-center gap-1.5 font-medium text-muted"
-                for="password-generator-length"
-              >
+              <label class="label text-muted" for="password-generator-length">
                 Length
               </label>
               <input
@@ -685,7 +677,7 @@ export function SendPage() {
                 }
                 autofocus
               />
-              <p class="text-xs text-faint">
+              <p class="text-sm text-muted">
                 Minimum {MIN_PASSWORD_LENGTH}. Default {DEFAULT_PASSWORD_LENGTH}
                 .
               </p>
@@ -733,7 +725,9 @@ export function SendPage() {
         </div>
       )}
 
-      <HowItWorks />
+      <div class="mt-10">
+        <HowItWorksLink />
+      </div>
     </div>
   );
 }

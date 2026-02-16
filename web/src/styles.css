@@ -18,6 +18,12 @@
   --color-green-950: oklch(0.21 0.05 147);
 
   --color-neutral-150: oklch(0.95 0 0);
+  --color-neutral-150: oklch(0.95 0 0);
+  --color-neutral-400: oklch(0.71 0 0);
+  --color-neutral-450: oklch(0.6 0 0);
+  --color-neutral-500: oklch(0.56 0 0);
+  --color-neutral-550: oklch(0.5 0 0);
+  --color-neutral-600: oklch(0.44 0 0);
 
   /* Surfaces & borders (neutral scale) */
   --color-bg: #fff;
@@ -27,7 +33,7 @@
 
   /* Text (neutral scale) */
   --color-text: var(--color-neutral-900);
-  --color-text-muted: var(--color-neutral-600);
+  --color-text-muted: var(--color-neutral-550);
   --color-text-faint: var(--color-neutral-400);
 
   /* Semantic accent (custom green palette) */
@@ -67,6 +73,27 @@
 @layer base {
   body {
     @apply bg-bg text-text antialiased;
+
+    background-image:
+      /* Broad green curtain — top-center, sweeping right */
+      /* Teal streak — upper-left, tall & narrow */
+      radial-gradient(
+        ellipse 35% 70% at 20% 10%,
+        color-mix(in oklch, oklch(0.8 0.9 145) 4%, transparent),
+        transparent 60%
+      ),
+      /* Emerald ribbon — offset right */
+        radial-gradient(
+          ellipse 40% 55% at 75% 15%,
+          color-mix(in oklch, var(--color-green-100) 30%, transparent),
+          transparent 65%
+        ),
+      /* Faint violet wisp — far left */
+        radial-gradient(
+          ellipse 25% 45% at 10% 25%,
+          color-mix(in oklch, oklch(0.9 0.2 300) 15%, transparent),
+          transparent 60%
+        );
   }
 
   .dark body {
@@ -140,6 +167,10 @@
 @layer components {
   .heading {
     @apply mb-3 border-b border-border pb-2 text-lg font-semibold tracking-widest text-neutral-700 uppercase dark:text-neutral-300 dark:text-shadow-black;
+  }
+
+  .label {
+    @apply flex items-center gap-1.5 font-medium text-neutral-700 dark:text-neutral-300;
   }
 
   .btn {

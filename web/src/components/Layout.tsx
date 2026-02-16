@@ -18,7 +18,7 @@ export function Layout({ children }: LayoutProps) {
     <div class="flex min-h-screen flex-col">
       <Nav />
 
-      <div class="flex flex-col items-center px-4 pt-6">
+      <div class="flex flex-col items-center px-4 pt-5">
         <a class="flex justify-center" href="/" onClick={handleLogoClick}>
           <Logo />
         </a>

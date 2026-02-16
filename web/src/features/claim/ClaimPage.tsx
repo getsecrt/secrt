@@ -255,12 +255,12 @@ export function ClaimPage({ id }: ClaimPageProps) {
               <h2 class="mb-2 text-xl font-semibold">
                 Someone Sent You a Secret
               </h2>
-              <p class="text-muted">
+              <p class="">
                 This secret can only be viewed once.
-                <br />
+                {/*<br />
                 <span class="text-black dark:text-white">
                   After you open it, it will be permanently deleted.
-                </span>
+                </span>*/}
               </p>
               <p class="mt-4 text-sm text-muted">
                 Be ready to save it and ensure no one else can see your screen.

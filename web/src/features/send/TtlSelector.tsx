@@ -18,7 +18,7 @@ export function TtlSelector({ value, onChange, disabled }: TtlSelectorProps) {
 
   return (
     <fieldset class="space-y-2" disabled={disabled}>
-      <legend class="flex items-center gap-1.5 font-medium text-muted">
+      <legend class="label">
         <ClockIcon class="size-4" />
         Expires After
       </legend>
@@ -31,7 +31,7 @@ export function TtlSelector({ value, onChange, disabled }: TtlSelectorProps) {
             class={`rounded-full border px-3 py-1 text-xs font-medium transition-colors ${
               preset.seconds === value
                 ? 'border-green-600 bg-green-500 text-white'
-                : 'border-border bg-neutral-200 text-muted hover:text-text dark:bg-neutral-800'
+                : 'border-border bg-neutral-200 hover:text-text dark:bg-neutral-800'
             }`}
             onClick={() => handlePresetClick(preset.seconds)}
           >
