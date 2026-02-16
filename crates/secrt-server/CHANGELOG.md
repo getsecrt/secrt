@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.10.0 — 2026-02-16
+
+### Added
+
+- **Homepage password generator:** send form now supports one-click password generation and copy-to-clipboard.
+- **Configurable generator modal:** users can tune password length and grouped generation, preview results, and edit them before sending.
+- **Persistent generator preferences:** password length and grouping preferences now persist in browser localStorage across reloads.
+- **Frontend regression coverage:** expanded send-page tests for generator settings, persistence, modal controls, and sync behavior.
+
+### Changed
+
+- **Responsive generate label:** send page now shows “Generate” on very narrow widths and “Generate a Password” from the new `xs` breakpoint (`440px`) upward.
+- **Generator modal controls:** close interactions now support top-right X, background click, escape key, and footer close action.
+
 ## 0.9.1 — 2026-02-15
 
 ### Added
