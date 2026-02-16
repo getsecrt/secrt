@@ -195,15 +195,28 @@ There are **two separate release pipelines** — one for the CLI and one for the
 4. Commit: `chore: bump version to X.Y.Z`
 5. Tag **both** releases: `git tag cli/vX.Y.Z && git tag server/vX.Y.Z`
 6. Push: `git push origin main --tags`
-7. After the release workflows finish, update both GitHub Releases with notes matching the CHANGELOG entries:
+7. After the release workflows finish, update both GitHub Releases with notes matching the CHANGELOG entries, and explicitly set release titles to match the exact tag names:
    ```sh
-   gh release edit cli/vX.Y.Z --notes "$(cat <<'EOF'
+   gh release edit cli/vX.Y.Z --title "cli/vX.Y.Z" --notes "$(cat <<'EOF'
    ## What's Changed
    (Paste the CHANGELOG.md entry for this version here, formatted for GitHub markdown)
    EOF
    )"
    ```
-   Repeat for `server/vX.Y.Z`. Include all Added/Changed/Fixed/Removed sections from the changelog.
+   Repeat for `server/vX.Y.Z` with `--title "server/vX.Y.Z"`. Include all Added/Changed/Fixed/Removed sections from the changelog.
+8. Verify both tags and releases resolve correctly:
+   ```sh
+   git ls-remote --tags origin cli/vX.Y.Z server/vX.Y.Z
+   gh release view cli/vX.Y.Z --json tagName,name,publishedAt,url
+   gh release view server/vX.Y.Z --json tagName,name,publishedAt,url
+   ```
+9. **Do not use** `releases/latest` for server artifact selection. GitHub "latest" is repo-wide and may point to a CLI release.
+   - For server downloads, always use tag-pinned URLs (`/releases/download/server%2FvX.Y.Z/...`).
+   - If automation needs "latest server tag", query and filter by tag prefix:
+     ```sh
+     gh api repos/getsecrt/secrt/releases \
+       --jq '[.[] | select(.tag_name|startswith("server/v"))] | sort_by(.tag_name | sub("^server/v"; "") | split(".") | map(tonumber)) | last.tag_name'
+     ```
 
 **`cli/v*` tag** triggers the CLI release workflow (`.github/workflows/release-cli.yml`):
 - Runs `cargo test --workspace` and `cargo clippy --workspace`
