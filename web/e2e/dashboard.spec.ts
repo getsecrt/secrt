@@ -51,6 +51,8 @@ test.describe('Dashboard management', () => {
 
     const claimPage = await context.newPage();
     await claimPage.goto(sharePathWithHash);
+    // Claim page now shows a confirmation step before attempting to claim
+    await claimPage.getByRole('button', { name: 'View Secret' }).click();
     await expect(claimPage.getByText('Secret Unavailable')).toBeVisible({
       timeout: 15_000,
     });

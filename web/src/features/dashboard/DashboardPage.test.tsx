@@ -94,7 +94,7 @@ describe('DashboardPage', () => {
 
     render(<DashboardPage />);
     expect(await screen.findByText('You have no active secrets.')).toBeInTheDocument();
-    expect(screen.getByText('Create a Secret')).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Send a New Secret' })).toBeInTheDocument();
   });
 
   it('renders secrets list with correct metadata', async () => {

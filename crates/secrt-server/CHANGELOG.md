@@ -12,6 +12,13 @@
 - **Frontend layout and styling refresh:** polished card layouts, spacing, and typography across the web UI.
 - **GitHub link moved to CLI Downloads menu:** consolidated external links into the downloads popover.
 
+### Fixed
+
+- **SPA scroll-to-top on navigation:** clicking links no longer leaves you at the previous scroll position; pages scroll to top on every navigation.
+- **Semantic HTML for navigation links:** dashboard "Send a New Secret" and "API Keys & Account Settings" are now proper `<a>` elements instead of buttons styled as links, improving accessibility and right-click behavior.
+- **Send page copy:** simplified the intro text for clarity.
+- **E2E test maintenance:** updated stale disclosure text and added claim confirmation step to dashboard burn test.
+
 ## 0.9.0 — 2026-02-14
 
 ### Added

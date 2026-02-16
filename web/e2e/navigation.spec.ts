@@ -50,17 +50,17 @@ test.describe('Navigation', () => {
 
   test('how-it-works disclosure on send page', async ({ page }) => {
     await page.goto('/');
-    const summary = page.getByText('How does secrt keep my data safe?');
+    const summary = page.getByText('How can I trust you to keep my data safe?');
     await expect(summary).toBeVisible();
 
     // Click to expand
     await summary.click();
     await expect(
-      page.getByText('Full technical details →'),
+      page.getByText('More Details about How secrt works →'),
     ).toBeVisible();
 
     // Click learn more link
-    await page.getByText('Full technical details →').click();
+    await page.getByText('More Details about How secrt works →').click();
     await expect(page.getByText('How secrt Works')).toBeVisible();
   });
 });

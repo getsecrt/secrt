@@ -410,17 +410,27 @@ function DashboardContent() {
       )}
 
       <div class="mt-6 flex flex-col items-center gap-4">
-        <button type="button" class="link" onClick={() => navigate('/')}>
-          Send a New Secret
-        </button>
-
-        <button
-          type="button"
+        <a
+          href="/"
           class="link"
-          onClick={() => navigate('/settings')}
+          onClick={(e: MouseEvent) => {
+            e.preventDefault();
+            navigate('/');
+          }}
+        >
+          Send a New Secret
+        </a>
+
+        <a
+          href="/settings"
+          class="link"
+          onClick={(e: MouseEvent) => {
+            e.preventDefault();
+            navigate('/settings');
+          }}
         >
           API Keys & Account Settings
-        </button>
+        </a>
       </div>
     </div>
   );

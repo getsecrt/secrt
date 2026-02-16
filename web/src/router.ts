@@ -61,6 +61,12 @@ export function useRoute(): Route {
   );
 
   useEffect(() => {
+    // Prevent browser from trying to restore scroll position in SPA —
+    // content is dynamically rendered so browser restoration is unreliable.
+    if ('scrollRestoration' in history) {
+      history.scrollRestoration = 'manual';
+    }
+
     const onPopState = () => {
       setRoute(matchRoute(window.location.pathname));
     };
@@ -74,5 +80,6 @@ export function useRoute(): Route {
 
 export function navigate(path: string): void {
   window.history.pushState(null, '', path);
+  window.scrollTo(0, 0);
   window.dispatchEvent(new PopStateEvent('popstate'));
 }
