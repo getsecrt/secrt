@@ -73,7 +73,7 @@ const semantics = [
 export function ThemePage() {
   return (
     <div class="min-h-screen px-6 py-10 text-text">
-      <div class="mx-auto max-w-3xl space-y-10">
+      <div class="mx-auto space-y-10">
         {/* Header */}
         <div class="flex items-center justify-between">
           <div>
