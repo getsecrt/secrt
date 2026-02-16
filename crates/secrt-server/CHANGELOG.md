@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.10.1 — 2026-02-16
+
+### Changed
+
+- **How-it-Works page simplification:** moved FAQ content into the page and rendered the technical overview/FAQ/whitepaper as static sections.
+- **Send page disclosure polish:** replaced the old disclosure block with a simplified bottom "How secrt Works →" link and refreshed send form heading copy.
+- **UI polish adjustments:** refined login/settings/trust-page styling to align spacing, typography, and control placement.
+
+### Fixed
+
+- **E2E navigation maintenance:** updated Playwright navigation assertions to match current How-it-Works and send-page link labels.
+
 ## 0.10.0 — 2026-02-16
 
 ### Added
