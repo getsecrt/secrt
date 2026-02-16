@@ -33,13 +33,13 @@ export function Layout({ children }: LayoutProps) {
 
       <footer class="mt-auto flex flex-col items-center gap-1.5 py-4 text-xs text-faint">
         <a
-          href="https://github.com/jdlien/secrt"
+          href="https://github.com/getsecrt/secrt"
           target="_blank"
           rel="noopener noreferrer"
           class="text-faint transition-colors hover:text-muted"
           aria-label="GitHub"
         >
-          <GitHubIcon class="size-5" />
+          <GitHubIcon class="size-6" />
         </a>
         &copy; {new Date().getFullYear()} JD Lien
       </footer>
