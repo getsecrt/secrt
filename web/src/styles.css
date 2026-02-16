@@ -2,6 +2,8 @@
 @custom-variant dark (&:where(.dark, .dark *):not(:where(.light, .light *)));
 
 @theme {
+  --breakpoint-xs: 440px;
+
   /* Green palette — hue 140–147, chroma peaks at 400, even lightness steps */
   --color-green-50: oklch(0.97 0.04 140);
   --color-green-100: oklch(0.94 0.08 140);

@@ -14,6 +14,10 @@ import { formatShareLink } from '../../lib/url';
 import { copyToClipboard } from '../../lib/clipboard';
 import { TTL_DEFAULT, isValidTtl } from '../../lib/ttl';
 import {
+  getSendPasswordGeneratorSettings,
+  setSendPasswordGeneratorSettings,
+} from '../../lib/theme';
+import {
   EyeIcon,
   EyeSlashIcon,
   GearIcon,
@@ -22,6 +26,7 @@ import {
   NoteIcon,
   TriangleExclamationIcon,
   UploadIcon,
+  XMarkIcon,
 } from '../../components/Icons';
 import type { ApiInfo, PayloadMeta } from '../../types';
 import { FileDropZone } from './FileDropZone';
@@ -56,12 +61,20 @@ export function SendPage() {
   const [ttlSeconds, setTtlSeconds] = useState(TTL_DEFAULT);
   const [status, setStatus] = useState<SendStatus>({ step: 'input' });
   const [cachedFrame, setCachedFrame] = useState<Uint8Array | null>(null);
+  const [initialPasswordSettings] = useState(() =>
+    getSendPasswordGeneratorSettings(
+      DEFAULT_PASSWORD_LENGTH,
+      MIN_PASSWORD_LENGTH,
+    ),
+  );
   const [passwordCopied, setPasswordCopied] = useState(false);
   const [passwordModalOpen, setPasswordModalOpen] = useState(false);
   const [passwordLengthInput, setPasswordLengthInput] = useState(
-    String(DEFAULT_PASSWORD_LENGTH),
+    String(initialPasswordSettings.length),
   );
-  const [passwordGrouped, setPasswordGrouped] = useState(false);
+  const [passwordGrouped, setPasswordGrouped] = useState(
+    initialPasswordSettings.grouped,
+  );
   const abortRef = useRef<AbortController | null>(null);
   const passwordCopiedTimerRef = useRef<number | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -187,8 +200,6 @@ export function SendPage() {
     setTtlSeconds(TTL_DEFAULT);
     setPasswordCopied(false);
     setPasswordModalOpen(false);
-    setPasswordLengthInput(String(DEFAULT_PASSWORD_LENGTH));
-    setPasswordGrouped(false);
     setStatus({ step: 'input' });
     if (passwordCopiedTimerRef.current !== null) {
       window.clearTimeout(passwordCopiedTimerRef.current);
@@ -216,6 +227,11 @@ export function SendPage() {
   const passwordLengthValid =
     Number.isInteger(passwordLength) && passwordLength >= MIN_PASSWORD_LENGTH;
 
+  useEffect(() => {
+    if (!passwordLengthValid) return;
+    setSendPasswordGeneratorSettings(passwordLength, passwordGrouped);
+  }, [passwordLengthValid, passwordLength, passwordGrouped]);
+
   const generateAndCopyPassword = useCallback(
     async (options: { length: number; grouped: boolean }) => {
       try {
@@ -240,24 +256,52 @@ export function SendPage() {
   );
 
   const handleGenerateDefaultPassword = useCallback(() => {
-    void generateAndCopyPassword({
-      length: DEFAULT_PASSWORD_LENGTH,
-      grouped: false,
-    });
+    const saved = getSendPasswordGeneratorSettings(
+      DEFAULT_PASSWORD_LENGTH,
+      MIN_PASSWORD_LENGTH,
+    );
+    void generateAndCopyPassword(saved);
   }, [generateAndCopyPassword]);
 
   const handleGeneratePasswordFromModal = useCallback(
     (e: Event) => {
       e.preventDefault();
       if (!passwordLengthValid) return;
-      setPasswordModalOpen(false);
       void generateAndCopyPassword({
         length: passwordLength,
         grouped: passwordGrouped,
       });
     },
-    [passwordLengthValid, passwordLength, passwordGrouped, generateAndCopyPassword],
+    [
+      passwordLengthValid,
+      passwordLength,
+      passwordGrouped,
+      generateAndCopyPassword,
+    ],
   );
+
+  const handlePasswordPreviewInput = useCallback((e: Event) => {
+    setText((e.target as HTMLInputElement).value);
+    setMode('text');
+    setFile(null);
+    setCachedFrame(null);
+    setPasswordCopied(false);
+    setStatus((prev) => (prev.step === 'error' ? { step: 'input' } : prev));
+  }, []);
+
+  useEffect(() => {
+    if (!passwordModalOpen) return;
+
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        setPasswordModalOpen(false);
+      }
+    };
+
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [passwordModalOpen]);
 
   const handleSubmit = useCallback(
     async (e: Event) => {
@@ -412,11 +456,18 @@ export function SendPage() {
               <div class="flex items-center gap-1">
                 <button
                   type="button"
-                  class="link text-xs"
+                  class="link"
                   onClick={handleGenerateDefaultPassword}
                   disabled={busy}
                 >
-                  {passwordCopied ? 'copied!' : 'Generate Password'}
+                  {passwordCopied ? (
+                    'Copied to Clipboard!'
+                  ) : (
+                    <>
+                      <span class="xs:hidden">Generate</span>
+                      <span class="hidden xs:inline">Generate a Password</span>
+                    </>
+                  )}
                 </button>
                 <button
                   type="button"
@@ -566,17 +617,51 @@ export function SendPage() {
 
       {/* Password generator modal */}
       {passwordModalOpen && (
-        <div class="fixed inset-0 z-50 flex items-start justify-center bg-black/30 px-4 pt-32">
+        <div
+          class="fixed inset-0 z-50 flex items-start justify-center bg-black/30 px-4 pt-32"
+          onClick={() => setPasswordModalOpen(false)}
+          data-testid="password-generator-backdrop"
+        >
           <form
-            class="card w-full max-w-sm space-y-6"
+            class="card relative w-full max-w-sm space-y-6"
             onSubmit={handleGeneratePasswordFromModal}
+            onClick={(e) => e.stopPropagation()}
           >
+            <button
+              type="button"
+              class="absolute top-3 right-3 rounded p-1 text-muted transition-colors hover:text-text"
+              onClick={() => setPasswordModalOpen(false)}
+              aria-label="Close password generator"
+            >
+              <XMarkIcon class="size-5" />
+            </button>
+
             <div class="flex flex-col items-center gap-2 text-center">
               <KeyIcon class="size-10 text-accent" />
               <h2 class="mb-2 text-xl font-semibold">Generate Password</h2>
               <p class="text-muted">
                 Replace the message with a random password and copy it to your
                 clipboard.
+              </p>
+            </div>
+
+            <div class="space-y-1">
+              <label
+                class="flex items-center gap-1.5 font-medium text-muted"
+                for="password-generator-preview"
+              >
+                Password preview
+              </label>
+              <input
+                id="password-generator-preview"
+                type="text"
+                class="input font-mono text-sm"
+                value={text}
+                onInput={handlePasswordPreviewInput}
+                autocomplete="off"
+              />
+              <p class="text-xs text-faint">
+                Edit this value directly. It stays synced with Secret Message.
               </p>
             </div>
 
@@ -600,7 +685,8 @@ export function SendPage() {
                 autofocus
               />
               <p class="text-xs text-faint">
-                Minimum {MIN_PASSWORD_LENGTH}. Default {DEFAULT_PASSWORD_LENGTH}.
+                Minimum {MIN_PASSWORD_LENGTH}. Default {DEFAULT_PASSWORD_LENGTH}
+                .
               </p>
             </div>
 
@@ -613,7 +699,7 @@ export function SendPage() {
                   setPasswordGrouped((e.target as HTMLInputElement).checked)
                 }
               />
-              Group characters by type
+              Group characters for easier entry
             </label>
 
             {!passwordLengthValid && (
@@ -625,20 +711,21 @@ export function SendPage() {
               </div>
             )}
 
-            <div class="flex gap-2">
+            <button
+              type="submit"
+              class="btn btn-primary w-full tracking-wider uppercase"
+              disabled={!passwordLengthValid}
+            >
+              Generate &amp; copy
+            </button>
+
+            <div class="text-center">
               <button
                 type="button"
-                class="btn btn-secondary w-full"
+                class="link"
                 onClick={() => setPasswordModalOpen(false)}
               >
-                Cancel
-              </button>
-              <button
-                type="submit"
-                class="btn btn-primary w-full tracking-wider uppercase"
-                disabled={!passwordLengthValid}
-              >
-                Generate &amp; copy
+                Close
               </button>
             </div>
           </form>

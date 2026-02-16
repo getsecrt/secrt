@@ -39,7 +39,9 @@ vi.mock('../../lib/api', () => ({
 
 vi.mock('../../lib/envelope-size', () => ({
   checkEnvelopeSize: vi.fn(),
-  estimateEnvelopeSize: vi.fn((frameBytes: number) => Math.ceil((frameBytes + 16) * 4 / 3) + 400),
+  estimateEnvelopeSize: vi.fn(
+    (frameBytes: number) => Math.ceil(((frameBytes + 16) * 4) / 3) + 400,
+  ),
   frameSizeError: vi.fn((est: number, max: number, compressed?: boolean) => {
     const qualifier = compressed ? 'encrypted & compressed' : 'encrypted';
     return `File is too large (${est} B ${qualifier}).\nMaximum is ${max} B.`;
@@ -78,7 +80,10 @@ import { formatShareLink } from '../../lib/url';
 import { buildFrame } from '../../crypto/frame';
 import { ensureCompressor } from '../../crypto/compress';
 import { copyToClipboard } from '../../lib/clipboard';
-import { DEFAULT_PASSWORD_LENGTH, generatePassword } from './password-generator';
+import {
+  DEFAULT_PASSWORD_LENGTH,
+  generatePassword,
+} from './password-generator';
 
 const mockSeal = vi.mocked(seal);
 const mockCreate = vi.mocked(createSecret);
@@ -106,6 +111,7 @@ const fakeEnvelope = {
 
 describe('SendPage', () => {
   beforeEach(() => {
+    localStorage.clear();
     mockFetchInfo.mockResolvedValue({
       authenticated: false,
       ttl: { default_seconds: 86400, max_seconds: 2592000 },
@@ -152,16 +158,16 @@ describe('SendPage', () => {
     ).toBeInTheDocument();
     expect(screen.getByLabelText(/Passphrase/)).toBeInTheDocument();
     expect(screen.getByText('Expires After')).toBeInTheDocument();
-    expect(
-      screen.getByRole('button', { name: 'Create secret' }),
-    ).toBeEnabled();
+    expect(screen.getByRole('button', { name: 'Create secret' })).toBeEnabled();
   });
 
   it('generates a default password and copies it', async () => {
     const user = userEvent.setup();
     render(<SendPage />);
 
-    await user.click(screen.getByRole('button', { name: 'Generate Password' }));
+    await user.click(
+      screen.getByRole('button', { name: /Generate.*Password/i }),
+    );
 
     await waitFor(() => {
       expect(mockGeneratePassword).toHaveBeenCalledWith({
@@ -173,12 +179,52 @@ describe('SendPage', () => {
     expect(screen.getByPlaceholderText('Enter your secret...')).toHaveValue(
       'Aa1!Aa1!Aa1!Aa1!Aa1!',
     );
-    expect(screen.getByRole('button', { name: 'copied!' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /copied/i })).toBeInTheDocument();
   });
 
-  it('uses modal settings for generated password options', async () => {
+  it('uses saved generator settings from localStorage on homepage generate', async () => {
+    localStorage.setItem('send_password_length', '26');
+    localStorage.setItem('send_password_grouped', 'true');
+
     const user = userEvent.setup();
-    mockGeneratePassword.mockReturnValue('Bb2@Bb2@Bb2@Bb2@');
+    render(<SendPage />);
+
+    await user.click(
+      screen.getByRole('button', { name: /Generate.*Password/i }),
+    );
+
+    await waitFor(() => {
+      expect(mockGeneratePassword).toHaveBeenCalledWith({
+        length: 26,
+        grouped: true,
+      });
+    });
+  });
+
+  it('falls back to defaults when saved length is invalid on homepage generate', async () => {
+    localStorage.setItem('send_password_length', '2');
+    localStorage.setItem('send_password_grouped', 'true');
+
+    const user = userEvent.setup();
+    render(<SendPage />);
+
+    await user.click(
+      screen.getByRole('button', { name: /Generate.*Password/i }),
+    );
+
+    await waitFor(() => {
+      expect(mockGeneratePassword).toHaveBeenCalledWith({
+        length: DEFAULT_PASSWORD_LENGTH,
+        grouped: true,
+      });
+    });
+  });
+
+  it('uses modal settings and keeps modal open after generation', async () => {
+    const user = userEvent.setup();
+    mockGeneratePassword
+      .mockReturnValueOnce('Bb2@Bb2@Bb2@Bb2@')
+      .mockReturnValueOnce('Cc3#Cc3#Cc3#Cc3#');
     render(<SendPage />);
 
     await user.click(
@@ -191,7 +237,9 @@ describe('SendPage', () => {
     const lengthInput = screen.getByLabelText('Length');
     await user.clear(lengthInput);
     await user.type(lengthInput, '32');
-    await user.click(screen.getByLabelText('Group characters by type'));
+    await user.click(
+      screen.getByLabelText('Group characters for easier entry'),
+    );
     await user.click(screen.getByRole('button', { name: /Generate & copy/i }));
 
     await waitFor(() => {
@@ -202,11 +250,179 @@ describe('SendPage', () => {
     });
     expect(mockCopyToClipboard).toHaveBeenCalledWith('Bb2@Bb2@Bb2@Bb2@');
     expect(
-      screen.queryByRole('heading', { name: 'Generate Password' }),
-    ).not.toBeInTheDocument();
+      screen.getByRole('heading', { name: 'Generate Password' }),
+    ).toBeInTheDocument();
+    expect(screen.getByLabelText('Password preview')).toHaveValue(
+      'Bb2@Bb2@Bb2@Bb2@',
+    );
     expect(screen.getByPlaceholderText('Enter your secret...')).toHaveValue(
       'Bb2@Bb2@Bb2@Bb2@',
     );
+
+    await user.click(screen.getByRole('button', { name: /Generate & copy/i }));
+    await waitFor(() => {
+      expect(mockGeneratePassword).toHaveBeenLastCalledWith({
+        length: 32,
+        grouped: true,
+      });
+    });
+    expect(mockCopyToClipboard).toHaveBeenCalledWith('Cc3#Cc3#Cc3#Cc3#');
+    expect(screen.getByLabelText('Password preview')).toHaveValue(
+      'Cc3#Cc3#Cc3#Cc3#',
+    );
+    expect(screen.getByPlaceholderText('Enter your secret...')).toHaveValue(
+      'Cc3#Cc3#Cc3#Cc3#',
+    );
+  });
+
+  it('keeps preview and secret message in sync when editing in modal', async () => {
+    const user = userEvent.setup();
+    render(<SendPage />);
+
+    await user.type(
+      screen.getByPlaceholderText('Enter your secret...'),
+      'initial value',
+    );
+    await user.click(
+      screen.getByRole('button', { name: 'Password generator settings' }),
+    );
+
+    const preview = screen.getByLabelText('Password preview');
+    await user.clear(preview);
+    await user.type(preview, 'edited-password-value');
+
+    expect(screen.getByLabelText('Password preview')).toHaveValue(
+      'edited-password-value',
+    );
+    expect(screen.getByPlaceholderText('Enter your secret...')).toHaveValue(
+      'edited-password-value',
+    );
+  });
+
+  it('closes the password modal from the X button', async () => {
+    const user = userEvent.setup();
+    render(<SendPage />);
+
+    await user.click(
+      screen.getByRole('button', { name: 'Password generator settings' }),
+    );
+    await user.click(
+      screen.getByRole('button', { name: 'Close password generator' }),
+    );
+
+    expect(
+      screen.queryByRole('heading', { name: 'Generate Password' }),
+    ).not.toBeInTheDocument();
+  });
+
+  it('closes the password modal when clicking outside', async () => {
+    const user = userEvent.setup();
+    render(<SendPage />);
+
+    await user.click(
+      screen.getByRole('button', { name: 'Password generator settings' }),
+    );
+    await user.click(screen.getByTestId('password-generator-backdrop'));
+
+    expect(
+      screen.queryByRole('heading', { name: 'Generate Password' }),
+    ).not.toBeInTheDocument();
+  });
+
+  it('loads saved password generator settings from localStorage', async () => {
+    const user = userEvent.setup();
+    localStorage.setItem('send_password_length', '28');
+    localStorage.setItem('send_password_grouped', 'true');
+    render(<SendPage />);
+
+    await user.click(
+      screen.getByRole('button', { name: 'Password generator settings' }),
+    );
+
+    expect(screen.getByLabelText('Length')).toHaveValue(28);
+    expect(
+      screen.getByLabelText('Group characters for easier entry'),
+    ).toBeChecked();
+  });
+
+  it('persists password generator settings to localStorage', async () => {
+    const user = userEvent.setup();
+    render(<SendPage />);
+    await user.click(
+      screen.getByRole('button', { name: 'Password generator settings' }),
+    );
+
+    const lengthInput = screen.getByLabelText('Length');
+    await user.clear(lengthInput);
+    await user.type(lengthInput, '26');
+    await user.click(
+      screen.getByLabelText('Group characters for easier entry'),
+    );
+
+    await waitFor(() => {
+      expect(localStorage.getItem('send_password_length')).toBe('26');
+      expect(localStorage.getItem('send_password_grouped')).toBe('true');
+    });
+  });
+
+  it('homepage generate uses settings updated in modal without reload', async () => {
+    const user = userEvent.setup();
+    render(<SendPage />);
+
+    await user.click(
+      screen.getByRole('button', { name: 'Password generator settings' }),
+    );
+
+    const lengthInput = screen.getByLabelText('Length');
+    await user.clear(lengthInput);
+    await user.type(lengthInput, '31');
+    await user.click(
+      screen.getByLabelText('Group characters for easier entry'),
+    );
+    await user.click(screen.getByRole('button', { name: 'Close' }));
+
+    mockGeneratePassword.mockClear();
+    await user.click(
+      screen.getByRole('button', { name: /Generate.*Password/i }),
+    );
+
+    await waitFor(() => {
+      expect(mockGeneratePassword).toHaveBeenCalledWith({
+        length: 31,
+        grouped: true,
+      });
+    });
+  });
+
+  it('closes the password modal from the footer close link without generating', async () => {
+    const user = userEvent.setup();
+    render(<SendPage />);
+
+    await user.click(
+      screen.getByRole('button', { name: 'Password generator settings' }),
+    );
+    await user.click(screen.getByRole('button', { name: 'Close' }));
+
+    expect(
+      screen.queryByRole('heading', { name: 'Generate Password' }),
+    ).not.toBeInTheDocument();
+    expect(mockGeneratePassword).not.toHaveBeenCalled();
+  });
+
+  it('closes the password modal on escape', async () => {
+    const user = userEvent.setup();
+    render(<SendPage />);
+
+    await user.click(
+      screen.getByRole('button', { name: 'Password generator settings' }),
+    );
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
+
+    await waitFor(() => {
+      expect(
+        screen.queryByRole('heading', { name: 'Generate Password' }),
+      ).not.toBeInTheDocument();
+    });
   });
 
   it('shows validation error when submitting empty text', async () => {
@@ -260,7 +476,10 @@ describe('SendPage', () => {
       expect(mockSeal).toHaveBeenCalledWith(
         expect.any(Uint8Array),
         { type: 'text' },
-        expect.objectContaining({ passphrase: 'mypass', compress: expect.any(Function) }),
+        expect.objectContaining({
+          passphrase: 'mypass',
+          compress: expect.any(Function),
+        }),
       );
     });
   });
@@ -358,7 +577,9 @@ describe('SendPage', () => {
       expect(screen.getByText('Secret Created')).toBeInTheDocument();
     });
 
-    await user.click(screen.getByRole('button', { name: 'Send Another Secret' }));
+    await user.click(
+      screen.getByRole('button', { name: 'Send Another Secret' }),
+    );
     expect(
       screen.getByPlaceholderText('Enter your secret...'),
     ).toBeInTheDocument();
@@ -413,7 +634,9 @@ describe('SendPage', () => {
     });
 
     // Simulate file select by finding the hidden file input and triggering change
-    const fileInput = document.querySelector('input[type="file"]') as HTMLInputElement;
+    const fileInput = document.querySelector(
+      'input[type="file"]',
+    ) as HTMLInputElement;
     const smallFile = new File(['hello'], 'test.txt', { type: 'text/plain' });
     Object.defineProperty(fileInput, 'files', { value: [smallFile] });
     fileInput.dispatchEvent(new Event('change', { bubbles: true }));

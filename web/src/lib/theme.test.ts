@@ -1,5 +1,10 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { isDark, setDarkMode } from './theme';
+import {
+  getSendPasswordGeneratorSettings,
+  isDark,
+  setDarkMode,
+  setSendPasswordGeneratorSettings,
+} from './theme';
 
 describe('isDark', () => {
   beforeEach(() => {
@@ -52,6 +57,65 @@ describe('setDarkMode', () => {
       expect(document.documentElement.classList.contains('dark')).toBe(true);
     } finally {
       Storage.prototype.setItem = orig;
+    }
+  });
+});
+
+describe('send password generator settings', () => {
+  beforeEach(() => {
+    localStorage.clear();
+  });
+
+  it('returns defaults when no settings are stored', () => {
+    expect(getSendPasswordGeneratorSettings(20, 4)).toEqual({
+      length: 20,
+      grouped: false,
+    });
+  });
+
+  it('reads persisted settings from localStorage', () => {
+    localStorage.setItem('send_password_length', '32');
+    localStorage.setItem('send_password_grouped', 'true');
+
+    expect(getSendPasswordGeneratorSettings(20, 4)).toEqual({
+      length: 32,
+      grouped: true,
+    });
+  });
+
+  it('ignores invalid stored length', () => {
+    localStorage.setItem('send_password_length', '2');
+    localStorage.setItem('send_password_grouped', 'true');
+
+    expect(getSendPasswordGeneratorSettings(20, 4)).toEqual({
+      length: 20,
+      grouped: true,
+    });
+  });
+
+  it('writes settings to localStorage', () => {
+    setSendPasswordGeneratorSettings(24, true);
+    expect(localStorage.getItem('send_password_length')).toBe('24');
+    expect(localStorage.getItem('send_password_grouped')).toBe('true');
+  });
+
+  it('does not throw when localStorage is unavailable', () => {
+    const origSet = Storage.prototype.setItem;
+    const origGet = Storage.prototype.getItem;
+
+    Storage.prototype.setItem = () => {
+      throw new Error('quota exceeded');
+    };
+    Storage.prototype.getItem = () => {
+      throw new Error('unavailable');
+    };
+
+    try {
+      expect(() => setSendPasswordGeneratorSettings(24, false)).not.toThrow();
+      expect(() => getSendPasswordGeneratorSettings(20, 4)).not.toThrow();
+    } finally {
+      Storage.prototype.setItem = origSet;
+      Storage.prototype.getItem = origGet;
     }
   });
 });
