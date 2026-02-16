@@ -54,6 +54,12 @@ vi.mock('../../lib/clipboard', () => ({
   copyToClipboard: vi.fn().mockResolvedValue(true),
 }));
 
+vi.mock('./password-generator', () => ({
+  DEFAULT_PASSWORD_LENGTH: 20,
+  MIN_PASSWORD_LENGTH: 4,
+  generatePassword: vi.fn(),
+}));
+
 vi.mock('../../lib/auth-context', () => ({
   useAuth: () => ({
     loading: false,
@@ -71,6 +77,8 @@ import { checkEnvelopeSize } from '../../lib/envelope-size';
 import { formatShareLink } from '../../lib/url';
 import { buildFrame } from '../../crypto/frame';
 import { ensureCompressor } from '../../crypto/compress';
+import { copyToClipboard } from '../../lib/clipboard';
+import { DEFAULT_PASSWORD_LENGTH, generatePassword } from './password-generator';
 
 const mockSeal = vi.mocked(seal);
 const mockCreate = vi.mocked(createSecret);
@@ -79,6 +87,8 @@ const mockCheckSize = vi.mocked(checkEnvelopeSize);
 const mockFormatLink = vi.mocked(formatShareLink);
 const mockBuildFrame = vi.mocked(buildFrame);
 const mockEnsureCompressor = vi.mocked(ensureCompressor);
+const mockCopyToClipboard = vi.mocked(copyToClipboard);
+const mockGeneratePassword = vi.mocked(generatePassword);
 
 const fakeEnvelope = {
   v: 1 as const,
@@ -126,6 +136,8 @@ describe('SendPage', () => {
     });
     mockCheckSize.mockReturnValue(null);
     mockFormatLink.mockReturnValue('https://secrt.ca/s/sec_abc#key');
+    mockCopyToClipboard.mockResolvedValue(true);
+    mockGeneratePassword.mockReturnValue('Aa1!Aa1!Aa1!Aa1!Aa1!');
   });
 
   afterEach(() => {
@@ -143,6 +155,58 @@ describe('SendPage', () => {
     expect(
       screen.getByRole('button', { name: 'Create secret' }),
     ).toBeEnabled();
+  });
+
+  it('generates a default password and copies it', async () => {
+    const user = userEvent.setup();
+    render(<SendPage />);
+
+    await user.click(screen.getByRole('button', { name: 'Generate Password' }));
+
+    await waitFor(() => {
+      expect(mockGeneratePassword).toHaveBeenCalledWith({
+        length: DEFAULT_PASSWORD_LENGTH,
+        grouped: false,
+      });
+    });
+    expect(mockCopyToClipboard).toHaveBeenCalledWith('Aa1!Aa1!Aa1!Aa1!Aa1!');
+    expect(screen.getByPlaceholderText('Enter your secret...')).toHaveValue(
+      'Aa1!Aa1!Aa1!Aa1!Aa1!',
+    );
+    expect(screen.getByRole('button', { name: 'copied!' })).toBeInTheDocument();
+  });
+
+  it('uses modal settings for generated password options', async () => {
+    const user = userEvent.setup();
+    mockGeneratePassword.mockReturnValue('Bb2@Bb2@Bb2@Bb2@');
+    render(<SendPage />);
+
+    await user.click(
+      screen.getByRole('button', { name: 'Password generator settings' }),
+    );
+    expect(
+      screen.getByRole('heading', { name: 'Generate Password' }),
+    ).toBeInTheDocument();
+
+    const lengthInput = screen.getByLabelText('Length');
+    await user.clear(lengthInput);
+    await user.type(lengthInput, '32');
+    await user.click(screen.getByLabelText('Group characters by type'));
+    await user.click(screen.getByRole('button', { name: /Generate & copy/i }));
+
+    await waitFor(() => {
+      expect(mockGeneratePassword).toHaveBeenLastCalledWith({
+        length: 32,
+        grouped: true,
+      });
+    });
+    expect(mockCopyToClipboard).toHaveBeenCalledWith('Bb2@Bb2@Bb2@Bb2@');
+    expect(
+      screen.queryByRole('heading', { name: 'Generate Password' }),
+    ).not.toBeInTheDocument();
+    expect(screen.getByPlaceholderText('Enter your secret...')).toHaveValue(
+      'Bb2@Bb2@Bb2@Bb2@',
+    );
   });
 
   it('shows validation error when submitting empty text', async () => {
