@@ -18,6 +18,7 @@ import {
   TriangleExclamationIcon,
 } from '../../components/Icons';
 import { CopyButton } from '../../components/CopyButton';
+import { Modal } from '../../components/Modal';
 import { navigate } from '../../router';
 import { formatSize } from '../../lib/format';
 import { mapClaimError, type ClaimError } from './errors';
@@ -40,7 +41,7 @@ type ClaimStatus =
     }
   | ClaimError;
 
-/** Placeholder dot count shown behind the passphrase modal. */
+/** Placeholder dot count shown behind modals. */
 const PLACEHOLDER_DOTS = 24;
 
 export function ClaimPage({ id }: ClaimPageProps) {
@@ -50,7 +51,6 @@ export function ClaimPage({ id }: ClaimPageProps) {
   const [passphraseError, setPassphraseError] = useState('');
   const abortRef = useRef<AbortController | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
-
   const passphraseInputRef = useRef<HTMLInputElement | null>(null);
 
   // Hold the envelope + urlKey across passphrase retries
@@ -72,7 +72,6 @@ export function ClaimPage({ id }: ClaimPageProps) {
   useEffect(() => {
     const ta = textareaRef.current;
     if (!ta || status.step !== 'done') return;
-    // Skip if the browser supports field-sizing natively
     if (CSS.supports('field-sizing', 'content')) return;
     ta.style.height = 'auto';
     ta.style.height = `${Math.min(ta.scrollHeight, 256)}px`;
@@ -179,7 +178,6 @@ export function ClaimPage({ id }: ClaimPageProps) {
   // Download file helper
   const handleDownload = useCallback(() => {
     if (status.step !== 'done') return;
-    // Copy into a plain ArrayBuffer so TS 5.8's generic Uint8Array is accepted as BlobPart.
     const buf = new ArrayBuffer(status.content.byteLength);
     new Uint8Array(buf).set(status.content);
     const blob = new Blob([buf], {
@@ -200,7 +198,7 @@ export function ClaimPage({ id }: ClaimPageProps) {
     navigate('/');
   }, []);
 
-  // ── Validating fragment ──
+  // ── Pure loading: validating fragment ──
   if (status.step === 'init') {
     return (
       <div class="card space-y-4 text-center">
@@ -208,98 +206,6 @@ export function ClaimPage({ id }: ClaimPageProps) {
           <div class="size-8 animate-spin rounded-full border-2 border-border border-t-accent" />
         </div>
         <p class="text-muted">Preparing&hellip;</p>
-      </div>
-    );
-  }
-
-  // ── Confirm before claiming ──
-  if (status.step === 'confirm') {
-    return (
-      <>
-        {/* Dimmed placeholder behind the confirm modal — matches done layout */}
-        <div class="card pointer-events-none space-y-5 opacity-50 select-none">
-          <div class="flex flex-col items-center gap-2 text-center">
-            <LockIcon class="size-10 text-muted" />
-            <h2 class="text-xl font-semibold">Secret Ready</h2>
-          </div>
-          <div class="space-y-3">
-            <textarea
-              readonly
-              disabled
-              tabIndex={-1}
-              class="input [field-sizing:content] max-h-64 w-full resize-y font-mono text-sm tracking-wider"
-              value={'\u25CF'.repeat(PLACEHOLDER_DOTS)}
-            />
-            <button
-              type="button"
-              disabled
-              class="btn btn-sm btn-secondary btn-primary w-full tracking-wider uppercase"
-            >
-              <ClipboardIcon class="size-5" />
-              Copy secret
-            </button>
-          </div>
-          <p class="text-center text-sm text-muted">
-            This secret will be permanently deleted from the server.
-          </p>
-          <div class="text-center">
-            <a class="link">Create a New Secret</a>
-          </div>
-        </div>
-
-        {/* Confirm modal */}
-        <div class="fixed inset-0 z-50 flex items-start justify-center bg-black/30 px-4 pt-32">
-          <div class="card w-full max-w-sm space-y-6 text-center">
-            <div class="flex flex-col items-center gap-2">
-              <LockIcon class="size-10 text-accent" />
-              <h2 class="mb-2 text-xl font-semibold">
-                Someone Sent You a Secret
-              </h2>
-              <p class="">
-                This secret can only be viewed once.
-                {/*<br />
-                <span class="text-black dark:text-white">
-                  After you open it, it will be permanently deleted.
-                </span>*/}
-              </p>
-              <p class="mt-4 text-sm text-muted">
-                Be ready to save it and ensure no one else can see your screen.
-              </p>
-            </div>
-
-            <button
-              type="button"
-              class="btn btn-primary w-full tracking-wider uppercase"
-              onClick={handleClaim}
-            >
-              View Secret
-            </button>
-          </div>
-        </div>
-      </>
-    );
-  }
-
-  // ── Loading / claiming ──
-  if (status.step === 'claiming') {
-    return (
-      <div class="card space-y-4 text-center">
-        <div class="flex justify-center">
-          <div class="size-8 animate-spin rounded-full border-2 border-border border-t-accent" />
-        </div>
-        <p class="text-muted">Retrieving your secret&hellip;</p>
-      </div>
-    );
-  }
-
-  // ── Auto-decrypting (no passphrase) ──
-  if (status.step === 'decrypting' && !passphraseRequired) {
-    return (
-      <div class="card space-y-4 text-center">
-        <div class="flex justify-center">
-          <div class="size-8 animate-spin rounded-full border-2 border-border border-t-accent" />
-        </div>
-        <p class="text-muted">Decrypting\u2026</p>
       </div>
     );
   }
@@ -326,13 +232,17 @@ export function ClaimPage({ id }: ClaimPageProps) {
     );
   }
 
-  // ── Reveal card (passphrase-locked or done) ──
-  // Shown when: passphrase prompt, decrypting after passphrase, or done.
-  // When locked, a placeholder is shown behind the passphrase modal.
+  // ── Main card: always rendered once we have a valid fragment ──
+  // Shows placeholder dots when locked, real content when done.
   const isDone = status.step === 'done';
-  const isLocked =
+  const isLocked = !isDone;
+  const showConfirmModal = status.step === 'confirm';
+  const showPassphraseModal =
     status.step === 'passphrase' ||
     (status.step === 'decrypting' && passphraseRequired);
+  const showSpinner =
+    status.step === 'claiming' ||
+    (status.step === 'decrypting' && !passphraseRequired);
 
   const isFile = isDone && status.meta.type === 'file';
 
@@ -347,7 +257,7 @@ export function ClaimPage({ id }: ClaimPageProps) {
 
   return (
     <>
-      {/* Reveal card — dimmed when locked, interactive when done */}
+      {/* Main reveal card — dimmed when locked, interactive when done */}
       <div
         class={`card space-y-5 ${isLocked ? 'pointer-events-none opacity-50 select-none' : ''}`}
       >
@@ -416,7 +326,9 @@ export function ClaimPage({ id }: ClaimPageProps) {
         )}
 
         <p class="text-center text-sm text-muted">
-          This secret has been permanently deleted from the server.
+          {isDone
+            ? 'This secret has been permanently deleted from the server.'
+            : 'This secret will be permanently deleted from the server.'}
         </p>
         <div class="text-center">
           <a href="/" class="link" onClick={handleGoHome}>
@@ -425,79 +337,117 @@ export function ClaimPage({ id }: ClaimPageProps) {
         </div>
       </div>
 
-      {/* ── Passphrase modal overlay ── */}
-      {isLocked && (
-        <div class="fixed inset-0 z-50 flex items-start justify-center bg-black/30 px-4 pt-32">
-          <form class="card w-full max-w-sm space-y-6" onSubmit={handleDecrypt}>
-            <div class="flex flex-col items-center gap-2 text-center">
-              <LockIcon class="size-10 text-accent" />
-              <h2 class="mb-2 text-xl font-semibold">Passphrase Required</h2>
-              <p class="text-muted">
-                This secret is protected with a passphrase.
-                <br />
-                Enter it below to decrypt.
-              </p>
-            </div>
-
-            <div class="space-y-1">
-              <label
-                class="flex items-center gap-1.5 font-medium text-muted"
-                for="claim-passphrase"
-              >
-                <LockIcon class="size-4" />
-                Passphrase
-              </label>
-              <div class="relative">
-                <input
-                  id="claim-passphrase"
-                  type={showPassphrase ? 'text' : 'password'}
-                  class="input pr-10"
-                  value={passphrase}
-                  onInput={(e) =>
-                    setPassphrase((e.target as HTMLInputElement).value)
-                  }
-                  autocomplete="off"
-                  autofocus
-                  disabled={status.step === 'decrypting'}
-                />
-                <button
-                  type="button"
-                  class="absolute top-1/2 right-2 -translate-y-1/2 p-1 text-muted hover:text-text"
-                  onClick={() => setShowPassphrase((s) => !s)}
-                  aria-label={
-                    showPassphrase ? 'Hide passphrase' : 'Show passphrase'
-                  }
-                  tabIndex={-1}
-                >
-                  {showPassphrase ? (
-                    <EyeSlashIcon class="size-4" />
-                  ) : (
-                    <EyeIcon class="size-4" />
-                  )}
-                </button>
-              </div>
-            </div>
-
-            {passphraseError && (
-              <div
-                role="alert"
-                class="flex items-start gap-2 rounded-md border border-error/30 bg-error/5 px-3 py-2.5 text-error"
-              >
-                <TriangleExclamationIcon class="mt-0.5 size-4 shrink-0" />
-                {passphraseError}
-              </div>
-            )}
-
-            <button
-              type="submit"
-              class="btn btn-primary w-full tracking-wider uppercase"
-              disabled={!passphrase.trim() || status.step === 'decrypting'}
-            >
-              {status.step === 'decrypting' ? 'Decrypting\u2026' : 'Decrypt'}
-            </button>
-          </form>
+      {/* ── Spinner overlay (claiming / auto-decrypting) ── */}
+      <Modal open={showSpinner} dismissible={false}>
+        <div class="flex flex-col items-center gap-4 py-4">
+          <div class="size-8 animate-spin rounded-full border-2 border-border border-t-accent" />
+          <p class="text-muted">
+            {status.step === 'claiming'
+              ? 'Retrieving your secret\u2026'
+              : 'Decrypting\u2026'}
+          </p>
         </div>
-      )}
+      </Modal>
+
+      {/* ── Confirm modal ── */}
+      <Modal open={showConfirmModal} dismissible={false}>
+        <div class="flex flex-col items-center gap-2 text-center">
+          <LockIcon class="size-10 text-accent" />
+          <h2 class="mb-2 text-xl font-semibold">
+            Someone Sent You a Secret
+          </h2>
+          <p>
+            This secret can only be viewed once.
+          </p>
+          <p class="mt-4 text-sm text-muted">
+            Be ready to save it and ensure no one else can see your screen.
+          </p>
+        </div>
+
+        <button
+          type="button"
+          class="btn btn-primary w-full tracking-wider uppercase"
+          onClick={handleClaim}
+        >
+          View Secret
+        </button>
+      </Modal>
+
+      {/* ── Passphrase modal ── */}
+      <Modal
+        open={showPassphraseModal}
+        dismissible={false}
+        asForm
+        onSubmit={handleDecrypt}
+      >
+        <div class="flex flex-col items-center gap-2 text-center">
+          <LockIcon class="size-10 text-accent" />
+          <h2 class="mb-2 text-xl font-semibold">Passphrase Required</h2>
+          <p class="text-muted">
+            This secret is protected with a passphrase.
+            <br />
+            Enter it below to decrypt.
+          </p>
+        </div>
+
+        <div class="space-y-1">
+          <label
+            class="flex items-center gap-1.5 font-medium text-muted"
+            for="claim-passphrase"
+          >
+            <LockIcon class="size-4" />
+            Passphrase
+          </label>
+          <div class="relative">
+            <input
+              ref={passphraseInputRef}
+              id="claim-passphrase"
+              type={showPassphrase ? 'text' : 'password'}
+              class="input pr-10"
+              value={passphrase}
+              onInput={(e) =>
+                setPassphrase((e.target as HTMLInputElement).value)
+              }
+              autocomplete="off"
+              autofocus
+              disabled={status.step === 'decrypting'}
+            />
+            <button
+              type="button"
+              class="absolute top-1/2 right-2 -translate-y-1/2 p-1 text-muted hover:text-text"
+              onClick={() => setShowPassphrase((s) => !s)}
+              aria-label={
+                showPassphrase ? 'Hide passphrase' : 'Show passphrase'
+              }
+              tabIndex={-1}
+            >
+              {showPassphrase ? (
+                <EyeSlashIcon class="size-4" />
+              ) : (
+                <EyeIcon class="size-4" />
+              )}
+            </button>
+          </div>
+        </div>
+
+        {passphraseError && (
+          <div
+            role="alert"
+            class="flex items-start gap-2 rounded-md border border-error/30 bg-error/5 px-3 py-2.5 text-error"
+          >
+            <TriangleExclamationIcon class="mt-0.5 size-4 shrink-0" />
+            {passphraseError}
+          </div>
+        )}
+
+        <button
+          type="submit"
+          class="btn btn-primary w-full tracking-wider uppercase"
+          disabled={!passphrase.trim() || status.step === 'decrypting'}
+        >
+          {status.step === 'decrypting' ? 'Decrypting\u2026' : 'Decrypt'}
+        </button>
+      </Modal>
     </>
   );
 }

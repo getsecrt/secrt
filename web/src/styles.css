@@ -291,6 +291,22 @@
   .card {
     @apply rounded-lg border border-neutral-300/50 bg-neutral-100 p-6 shadow-md backdrop-blur-md dark:border-neutral-700/35 dark:bg-neutral-950/40;
   }
+
+  /* ── Modal (native <dialog>) ── */
+  .modal-backdrop {
+    @apply m-0 max-h-full max-w-full border-none bg-transparent p-0;
+    /* Centre the inner card */
+    @apply fixed inset-0 flex items-start justify-center px-4 pt-32;
+
+    &::backdrop {
+      background: oklch(0 0 0 / 0.3);
+    }
+
+    /* Hide when not open (native handles this, but be explicit) */
+    &:not([open]) {
+      display: none;
+    }
+  }
 }
 
 @utility text-muted {

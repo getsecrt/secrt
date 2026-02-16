@@ -29,6 +29,7 @@ import {
   XMarkIcon,
 } from '../../components/Icons';
 import type { ApiInfo, PayloadMeta } from '../../types';
+import { Modal } from '../../components/Modal';
 import { FileDropZone } from './FileDropZone';
 import { TtlSelector } from './TtlSelector';
 import { ShareResult } from './ShareResult';
@@ -288,20 +289,6 @@ export function SendPage() {
     setPasswordCopied(false);
     setStatus((prev) => (prev.step === 'error' ? { step: 'input' } : prev));
   }, []);
-
-  useEffect(() => {
-    if (!passwordModalOpen) return;
-
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') {
-        event.preventDefault();
-        setPasswordModalOpen(false);
-      }
-    };
-
-    window.addEventListener('keydown', onKeyDown);
-    return () => window.removeEventListener('keydown', onKeyDown);
-  }, [passwordModalOpen]);
 
   const handleSubmit = useCallback(
     async (e: Event) => {
@@ -617,116 +604,111 @@ export function SendPage() {
       </form>
 
       {/* Password generator modal */}
-      {passwordModalOpen && (
-        <div
-          class="fixed inset-0 z-50 flex items-start justify-center bg-black/30 px-4 pt-32"
+      <Modal
+        open={passwordModalOpen}
+        onClose={() => setPasswordModalOpen(false)}
+        dismissible
+        asForm
+        onSubmit={handleGeneratePasswordFromModal}
+        data-testid="password-generator-backdrop"
+      >
+        <button
+          type="button"
+          class="absolute top-3 right-3 rounded p-1 text-muted transition-colors hover:text-text"
           onClick={() => setPasswordModalOpen(false)}
-          data-testid="password-generator-backdrop"
+          aria-label="Close password generator"
         >
-          <form
-            class="card relative w-full max-w-sm space-y-6"
-            onSubmit={handleGeneratePasswordFromModal}
-            onClick={(e) => e.stopPropagation()}
-          >
-            <button
-              type="button"
-              class="absolute top-3 right-3 rounded p-1 text-muted transition-colors hover:text-text"
-              onClick={() => setPasswordModalOpen(false)}
-              aria-label="Close password generator"
-            >
-              <XMarkIcon class="size-5" />
-            </button>
+          <XMarkIcon class="size-5" />
+        </button>
 
-            <div class="flex flex-col items-center gap-2 text-center">
-              <KeyIcon class="size-10 text-accent" />
-              <h2 class="mb-2 text-xl font-semibold">Generate Password</h2>
-              <p class="text-sm text-muted">
-                Replace the message with a random password
-                <br />
-                and copies it directly to your clipboard.
-              </p>
-            </div>
-
-            <div class="space-y-1">
-              <label class="label text-muted" for="password-generator-preview">
-                Password Preview
-              </label>
-              <input
-                id="password-generator-preview"
-                type="text"
-                class="input font-mono"
-                value={text}
-                onInput={handlePasswordPreviewInput}
-                autocomplete="off"
-              />
-              <p class="text-sm text-muted">
-                Edit this value directly. It stays synced with Secret Message.
-              </p>
-            </div>
-
-            <div class="space-y-1">
-              <label class="label text-muted" for="password-generator-length">
-                Length
-              </label>
-              <input
-                id="password-generator-length"
-                type="number"
-                class="input"
-                min={MIN_PASSWORD_LENGTH}
-                step={1}
-                value={passwordLengthInput}
-                onInput={(e) =>
-                  setPasswordLengthInput((e.target as HTMLInputElement).value)
-                }
-                autofocus
-              />
-              <p class="text-sm text-muted">
-                Minimum {MIN_PASSWORD_LENGTH}. Default {DEFAULT_PASSWORD_LENGTH}
-                .
-              </p>
-            </div>
-
-            <label class="flex items-center gap-2 text-sm text-muted">
-              <input
-                type="checkbox"
-                class="size-4 accent-accent"
-                checked={passwordGrouped}
-                onChange={(e) =>
-                  setPasswordGrouped((e.target as HTMLInputElement).checked)
-                }
-              />
-              Group characters for easier entry
-            </label>
-
-            {!passwordLengthValid && (
-              <div
-                role="alert"
-                class="rounded-md border border-error/30 bg-error/5 px-3 py-2 text-sm text-error"
-              >
-                Length must be at least {MIN_PASSWORD_LENGTH}.
-              </div>
-            )}
-
-            <button
-              type="submit"
-              class="btn btn-primary w-full tracking-wider uppercase"
-              disabled={!passwordLengthValid}
-            >
-              Generate &amp; copy
-            </button>
-
-            <div class="text-center">
-              <button
-                type="button"
-                class="link"
-                onClick={() => setPasswordModalOpen(false)}
-              >
-                Close
-              </button>
-            </div>
-          </form>
+        <div class="flex flex-col items-center gap-2 text-center">
+          <KeyIcon class="size-10 text-accent" />
+          <h2 class="mb-2 text-xl font-semibold">Generate Password</h2>
+          <p class="text-sm text-muted">
+            Replace the message with a random password
+            <br />
+            and copies it directly to your clipboard.
+          </p>
         </div>
-      )}
+
+        <div class="space-y-1">
+          <label class="label text-muted" for="password-generator-preview">
+            Password Preview
+          </label>
+          <input
+            id="password-generator-preview"
+            type="text"
+            class="input font-mono"
+            value={text}
+            onInput={handlePasswordPreviewInput}
+            autocomplete="off"
+          />
+          <p class="text-sm text-muted">
+            Edit this value directly. It stays synced with Secret Message.
+          </p>
+        </div>
+
+        <div class="space-y-1">
+          <label class="label text-muted" for="password-generator-length">
+            Length
+          </label>
+          <input
+            id="password-generator-length"
+            type="number"
+            class="input"
+            min={MIN_PASSWORD_LENGTH}
+            step={1}
+            value={passwordLengthInput}
+            onInput={(e) =>
+              setPasswordLengthInput((e.target as HTMLInputElement).value)
+            }
+            autofocus
+          />
+          <p class="text-sm text-muted">
+            Minimum {MIN_PASSWORD_LENGTH}. Default {DEFAULT_PASSWORD_LENGTH}
+            .
+          </p>
+        </div>
+
+        <label class="flex items-center gap-2 text-sm text-muted">
+          <input
+            type="checkbox"
+            class="size-4 accent-accent"
+            checked={passwordGrouped}
+            onChange={(e) =>
+              setPasswordGrouped((e.target as HTMLInputElement).checked)
+            }
+          />
+          Group characters for easier entry
+        </label>
+
+        {!passwordLengthValid && (
+          <div
+            role="alert"
+            class="rounded-md border border-error/30 bg-error/5 px-3 py-2 text-sm text-error"
+          >
+            Length must be at least {MIN_PASSWORD_LENGTH}.
+          </div>
+        )}
+
+        <button
+          type="submit"
+          class="btn btn-primary w-full tracking-wider uppercase"
+          disabled={!passwordLengthValid}
+        >
+          Generate &amp; copy
+        </button>
+
+        <div class="text-center">
+          <button
+            type="button"
+            class="link"
+            onClick={() => setPasswordModalOpen(false)}
+          >
+            Close
+          </button>
+        </div>
+      </Modal>
 
       <div class="mt-10">
         <p class="px-1 text-center">
