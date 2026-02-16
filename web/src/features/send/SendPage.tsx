@@ -654,7 +654,7 @@ export function SendPage() {
               <input
                 id="password-generator-preview"
                 type="text"
-                class="input font-mono text-base"
+                class="input font-mono"
                 value={text}
                 onInput={handlePasswordPreviewInput}
                 autocomplete="off"
