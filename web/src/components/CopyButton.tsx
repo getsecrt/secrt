@@ -28,7 +28,7 @@ export function CopyButton({
   return (
     <button
       type="button"
-      class={`btn btn-sm btn-secondary ${className ?? ''}`}
+      class={`btn btn-primary tracking-wider uppercase ${className ?? ''}`}
       onClick={handleClick}
     >
       {icon}

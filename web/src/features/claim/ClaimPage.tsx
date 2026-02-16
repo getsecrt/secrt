@@ -65,6 +65,7 @@ export function ClaimPage({ id }: ClaimPageProps) {
   useEffect(() => {
     if (status.step === 'passphrase') {
       passphraseInputRef.current?.focus();
+      passphraseInputRef.current?.select();
     }
   }, [status.step]);
 
@@ -236,13 +237,12 @@ export function ClaimPage({ id }: ClaimPageProps) {
   // Shows placeholder dots when locked, real content when done.
   const isDone = status.step === 'done';
   const isLocked = !isDone;
-  const showConfirmModal = status.step === 'confirm';
-  const showPassphraseModal =
+  const isPassphraseStep =
     status.step === 'passphrase' ||
     (status.step === 'decrypting' && passphraseRequired);
-  const showSpinner =
-    status.step === 'claiming' ||
-    (status.step === 'decrypting' && !passphraseRequired);
+  const isBusy = status.step === 'claiming' || status.step === 'decrypting';
+  const modalOpen =
+    status.step === 'confirm' || isBusy || status.step === 'passphrase';
 
   const isFile = isDone && status.meta.type === 'file';
 
@@ -337,116 +337,108 @@ export function ClaimPage({ id }: ClaimPageProps) {
         </div>
       </div>
 
-      {/* ── Spinner overlay (claiming / auto-decrypting) ── */}
-      <Modal open={showSpinner} dismissible={false}>
-        <div class="flex flex-col items-center gap-4 py-4">
-          <div class="size-8 animate-spin rounded-full border-2 border-border border-t-accent" />
-          <p class="text-muted">
-            {status.step === 'claiming'
-              ? 'Retrieving your secret\u2026'
-              : 'Decrypting\u2026'}
-          </p>
-        </div>
-      </Modal>
-
-      {/* ── Confirm modal ── */}
-      <Modal open={showConfirmModal} dismissible={false}>
-        <div class="flex flex-col items-center gap-2 text-center">
-          <LockIcon class="size-10 text-accent" />
-          <h2 class="mb-2 text-xl font-semibold">
-            Someone Sent You a Secret
-          </h2>
-          <p>
-            This secret can only be viewed once.
-          </p>
-          <p class="mt-4 text-sm text-muted">
-            Be ready to save it and ensure no one else can see your screen.
-          </p>
-        </div>
-
-        <button
-          type="button"
-          class="btn btn-primary w-full tracking-wider uppercase"
-          onClick={handleClaim}
-        >
-          View Secret
-        </button>
-      </Modal>
-
-      {/* ── Passphrase modal ── */}
+      {/* ── Claim modal — confirm or passphrase ── */}
       <Modal
-        open={showPassphraseModal}
+        open={modalOpen}
         dismissible={false}
-        asForm
-        onSubmit={handleDecrypt}
+        asForm={isPassphraseStep}
+        onSubmit={isPassphraseStep ? handleDecrypt : undefined}
       >
-        <div class="flex flex-col items-center gap-2 text-center">
-          <LockIcon class="size-10 text-accent" />
-          <h2 class="mb-2 text-xl font-semibold">Passphrase Required</h2>
-          <p class="text-muted">
-            This secret is protected with a passphrase.
-            <br />
-            Enter it below to decrypt.
-          </p>
-        </div>
+        {isPassphraseStep ? (
+          <>
+            <div class="flex flex-col items-center gap-2 text-center">
+              <LockIcon class="size-10 text-accent" />
+              <h2 class="mb-2 text-xl font-semibold">Passphrase Required</h2>
+              <p class="text-muted">
+                This secret is protected with a passphrase.
+                <br />
+                Enter it below to decrypt.
+              </p>
+            </div>
 
-        <div class="space-y-1">
-          <label
-            class="flex items-center gap-1.5 font-medium text-muted"
-            for="claim-passphrase"
-          >
-            <LockIcon class="size-4" />
-            Passphrase
-          </label>
-          <div class="relative">
-            <input
-              ref={passphraseInputRef}
-              id="claim-passphrase"
-              type={showPassphrase ? 'text' : 'password'}
-              class="input pr-10"
-              value={passphrase}
-              onInput={(e) =>
-                setPassphrase((e.target as HTMLInputElement).value)
-              }
-              autocomplete="off"
-              autofocus
-              disabled={status.step === 'decrypting'}
-            />
+            <div class="space-y-1">
+              <label
+                class="flex items-center gap-1.5 font-medium text-muted"
+                for="claim-passphrase"
+              >
+                <LockIcon class="size-4" />
+                Passphrase
+              </label>
+              <div class="relative">
+                <input
+                  ref={passphraseInputRef}
+                  id="claim-passphrase"
+                  type={showPassphrase ? 'text' : 'password'}
+                  class="input pr-10"
+                  value={passphrase}
+                  onInput={(e) =>
+                    setPassphrase((e.target as HTMLInputElement).value)
+                  }
+                  autocomplete="off"
+                  autofocus
+                  disabled={status.step === 'decrypting'}
+                />
+                <button
+                  type="button"
+                  class="absolute top-1/2 right-2 -translate-y-1/2 p-1 text-muted hover:text-text"
+                  onClick={() => setShowPassphrase((s) => !s)}
+                  aria-label={
+                    showPassphrase ? 'Hide passphrase' : 'Show passphrase'
+                  }
+                  tabIndex={-1}
+                >
+                  {showPassphrase ? (
+                    <EyeSlashIcon class="size-4" />
+                  ) : (
+                    <EyeIcon class="size-4" />
+                  )}
+                </button>
+              </div>
+            </div>
+
+            {passphraseError && (
+              <div
+                role="alert"
+                class="flex items-start gap-2 rounded-md border border-error/30 bg-error/5 px-3 py-2.5 text-error"
+              >
+                <TriangleExclamationIcon class="mt-0.5 size-4 shrink-0" />
+                {passphraseError}
+              </div>
+            )}
+
+            <button
+              type="submit"
+              class="btn btn-primary w-full tracking-wider uppercase"
+              disabled={!passphrase.trim() || status.step === 'decrypting'}
+            >
+              {status.step === 'decrypting' ? 'Decrypting\u2026' : 'Decrypt'}
+            </button>
+          </>
+        ) : (
+          <>
+            <div class="flex flex-col items-center gap-2 text-center">
+              <LockIcon class="size-10 text-accent" />
+              <h2 class="mb-2 text-xl font-semibold">
+                Someone Sent You a Secret
+              </h2>
+              <p>
+                This secret can only be viewed once.
+              </p>
+              <p class="mt-4 text-sm text-muted">
+                Be ready to save it and ensure no one else can see your screen.
+              </p>
+            </div>
+
             <button
               type="button"
-              class="absolute top-1/2 right-2 -translate-y-1/2 p-1 text-muted hover:text-text"
-              onClick={() => setShowPassphrase((s) => !s)}
-              aria-label={
-                showPassphrase ? 'Hide passphrase' : 'Show passphrase'
-              }
-              tabIndex={-1}
+              class="btn btn-primary w-full tracking-wider uppercase"
+              onClick={handleClaim}
+              disabled={isBusy}
             >
-              {showPassphrase ? (
-                <EyeSlashIcon class="size-4" />
-              ) : (
-                <EyeIcon class="size-4" />
-              )}
+              {isBusy ? 'Retrieving\u2026' : 'View Secret'}
             </button>
-          </div>
-        </div>
-
-        {passphraseError && (
-          <div
-            role="alert"
-            class="flex items-start gap-2 rounded-md border border-error/30 bg-error/5 px-3 py-2.5 text-error"
-          >
-            <TriangleExclamationIcon class="mt-0.5 size-4 shrink-0" />
-            {passphraseError}
-          </div>
+          </>
         )}
-
-        <button
-          type="submit"
-          class="btn btn-primary w-full tracking-wider uppercase"
-          disabled={!passphrase.trim() || status.step === 'decrypting'}
-        >
-          {status.step === 'decrypting' ? 'Decrypting\u2026' : 'Decrypt'}
-        </button>
       </Modal>
     </>
   );

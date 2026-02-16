@@ -35,7 +35,7 @@ export function ShareResult({
       <CopyButton
         text={shareUrl}
         icon={<ClipboardIcon class="size-5" />}
-        class="btn btn-primary w-full tracking-wider uppercase"
+        class="w-full"
         label="Copy Link"
       />
 

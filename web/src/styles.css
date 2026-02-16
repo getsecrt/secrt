@@ -53,6 +53,7 @@
   --font-mono: 'SF Mono', Menlo, Consolas, monospace;
   --radius-lg: 10px;
   --shadow-sm: 0 1px 2px oklch(0 0 0 / 0.05);
+  --shadow-modal: 0 8px 24px oklch(0 0 0 / 0.12), 0 2px 8px oklch(0 0 0 / 0.08);
   --max-width-sm: 480px;
 }
 
@@ -70,6 +71,7 @@
   --color-error: var(--color-red-400);
   --color-success: var(--color-green-400);
   --shadow-sm: 0 1px 2px oklch(0 0 0 / 0.2);
+  --shadow-modal: 0 8px 32px oklch(0 0 0 / 0.9), 0 1px 16px oklch(0 0 0 / 0.8);
 }
 
 @layer base {
@@ -294,12 +296,17 @@
 
   /* ── Modal (native <dialog>) ── */
   .modal-backdrop {
-    @apply m-0 max-h-full max-w-full border-none bg-transparent p-0;
-    /* Centre the inner card */
-    @apply fixed inset-0 flex items-start justify-center px-4 pt-32;
+    @apply m-0 h-full max-h-full w-full max-w-full border-none bg-transparent p-0;
+    /* Centre the inner card (upper-biased) */
+    @apply fixed inset-0 flex items-start justify-center px-4 text-text;
+    padding-top: clamp(2.5rem, calc(20vh - 20px), 10rem);
 
     &::backdrop {
-      background: oklch(0 0 0 / 0.3);
+      background: oklch(0 0 0 / 0.03);
+    }
+
+    & > * {
+      box-shadow: var(--shadow-modal);
     }
 
     /* Hide when not open (native handles this, but be explicit) */

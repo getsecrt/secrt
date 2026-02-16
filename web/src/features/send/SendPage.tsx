@@ -216,7 +216,7 @@ export function SendPage() {
     passwordCopiedTimerRef.current = window.setTimeout(() => {
       setPasswordCopied(false);
       passwordCopiedTimerRef.current = null;
-    }, 2000);
+    }, 1000);
   }, []);
 
   const busy = status.step === 'encrypting' || status.step === 'sending';
@@ -665,8 +665,7 @@ export function SendPage() {
             autofocus
           />
           <p class="text-sm text-muted">
-            Minimum {MIN_PASSWORD_LENGTH}. Default {DEFAULT_PASSWORD_LENGTH}
-            .
+            Minimum {MIN_PASSWORD_LENGTH}. Default {DEFAULT_PASSWORD_LENGTH}.
           </p>
         </div>
 
@@ -698,16 +697,6 @@ export function SendPage() {
         >
           Generate &amp; copy
         </button>
-
-        <div class="text-center">
-          <button
-            type="button"
-            class="link"
-            onClick={() => setPasswordModalOpen(false)}
-          >
-            Close
-          </button>
-        </div>
       </Modal>
 
       <div class="mt-10">
