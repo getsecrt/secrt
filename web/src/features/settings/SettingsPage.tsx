@@ -114,7 +114,7 @@ function ApiKeysCard() {
           API Keys
         </h2>
 
-        <div class="flex justify-end">
+        <div class="flex justify-center">
           <button
             type="button"
             class="btn btn-primary btn-sm tracking-wider uppercase"

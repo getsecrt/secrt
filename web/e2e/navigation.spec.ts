@@ -40,27 +40,19 @@ test.describe('Navigation', () => {
     ).toBeVisible();
   });
 
-  test('how-it-works CTA navigates home', async ({ page }) => {
+  test('how-it-works home link navigates home', async ({ page }) => {
     await page.goto('/how-it-works');
-    await page.getByRole('link', { name: 'Create a secret' }).click();
+    await page.getByRole('link', { name: 'Home' }).click();
     await expect(
       page.getByPlaceholder('Enter your secret...'),
     ).toBeVisible();
   });
 
-  test('how-it-works disclosure on send page', async ({ page }) => {
+  test('how-it-works link on send page navigates to details', async ({
+    page,
+  }) => {
     await page.goto('/');
-    const summary = page.getByText('How can I trust you to keep my data safe?');
-    await expect(summary).toBeVisible();
-
-    // Click to expand
-    await summary.click();
-    await expect(
-      page.getByText('More Details about How secrt works →'),
-    ).toBeVisible();
-
-    // Click learn more link
-    await page.getByText('More Details about How secrt works →').click();
+    await page.getByRole('link', { name: 'How secrt Works →' }).click();
     await expect(page.getByText('How secrt Works')).toBeVisible();
   });
 });

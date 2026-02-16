@@ -32,7 +32,7 @@ import type { ApiInfo, PayloadMeta } from '../../types';
 import { FileDropZone } from './FileDropZone';
 import { TtlSelector } from './TtlSelector';
 import { ShareResult } from './ShareResult';
-import { HowItWorksLink } from '../../components/HowItWorks';
+import { navigate } from '../../router';
 import { useAuth } from '../../lib/auth-context';
 import { mapError } from './errors';
 import {
@@ -432,11 +432,14 @@ export function SendPage() {
         onSubmit={handleSubmit}
         onDragOver={handlePageDragOver}
       >
-        <p class="text-center text-sm text-muted">
-          Add secret data to encrypt in your browser.
-          <br />
-          The server never sees the original text or file.
-        </p>
+        <h2 class="-m-2 mb-6 border-b border-border pb-3 text-center">
+          <div class="pb-1 text-xl font-semibold tracking-widest text-neutral-700 uppercase dark:text-neutral-300 dark:text-shadow-black">
+            Send a Secret
+          </div>
+          <div class="text-sm text-muted">
+            The server never sees the original text or file.
+          </div>
+        </h2>
 
         {/* Content input */}
         <div class="space-y-1">
@@ -726,7 +729,18 @@ export function SendPage() {
       )}
 
       <div class="mt-10">
-        <HowItWorksLink />
+        <p class="px-1 text-center">
+          <a
+            href="/how-it-works"
+            class="link"
+            onClick={(e: MouseEvent) => {
+              e.preventDefault();
+              navigate('/how-it-works');
+            }}
+          >
+            How secrt Works →
+          </a>
+        </p>
       </div>
     </div>
   );

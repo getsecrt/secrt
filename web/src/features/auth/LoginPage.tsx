@@ -104,7 +104,7 @@ export function LoginPage() {
         <div>
           <PasskeyIcon class="text-primary mx-auto mb-2 size-10" />
           <h2 class="heading">Log In</h2>
-          <p class="mt-1 text-muted">
+          <p class="mt-1">
             Use your passkey to sign in anonymously.
             <br />
             Your browser will show available passkeys.
