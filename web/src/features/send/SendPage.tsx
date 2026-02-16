@@ -544,7 +544,8 @@ export function SendPage() {
             for="passphrase"
           >
             <LockIcon class="size-4" />
-            Passphrase <span class="font-normal text-faint">(optional)</span>
+            Passphrase{' '}
+            <span class="text-sm font-normal text-faint">optional</span>
           </label>
           <div class="relative">
             <input
