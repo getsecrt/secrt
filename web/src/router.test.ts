@@ -56,12 +56,12 @@ describe('matchRoute', () => {
     expect(matchRoute('/settings')).toEqual({ page: 'settings' });
   });
 
-  it('"/test/theme" -> theme page', () => {
-    expect(matchRoute('/test/theme')).toEqual({ page: 'theme' });
+  it('"/test/theme" -> not-found (removed)', () => {
+    expect(matchRoute('/test/theme')).toEqual({ page: 'not-found' });
   });
 
-  it('"/test/claim" -> test-claim page', () => {
-    expect(matchRoute('/test/claim')).toEqual({ page: 'test-claim' });
+  it('"/test/claim" -> not-found (removed)', () => {
+    expect(matchRoute('/test/claim')).toEqual({ page: 'not-found' });
   });
 
   it('"/unknown" -> not-found', () => {

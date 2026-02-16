@@ -8,15 +8,9 @@ import { LoginPage } from './features/auth/LoginPage';
 import { RegisterPage } from './features/auth/RegisterPage';
 import { DashboardPage } from './features/dashboard/DashboardPage';
 import { SettingsPage } from './features/settings/SettingsPage';
-import { ThemePage } from './features/test/ThemePage';
-import { TestClaimPage } from './features/test/TestClaimPage';
 
 export function App() {
   const route = useRoute();
-
-  if (import.meta.env.DEV && route.page === 'theme') {
-    return <ThemePage />;
-  }
 
   let page;
   switch (route.page) {
@@ -40,11 +34,6 @@ export function App() {
       break;
     case 'settings':
       page = <SettingsPage />;
-      break;
-    case 'test-claim':
-      if (import.meta.env.DEV) {
-        page = <TestClaimPage />;
-      }
       break;
     case 'not-found':
       page = (
