@@ -8,6 +8,7 @@ export type Route =
   | { page: 'register' }
   | { page: 'dashboard' }
   | { page: 'settings' }
+  | { page: 'theme' }
   | { page: 'not-found' };
 
 export function matchRoute(path: string): Route {
@@ -38,6 +39,12 @@ export function matchRoute(path: string): Route {
 
   if (path === '/settings') {
     return { page: 'settings' };
+  }
+
+  if (import.meta.env.DEV) {
+    if (path === '/test/theme') {
+      return { page: 'theme' };
+    }
   }
 
   return { page: 'not-found' };
