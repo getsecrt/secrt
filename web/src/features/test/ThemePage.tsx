@@ -37,7 +37,7 @@ function Swatch({
   return (
     <div class="flex flex-col items-center gap-1">
       <div
-        class={`h-12 w-full rounded-lg border border-black/10 ${bg}`}
+        class={`h-10 w-full rounded-lg border border-border ${bg}`}
         title={label}
       />
       <span class={`text-xs ${dark ? 'text-faint' : 'text-muted'}`}>
@@ -47,45 +47,25 @@ function Swatch({
   );
 }
 
-/* ── Swatch data ───────────────────────────────────────────── */
+/* ── Swatch data (only shades used in real pages) ─────────── */
 
-const greens = [
-  { bg: 'bg-green-50', label: '50' },
-  { bg: 'bg-green-100', label: '100' },
-  { bg: 'bg-green-200', label: '200' },
-  { bg: 'bg-green-300', label: '300' },
-  { bg: 'bg-green-400', label: '400' },
+const greensUsed = [
   { bg: 'bg-green-500', label: '500' },
-  { bg: 'bg-green-600', label: '600' },
-  { bg: 'bg-green-700', label: '700' },
-  { bg: 'bg-green-800', label: '800' },
-  { bg: 'bg-green-900', label: '900' },
   { bg: 'bg-green-950', label: '950' },
 ];
 
-const neutrals = [
-  { bg: 'bg-neutral-50', label: '50' },
-  { bg: 'bg-neutral-100', label: '100' },
+const neutralsUsed = [
   { bg: 'bg-neutral-200', label: '200' },
-  { bg: 'bg-neutral-300', label: '300' },
-  { bg: 'bg-neutral-400', label: '400' },
-  { bg: 'bg-neutral-500', label: '500' },
-  { bg: 'bg-neutral-600', label: '600' },
-  { bg: 'bg-neutral-700', label: '700' },
-  { bg: 'bg-neutral-800', label: '800' },
-  { bg: 'bg-neutral-900', label: '900' },
-  { bg: 'bg-neutral-950', label: '950' },
+  { bg: 'bg-neutral-700', label: '700', dark: true },
+  { bg: 'bg-neutral-800', label: '800', dark: true },
+  { bg: 'bg-neutral-900', label: '900', dark: true },
 ];
 
 const semantics = [
-  { bg: 'bg-bg', label: 'bg' },
   { bg: 'bg-surface', label: 'surface' },
   { bg: 'bg-surface-raised', label: 'raised' },
-  { bg: 'bg-border', label: 'border' },
   { bg: 'bg-accent', label: 'accent' },
-  { bg: 'bg-accent-hover', label: 'hover' },
   { bg: 'bg-error', label: 'error' },
-  { bg: 'bg-success', label: 'success' },
 ];
 
 /* ── Page ──────────────────────────────────────────────────── */
@@ -97,7 +77,7 @@ export function ThemePage() {
         {/* Header */}
         <div class="flex items-center justify-between">
           <div>
-            <h1 class="text-2xl font-bold tracking-wide">Theme Test</h1>
+            <h1 class="text-lg font-bold tracking-wide">Theme Test</h1>
             <p class="text-muted">
               Design token reference &middot;{' '}
               <a
@@ -134,37 +114,31 @@ export function ThemePage() {
           </div>
         </Section>
 
-        {/* Green palette */}
-        <Section title="Green Palette">
+        {/* Green palette (used shades only) */}
+        <Section title="Green Palette (used shades)">
           <p class="text-muted">
-            Hue 140–147, chroma peaks at 400, even lightness steps. Utilities:{' '}
-            <code class="rounded border border-border/50 bg-surface-raised px-1.5 py-0.5 font-mono text-xs">
-              bg-green-500
-            </code>{' '}
-            <code class="rounded border border-border/50 bg-surface-raised px-1.5 py-0.5 font-mono text-xs">
-              text-green-800
-            </code>{' '}
-            etc.
+            Only shades referenced in application code. Full palette (50–950) is
+            defined in the theme for semantic tokens.
           </p>
-          <div class="grid grid-cols-11 gap-2">
-            {greens.map((s) => (
+          <div class="grid grid-cols-2 gap-2">
+            {greensUsed.map((s) => (
               <Swatch key={s.label} {...s} dark={parseInt(s.label) >= 600} />
             ))}
           </div>
         </Section>
 
-        {/* Neutral palette */}
-        <Section title="Neutral Palette (Tailwind default)">
-          <div class="grid grid-cols-11 gap-2">
-            {neutrals.map((s) => (
-              <Swatch key={s.label} {...s} dark={parseInt(s.label) >= 600} />
+        {/* Neutral palette (used shades only) */}
+        <Section title="Neutral Palette (used shades)">
+          <div class="grid grid-cols-4 gap-2">
+            {neutralsUsed.map((s) => (
+              <Swatch key={s.label} {...s} />
             ))}
           </div>
         </Section>
 
         {/* Semantic tokens */}
         <Section title="Semantic Tokens">
-          <div class="grid grid-cols-9 gap-2">
+          <div class="grid grid-cols-4 gap-2">
             {semantics.map((s) => (
               <Swatch key={s.label} {...s} />
             ))}
@@ -174,14 +148,11 @@ export function ThemePage() {
         {/* Typography */}
         <Section title="Typography">
           <div class="space-y-3">
-            <h1 class="text-2xl font-bold tracking-wide">
-              Main Page Heading H1
-            </h1>
-            <div class="heading">Secondary Heading `.heading`</div>
+            <div class="heading">Section Heading `.heading`</div>
             <p>Body (base) — The quick brown fox jumps over the lazy dog.</p>
-            <p class="">Small — The quick brown fox jumps over the lazy dog.</p>
-            <p class="text-muted">Small / muted — Secondary information</p>
-            <p class="border-sm text font-mono">
+            <p class="text-muted">Muted — Secondary information</p>
+            <p class="text-faint">Faint — Tertiary information</p>
+            <p class="font-mono text-sm">
               Monospace — const secret = "abc123"
             </p>
           </div>
@@ -210,36 +181,27 @@ export function ThemePage() {
 
               <button class="btn btn-danger" type="button">
                 <FireIcon />
-                Danger (inline)
+                Danger
               </button>
             </div>
 
             <div class="flex flex-wrap items-center gap-3">
-              <button
-                class="btn btn-primary rounded-sm px-1.5 py-1 text-xs"
-                type="button"
-              >
+              <button class="btn btn-primary btn-sm" type="button">
                 Small Primary
               </button>
 
-              <button class="btn rounded-sm px-1.5 py-1 text-xs" type="button">
+              <button class="btn btn-sm" type="button">
                 Small Secondary
               </button>
 
-              <button
-                class="btn flex gap-1.5 rounded-sm px-1.5 py-1 text-xs"
-                type="button"
-              >
+              <button class="btn btn-sm flex gap-1.5" type="button">
                 <ClipboardIcon class="size-4" />
                 Copy
               </button>
 
-              <button
-                class="btn btn-danger flex gap-1.5 rounded-sm px-1.5 py-1 text-xs"
-                type="button"
-              >
+              <button class="btn-destructive-subtle" type="button">
                 <CircleXmarkIcon class="size-4" />
-                Copy
+                Delete
               </button>
             </div>
           </div>
@@ -262,17 +224,6 @@ export function ThemePage() {
               </a>
               .
             </p>
-            <div class="flex gap-6">
-              <a class="link" href="#demo">
-                Nav link one
-              </a>
-              <a class="link" href="#demo">
-                Nav link two
-              </a>
-              <a class="link" href="#demo">
-                Nav link three
-              </a>
-            </div>
           </div>
         </Section>
 
@@ -306,186 +257,66 @@ export function ThemePage() {
 
         {/* Form inputs */}
         <Section title="Form Controls">
-          <div class="grid gap-6 sm:grid-cols-2">
-            <div class="space-y-4">
-              <div>
-                <label class="mb-1 block font-medium">Text Input</label>
-                <input
-                  type="text"
-                  placeholder="Placeholder text"
-                  class="input"
-                />
-              </div>
-              <div>
-                <label class="mb-1 block font-medium">Disabled Input</label>
-                <input
-                  type="text"
-                  value="Can't edit this"
-                  disabled
-                  class="input"
-                />
-              </div>
-              <div>
-                <label class="mb-1 block font-medium">Input with Error</label>
-                <input
-                  type="text"
-                  value="Bad value"
-                  class="input input-error"
-                />
-                <p class="mt-1 text-xs text-error">This field has an error.</p>
-              </div>
-              <div>
-                <label class="mb-1 block font-medium">Select</label>
-                <select class="select">
-                  <option>Option one</option>
-                  <option>Option two</option>
-                  <option>Option three</option>
-                </select>
-              </div>
-            </div>
-            <div class="space-y-4">
-              <div>
-                <label class="mb-1 block font-medium">Textarea</label>
-                <textarea
-                  placeholder="Write something..."
-                  rows={4}
-                  class="textarea"
-                />
-              </div>
-              <div class="space-y-2">
-                <label class="mb-1 block font-medium">Checkboxes</label>
-                <label class="flex items-center gap-2">
-                  <input type="checkbox" checked class="accent-green-600" />
-                  Checked option
-                </label>
-                <label class="flex items-center gap-2">
-                  <input type="checkbox" class="accent-green-600" />
-                  Unchecked option
-                </label>
-              </div>
-              <div class="space-y-2">
-                <label class="mb-1 block font-medium">Radio Buttons</label>
-                <label class="flex items-center gap-2">
-                  <input
-                    type="radio"
-                    name="demo-radio"
-                    checked
-                    class="accent-green-600"
-                  />
-                  Option A
-                </label>
-                <label class="flex items-center gap-2">
-                  <input
-                    type="radio"
-                    name="demo-radio"
-                    class="accent-green-600"
-                  />
-                  Option B
-                </label>
-              </div>
-            </div>
-          </div>
-        </Section>
-
-        {/* Focus States */}
-        <Section title="Focus States">
-          <p class="text-muted">
-            Tab through these elements to verify consistent keyboard focus
-            indicators.
-          </p>
           <div class="space-y-4">
-            <div class="flex flex-wrap items-center gap-3">
-              <button class="btn btn-primary" type="button">
-                Button
-              </button>
-              <button class="btn" type="button">
-                Secondary
-              </button>
-              <a class="link" href="#demo">
-                Link
-              </a>
-              <a href="#demo" class="link text-muted">
-                Muted Link
-              </a>
+            <div>
+              <label class="mb-1 block font-medium">Text Input</label>
+              <input
+                type="text"
+                placeholder="Placeholder text"
+                class="input"
+              />
             </div>
-            <div class="flex flex-wrap items-center gap-4">
-              <input type="text" placeholder="Text input" class="input w-40" />
-              <select class="select w-40">
-                <option>Select</option>
-              </select>
-              <label class="flex items-center gap-2">
-                <input type="checkbox" class="accent-green-600" />
-                Checkbox
-              </label>
-              <label class="flex items-center gap-2">
-                <input
-                  type="radio"
-                  name="focus-demo"
-                  class="accent-green-600"
-                />
-                Radio
-              </label>
+            <div>
+              <label class="mb-1 block font-medium">Disabled Input</label>
+              <input
+                type="text"
+                value="Can't edit this"
+                disabled
+                class="input"
+              />
+            </div>
+            <div>
+              <label class="mb-1 block font-medium">Input with Error</label>
+              <input
+                type="text"
+                value="Bad value"
+                class="input input-error"
+              />
+              <p class="mt-1 text-xs text-error">This field has an error.</p>
+            </div>
+            <div>
+              <label class="mb-1 block font-medium">Textarea</label>
+              <textarea
+                placeholder="Write something..."
+                rows={3}
+                class="textarea"
+              />
             </div>
           </div>
         </Section>
 
-        {/* Code */}
-        <Section title="Inline Code &amp; Monospace">
-          <p class="">
+        {/* Inline code */}
+        <Section title="Inline Code">
+          <p>
             Secret ID:{' '}
-            <code class="rounded border border-border/50 bg-surface-raised px-1.5 py-0.5 font-mono text-xs select-all">
-              abc123-def456-ghi789
-            </code>
+            <code class="code select-all">abc123-def456-ghi789</code>
           </p>
-          <div class="mt-2 overflow-x-auto rounded-lg bg-green-950 p-4 font-mono text-green-100">
-            <pre>{`$ secrt send --ttl 1h "my secret"
-https://secrt.ca/s/abc123#key=...`}</pre>
-          </div>
-        </Section>
-
-        {/* Border radii */}
-        <Section title="Border Radii">
-          <div class="flex items-center gap-4">
-            {(
-              [
-                'rounded-sm',
-                'rounded',
-                'rounded-md',
-                'rounded-lg',
-                'rounded-xl',
-                'rounded-full',
-              ] as const
-            ).map((r) => (
-              <div key={r} class="flex flex-col items-center gap-1">
-                <div
-                  class={`size-12 border-2 border-accent bg-accent/10 ${r}`}
-                />
-                <span class="text-xs text-muted">
-                  {r.replace('rounded-', '').replace('rounded', 'default')}
-                </span>
-              </div>
-            ))}
-          </div>
         </Section>
 
         {/* Shadows */}
         <Section title="Shadows">
           <div class="flex items-center gap-6">
             <div class="flex flex-col items-center gap-1">
-              <div class="size-16 rounded-lg bg-surface shadow-sm" />
+              <div class="size-14 rounded-lg bg-surface shadow-sm" />
               <span class="text-xs text-muted">shadow-sm</span>
             </div>
             <div class="flex flex-col items-center gap-1">
-              <div class="size-16 rounded-lg bg-surface shadow-md" />
+              <div class="size-14 rounded-lg bg-surface shadow-md" />
               <span class="text-xs text-muted">shadow-md</span>
             </div>
             <div class="flex flex-col items-center gap-1">
-              <div class="size-16 rounded-lg bg-surface shadow-lg" />
+              <div class="size-14 rounded-lg bg-surface shadow-lg" />
               <span class="text-xs text-muted">shadow-lg</span>
-            </div>
-            <div class="flex flex-col items-center gap-1">
-              <div class="size-16 rounded-lg bg-surface shadow-xl" />
-              <span class="text-xs text-muted">shadow-xl</span>
             </div>
           </div>
         </Section>
