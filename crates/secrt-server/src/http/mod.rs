@@ -285,6 +285,7 @@ pub fn build_router(state: Arc<AppState>) -> Router {
         .route("/login", get(handle_index))
         .route("/register", get(handle_index))
         .route("/how-it-works", get(handle_index))
+        .route("/privacy", get(handle_index))
         .route("/dashboard", get(handle_index))
         .route("/settings", get(handle_index))
         .route("/robots.txt", get(handle_robots_txt))
@@ -1768,6 +1769,7 @@ pub async fn handle_robots_txt() -> Response {
          User-agent: *\n\
          Allow: /\n\
          Allow: /how-it-works\n\
+         Allow: /privacy\n\
          Disallow: /s/\n\
          Disallow: /api/\n\
          Disallow: /dashboard\n\

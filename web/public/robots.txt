@@ -5,6 +5,7 @@
 User-agent: *
 Allow: /
 Allow: /how-it-works
+Allow: /privacy
 Disallow: /s/
 Disallow: /api/
 Disallow: /dashboard

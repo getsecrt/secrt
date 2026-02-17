@@ -44,6 +44,22 @@ export function Layout({ children }: LayoutProps) {
           </a>
           <span class="text-faint/40">·</span>
           <a
+            href="/privacy"
+            onClick={(e: MouseEvent) => { e.preventDefault(); navigate('/privacy'); }}
+            class="text-faint transition-colors hover:text-muted"
+          >
+            Privacy
+          </a>
+          <span class="text-faint/40">·</span>
+          <a
+            href="/how-it-works"
+            onClick={(e: MouseEvent) => { e.preventDefault(); navigate('/how-it-works'); }}
+            class="text-faint transition-colors hover:text-muted"
+          >
+            How it works
+          </a>
+          <span class="text-faint/40">·</span>
+          <a
             href="mailto:security@secrt.ca"
             class="text-faint transition-colors hover:text-muted"
           >

@@ -4,6 +4,7 @@ import { AuthProvider } from './lib/auth-context';
 import { SendPage } from './features/send/SendPage';
 import { ClaimPage } from './features/claim/ClaimPage';
 import { HowItWorksPage } from './features/trust/HowItWorksPage';
+import { PrivacyPage } from './features/trust/PrivacyPage';
 import { LoginPage } from './features/auth/LoginPage';
 import { RegisterPage } from './features/auth/RegisterPage';
 import { DashboardPage } from './features/dashboard/DashboardPage';
@@ -27,6 +28,9 @@ export function App() {
       break;
     case 'how-it-works':
       page = <HowItWorksPage />;
+      break;
+    case 'privacy':
+      page = <PrivacyPage />;
       break;
     case 'login':
       page = <LoginPage />;

@@ -4,6 +4,7 @@ export type Route =
   | { page: 'send' }
   | { page: 'claim'; id: string }
   | { page: 'how-it-works' }
+  | { page: 'privacy' }
   | { page: 'login' }
   | { page: 'register' }
   | { page: 'dashboard' }
@@ -23,6 +24,10 @@ export function matchRoute(path: string): Route {
 
   if (path === '/how-it-works') {
     return { page: 'how-it-works' };
+  }
+
+  if (path === '/privacy') {
+    return { page: 'privacy' };
   }
 
   if (path === '/login') {
