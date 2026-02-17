@@ -1757,7 +1757,19 @@ pub async fn handle_robots_txt() -> Response {
     let mut resp = (
         StatusCode::OK,
         [(CONTENT_TYPE, "text/plain; charset=utf-8")],
-        "User-agent: *\nDisallow: /\n",
+        "# secrt.ca — end-to-end encrypted secret sharing\n\
+         # Source: https://github.com/getsecrt/secrt\n\
+         # Learn more: https://secrt.ca/how-it-works\n\
+         \n\
+         User-agent: *\n\
+         Allow: /\n\
+         Allow: /how-it-works\n\
+         Disallow: /s/\n\
+         Disallow: /api/\n\
+         Disallow: /dashboard\n\
+         Disallow: /settings\n\
+         Disallow: /login\n\
+         Disallow: /register\n",
     )
         .into_response();
     insert_header(resp.headers_mut(), "cache-control", "no-store");
