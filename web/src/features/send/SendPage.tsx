@@ -431,11 +431,11 @@ export function SendPage() {
             <label class="label">
               {mode === 'text' ? (
                 <>
-                  <NoteIcon class="size-4" /> Secret Message
+                  <NoteIcon class="size-4 opacity-60" /> Secret Message
                 </>
               ) : (
                 <>
-                  <UploadIcon class="size-4" /> Secret File
+                  <UploadIcon class="size-4 opacity-60" /> Secret File
                 </>
               )}
             </label>
@@ -527,9 +527,11 @@ export function SendPage() {
         {/* Passphrase */}
         <div class="space-y-1">
           <label class="label" for="passphrase">
-            <LockIcon class="size-4" />
-            Passphrase{' '}
-            <span class="text-sm font-normal text-faint">optional</span>
+            <LockIcon class="size-4 opacity-60" />
+            <span class="flex items-baseline gap-2">
+              Passphrase{' '}
+              <span class="text-sm font-normal text-faint">optional</span>
+            </span>
           </label>
           <div class="relative">
             <input
