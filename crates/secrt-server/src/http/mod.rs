@@ -289,10 +289,7 @@ pub fn build_router(state: Arc<AppState>) -> Router {
         .route("/dashboard", get(handle_index))
         .route("/settings", get(handle_index))
         .route("/robots.txt", get(handle_robots_txt))
-        .route(
-            "/.well-known/security.txt",
-            get(handle_security_txt),
-        );
+        .route("/.well-known/security.txt", get(handle_security_txt));
 
     // Serve static files: env override → embedded assets → filesystem fallback
     let router = if let Ok(dir) = std::env::var("SECRT_WEB_DIST_DIR") {
@@ -2872,7 +2869,6 @@ mod tests {
     }
 
     #[tokio::test]
-    #[tokio::test]
     async fn security_txt_contains_required_fields() {
         let resp = handle_security_txt().await;
         assert_eq!(resp.status(), StatusCode::OK);
@@ -2909,6 +2905,7 @@ mod tests {
         );
     }
 
+    #[tokio::test]
     async fn robots_txt_allows_public_pages_and_blocks_secrets() {
         let resp = handle_robots_txt().await;
         assert_eq!(resp.status(), StatusCode::OK);
@@ -2932,10 +2929,7 @@ mod tests {
             body.contains("Disallow: /s/"),
             "secret URLs must be disallowed"
         );
-        assert!(
-            body.contains("Disallow: /api/"),
-            "API must be disallowed"
-        );
+        assert!(body.contains("Disallow: /api/"), "API must be disallowed");
 
         // Auth and account pages should be blocked
         for path in ["/dashboard", "/settings", "/login", "/register"] {
