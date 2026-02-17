@@ -1757,7 +1757,19 @@ pub async fn handle_robots_txt() -> Response {
     let mut resp = (
         StatusCode::OK,
         [(CONTENT_TYPE, "text/plain; charset=utf-8")],
-        "User-agent: *\nDisallow: /\n",
+        "# secrt.ca — end-to-end encrypted secret sharing\n\
+         # Source: https://github.com/getsecrt/secrt\n\
+         # Learn more: https://secrt.ca/how-it-works\n\
+         \n\
+         User-agent: *\n\
+         Allow: /\n\
+         Allow: /how-it-works\n\
+         Disallow: /s/\n\
+         Disallow: /api/\n\
+         Disallow: /dashboard\n\
+         Disallow: /settings\n\
+         Disallow: /login\n\
+         Disallow: /register\n",
     )
         .into_response();
     insert_header(resp.headers_mut(), "cache-control", "no-store");
@@ -2834,6 +2846,50 @@ mod tests {
         // SPA serves generic index.html; the secret ID is handled client-side
         let body = response_text(resp).await;
         assert!(body.contains("<!doctype html>") || body.contains("<!DOCTYPE html>"));
+    }
+
+    #[tokio::test]
+    async fn robots_txt_allows_public_pages_and_blocks_secrets() {
+        let resp = handle_robots_txt().await;
+        assert_eq!(resp.status(), StatusCode::OK);
+        assert_eq!(
+            resp.headers()
+                .get("content-type")
+                .and_then(|v| v.to_str().ok()),
+            Some("text/plain; charset=utf-8")
+        );
+        let body = response_text(resp).await;
+
+        // Public pages should be allowed
+        assert!(body.contains("Allow: /\n"), "homepage should be allowed");
+        assert!(
+            body.contains("Allow: /how-it-works"),
+            "how-it-works should be allowed"
+        );
+
+        // Secret URLs and API must be blocked
+        assert!(
+            body.contains("Disallow: /s/"),
+            "secret URLs must be disallowed"
+        );
+        assert!(
+            body.contains("Disallow: /api/"),
+            "API must be disallowed"
+        );
+
+        // Auth and account pages should be blocked
+        for path in ["/dashboard", "/settings", "/login", "/register"] {
+            assert!(
+                body.contains(&format!("Disallow: {path}")),
+                "{path} should be disallowed"
+            );
+        }
+
+        // Must NOT have blanket disallow
+        assert!(
+            !body.contains("Disallow: /\n"),
+            "must not blanket-disallow all paths"
+        );
     }
 
     #[tokio::test]
