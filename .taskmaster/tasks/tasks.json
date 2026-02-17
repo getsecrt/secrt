@@ -336,8 +336,8 @@
       {
         "id": 11,
         "title": "Investigate release binary size optimization",
-        "description": "Explore options for reducing the release binary size (~1.45 MB currently). Two main approaches to evaluate, both with trade-offs:\n\n1. **UPX compression** \u2014 compresses the binary with runtime decompression. Can cut size significantly but may trigger false positives on antivirus/malware scanners (especially Windows Defender, VirusTotal). Test on macOS, Linux, and Windows. Measure decompression startup latency.\n\n2. **opt-level = \"z\" (optimize for size)** \u2014 compiler optimization level that prioritizes code size over speed. Can reduce binary substantially but roughly halves the speed of PBKDF2 passphrase derivation (CPU-bound crypto). Measure the actual impact on `--passphrase-*` operations. Consider whether a profile override for just the `ring` crate (opt-level = 3) could preserve crypto speed while shrinking everything else.\n\nOther options to consider:\n- `lto = true` (already may be set \u2014 check Cargo.toml [profile.release])\n- `codegen-units = 1` (better optimization, slower compile)\n- `strip = true` (strip debug symbols)\n- `panic = \"abort\"` (smaller than unwind, already may be set)\n- Auditing dependencies for lighter alternatives\n\nGoal: understand the trade-off space, not necessarily ship a change. Document findings in a comment or subtask.",
-        "status": "pending",
+        "description": "Cancelled — release profile is already fully optimized (opt-level=z, lto, codegen-units=1, strip, panic=abort, ring override at opt-level=3). UPX is a non-starter (AV false positives). No further gains without gutting features.",
+        "status": "cancelled",
         "priority": "low",
         "dependencies": [],
         "subtasks": [
@@ -381,7 +381,7 @@
         "id": 12,
         "title": "Ensure Settings page buttons follow design system",
         "description": "Audit all buttons in the Settings page (SettingsPage.tsx) for consistency with the .btn / .btn-primary / .btn-danger design system classes. Covers: Create Key button, Revoke buttons, Copy button on new key display, Delete Account button, Confirm Delete button, Cancel button. Ensure hover/disabled/active states are correct and consistent with buttons elsewhere in the app.",
-        "status": "pending",
+        "status": "done",
         "priority": "medium",
         "dependencies": [],
         "subtasks": []
@@ -389,8 +389,8 @@
       {
         "id": 13,
         "title": "Ensure all page headings use the header class",
-        "description": "Audit all pages in the web frontend to ensure headings (h1, h2, h3, etc.) correctly use the project's header/label CSS classes. Check: SendPage, ClaimPage, DashboardPage, SettingsPage, HowItWorksPage, LoginPage, RegisterPage, NotFoundPage. Fix any headings using ad-hoc styles instead of the design system classes.",
-        "status": "pending",
+        "description": "Handled by CardHeading component used for page headings throughout the app.",
+        "status": "done",
         "priority": "medium",
         "dependencies": [],
         "subtasks": []
@@ -399,7 +399,7 @@
         "id": 14,
         "title": "Ensure all links use the link class",
         "description": "Audit all pages in the web frontend to ensure anchor tags and navigation links correctly use the .link CSS class from the design system. Check: inline text links, 'Create a Secret' link on empty dashboard, 'Settings' links, 'Already have an account?' / 'Log In' links on auth pages, footer links, any other clickable text that should be styled as a link.",
-        "status": "pending",
+        "status": "done",
         "priority": "medium",
         "dependencies": [],
         "subtasks": []
@@ -408,7 +408,7 @@
         "id": 16,
         "title": "Dashboard page: bring in line with design system",
         "description": "The DashboardPage.tsx has significant design system inconsistencies. Multiple elements use ad-hoc inline Tailwind instead of the established .btn, .btn-danger, .link, .heading component classes. The page needs a thorough pass to use design tokens and component classes consistently.",
-        "status": "pending",
+        "status": "done",
         "priority": "medium",
         "dependencies": [],
         "subtasks": [
@@ -453,8 +453,8 @@
       {
         "id": 17,
         "title": "Define .label heading class or migrate to .heading",
-        "description": "Multiple pages use class='label' on h2 headings (DashboardPage, SettingsPage, LoginPage, RegisterPage, app.tsx NotFound), but .label is NOT defined in styles.css. The design system defines .heading but not .label, so these headings are effectively unstyled. Either: (a) define .label as a distinct class for card-level section headings (smaller/lighter than .heading), or (b) replace all .label usages with .heading. The choice depends on whether a visual distinction between page-level headings (.heading) and card-level section headings is desired.\n\nAffected files:\n- src/app.tsx (Not Found heading)\n- src/features/dashboard/DashboardPage.tsx\n- src/features/settings/SettingsPage.tsx (2 headings)\n- src/features/auth/LoginPage.tsx\n- src/features/auth/RegisterPage.tsx\n\nNote: This overlaps with task #13 (ensure all headings use header class) but is more specific \u2014 task #13 should reference this task's resolution.",
-        "status": "pending",
+        "description": "Resolved: .label class defined in styles.css for card-level section headings. Used across DashboardPage, SettingsPage, LoginPage, RegisterPage, SendPage, etc.",
+        "status": "done",
         "priority": "high",
         "dependencies": [],
         "subtasks": []
@@ -506,28 +506,28 @@
       {
         "id": 19,
         "title": "Fix iOS auto-zoom on input focus (font-size < 16px)",
-        "description": "iOS Safari auto-zooms when focusing inputs with font-size below 16px. Current --text-base is 0.9375rem (15px), triggering zoom on every text input on iPhone.",
-        "status": "pending",
+        "description": "Resolved by removing text-sm from inputs, so they inherit 16px+ base font size and no longer trigger iOS auto-zoom.",
+        "status": "done",
         "priority": "high",
         "dependencies": [],
         "subtasks": [
           {
             "id": 1,
             "title": "Bump --text-base to 1rem or set .input/.textarea/.select to font-size: 1rem",
-            "status": "pending"
+            "status": "done"
           },
           {
             "id": 2,
             "title": "Test on iOS Safari to confirm zoom no longer triggers",
-            "status": "pending"
+            "status": "done"
           }
         ]
       },
       {
         "id": 20,
         "title": "Increase base font size for mobile readability",
-        "description": "Fonts are microscopic on iPhone. Base font 0.9375rem (15px) is too small. Review --text-xs (12px) and --text-sm (14px) usage on mobile too. Could be combined with iOS zoom fix by bumping --text-base to 1rem.",
-        "status": "pending",
+        "description": "Resolved alongside task 19 by removing text-sm usage, resulting in larger readable fonts on mobile.",
+        "status": "done",
         "priority": "high",
         "dependencies": [
           19
@@ -546,8 +546,8 @@
       {
         "id": 22,
         "title": "Verify touch-friendly file selection in FileDropZone",
-        "description": "FileDropZone uses drag-and-drop which does not work on mobile. Verify there is a visible tap-to-select affordance. Consider showing different copy on touch devices via @media (hover: none).",
-        "status": "pending",
+        "description": "Resolved — a visible tap-to-upload button/link provides a touch-friendly file selection affordance on mobile.",
+        "status": "done",
         "priority": "medium",
         "dependencies": [],
         "subtasks": []
@@ -564,8 +564,8 @@
       {
         "id": 24,
         "title": "Exclude test pages from Tailwind content scanning",
-        "description": "ThemePage.tsx and TestClaimPage.tsx are excluded from JS bundle via import.meta.env.DEV but Tailwind still scans their classes, adding unused utilities (e.g. full bg-green-* scale) to production CSS.",
-        "status": "pending",
+        "description": "Cancelled — test pages cleaned up and no longer introduce extraneous Tailwind classes.",
+        "status": "cancelled",
         "priority": "low",
         "dependencies": [],
         "subtasks": []
@@ -573,8 +573,8 @@
       {
         "id": 25,
         "title": "Investigate dropdown menu wider than username button",
-        "description": "The navigation dropdown menu appears wider than the username button that triggers it. Investigate why the menu is wider and see if we can fix it so the menu width is constrained to match or align with the trigger button. Check Nav component styling, any min-width or whitespace issues in menu items, and whether Tailwind utility classes or the design system has a pattern for this.",
-        "status": "pending",
+        "description": "Resolved — forced a minimum width on the name field so the trigger button matches the dropdown width.",
+        "status": "done",
         "priority": "medium",
         "dependencies": [],
         "subtasks": []
