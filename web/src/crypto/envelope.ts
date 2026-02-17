@@ -205,7 +205,7 @@ export async function open(
   );
 
   // Parse frame
-  const { meta, body } = parseFrame(plaintext);
+  const { meta, body } = await parseFrame(plaintext);
 
   return { content: body, meta };
 }

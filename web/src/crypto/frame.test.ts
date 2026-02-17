@@ -60,7 +60,7 @@ describe('buildFrame', () => {
     expect(frame[7]).toBe(0);
   });
 
-  it('builds a file frame with filename and mime in metadata', () => {
+  it('builds a file frame with filename and mime in metadata', async () => {
     const meta: PayloadMeta = {
       type: 'file',
       filename: 'test.txt',
@@ -69,37 +69,37 @@ describe('buildFrame', () => {
     const body = utf8Encode('file contents');
     const frame = buildFrame(meta, body);
 
-    const parsed = parseFrame(frame);
+    const parsed = await parseFrame(frame);
     expect(parsed.meta.type).toBe('file');
     expect(parsed.meta.filename).toBe('test.txt');
     expect(parsed.meta.mime).toBe('text/plain');
   });
 
-  it('round-trips: buildFrame -> parseFrame returns same meta + body', () => {
+  it('round-trips: buildFrame -> parseFrame returns same meta + body', async () => {
     const meta: PayloadMeta = { type: 'text' };
     const body = utf8Encode('round trip test');
     const frame = buildFrame(meta, body);
-    const parsed = parseFrame(frame);
+    const parsed = await parseFrame(frame);
 
     expect(parsed.meta).toEqual(meta);
     expect(parsed.body).toEqual(body);
   });
 
-  it('round-trips with binary metadata', () => {
+  it('round-trips with binary metadata', async () => {
     const meta: PayloadMeta = { type: 'binary' };
     const body = new Uint8Array([0x00, 0xff, 0x80, 0x7f]);
     const frame = buildFrame(meta, body);
-    const parsed = parseFrame(frame);
+    const parsed = await parseFrame(frame);
 
     expect(parsed.meta).toEqual(meta);
     expect(parsed.body).toEqual(body);
   });
 
-  it('round-trips with empty body', () => {
+  it('round-trips with empty body', async () => {
     const meta: PayloadMeta = { type: 'text' };
     const body = new Uint8Array([]);
     const frame = buildFrame(meta, body);
-    const parsed = parseFrame(frame);
+    const parsed = await parseFrame(frame);
 
     expect(parsed.meta).toEqual(meta);
     expect(parsed.body).toEqual(body);
@@ -234,69 +234,77 @@ describe('buildFrame compression policy', () => {
 });
 
 describe('parseFrame', () => {
-  it('parses a valid codec=none frame', () => {
+  it('parses a valid codec=none frame', async () => {
     const meta: PayloadMeta = { type: 'text' };
     const metaJson = utf8Encode(JSON.stringify(meta));
     const body = utf8Encode('test body');
     const header = makeHeader(CODEC_NONE, metaJson.length, body.length);
     const frame = concatBytes(header, metaJson, body);
 
-    const result = parseFrame(frame);
+    const result = await parseFrame(frame);
     expect(result.meta).toEqual(meta);
     expect(result.body).toEqual(body);
   });
 
-  it('throws on frame too short (<16 bytes)', () => {
-    expect(() => parseFrame(new Uint8Array(15))).toThrow('frame too short');
+  it('throws on frame too short (<16 bytes)', async () => {
+    await expect(parseFrame(new Uint8Array(15))).rejects.toThrow(
+      'frame too short',
+    );
   });
 
-  it('throws on invalid magic bytes', () => {
+  it('throws on invalid magic bytes', async () => {
     const header = makeHeader(CODEC_NONE, 0, 0, {
       magic: new Uint8Array([0x00, 0x00, 0x00, 0x00]),
     });
-    expect(() => parseFrame(header)).toThrow('invalid frame magic');
+    await expect(parseFrame(header)).rejects.toThrow('invalid frame magic');
   });
 
-  it('throws on unsupported version', () => {
+  it('throws on unsupported version', async () => {
     const header = makeHeader(CODEC_NONE, 0, 0, { version: 99 });
-    expect(() => parseFrame(header)).toThrow('unsupported frame version: 99');
+    await expect(parseFrame(header)).rejects.toThrow(
+      'unsupported frame version: 99',
+    );
   });
 
-  it('throws on unsupported codec', () => {
+  it('throws on unsupported codec', async () => {
     const meta: PayloadMeta = { type: 'text' };
     const metaJson = utf8Encode(JSON.stringify(meta));
     const body = new Uint8Array(0);
     const header = makeHeader(0x02, metaJson.length, body.length);
     const frame = concatBytes(header, metaJson, body);
-    expect(() => parseFrame(frame)).toThrow('unsupported codec: 2');
+    await expect(parseFrame(frame)).rejects.toThrow('unsupported codec: 2');
   });
 
-  it('throws on non-zero reserved field', () => {
+  it('throws on non-zero reserved field', async () => {
     const header = makeHeader(CODEC_NONE, 0, 0, { reserved: 1 });
-    expect(() => parseFrame(header)).toThrow('non-zero reserved field');
+    await expect(parseFrame(header)).rejects.toThrow(
+      'non-zero reserved field',
+    );
   });
 
-  it('throws when meta_len exceeds frame size', () => {
+  it('throws when meta_len exceeds frame size', async () => {
     const header = makeHeader(CODEC_NONE, 1000, 0);
     // Frame is only 16 bytes, but meta_len says 1000
-    expect(() => parseFrame(header)).toThrow('meta_len exceeds frame size');
+    await expect(parseFrame(header)).rejects.toThrow(
+      'meta_len exceeds frame size',
+    );
   });
 
-  it('throws when body length != raw_len for codec=none', () => {
+  it('throws when body length != raw_len for codec=none', async () => {
     const meta: PayloadMeta = { type: 'text' };
     const metaJson = utf8Encode(JSON.stringify(meta));
     const body = utf8Encode('short');
     // Set raw_len to something larger than actual body
     const header = makeHeader(CODEC_NONE, metaJson.length, body.length + 10);
     const frame = concatBytes(header, metaJson, body);
-    expect(() => parseFrame(frame)).toThrow('body length');
+    await expect(parseFrame(frame)).rejects.toThrow('body length');
   });
 
-  it('throws when raw_len exceeds MAX_RAW_LEN', () => {
+  it('throws when raw_len exceeds MAX_RAW_LEN', async () => {
     const meta: PayloadMeta = { type: 'text' };
     const metaJson = utf8Encode(JSON.stringify(meta));
     const header = makeHeader(CODEC_NONE, metaJson.length, MAX_RAW_LEN + 1);
     const frame = concatBytes(header, metaJson, new Uint8Array(0));
-    expect(() => parseFrame(frame)).toThrow('exceeds 100 MiB cap');
+    await expect(parseFrame(frame)).rejects.toThrow('exceeds 100 MiB cap');
   });
 });

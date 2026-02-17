@@ -1,4 +1,3 @@
-import { decompress as zstdDecompress } from 'fzstd';
 import type { PayloadMeta } from '../types';
 import {
   FRAME_MAGIC,
@@ -51,10 +50,10 @@ export function buildFrame(
 }
 
 /** Parse a payload frame back into metadata and body. */
-export function parseFrame(frame: Uint8Array): {
+export async function parseFrame(frame: Uint8Array): Promise<{
   meta: PayloadMeta;
   body: Uint8Array;
-} {
+}> {
   if (frame.length < 16) {
     throw new Error('frame too short');
   }
@@ -100,7 +99,8 @@ export function parseFrame(frame: Uint8Array): {
 
   let body: Uint8Array;
   if (codec === CODEC_ZSTD) {
-    body = zstdDecompress(bodyBytes);
+    const { decompress } = await import('fzstd');
+    body = decompress(bodyBytes);
     if (body.length !== rawLen) {
       throw new Error(
         `decompressed length ${body.length} != raw_len ${rawLen}`,
