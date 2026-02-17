@@ -1,0 +1,16 @@
+# secrt.ca — end-to-end encrypted secret sharing
+# Source: https://github.com/getsecrt/secrt
+# Learn more: https://secrt.ca/how-it-works
+
+User-agent: *
+Allow: /
+Allow: /how-it-works
+
+# Secret claim URLs are unguessable (high-entropy tokens)
+# and self-destruct after viewing — no need to crawl /s/ paths
+Disallow: /s/
+Disallow: /api/
+Disallow: /dashboard
+Disallow: /settings
+Disallow: /login
+Disallow: /register
