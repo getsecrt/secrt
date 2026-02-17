@@ -2849,6 +2849,50 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn robots_txt_allows_public_pages_and_blocks_secrets() {
+        let resp = handle_robots_txt().await;
+        assert_eq!(resp.status(), StatusCode::OK);
+        assert_eq!(
+            resp.headers()
+                .get("content-type")
+                .and_then(|v| v.to_str().ok()),
+            Some("text/plain; charset=utf-8")
+        );
+        let body = response_text(resp).await;
+
+        // Public pages should be allowed
+        assert!(body.contains("Allow: /\n"), "homepage should be allowed");
+        assert!(
+            body.contains("Allow: /how-it-works"),
+            "how-it-works should be allowed"
+        );
+
+        // Secret URLs and API must be blocked
+        assert!(
+            body.contains("Disallow: /s/"),
+            "secret URLs must be disallowed"
+        );
+        assert!(
+            body.contains("Disallow: /api/"),
+            "API must be disallowed"
+        );
+
+        // Auth and account pages should be blocked
+        for path in ["/dashboard", "/settings", "/login", "/register"] {
+            assert!(
+                body.contains(&format!("Disallow: {path}")),
+                "{path} should be disallowed"
+            );
+        }
+
+        // Must NOT have blanket disallow
+        assert!(
+            !body.contains("Disallow: /\n"),
+            "must not blanket-disallow all paths"
+        );
+    }
+
+    #[tokio::test]
     async fn secret_page_does_not_reflect_id_into_html() {
         // With SPA serving, the ID should never appear in the server-rendered HTML
         let reflected = "<script>alert(1)</script>";
