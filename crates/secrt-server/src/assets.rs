@@ -17,14 +17,12 @@ pub async fn serve_embedded(axum::extract::Path(path): axum::extract::Path<Strin
     match file {
         Some(content) => {
             let mime = mime_guess::from_path(&path).first_or_octet_stream();
+            let cache_control = cache_control_for_path(&path);
             (
                 StatusCode::OK,
                 [
                     (header::CONTENT_TYPE, mime.as_ref().to_string()),
-                    (
-                        header::CACHE_CONTROL,
-                        "public, max-age=31536000, immutable".to_string(),
-                    ),
+                    (header::CACHE_CONTROL, cache_control.to_string()),
                 ],
                 content.data.into_owned(),
             )
@@ -32,6 +30,29 @@ pub async fn serve_embedded(axum::extract::Path(path): axum::extract::Path<Strin
         }
         None => StatusCode::NOT_FOUND.into_response(),
     }
+}
+
+fn cache_control_for_path(path: &str) -> &'static str {
+    if path.ends_with("sw.js") || path.ends_with("site.webmanifest") {
+        return "no-store";
+    }
+    "public, max-age=31536000, immutable"
+}
+
+/// Returns raw bytes for a built web asset from embedded assets, env override,
+/// or default filesystem fallback.
+pub fn web_asset_bytes(path: &str) -> Option<Vec<u8>> {
+    if let Some(file) = WebAssets::get(path) {
+        return Some(file.data.into_owned());
+    }
+
+    if let Ok(dir) = std::env::var("SECRT_WEB_DIST_DIR") {
+        if let Ok(bytes) = std::fs::read(format!("{dir}/{path}")) {
+            return Some(bytes);
+        }
+    }
+
+    std::fs::read(format!("web/dist/{path}")).ok()
 }
 
 /// Returns true if any embedded web assets exist (i.e. web/dist was populated at build time).
@@ -91,5 +112,15 @@ mod tests {
     #[test]
     fn has_embedded_assets_is_callable() {
         let _ = has_embedded_assets();
+    }
+
+    #[test]
+    fn cache_control_defaults_and_overrides() {
+        assert_eq!(
+            cache_control_for_path("assets/index-123.js"),
+            "public, max-age=31536000, immutable"
+        );
+        assert_eq!(cache_control_for_path("sw.js"), "no-store");
+        assert_eq!(cache_control_for_path("site.webmanifest"), "no-store");
     }
 }

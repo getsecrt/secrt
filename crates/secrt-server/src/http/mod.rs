@@ -279,6 +279,7 @@ pub fn build_router(state: Arc<AppState>) -> Router {
     let router = Router::new()
         .route("/healthz", get(handle_healthz))
         .route("/", get(handle_index))
+        .route("/sw.js", get(handle_service_worker))
         .route("/s/{id}", get(handle_secret_page))
         // SPA client-side routes — serve the same index.html for all of them
         .route("/login", get(handle_index))
@@ -1667,6 +1668,22 @@ pub async fn handle_index() -> Response {
     resp
 }
 
+pub async fn handle_service_worker() -> Response {
+    let Some(body) = crate::assets::web_asset_bytes("sw.js") else {
+        return StatusCode::NOT_FOUND.into_response();
+    };
+
+    let mut resp = (
+        StatusCode::OK,
+        [(CONTENT_TYPE, "application/javascript; charset=utf-8")],
+        body,
+    )
+        .into_response();
+    insert_header(resp.headers_mut(), "cache-control", "no-store");
+    insert_header(resp.headers_mut(), "service-worker-allowed", "/");
+    resp
+}
+
 fn escape_html(input: &str) -> String {
     let mut out = String::with_capacity(input.len());
     for ch in input.chars() {
@@ -2185,6 +2202,42 @@ mod tests {
             resp.status(),
             StatusCode::OK | StatusCode::NOT_FOUND
         ));
+    }
+
+    #[tokio::test]
+    async fn service_worker_route_sets_scope_headers() {
+        let app = build_router(test_state());
+        let req = Request::builder()
+            .method("GET")
+            .uri("/sw.js")
+            .body(Body::empty())
+            .expect("request");
+        let resp = app.oneshot(req).await.expect("response");
+        assert!(matches!(
+            resp.status(),
+            StatusCode::OK | StatusCode::NOT_FOUND
+        ));
+
+        if resp.status() == StatusCode::OK {
+            assert_eq!(
+                resp.headers()
+                    .get("cache-control")
+                    .and_then(|v| v.to_str().ok()),
+                Some("no-store")
+            );
+            assert_eq!(
+                resp.headers()
+                    .get("service-worker-allowed")
+                    .and_then(|v| v.to_str().ok()),
+                Some("/")
+            );
+            assert_eq!(
+                resp.headers()
+                    .get(CONTENT_TYPE)
+                    .and_then(|v| v.to_str().ok()),
+                Some("application/javascript; charset=utf-8")
+            );
+        }
     }
 
     #[test]
