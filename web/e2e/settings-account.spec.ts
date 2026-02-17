@@ -21,7 +21,7 @@ test.describe('Settings: API keys and account deletion', () => {
 
     await page.goto('/settings');
     await expect(
-      page.getByRole('heading', { name: 'API Keys', exact: true }),
+      page.getByRole('heading', { name: /^API Keys/ }),
     ).toBeVisible();
 
     await page.getByRole('button', { name: 'Create Key' }).click();

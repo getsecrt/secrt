@@ -1,5 +1,9 @@
 import { useState, useCallback, useEffect, useRef } from 'preact/hooks';
-import { open, deriveClaimToken } from '../../crypto/envelope';
+import {
+  open,
+  deriveClaimToken,
+  preloadPassphraseKdf,
+} from '../../crypto/envelope';
 import {
   base64urlEncode,
   base64urlDecode,
@@ -137,6 +141,9 @@ export function ClaimPage({ id }: ClaimPageProps) {
 
       // Check if passphrase required
       if (res.envelope.kdf.name !== 'none') {
+        void preloadPassphraseKdf().catch(() => {
+          // Surface load errors when user attempts decrypt.
+        });
         setStatus({ step: 'passphrase', envelope: res.envelope, urlKey });
         return;
       }
@@ -168,8 +175,13 @@ export function ClaimPage({ id }: ClaimPageProps) {
         const result = await open(envelope, urlKey, passphrase);
         await new Promise((r) => setTimeout(r, 300));
         setStatus({ step: 'done', content: result.content, meta: result.meta });
-      } catch {
-        setPassphraseError('Wrong passphrase. Please try again.');
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        if (msg.toLowerCase().includes('argon2id module failed to load')) {
+          setPassphraseError(msg);
+        } else {
+          setPassphraseError('Wrong passphrase. Please try again.');
+        }
         setStatus({ step: 'passphrase', envelope, urlKey });
       }
     },
@@ -307,7 +319,7 @@ export function ClaimPage({ id }: ClaimPageProps) {
           <div class="space-y-3">
             <textarea
               ref={isDone ? textareaRef : undefined}
-              readonly
+              readOnly
               disabled={!isDone}
               tabIndex={isDone ? undefined : -1}
               class="input [field-sizing:content] max-h-64 w-full resize-y font-mono text-sm break-all whitespace-pre-wrap"
@@ -371,9 +383,15 @@ export function ClaimPage({ id }: ClaimPageProps) {
                   type={showPassphrase ? 'text' : 'password'}
                   class="input pr-10"
                   value={passphrase}
-                  onInput={(e) =>
-                    setPassphrase((e.target as HTMLInputElement).value)
-                  }
+                  onInput={(e) => {
+                    const value = (e.target as HTMLInputElement).value;
+                    setPassphrase(value);
+                    if (value) {
+                      void preloadPassphraseKdf().catch(() => {
+                        // Surface load errors when decrypt is submitted.
+                      });
+                    }
+                  }}
                   autocomplete="off"
                   autofocus
                   disabled={status.step === 'decrypting'}

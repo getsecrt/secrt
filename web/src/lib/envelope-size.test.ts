@@ -36,7 +36,7 @@ function makeInfo(
 function makeEnvelope(ciphertextLength: number): EnvelopeJson {
   return {
     v: 1,
-    suite: 'v1-pbkdf2-hkdf-aes256gcm-sealed-payload',
+    suite: 'v1-argon2id-hkdf-aes256gcm-sealed-payload',
     enc: {
       alg: 'A256GCM',
       nonce: 'AAAAAAAAAAAAAAAA',

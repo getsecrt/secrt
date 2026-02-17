@@ -12,8 +12,18 @@ export const HKDF_INFO_ENC = 'secrt:v1:enc:sealed-payload';
 export const HKDF_INFO_CLAIM = 'secrt:v1:claim:sealed-payload';
 export const CLAIM_SALT_LABEL = 'secrt-envelope-v1-claim-salt';
 
-export const SUITE = 'v1-pbkdf2-hkdf-aes256gcm-sealed-payload' as const;
-export const PBKDF2_ITERATIONS = 600000;
+export const SUITE = 'v1-argon2id-hkdf-aes256gcm-sealed-payload' as const;
+export const ARGON2_VERSION = 19;
+export const ARGON2_M_COST_DEFAULT = 19_456;
+export const ARGON2_T_COST_DEFAULT = 2;
+export const ARGON2_P_COST_DEFAULT = 1;
+export const ARGON2_M_COST_MIN = 19_456;
+export const ARGON2_M_COST_MAX = 65_536;
+export const ARGON2_T_COST_MIN = 2;
+export const ARGON2_T_COST_MAX = 10;
+export const ARGON2_P_COST_MIN = 1;
+export const ARGON2_P_COST_MAX = 4;
+export const ARGON2_M_COST_T_COST_PRODUCT_MAX = 262_144;
 
 export const FRAME_MAGIC = new Uint8Array([0x53, 0x43, 0x52, 0x54]); // "SCRT"
 export const FRAME_VERSION = 1;

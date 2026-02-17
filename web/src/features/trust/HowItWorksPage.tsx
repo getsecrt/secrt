@@ -61,7 +61,7 @@ export function HowItWorksPage() {
           </h2>
           <p class="">
             For extra security, you can set a passphrase. This uses{' '}
-            <strong>PBKDF2-SHA-256</strong> with 600,000 iterations to derive a
+            <strong>Argon2id</strong> (memory-hard key derivation) to derive a
             secondary key. The final encryption key is then derived from both
             the URL key and the passphrase key combined. Even if someone
             intercepts the share link, they cannot decrypt the secret without

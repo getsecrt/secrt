@@ -53,7 +53,7 @@ const mockApiInfo: ApiInfo = {
 /** Minimal valid envelope for requests. */
 const mockEnvelope: EnvelopeJson = {
   v: 1,
-  suite: 'v1-pbkdf2-hkdf-aes256gcm-sealed-payload',
+  suite: 'v1-argon2id-hkdf-aes256gcm-sealed-payload',
   enc: { alg: 'A256GCM', nonce: 'dGVzdA', ciphertext: 'dGVzdA' },
   kdf: { name: 'none' },
   hkdf: {

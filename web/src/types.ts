@@ -22,13 +22,13 @@ export interface OpenResult {
 /** Envelope JSON structure matching the v1 spec. */
 export interface EnvelopeJson {
   v: 1;
-  suite: 'v1-pbkdf2-hkdf-aes256gcm-sealed-payload';
+  suite: 'v1-argon2id-hkdf-aes256gcm-sealed-payload';
   enc: {
     alg: 'A256GCM';
     nonce: string;
     ciphertext: string;
   };
-  kdf: KdfNone | KdfPbkdf2;
+  kdf: KdfNone | KdfArgon2id;
   hkdf: {
     hash: 'SHA-256';
     salt: string;
@@ -42,10 +42,13 @@ export interface KdfNone {
   name: 'none';
 }
 
-export interface KdfPbkdf2 {
-  name: 'PBKDF2-SHA256';
+export interface KdfArgon2id {
+  name: 'argon2id';
+  version: 19;
   salt: string;
-  iterations: number;
+  m_cost: number;
+  t_cost: number;
+  p_cost: number;
   length: 32;
 }
 

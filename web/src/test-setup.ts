@@ -66,7 +66,7 @@ if (!HTMLElement.prototype.hidePopover) {
 if (!HTMLElement.prototype.togglePopover) {
   HTMLElement.prototype.togglePopover = function togglePopover(
     force?: boolean,
-  ) {
+  ): boolean {
     const shouldOpen =
       force === undefined ? !this.hasAttribute(POPOVER_OPEN_ATTR) : force;
     if (shouldOpen) {
@@ -74,6 +74,7 @@ if (!HTMLElement.prototype.togglePopover) {
     } else {
       this.hidePopover();
     }
+    return shouldOpen;
   };
 }
 

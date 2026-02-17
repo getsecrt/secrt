@@ -7,6 +7,7 @@ import { SendPage } from './SendPage';
 
 vi.mock('../../crypto/envelope', () => ({
   seal: vi.fn(),
+  preloadPassphraseKdf: vi.fn().mockResolvedValue(undefined),
 }));
 
 vi.mock('../../crypto/encoding', () => ({
@@ -73,7 +74,7 @@ vi.mock('../../lib/auth-context', () => ({
   }),
 }));
 
-import { seal } from '../../crypto/envelope';
+import { seal, preloadPassphraseKdf } from '../../crypto/envelope';
 import { createSecret, fetchInfo } from '../../lib/api';
 import { checkEnvelopeSize } from '../../lib/envelope-size';
 import { formatShareLink } from '../../lib/url';
@@ -86,6 +87,7 @@ import {
 } from './password-generator';
 
 const mockSeal = vi.mocked(seal);
+const mockPreloadPassphraseKdf = vi.mocked(preloadPassphraseKdf);
 const mockCreate = vi.mocked(createSecret);
 const mockFetchInfo = vi.mocked(fetchInfo);
 const mockCheckSize = vi.mocked(checkEnvelopeSize);
@@ -97,7 +99,7 @@ const mockGeneratePassword = vi.mocked(generatePassword);
 
 const fakeEnvelope = {
   v: 1 as const,
-  suite: 'v1-pbkdf2-hkdf-aes256gcm-sealed-payload' as const,
+  suite: 'v1-argon2id-hkdf-aes256gcm-sealed-payload' as const,
   enc: { alg: 'A256GCM' as const, nonce: 'n', ciphertext: 'c' },
   kdf: { name: 'none' as const },
   hkdf: {
@@ -144,6 +146,7 @@ describe('SendPage', () => {
     mockFormatLink.mockReturnValue('https://secrt.ca/s/sec_abc#key');
     mockCopyToClipboard.mockResolvedValue(true);
     mockGeneratePassword.mockReturnValue('Aa1!Aa1!Aa1!Aa1!Aa1!');
+    mockPreloadPassphraseKdf.mockResolvedValue(undefined);
   });
 
   afterEach(() => {
@@ -159,6 +162,15 @@ describe('SendPage', () => {
     expect(screen.getByLabelText(/Passphrase/)).toBeInTheDocument();
     expect(screen.getByText('Expires After')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Create secret' })).toBeEnabled();
+  });
+
+  it('preloads Argon2id when passphrase input is used', async () => {
+    const user = userEvent.setup();
+    render(<SendPage />);
+
+    await user.type(screen.getByLabelText(/Passphrase/), 'mypass');
+
+    expect(mockPreloadPassphraseKdf).toHaveBeenCalled();
   });
 
   it('generates a default password and copies it', async () => {

@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
 import { render, screen, cleanup, waitFor } from '@testing-library/preact';
 import userEvent from '@testing-library/user-event';
+import type { AuthState } from '../lib/auth-context';
 
 // Mock dependencies
 vi.mock('./ThemeToggle', () => ({
@@ -9,18 +10,20 @@ vi.mock('./ThemeToggle', () => ({
 
 const mockNavigate = vi.fn();
 const mockUseRoute = vi.fn();
+const mockLogin = vi.fn<(token: string, displayName: string) => void>();
+const mockLogout = vi.fn<() => Promise<void>>().mockResolvedValue(undefined);
 vi.mock('../router', () => ({
   navigate: (...args: unknown[]) => mockNavigate(...args),
   useRoute: () => mockUseRoute(),
 }));
 
-const mockAuth = {
+const mockAuth: AuthState = {
   loading: false,
   authenticated: false,
   displayName: null,
   sessionToken: null,
-  login: vi.fn(),
-  logout: vi.fn().mockResolvedValue(undefined),
+  login: mockLogin,
+  logout: mockLogout,
 };
 vi.mock('../lib/auth-context', () => ({
   useAuth: () => mockAuth,
@@ -34,7 +37,7 @@ describe('Nav', () => {
     mockAuth.loading = false;
     mockAuth.authenticated = false;
     mockAuth.displayName = null;
-    mockAuth.logout.mockResolvedValue(undefined);
+    mockLogout.mockResolvedValue(undefined);
   });
 
   afterEach(() => {
@@ -84,7 +87,7 @@ describe('Nav', () => {
     await user.click(screen.getByRole('button', { name: 'bob' }));
     const logoutBtns = screen.getAllByText('Log out');
     await user.click(logoutBtns[0]);
-    expect(mockAuth.logout).toHaveBeenCalled();
+    expect(mockLogout).toHaveBeenCalled();
     expect(mockNavigate).toHaveBeenCalledWith('/');
   });
 

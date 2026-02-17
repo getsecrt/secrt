@@ -8,6 +8,13 @@ export function supportsWebAuthn(): boolean {
   );
 }
 
+function toArrayBuffer(bytes: Uint8Array): ArrayBuffer {
+  return bytes.buffer.slice(
+    bytes.byteOffset,
+    bytes.byteOffset + bytes.byteLength,
+  ) as ArrayBuffer;
+}
+
 export interface CreatePasskeyResult {
   credentialId: string;
   publicKey: string;
@@ -22,10 +29,10 @@ export async function createPasskeyCredential(
 ): Promise<CreatePasskeyResult> {
   const credential = (await navigator.credentials.create({
     publicKey: {
-      challenge: base64urlDecode(challenge),
+      challenge: toArrayBuffer(base64urlDecode(challenge)),
       rp: { name: 'secrt', id: window.location.hostname },
       user: {
-        id: base64urlDecode(userId),
+        id: toArrayBuffer(base64urlDecode(userId)),
         name: userName,
         displayName,
       },
@@ -63,7 +70,7 @@ export async function getPasskeyCredential(
 ): Promise<GetPasskeyResult> {
   const credential = (await navigator.credentials.get({
     publicKey: {
-      challenge: base64urlDecode(challenge),
+      challenge: toArrayBuffer(base64urlDecode(challenge)),
       rpId: window.location.hostname,
       userVerification: 'preferred',
       timeout: 60000,

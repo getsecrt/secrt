@@ -25,6 +25,7 @@
     "@bokuweb/zstd-wasm": "^0.0.27",
     "@tailwindcss/vite": "^4.1.18",
     "fzstd": "^0.1.1",
+    "hash-wasm": "^4.12.0",
     "preact": "^10.27.2",
     "tailwindcss": "^4.1.18"
   },

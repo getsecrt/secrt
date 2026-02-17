@@ -3,7 +3,7 @@ import type {
   EnvelopeJson,
   SealResult,
   OpenResult,
-  KdfPbkdf2,
+  KdfArgon2id,
 } from '../types';
 import {
   AAD,
@@ -12,11 +12,22 @@ import {
   CLAIM_SALT_LABEL,
   SUITE,
   URL_KEY_LEN,
+  PASS_KEY_LEN,
   HKDF_LEN,
   GCM_NONCE_LEN,
   HKDF_SALT_LEN,
   KDF_SALT_LEN,
-  PBKDF2_ITERATIONS,
+  ARGON2_VERSION,
+  ARGON2_M_COST_DEFAULT,
+  ARGON2_T_COST_DEFAULT,
+  ARGON2_P_COST_DEFAULT,
+  ARGON2_M_COST_MIN,
+  ARGON2_M_COST_MAX,
+  ARGON2_T_COST_MIN,
+  ARGON2_T_COST_MAX,
+  ARGON2_P_COST_MIN,
+  ARGON2_P_COST_MAX,
+  ARGON2_M_COST_T_COST_PRODUCT_MAX,
 } from './constants';
 import {
   base64urlEncode,
@@ -25,6 +36,7 @@ import {
   concatBytes,
 } from './encoding';
 import { buildFrame, parseFrame } from './frame';
+import { deriveArgon2id, preloadArgon2id } from './argon2id';
 
 // TS 5.8 makes Uint8Array generic; Web Crypto expects BufferSource.
 // This helper avoids casting at every call site.
@@ -36,11 +48,18 @@ const buf = (a: Uint8Array): ArrayBuffer => {
 
 interface SealOptions {
   passphrase?: string;
-  iterations?: number;
   rng?: (buf: Uint8Array) => void;
   compress?: (data: Uint8Array) => Uint8Array;
   /** Pre-built frame bytes (already compressed). Skips buildFrame() when provided. */
   prebuiltFrame?: Uint8Array;
+}
+
+/**
+ * Proactively load Argon2id WASM for passphrase flows.
+ * Safe to call multiple times.
+ */
+export async function preloadPassphraseKdf(): Promise<void> {
+  await preloadArgon2id();
 }
 
 /**
@@ -53,7 +72,6 @@ export async function seal(
   options?: SealOptions,
 ): Promise<SealResult> {
   const rng = options?.rng ?? cryptoRng;
-  const iterations = options?.iterations ?? PBKDF2_ITERATIONS;
 
   // 1. Generate url_key
   const urlKey = new Uint8Array(URL_KEY_LEN);
@@ -66,15 +84,28 @@ export async function seal(
   if (options?.passphrase) {
     const kdfSalt = new Uint8Array(KDF_SALT_LEN);
     rng(kdfSalt);
-    const passKey = await pbkdf2Derive(options.passphrase, kdfSalt, iterations);
+
+    const passKey = await deriveArgon2id(
+      options.passphrase,
+      kdfSalt,
+      ARGON2_M_COST_DEFAULT,
+      ARGON2_T_COST_DEFAULT,
+      ARGON2_P_COST_DEFAULT,
+      PASS_KEY_LEN,
+    );
+
     ikm = new Uint8Array(
       await crypto.subtle.digest('SHA-256', buf(concatBytes(urlKey, passKey))),
     );
+
     kdf = {
-      name: 'PBKDF2-SHA256',
+      name: 'argon2id',
+      version: ARGON2_VERSION,
       salt: base64urlEncode(kdfSalt),
-      iterations,
-      length: 32,
+      m_cost: ARGON2_M_COST_DEFAULT,
+      t_cost: ARGON2_T_COST_DEFAULT,
+      p_cost: ARGON2_P_COST_DEFAULT,
+      length: PASS_KEY_LEN,
     };
   } else {
     ikm = urlKey;
@@ -147,6 +178,8 @@ export async function open(
   passphrase?: string,
 ): Promise<OpenResult> {
   // Validate envelope structure
+  if (urlKey.length !== URL_KEY_LEN)
+    throw new Error(`invalid url_key length: expected ${URL_KEY_LEN} bytes`);
   if (envelope.v !== 1)
     throw new Error(`unsupported envelope version: ${envelope.v}`);
   if (envelope.suite !== SUITE)
@@ -160,6 +193,15 @@ export async function open(
   const ciphertext = base64urlDecode(envelope.enc.ciphertext);
   if (ciphertext.length < 16) throw new Error('ciphertext too short');
 
+  if (envelope.hkdf.hash !== 'SHA-256')
+    throw new Error(`unsupported hkdf.hash: ${envelope.hkdf.hash}`);
+  if (envelope.hkdf.enc_info !== HKDF_INFO_ENC)
+    throw new Error('invalid hkdf enc_info');
+  if (envelope.hkdf.claim_info !== HKDF_INFO_CLAIM)
+    throw new Error('invalid hkdf claim_info');
+  if (envelope.hkdf.length !== HKDF_LEN)
+    throw new Error(`invalid hkdf length: ${envelope.hkdf.length}`);
+
   const hkdfSalt = base64urlDecode(envelope.hkdf.salt);
   if (hkdfSalt.length !== HKDF_SALT_LEN)
     throw new Error('invalid hkdf salt length');
@@ -167,19 +209,25 @@ export async function open(
   // Recompute IKM
   let ikm: Uint8Array;
   const kdfName = envelope.kdf.name;
-  if (kdfName === 'PBKDF2-SHA256') {
+  if (kdfName === 'argon2id') {
     if (!passphrase) throw new Error('passphrase required');
-    const kdfBlock = envelope.kdf as KdfPbkdf2;
-    const kdfSalt = base64urlDecode(kdfBlock.salt);
-    const passKey = await pbkdf2Derive(
+
+    const kdfBlock = envelope.kdf as KdfArgon2id;
+    const kdfSalt = parseAndValidateArgon2idKdf(kdfBlock);
+    const passKey = await deriveArgon2id(
       passphrase,
       kdfSalt,
-      kdfBlock.iterations,
+      kdfBlock.m_cost,
+      kdfBlock.t_cost,
+      kdfBlock.p_cost,
+      kdfBlock.length,
     );
+
     ikm = new Uint8Array(
       await crypto.subtle.digest('SHA-256', buf(concatBytes(urlKey, passKey))),
     );
   } else if (kdfName === 'none') {
+    assertKdfNoneHasNoExtraFields(envelope.kdf);
     ikm = urlKey;
   } else {
     throw new Error(`unsupported kdf: ${kdfName}`);
@@ -238,6 +286,67 @@ export async function deriveClaimToken(
 
 // ── Internal helpers ────────────────────────────────────────
 
+function assertKdfNoneHasNoExtraFields(kdf: EnvelopeJson['kdf']): void {
+  const raw = kdf as unknown as Record<string, unknown>;
+  for (const field of [
+    'version',
+    'salt',
+    'm_cost',
+    't_cost',
+    'p_cost',
+    'length',
+    'iterations',
+  ]) {
+    if (field in raw) {
+      throw new Error(`kdf.name=none must not include ${field}`);
+    }
+  }
+}
+
+function parseAndValidateArgon2idKdf(kdf: KdfArgon2id): Uint8Array {
+  if (kdf.version !== ARGON2_VERSION)
+    throw new Error(`kdf.version must be ${ARGON2_VERSION}`);
+
+  if (!Number.isInteger(kdf.m_cost))
+    throw new Error('kdf.m_cost must be an integer');
+  if (!Number.isInteger(kdf.t_cost))
+    throw new Error('kdf.t_cost must be an integer');
+  if (!Number.isInteger(kdf.p_cost))
+    throw new Error('kdf.p_cost must be an integer');
+
+  if (kdf.m_cost < ARGON2_M_COST_MIN || kdf.m_cost > ARGON2_M_COST_MAX) {
+    throw new Error(
+      `kdf.m_cost must be in range ${ARGON2_M_COST_MIN}..${ARGON2_M_COST_MAX}`,
+    );
+  }
+  if (kdf.t_cost < ARGON2_T_COST_MIN || kdf.t_cost > ARGON2_T_COST_MAX) {
+    throw new Error(
+      `kdf.t_cost must be in range ${ARGON2_T_COST_MIN}..${ARGON2_T_COST_MAX}`,
+    );
+  }
+  if (kdf.p_cost < ARGON2_P_COST_MIN || kdf.p_cost > ARGON2_P_COST_MAX) {
+    throw new Error(
+      `kdf.p_cost must be in range ${ARGON2_P_COST_MIN}..${ARGON2_P_COST_MAX}`,
+    );
+  }
+
+  if (kdf.m_cost * kdf.t_cost > ARGON2_M_COST_T_COST_PRODUCT_MAX) {
+    throw new Error(
+      `kdf.m_cost * kdf.t_cost must be <= ${ARGON2_M_COST_T_COST_PRODUCT_MAX}`,
+    );
+  }
+
+  if (kdf.length !== PASS_KEY_LEN)
+    throw new Error(`kdf.length must be ${PASS_KEY_LEN}`);
+
+  const salt = base64urlDecode(kdf.salt);
+  if (salt.length < KDF_SALT_LEN) {
+    throw new Error(`kdf.salt must be at least ${KDF_SALT_LEN} bytes`);
+  }
+
+  return salt;
+}
+
 async function hkdfDerive(
   ikm: Uint8Array,
   salt: Uint8Array,
@@ -256,31 +365,6 @@ async function hkdfDerive(
     },
     key,
     length * 8,
-  );
-  return new Uint8Array(bits);
-}
-
-async function pbkdf2Derive(
-  passphrase: string,
-  salt: Uint8Array,
-  iterations: number,
-): Promise<Uint8Array> {
-  const key = await crypto.subtle.importKey(
-    'raw',
-    buf(utf8Encode(passphrase)),
-    'PBKDF2',
-    false,
-    ['deriveBits'],
-  );
-  const bits = await crypto.subtle.deriveBits(
-    {
-      name: 'PBKDF2',
-      hash: 'SHA-256',
-      salt: buf(salt),
-      iterations,
-    },
-    key,
-    256,
   );
   return new Uint8Array(bits);
 }

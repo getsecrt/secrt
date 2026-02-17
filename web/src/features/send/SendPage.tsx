@@ -1,5 +1,5 @@
 import { useState, useCallback, useEffect, useRef } from 'preact/hooks';
-import { seal } from '../../crypto/envelope';
+import { seal, preloadPassphraseKdf } from '../../crypto/envelope';
 import { utf8Encode } from '../../crypto/encoding';
 import { buildFrame } from '../../crypto/frame';
 import { ensureCompressor, compress } from '../../crypto/compress';
@@ -291,6 +291,16 @@ export function SendPage() {
     setStatus((prev) => (prev.step === 'error' ? { step: 'input' } : prev));
   }, []);
 
+  const handlePassphraseInput = useCallback((e: Event) => {
+    const value = (e.target as HTMLInputElement).value;
+    setPassphrase(value);
+    if (value) {
+      void preloadPassphraseKdf().catch(() => {
+        // Surface load errors on submit/decrypt; do not block typing.
+      });
+    }
+  }, []);
+
   const handleSubmit = useCallback(
     async (e: Event) => {
       e.preventDefault();
@@ -540,9 +550,7 @@ export function SendPage() {
               class="input pr-10"
               placeholder=""
               value={passphrase}
-              onInput={(e) =>
-                setPassphrase((e.target as HTMLInputElement).value)
-              }
+              onInput={handlePassphraseInput}
               disabled={busy}
               autocomplete="off"
             />

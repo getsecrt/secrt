@@ -10,6 +10,7 @@ import { base64urlEncode } from '../../crypto/encoding';
 vi.mock('../../crypto/envelope', () => ({
   open: vi.fn(),
   deriveClaimToken: vi.fn(),
+  preloadPassphraseKdf: vi.fn().mockResolvedValue(undefined),
 }));
 
 vi.mock('../../lib/api', () => ({
@@ -25,12 +26,17 @@ vi.mock('../../router', async (importOriginal) => {
   return { ...actual, navigate: vi.fn() };
 });
 
-import { open, deriveClaimToken } from '../../crypto/envelope';
+import {
+  open,
+  deriveClaimToken,
+  preloadPassphraseKdf,
+} from '../../crypto/envelope';
 import { claimSecret } from '../../lib/api';
 import { navigate } from '../../router';
 
 const mockOpen = vi.mocked(open);
 const mockDeriveClaimToken = vi.mocked(deriveClaimToken);
+const mockPreloadPassphraseKdf = vi.mocked(preloadPassphraseKdf);
 const mockClaim = vi.mocked(claimSecret);
 const mockNavigate = vi.mocked(navigate);
 
@@ -39,7 +45,7 @@ const fakeFragment = base64urlEncode(fakeUrlKey);
 
 const noPassEnvelope = {
   v: 1 as const,
-  suite: 'v1-pbkdf2-hkdf-aes256gcm-sealed-payload' as const,
+  suite: 'v1-argon2id-hkdf-aes256gcm-sealed-payload' as const,
   enc: { alg: 'A256GCM' as const, nonce: 'n', ciphertext: 'c' },
   kdf: { name: 'none' as const },
   hkdf: {
@@ -54,9 +60,12 @@ const noPassEnvelope = {
 const passEnvelope = {
   ...noPassEnvelope,
   kdf: {
-    name: 'PBKDF2-SHA256' as const,
+    name: 'argon2id' as const,
+    version: 19 as const,
     salt: 'ks',
-    iterations: 600000,
+    m_cost: 19456,
+    t_cost: 2,
+    p_cost: 1,
     length: 32 as const,
   },
 };
@@ -83,6 +92,7 @@ async function clickViewSecret() {
 describe('ClaimPage', () => {
   beforeEach(() => {
     mockDeriveClaimToken.mockResolvedValue(new Uint8Array(32));
+    mockPreloadPassphraseKdf.mockResolvedValue(undefined);
     mockClaim.mockResolvedValue({ envelope: noPassEnvelope });
     mockOpen.mockResolvedValue({
       content: new TextEncoder().encode('hello secret'),
@@ -253,6 +263,7 @@ describe('ClaimPage', () => {
     await waitFor(() => {
       expect(screen.getByText('Passphrase Required')).toBeInTheDocument();
     });
+    expect(mockPreloadPassphraseKdf).toHaveBeenCalled();
   });
 
   it('decrypt button disabled when passphrase empty', async () => {
@@ -313,6 +324,29 @@ describe('ClaimPage', () => {
 
     // The form should still be visible for retry
     expect(screen.getByLabelText(/Passphrase/)).toBeInTheDocument();
+  });
+
+  it('shows Argon2 load error and does not silently retry', async () => {
+    setHash(fakeFragment);
+    mockClaim.mockResolvedValue({ envelope: passEnvelope });
+    mockOpen.mockRejectedValueOnce(
+      new Error('Argon2id module failed to load. Refresh and try again.'),
+    );
+
+    render(<ClaimPage id="test123" />);
+    const user = await clickViewSecret();
+    await waitFor(() => {
+      expect(screen.getByText('Passphrase Required')).toBeInTheDocument();
+    });
+
+    await user.type(screen.getByLabelText(/Passphrase/), 'correct-pass');
+    await user.click(screen.getByRole('button', { name: 'Decrypt' }));
+
+    await waitFor(() => {
+      expect(
+        screen.getByText(/Argon2id module failed to load/i),
+      ).toBeInTheDocument();
+    });
   });
 
   it('passphrase visibility toggle works', async () => {

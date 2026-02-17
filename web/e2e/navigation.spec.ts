@@ -31,7 +31,9 @@ test.describe('Navigation', () => {
   test('how-it-works page loads', async ({ page }) => {
     await page.goto('/how-it-works');
     await expect(page.getByText('How secrt Works')).toBeVisible();
-    await expect(page.getByRole('heading', { name: 'Overview' })).toBeVisible();
+    await expect(
+      page.getByRole('heading', { name: 'Overview', exact: true }),
+    ).toBeVisible();
     await expect(
       page.getByRole('heading', { name: 'Encryption' }),
     ).toBeVisible();
