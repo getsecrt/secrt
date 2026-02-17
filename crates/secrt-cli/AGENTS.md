@@ -6,7 +6,7 @@
 
 - **No async runtime** — uses `ureq` (blocking HTTP).
 - **No clap** — hand-rolled arg parsing in `cli.rs`.
-- **ring** for all crypto (AES-256-GCM, HKDF-SHA256, SHA-256, PBKDF2, CSPRNG).
+- **ring** + **argon2** for all crypto (AES-256-GCM, HKDF-SHA256, SHA-256, Argon2id, CSPRNG).
 - Deterministic RNG injection via `&dyn Fn(&mut [u8]) -> Result<()>` for test vectors.
 - `pub use secrt_core as envelope;` in `lib.rs` for backward-compatible internal imports.
 

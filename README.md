@@ -19,7 +19,7 @@
 
 Monorepo for the [secrt.ca](https://secrt.ca) protocol. Share secrets that self-destruct after a single view, with all encryption happening client-side. The server never sees plaintext.
 
-**AES-256-GCM + HKDF-SHA256 + optional PBKDF2 passphrase protection**, powered by [ring](https://github.com/briansmith/ring).
+**AES-256-GCM + HKDF-SHA256 + optional Argon2id passphrase protection**, powered by [ring](https://github.com/briansmith/ring) + [argon2](https://crates.io/crates/argon2).
 
 ## Downloads
 
@@ -77,7 +77,7 @@ secrt/
 Shared library crate containing the cryptographic protocol implementation:
 
 - **Envelope format** — AES-256-GCM encryption with HKDF-SHA256 key derivation
-- **Passphrase protection** — PBKDF2-HMAC-SHA256 (600,000 iterations)
+- **Passphrase protection** — Argon2id (`v=19`, `m=19456`, `t=2`, `p=1`)
 - **TTL parsing** — duration grammar (`30s`, `5m`, `2h`, `1d`, `1w`)
 - **Share URL handling** — URL parsing and formatting
 - **API types** — request/response types and the `SecretApi` trait

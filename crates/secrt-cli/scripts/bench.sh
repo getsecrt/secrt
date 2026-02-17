@@ -50,8 +50,8 @@ hyperfine --warmup 10 --min-runs 200 \
   --command-name "Rust" "$RUST create --file $LARGE --base-url http://127.0.0.1:1 2>/dev/null || true" \
   --command-name "Go"   "$GO create --file $LARGE --base-url http://127.0.0.1:1 2>/dev/null || true"
 
-# ── 5. Create + Encrypt + Passphrase (PBKDF2) ────────────────
-header "5. Create + Encrypt + PBKDF2 — 1 KB payload"
+# ── 5. Create + Encrypt + Passphrase (Argon2id) ──────────────
+header "5. Create + Encrypt + Argon2id — 1 KB payload"
 hyperfine --warmup 5 --min-runs 50 \
   --command-name "Rust" "BENCH_PASS=hunter2 $RUST create --file $SMALL --passphrase-env BENCH_PASS --base-url http://127.0.0.1:1 2>/dev/null || true" \
   --command-name "Go"   "BENCH_PASS=hunter2 $GO create --file $SMALL --passphrase-env BENCH_PASS --base-url http://127.0.0.1:1 2>/dev/null || true"

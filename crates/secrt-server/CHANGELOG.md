@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.11.0 — 2026-02-17
+
+### Changed
+
+- **Web passphrase crypto:** embedded frontend now uses Argon2id for passphrase KDF in the v1 envelope flow.
+- **Lazy-loading behavior:** Argon2id (`hash-wasm`) is loaded only when passphrase handling is needed (input interaction or passphrase-required claim path).
+- **Passphrase UX hardening:** passphrase claim flow now surfaces explicit Argon2 module load failures instead of silent retries.
+- **Docs copy updates:** trust/how-it-works and related web-facing docs now reflect Argon2id-based passphrase protection.
+
 ## 0.10.3 — 2026-02-16
 
 ### Added

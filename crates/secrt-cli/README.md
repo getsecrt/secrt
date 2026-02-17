@@ -14,7 +14,7 @@
 
 A fast, small CLI for [secrt.ca](https://secrt.ca) — one-time secret sharing with zero-knowledge client-side encryption.
 
-Built in Rust. No async runtime, no framework overhead. AES-256-GCM + HKDF-SHA256 + optional PBKDF2 passphrase protection, powered by [ring](https://github.com/briansmith/ring).
+Built in Rust. No async runtime, no framework overhead. AES-256-GCM + HKDF-SHA256 + optional Argon2id passphrase protection, powered by [ring](https://github.com/briansmith/ring) + [argon2](https://crates.io/crates/argon2).
 
 **Download:** [macOS (Universal)](https://github.com/getsecrt/secrt/releases/latest/download/secrt-darwin-universal) | [Linux (x86_64)](https://github.com/getsecrt/secrt/releases/latest/download/secrt-linux-amd64) | [Windows (x86_64)](https://github.com/getsecrt/secrt/releases/latest/download/secrt-windows-amd64.exe) | [Windows (ARM64)](https://github.com/getsecrt/secrt/releases/latest/download/secrt-windows-arm64.exe)
 
@@ -360,10 +360,10 @@ All encryption happens **client-side** before any data leaves your machine. The 
 
 - **AES-256-GCM** — authenticated encryption
 - **HKDF-SHA256** — key derivation from a random master key
-- **PBKDF2-HMAC-SHA256** (600,000 iterations) — optional passphrase-based key stretching
+- **Argon2id** (`v=19`, `m=19456`, `t=2`, `p=1`) — optional passphrase-based key stretching
 - **CSPRNG** — all random values from the OS
 
-Envelope format: `v1-pbkdf2-hkdf-aes256gcm-sealed-payload` — see the [spec](https://github.com/getsecrt/secrt/tree/main/spec/v1) for full details.
+Envelope format: `v1-argon2id-hkdf-aes256gcm-sealed-payload` — see the [spec](https://github.com/getsecrt/secrt/tree/main/spec/v1) for full details.
 
 ## TTL format
 
@@ -392,26 +392,17 @@ make size      # Show release binary size
 ### Build optimization
 
 The release profile uses `opt-level = "z"` (optimize for binary size) with full LTO. This
-produces the smallest binary but slows down PBKDF2 passphrase derivation by ~1.7x compared
-to speed-optimized builds.
-
-| `opt-level` | Binary size | PBKDF2 (600K iter) | Notes                                      |
-| ----------- | ----------- | ------------------ | ------------------------------------------ |
-| `"z"`       | ~1,484 KB   | ~111 ms            | **Current default.** Smallest binary.      |
-| `"s"`       | ~1,642 KB   | ~66 ms             | Mild size optimization.                    |
-| `"2"`       | ~1,642 KB   | ~65 ms             | Default Rust release level.                |
-| `"3"`       | ~1,642 KB   | ~66 ms             | Max speed — no meaningful gain over `"2"`. |
-
-_Measured on Apple M2 Max, macOS, `aarch64`. Results vary by platform._
+produces the smallest binary and may increase Argon2id passphrase-derivation latency versus
+speed-optimized builds. If your workload is very passphrase-heavy, benchmark on your target
+hardware and consider `opt-level = "s"` or `"2"` in `Cargo.toml`.
 
 **Why not exempt `ring` from size optimization?** The `Cargo.toml` includes
 `[profile.release.package.ring] opt-level = 3`, but full LTO (`lto = true`) merges all
 crates into a single compilation unit and re-optimizes globally, effectively overriding
 per-package settings. This override is kept for correctness in case LTO is disabled.
 
-**Why `"z"` is the default:** The 111 ms PBKDF2 cost is imperceptible to users (passphrase
-operations take ~100 ms total either way), while the ~160 KB size savings benefits
-distribution. If profiling shows the crypto overhead matters for your use case, change
+**Why `"z"` is the default:** For this project, binary size and download speed are prioritized.
+If profiling shows passphrase derivation overhead matters for your use case, change
 `opt-level` to `"s"` in `Cargo.toml`.
 
 **UPX compression** is not viable: on macOS arm64, UPX-packed binaries are killed by the

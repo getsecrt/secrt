@@ -1,8 +1,19 @@
 # Argon2id KDF Migration Plan
 
 **Branch:** `feat/argon2id`
-**Status:** Planning
+**Status:** Implemented (manual cross-device validation pending)
 **Decision:** Clean break — replace PBKDF2 with Argon2id. No dual-KDF, no backward compat. Pre-launch, zero public users.
+
+---
+
+## Implementation Status (2026-02-17)
+
+- Phases 1-4 are complete across `secrt-core`, `secrt-cli`, `secrt-server/web`, spec, vectors, docs, and changelogs.
+- Phase 5 is partially complete:
+  - ✅ Vectors regenerated from Rust and synchronized to CLI fixtures
+  - ✅ Cross-implementation vector tests passing (Rust/CLI/web)
+  - ✅ Workspace Rust tests/lints passing, web unit/build/E2E passing, CLI live E2E against `https://secrt.ca` passing
+  - ⏳ Remaining: manual browser/device performance checks on older mobile hardware
 
 ---
 
@@ -16,34 +27,34 @@ Switching now (pre-launch) avoids carrying a legacy codepath forever.
 
 This is a breaking spec change affecting all three implementations:
 
-| Component | Language | Current KDF | Files |
-|-----------|----------|-------------|-------|
-| `secrt-core` | Rust | `ring::pbkdf2` | `crates/secrt-core/src/crypto.rs`, `types.rs` |
-| `secrt-cli` | Rust | via secrt-core | inherits from core |
-| `web` | TypeScript | Web Crypto PBKDF2 | `web/src/crypto/envelope.ts`, `constants.ts`, `types.ts` |
-| `spec` | Markdown | PBKDF2-SHA256 | `spec/v1/envelope.md` |
-| `docs` | Markdown | References PBKDF2 | `docs/whitepaper.md`, `SECURITY.md`, `README.md` |
+| Component    | Language   | Current KDF       | Files                                                    |
+| ------------ | ---------- | ----------------- | -------------------------------------------------------- |
+| `secrt-core` | Rust       | `ring::pbkdf2`    | `crates/secrt-core/src/crypto.rs`, `types.rs`            |
+| `secrt-cli`  | Rust       | via secrt-core    | inherits from core                                       |
+| `web`        | TypeScript | Web Crypto PBKDF2 | `web/src/crypto/envelope.ts`, `constants.ts`, `types.ts` |
+| `spec`       | Markdown   | PBKDF2-SHA256     | `spec/v1/envelope.md`                                    |
+| `docs`       | Markdown   | References PBKDF2 | `docs/whitepaper.md`, `SECURITY.md`, `README.md`         |
 
 ## Argon2id Parameters
 
 **Proposed defaults** (OWASP "first recommended" for argon2id):
 
-| Parameter | Value | Notes |
-|-----------|-------|-------|
-| `m_cost` (memory) | 19456 KiB (19 MiB) | OWASP minimum; memory-hard |
-| `t_cost` (iterations) | 2 | Sufficient with 19 MiB memory |
-| `p_cost` (parallelism) | 1 | Single-threaded; simplest, most portable |
-| `output_length` | 32 bytes | Same as current PASS_KEY_LEN |
-| `salt_length` | 16 bytes | Same as current KDF_SALT_LEN |
+| Parameter              | Value              | Notes                                    |
+| ---------------------- | ------------------ | ---------------------------------------- |
+| `m_cost` (memory)      | 19456 KiB (19 MiB) | OWASP minimum; memory-hard               |
+| `t_cost` (iterations)  | 2                  | Sufficient with 19 MiB memory            |
+| `p_cost` (parallelism) | 1                  | Single-threaded; simplest, most portable |
+| `output_length`        | 32 bytes           | Same as current PASS_KEY_LEN             |
+| `salt_length`          | 16 bytes           | Same as current KDF_SALT_LEN             |
 
 **Expected timings:**
 
-| Platform | Estimated |
-|----------|-----------|
-| Modern desktop (native) | 50–100ms |
-| Modern desktop (WASM) | 100–200ms |
-| Mid-range phone (WASM) | 200–400ms |
-| Budget phone (WASM) | 400–800ms |
+| Platform                | Estimated |
+| ----------------------- | --------- |
+| Modern desktop (native) | 50–100ms  |
+| Modern desktop (WASM)   | 100–200ms |
+| Mid-range phone (WASM)  | 200–400ms |
+| Budget phone (WASM)     | 400–800ms |
 
 These are comparable to current PBKDF2 timings — users won't notice a difference.
 
@@ -52,6 +63,7 @@ These are comparable to current PBKDF2 timings — users won't notice a differen
 ### Rust (`secrt-core`)
 
 **Crate:** [`argon2`](https://crates.io/crates/argon2) (RustCrypto)
+
 - Pure Rust, no C dependencies, well-audited
 - Already uses `ring` for everything else — `argon2` crate is a clean addition
 - Drop `ring::pbkdf2` usage entirely
@@ -64,6 +76,7 @@ argon2 = "0.5"
 ### Web (`web/`)
 
 **Package:** [`hash-wasm`](https://www.npmjs.com/package/hash-wasm) (argon2id only)
+
 - WASM-based, tree-shakes to ~32 KB min / ~12 KB gzipped
 - WASM binary embedded as base64 (no separate file to serve)
 - Well-maintained, 500K+ weekly downloads
@@ -80,12 +93,14 @@ pnpm add hash-wasm
 ### Envelope format (`spec/v1/envelope.md`)
 
 **Suite string change:**
+
 ```
 OLD: "v1-pbkdf2-hkdf-aes256gcm-sealed-payload"
 NEW: "v1-argon2id-hkdf-aes256gcm-sealed-payload"
 ```
 
 **KDF block when passphrase is used:**
+
 ```json
 {
   "name": "argon2id",
@@ -100,6 +115,7 @@ NEW: "v1-argon2id-hkdf-aes256gcm-sealed-payload"
 **KDF block when no passphrase:** unchanged (`{ "name": "none" }`).
 
 **Validation rules for `kdf.name == "argon2id"`:**
+
 - `kdf.salt` MUST decode to at least 16 bytes
 - `kdf.m_cost` MUST be >= 19456 (19 MiB)
 - `kdf.t_cost` MUST be >= 2
@@ -110,18 +126,19 @@ NEW: "v1-argon2id-hkdf-aes256gcm-sealed-payload"
 
 ### Constants changes
 
-| Constant | Old | New |
-|----------|-----|-----|
-| `SUITE` | `v1-pbkdf2-hkdf-aes256gcm-sealed-payload` | `v1-argon2id-hkdf-aes256gcm-sealed-payload` |
-| `DEFAULT_PBKDF2_ITERATIONS` | 600,000 | **remove** |
-| `MIN_PBKDF2_ITERATIONS` | 300,000 | **remove** |
-| `ARGON2_M_COST` | — | 19,456 |
-| `ARGON2_T_COST` | — | 2 |
-| `ARGON2_P_COST` | — | 1 |
+| Constant                    | Old                                       | New                                         |
+| --------------------------- | ----------------------------------------- | ------------------------------------------- |
+| `SUITE`                     | `v1-pbkdf2-hkdf-aes256gcm-sealed-payload` | `v1-argon2id-hkdf-aes256gcm-sealed-payload` |
+| `DEFAULT_PBKDF2_ITERATIONS` | 600,000                                   | **remove**                                  |
+| `MIN_PBKDF2_ITERATIONS`     | 300,000                                   | **remove**                                  |
+| `ARGON2_M_COST`             | —                                         | 19,456                                      |
+| `ARGON2_T_COST`             | —                                         | 2                                           |
+| `ARGON2_P_COST`             | —                                         | 1                                           |
 
 ### IKM derivation (unchanged pattern)
 
 The IKM derivation stays the same structurally:
+
 ```
 pass_key = argon2id(passphrase, kdf.salt, m_cost, t_cost, p_cost, 32)
 ikm = SHA-256(url_key || pass_key)
@@ -173,26 +190,26 @@ Everything downstream (HKDF, AES-GCM, claim token, framing) is unchanged.
 
 ## Bundle Size Impact
 
-| Asset | Before | After (est.) | Delta |
-|-------|--------|-------------|-------|
-| JS (gzipped) | ~39 KB | ~51 KB | +12 KB |
-| WASM (zstd, gzipped) | 80 KB | 80 KB | unchanged |
-| CSS | 8 KB | 8 KB | unchanged |
-| **Total gzipped** | **~127 KB** | **~139 KB** | **+12 KB (+9%)** |
+| Asset                | Before      | After (est.) | Delta            |
+| -------------------- | ----------- | ------------ | ---------------- |
+| JS (gzipped)         | ~39 KB      | ~51 KB       | +12 KB           |
+| WASM (zstd, gzipped) | 80 KB       | 80 KB        | unchanged        |
+| CSS                  | 8 KB        | 8 KB         | unchanged        |
+| **Total gzipped**    | **~127 KB** | **~139 KB**  | **+12 KB (+9%)** |
 
 With lazy loading (only import hash-wasm when passphrase is entered), the no-passphrase path has zero overhead.
 
 ## Risk Assessment
 
-| Risk | Likelihood | Mitigation |
-|------|-----------|------------|
-| WASM slow on old phones | Low | Params chosen for ~400ms worst case; can tune down |
-| hash-wasm maintenance | Low | WASM is stable, algorithm won't change; could vendor if needed |
-| Spec regression | Low | Cross-impl test vectors catch mismatches |
-| `argon2` crate breaking | Very low | RustCrypto is well-maintained; pin version |
+| Risk                    | Likelihood | Mitigation                                                     |
+| ----------------------- | ---------- | -------------------------------------------------------------- |
+| WASM slow on old phones | Low        | Params chosen for ~400ms worst case; can tune down             |
+| hash-wasm maintenance   | Low        | WASM is stable, algorithm won't change; could vendor if needed |
+| Spec regression         | Low        | Cross-impl test vectors catch mismatches                       |
+| `argon2` crate breaking | Very low   | RustCrypto is well-maintained; pin version                     |
 
 ## Open Questions
 
-1. **CLI param flags:** Expose `--m-cost`/`--t-cost`/`--p-cost` or just use hardcoded defaults? (Lean toward defaults-only for simplicity — power users can wait.)
-2. **Minimum m_cost validation:** Should clients reject envelopes with `m_cost < 19456`? Or allow lower for forward compat? (Lean toward enforcing minimum.)
-3. **Lazy loading strategy:** Dynamic `import('hash-wasm')` on passphrase entry, or load at page init? (Lean toward lazy — keeps initial bundle lean.)
+1. **CLI param flags:** Resolved as defaults-only (no user-exposed Argon2 tuning flags yet).
+2. **Minimum m_cost validation:** Resolved as strict bounded validation (`m_cost >= 19456` and full bounds/work-cap enforcement).
+3. **Lazy loading strategy:** Resolved as dynamic `import('hash-wasm')` for passphrase paths.

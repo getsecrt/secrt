@@ -10,7 +10,7 @@ Version 1.1 — February 2026
 
 secrt is a zero-knowledge, one-time secret sharing service that allows individuals and organizations to share passwords, API keys, credentials, files, and other sensitive information through links that self-destruct after a single use. All encryption happens on the sender's device — in the browser or on the command line — before any data reaches the server. The server stores only opaque ciphertext that it cannot decrypt, and never sees plaintext, encryption keys, passphrases, or even filenames.
 
-The project is fully open source, built on a rigorous versioned [specification](https://github.com/getsecrt/secrt/tree/main/spec/v1) with mandatory test vectors, and uses only industry-standard cryptographic primitives (AES-256-GCM, HKDF-SHA-256, PBKDF2). It offers signed CLI binaries for macOS and Windows, a web application, passkey-based authentication (no passwords), and a self-hostable architecture where the zero-knowledge property means operators get the same security guarantees as the hosted service.
+The project is fully open source, built on a rigorous versioned [specification](https://github.com/getsecrt/secrt/tree/main/spec/v1) with mandatory test vectors, and uses only industry-standard cryptographic primitives (AES-256-GCM, HKDF-SHA-256, Argon2id). It offers signed CLI binaries for macOS and Windows, a web application, passkey-based authentication (no passwords), and a self-hostable architecture where the zero-knowledge property means operators get the same security guarantees as the hosted service.
 
 This white paper describes the threat model, cryptographic architecture, server design, abuse prevention mechanisms, and specification philosophy behind secrt.
 
@@ -84,7 +84,7 @@ Several tools address secret sharing. Here is how secrt compares:
 | Passkey auth (no passwords) | ✅ | ❌ (email/password) | ❌ (no accounts) | ❌ (no accounts) | ❌ (tokens/LDAP/etc.) |
 | File sharing | ✅ | ❌ | ✅ | ✅ | N/A |
 | Self-hostable | ✅ | ✅ | ✅ | ✅ | ✅ |
-| Passphrase protection | ✅ (PBKDF2, 600k rounds) | ✅ | ❌ | ✅ (password) | N/A |
+| Passphrase protection | ✅ (Argon2id) | ✅ | ❌ | ✅ (password) | N/A |
 
 <!-- TODO: Verify OneTimeSecret still lacks client-side encryption — the GitHub issue #190 from 2020 requested it but it may have been added since. -->
 <!-- TODO: Verify Yopass doesn't support passphrase protection — their docs mention "encryption key" but it may function differently. -->
@@ -125,13 +125,13 @@ secrt is designed to protect shared secrets against:
 
 ### Primitives & Constants
 
-secrt uses a single, well-defined cryptographic suite identified as `v1-pbkdf2-hkdf-aes256gcm-sealed-payload`. All cryptographic operations use the [`ring`](https://github.com/briansmith/ring) library in Rust and the [WebCrypto API](https://developer.mozilla.org/en-US/docs/Web/API/Web_Crypto_API) in the browser. No custom cryptography is used.
+secrt uses a single, well-defined cryptographic suite identified as `v1-argon2id-hkdf-aes256gcm-sealed-payload`. Cryptographic operations use audited libraries: [`ring`](https://github.com/briansmith/ring) and [`argon2`](https://crates.io/crates/argon2) in Rust, and WebCrypto plus [hash-wasm](https://github.com/Daninet/hash-wasm) in the browser. No custom cryptography is used.
 
 | Primitive | Algorithm | Library |
 |-----------|-----------|---------|
 | Authenticated encryption | AES-256-GCM | ring / WebCrypto |
 | Key derivation | HKDF-SHA-256 | ring / WebCrypto |
-| Passphrase stretching | PBKDF2-HMAC-SHA-256 | ring / WebCrypto |
+| Passphrase stretching | Argon2id (v=19, m=19456, t=2, p=1) | argon2 crate / hash-wasm |
 | Hashing | SHA-256 | ring / WebCrypto |
 | Compression | zstd (level 3) | zstd crate / [@bokuweb/zstd-wasm](https://github.com/bokuweb/zstd-wasm) |
 | Encoding | base64url (no padding, RFC 4648) | base64 crate / browser btoa |
@@ -160,11 +160,14 @@ enc_key = HKDF-SHA-256(
 ```
 url_key  = random(32 bytes)         # never sent to server
 kdf_salt = random(16 bytes)         # stored in envelope
-pass_key = PBKDF2-HMAC-SHA-256(
-    password   = passphrase,        # never sent to server
-    salt       = kdf_salt,
-    iterations = 600000,
-    dklen      = 32
+pass_key = Argon2id(
+    password = passphrase,          # never sent to server
+    salt     = kdf_salt,
+    version  = 19,
+    m_cost   = 19456,               # KiB
+    t_cost   = 2,
+    p_cost   = 1,
+    length   = 32
 )
 ikm = SHA-256(url_key || pass_key)  # combine both keys
 hkdf_salt = random(32 bytes)        # stored in envelope
@@ -176,7 +179,7 @@ enc_key = HKDF-SHA-256(
 )
 ```
 
-The two-layer derivation (PBKDF2 then HKDF) ensures that even if one of the two inputs (URL key or passphrase) is compromised, the attacker must still obtain the other to derive the encryption key.
+The two-layer derivation (Argon2id then HKDF) ensures that even if one of the two inputs (URL key or passphrase) is compromised, the attacker must still obtain the other to derive the encryption key.
 
 See: [`spec/v1/envelope.md`](https://github.com/getsecrt/secrt/blob/main/spec/v1/envelope.md), [`crates/secrt-core/src/crypto.rs`](https://github.com/getsecrt/secrt/blob/main/crates/secrt-core/src/crypto.rs)
 
@@ -185,11 +188,18 @@ See: [`spec/v1/envelope.md`](https://github.com/getsecrt/secrt/blob/main/spec/v1
 The optional passphrase layer adds a second factor to the encryption. When set:
 
 - A 16-byte random salt is generated and stored in the envelope's `kdf` block.
-- The passphrase is stretched through PBKDF2-HMAC-SHA-256 with 600,000 iterations (minimum 300,000 accepted).
+- The passphrase is stretched through Argon2id with defaults `version=19`, `m_cost=19456`, `t_cost=2`, `p_cost=1`.
+- Envelope parsing accepts bounded Argon2id parameters (`m_cost 19456..65536`, `t_cost 2..10`, `p_cost 1..4`, and `m_cost * t_cost <= 262144`).
 - The resulting 32-byte `pass_key` is concatenated with the `url_key` and hashed through SHA-256 to produce the input keying material (IKM) for HKDF.
 - The passphrase itself is never transmitted to the server.
 
 This means intercepting the share link is not enough — the attacker must also know the passphrase. The passphrase can be communicated through a separate channel (e.g., in person, via phone, or a different messaging platform).
+
+### Why Argon2id (Not PBKDF2)
+
+PBKDF2 is widely available through WebCrypto and is easy to deploy, but it is primarily CPU-hard. Modern GPU/ASIC attackers can evaluate PBKDF2 guesses very efficiently at scale. Argon2id is memory-hard, which raises attacker cost by forcing each guess to consume substantial memory bandwidth, not just CPU cycles.
+
+secrt uses Argon2id for passphrase-based protection to make offline guessing materially more expensive when ciphertext is captured. We still use WebCrypto for AES-256-GCM, HKDF, and SHA-256, but for passphrase KDF we intentionally load Argon2id via WASM in the browser so the web client matches the Rust/CLI cryptographic suite and test vectors.
 
 ### Claim Token Derivation
 
@@ -232,7 +242,7 @@ See [Appendix C](#appendix-c-envelope-json-format) for the full envelope JSON sc
 **Encryption (sender):**
 
 1. Generate random 32-byte `url_key`.
-2. If passphrase set: derive `pass_key` via PBKDF2, compute `ikm = SHA-256(url_key || pass_key)`. Otherwise: `ikm = url_key`.
+2. If passphrase set: derive `pass_key` via Argon2id, compute `ikm = SHA-256(url_key || pass_key)`. Otherwise: `ikm = url_key`.
 3. Generate random 32-byte HKDF salt.
 4. Derive `enc_key = HKDF-SHA-256(ikm, salt, "secrt:v1:enc:sealed-payload", 32)`.
 5. Build payload frame (metadata + optional compression + content).
@@ -420,7 +430,7 @@ See: [`.github/workflows/release-cli.yml`](https://github.com/getsecrt/secrt/blo
 
 ### Web Application
 
-The web frontend is built with [Preact](https://preactjs.com/) + TypeScript, bundled by [Vite](https://vitejs.dev/), styled with [Tailwind CSS](https://tailwindcss.com/). All cryptographic operations use the browser's native [WebCrypto API](https://developer.mozilla.org/en-US/docs/Web/API/Web_Crypto_API). Compression uses zstd via a [WebAssembly module](https://github.com/bokuweb/zstd-wasm) that runs entirely in the browser.
+The web frontend is built with [Preact](https://preactjs.com/) + TypeScript, bundled by [Vite](https://vitejs.dev/), styled with [Tailwind CSS](https://tailwindcss.com/). AES/HKDF/SHA operations use the browser's native [WebCrypto API](https://developer.mozilla.org/en-US/docs/Web/API/Web_Crypto_API). Passphrase KDF uses Argon2id via [hash-wasm](https://github.com/Daninet/hash-wasm), lazy-loaded only when needed, because WebCrypto does not currently provide Argon2 and we standardize on Argon2id instead of PBKDF2. Compression uses zstd via a [WebAssembly module](https://github.com/bokuweb/zstd-wasm) that runs entirely in the browser.
 
 The encryption and decryption flow is identical to the CLI: the same envelope format, the same key derivation, the same compression policy. A secret created in the browser can be decrypted by the CLI and vice versa.
 
@@ -483,7 +493,7 @@ You don't have to. The entire codebase is [open source](https://github.com/getse
 
 ### How do I know this is safe?
 
-The cryptographic primitives (AES-256-GCM, HKDF-SHA-256, PBKDF2) are industry-standard. The implementation uses well-audited libraries: [`ring`](https://github.com/briansmith/ring) for Rust and the browser's native WebCrypto API. The CI pipeline runs full test suites including spec test vectors on every commit.
+The cryptographic primitives (AES-256-GCM, HKDF-SHA-256, Argon2id) are industry-standard. The implementation uses well-audited libraries: [`ring`](https://github.com/briansmith/ring), [`argon2`](https://crates.io/crates/argon2), browser WebCrypto, and `hash-wasm` for Argon2id in web clients. The CI pipeline runs full test suites including spec test vectors on every commit.
 
 ### Were AI or LLMs used in creating this application?
 
@@ -533,9 +543,14 @@ Constants defined in [`crates/secrt-core/src/types.rs`](https://github.com/getse
 | `HKDF_SALT_LEN` | 32 bytes | Random per-secret HKDF salt |
 | `HKDF_LEN` | 32 bytes | Derived encryption key length |
 | `GCM_NONCE_LEN` | 12 bytes | AES-GCM nonce |
-| `KDF_SALT_LEN` | 16 bytes minimum | PBKDF2 salt |
-| `DEFAULT_PBKDF2_ITERATIONS` | 600,000 | Passphrase stretching rounds |
-| `MIN_PBKDF2_ITERATIONS` | 300,000 | Minimum accepted iterations |
+| `KDF_SALT_LEN` | 16 bytes minimum | Argon2id salt |
+| `ARGON2_VERSION` | 19 | Argon2 version (`v=19`) |
+| `ARGON2_M_COST_DEFAULT` | 19,456 KiB | Argon2id memory cost default |
+| `ARGON2_T_COST_DEFAULT` | 2 | Argon2id iterations default |
+| `ARGON2_P_COST_DEFAULT` | 1 | Argon2id parallelism default |
+| `ARGON2_M_COST_MAX` | 65,536 KiB | Argon2id max memory cost |
+| `ARGON2_T_COST_MAX` | 10 | Argon2id max iterations |
+| `ARGON2_P_COST_MAX` | 4 | Argon2id max parallelism |
 | `AAD` | `secrt.ca/envelope/v1-sealed-payload` | AES-GCM additional authenticated data |
 | `HKDF_INFO_ENC` | `secrt:v1:enc:sealed-payload` | HKDF info for encryption key |
 | `HKDF_INFO_CLAIM` | `secrt:v1:claim:sealed-payload` | HKDF info for claim token |
@@ -573,7 +588,7 @@ Metadata JSON example:
 ```json
 {
   "v": 1,
-  "suite": "v1-pbkdf2-hkdf-aes256gcm-sealed-payload",
+  "suite": "v1-argon2id-hkdf-aes256gcm-sealed-payload",
   "enc": {
     "alg": "A256GCM",
     "nonce": "<base64url, 12 bytes>",
@@ -596,9 +611,12 @@ When a passphrase is used, the `kdf` block becomes:
 
 ```json
 {
-  "name": "PBKDF2-SHA256",
+  "name": "argon2id",
+  "version": 19,
   "salt": "<base64url, 16+ bytes>",
-  "iterations": 600000,
+  "m_cost": 19456,
+  "t_cost": 2,
+  "p_cost": 1,
   "length": 32
 }
 ```

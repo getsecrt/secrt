@@ -2,7 +2,7 @@
 
 > **Note:** `CLAUDE.md` is a symlink to this file so that both Cursor (AGENTS.md) and Claude Code (CLAUDE.md) read the same instructions. Always edit `AGENTS.md` directly — never replace the symlink with a regular file.
 
-Zero-knowledge one-time secret sharing. All encryption is client-side (AES-256-GCM + HKDF-SHA256 + optional PBKDF2). The server never sees plaintext.
+Zero-knowledge one-time secret sharing. All encryption is client-side (AES-256-GCM + HKDF-SHA256 + optional Argon2id). The server never sees plaintext.
 
 ## Repository layout
 
@@ -15,7 +15,7 @@ secrt/
 │   │       ├── lib.rs          # re-exports
 │   │       ├── api.rs          # CreateRequest/Response, ClaimRequest/Response, SecretApi trait
 │   │       ├── apikey.rs       # API key v2 derivation and validation
-│   │       ├── crypto.rs       # seal(), open(), HKDF, PBKDF2, AES-GCM
+│   │       ├── crypto.rs       # seal(), open(), HKDF, Argon2id, AES-GCM
 │   │       ├── payload.rs      # sealed payload frame encoding/decoding
 │   │       ├── server.rs       # server-shared logic
 │   │       ├── ttl.rs          # parse_ttl()
@@ -64,7 +64,7 @@ secrt/
 
 The spec at `spec/v1/` is the normative contract for all implementations. **Read the spec before making changes to crypto, API, or CLI behavior.**
 
-- `envelope.md` — client-side crypto workflow (AES-256-GCM, HKDF, PBKDF2, envelope JSON shape)
+- `envelope.md` — client-side crypto workflow (AES-256-GCM, HKDF, Argon2id, envelope JSON shape)
 - `api.md` — HTTP API contract (endpoints, auth, error semantics, policy tiers)
 - `server.md` — server runtime behavior (middleware, storage, atomic claim, reaper, rate limits)
 - `cli.md` — CLI UX contract (commands, flags, TTL grammar, output discipline, completions)

@@ -74,10 +74,10 @@ The following stack is implemented and in use:
 
 - UI framework: `Preact 10` + TypeScript 5.8 (strict mode).
 - Build tool: `Vite 7` with `@preact/preset-vite`.
-- Crypto in browser: native `WebCrypto` APIs only.
+- Crypto in browser: native `WebCrypto` APIs + lazy-loaded `hash-wasm` for Argon2id.
   - AES-256-GCM encryption/decryption
   - HKDF-SHA256 key derivation
-  - PBKDF2-HMAC-SHA256 passphrase KDF (600k iterations)
+  - Argon2id passphrase KDF (`v=19`, `m=19456`, `t=2`, `p=1`)
 - Routing: custom hash-based client-side router (`router.ts`) for:
   - `/` (send/create flow)
   - `/s/:id` (claim flow)

@@ -106,15 +106,15 @@ The **API key v2 authentication system** (derivation chain, wire protocol, stora
 
 ---
 
-### ~~8. `seal()` doesn't enforce minimum PBKDF2 iteration count~~ — RESOLVED
+### ~~8. `seal()` / `open()` must enforce Argon2id bounds~~ — RESOLVED
 
 - **File:** `secrt-core/src/crypto.rs` ~line 84
 - **Component:** Core
 - **Spec:** envelope.md, lines 101-105
 
-**Status:** Fixed in `secrt-core/src/crypto.rs` by enforcing minimum passphrase iterations in `seal()` through `resolve_pbkdf2_iterations()`.
+**Status:** Fixed in `secrt-core/src/crypto.rs` by centralizing Argon2id parameter validation in `validate_argon2id_params()` and applying it in both `seal()` and `open()`.
 
-**Coverage:** `crypto::tests::seal_passphrase_rejects_iterations_below_minimum`, `crypto::tests::seal_passphrase_accepts_minimum_iterations`.
+**Coverage:** `crypto::tests::seal_passphrase_uses_argon2id_defaults`, `crypto::tests::open_kdf_argon2id_out_of_range_costs`.
 
 ---
 
@@ -194,7 +194,7 @@ The **API key v2 authentication system** (derivation chain, wire protocol, stora
 ## Clean Areas (No Issues Found)
 
 - **API Key v2 system:** Derivation chain (sk2_ to ak2_), wire protocol, HMAC verification, storage model (only hashes stored), timing-attack mitigations (constant-time compare), test vectors — all correct and consistent across Rust core, CLI, and TypeScript frontend.
-- **Core crypto primitives:** AES-256-GCM, HKDF-SHA-256, PBKDF2-HMAC-SHA-256 all match spec. Parameter sizes, info strings, AAD, base64url encoding — all correct.
+- **Core crypto primitives:** AES-256-GCM, HKDF-SHA-256, Argon2id all match spec. Parameter sizes, info strings, AAD, base64url encoding — all correct.
 - **Claim token derivation:** Correctly independent of passphrase, derived from url_key only via HKDF.
 - **Atomic claim+delete:** Single `DELETE...RETURNING` SQL statement — no TOCTOU.
 - **SQL injection:** All queries use parameterized statements throughout.

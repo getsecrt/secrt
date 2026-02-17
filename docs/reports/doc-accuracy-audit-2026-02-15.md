@@ -463,8 +463,8 @@ example:
     ct: "base64-encoded-ciphertext"
     nonce: "base64-encoded-nonce"
     kdf:
-      alg: "PBKDF2"
-      iterations: 600000
+      name: "argon2id"
+      m_cost: 19456
 ```
 
 The actual envelope format uses `enc.ciphertext` (not `ct`), `enc.alg` (not `kdf.alg`), and includes `v`, `suite`, `enc`, `kdf`, `hkdf` top-level fields. The example is a placeholder and does not represent the real envelope shape.

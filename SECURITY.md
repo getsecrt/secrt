@@ -19,7 +19,7 @@ You should receive an acknowledgment within 48 hours. We will work with you to u
 
 The following are in scope for security reports:
 
-- **Cryptographic issues** — weaknesses in the AES-256-GCM, HKDF-SHA256, or PBKDF2 implementation
+- **Cryptographic issues** — weaknesses in the AES-256-GCM, HKDF-SHA256, or Argon2id implementation
 - **Server-side data leaks** — any path where the server could access or log plaintext, decryption keys, or passphrases
 - **Claim atomicity failures** — scenarios where a secret could be read more than once
 - **Authentication bypass** — unauthorized access to API-key-protected endpoints

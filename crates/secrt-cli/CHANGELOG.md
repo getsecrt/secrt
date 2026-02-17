@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.11.0 — 2026-02-17
+
+### Changed
+
+- **Envelope suite migration:** CLI now produces/consumes `v1-argon2id-hkdf-aes256gcm-sealed-payload` only.
+- **Vector alignment:** CLI envelope fixtures now track Argon2id-based `spec/v1/envelope.vectors.json`.
+- **Docs refresh:** CLI documentation now reflects Argon2id passphrase derivation and removes legacy passphrase-KDF references.
+
 ## 0.10.3 — 2026-02-16
 
 No CLI behavior changes in this release. Version bump to align workspace at 0.10.3.
@@ -43,7 +51,7 @@ No CLI behavior changes in this release. Version bump to align workspace at 0.6.
 - **API key v2 compatibility:** CLI now accepts local `sk2_<prefix>.<root_b64>` keys and derives wire credentials (`ak2_<prefix>.<auth_b64>`) automatically for authenticated requests.
 - **Validation behavior:** malformed `sk2_` / `ak2_` values now fail fast with clear `invalid --api-key` errors.
 - **Config/help updates:** config template and help examples now document `sk2_` keys.
-- **Breaking envelope hard-cut:** CLI now produces/consumes only the sealed-payload envelope format (`v1-pbkdf2-hkdf-aes256gcm-sealed-payload`); legacy envelope payloads are not supported.
+- **Breaking envelope hard-cut:** CLI now produces/consumes only the sealed-payload envelope format (`v1-argon2id-hkdf-aes256gcm-sealed-payload`); legacy envelope payloads are not supported.
 - **Encrypted metadata handling:** file metadata is now read from decrypted payload metadata, not plaintext envelope fields.
 - **Compression policy defaults:** `send` now applies zstd compression policy defaults (`threshold=2048`, `min_savings=64`, `min_savings_ratio=10%`, `level=3`) and `get` decodes framed payloads with a 100 MiB safety cap.
 - **JSON output metadata source:** `get --json` file fields are now derived from decrypted payload metadata (`type=file`, `filename`, `mime`) instead of plaintext envelope hints.
@@ -142,7 +150,7 @@ No CLI changes — version bump to unify with workspace at 0.5.0.
 Initial release.
 
 - **Commands:** `send`, `get`, `burn`, `config`, `completion`
-- **Crypto:** AES-256-GCM + HKDF-SHA256, optional PBKDF2 passphrases, zero-knowledge client-side encryption via `ring`
+- **Crypto:** AES-256-GCM + HKDF-SHA256, optional Argon2id passphrases, zero-knowledge client-side encryption via `ring`
 - **Config:** TOML config file (`~/.config/secrt/config.toml`) with `config init`, env vars, CLI flag precedence
 - **Keychain:** Optional OS keychain integration (macOS Keychain, Linux keyutils, Windows Credential Manager) for passphrase storage
 - **Get:** Auto-tries configured `decryption_passphrases`, falls back to interactive prompt on TTY

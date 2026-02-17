@@ -6,6 +6,16 @@ All notable changes to the secrt monorepo are documented here. Individual crate 
 - [secrt-core](crates/secrt-core/CHANGELOG.md)
 - [secrt-server](crates/secrt-server/CHANGELOG.md)
 
+## 0.11.0 — 2026-02-17
+
+### Changed
+
+- **Passphrase KDF migration:** hard-cut from the legacy passphrase KDF to Argon2id across spec, core, CLI, server/web frontend, vectors, and tests.
+- **Envelope suite update:** `v1-argon2id-hkdf-aes256gcm-sealed-payload` is now the only supported sealed-payload suite.
+- **KDF schema update:** passphrase envelopes now use Argon2id parameters (`version`, `m_cost`, `t_cost`, `p_cost`, `length`) with bounded validation and work-cap limits.
+- **Web performance/security:** passphrase KDF in web now lazy-loads Argon2id (`hash-wasm`) only when needed and surfaces clear load failures.
+- **Documentation refresh:** whitepaper and all active docs now reflect Argon2id and remove legacy passphrase-KDF references.
+
 ## 0.9.0 — 2026-02-14
 
 ### Added
@@ -69,7 +79,7 @@ All notable changes to the secrt monorepo are documented here. Individual crate 
 - **Passkey-gated API-key registration:** API-key registration moved to `POST /api/v1/apikeys/register` and now requires a passkey-backed session bearer token (`uss_<sid>.<secret>`).
 - **Registration quotas:** dual quota enforcement is now active and configurable per account and per IP, with defaults of `5/hour` and `20/day`.
 - **Legacy API key compatibility:** legacy `sk_` authentication paths are removed from server runtime (no backward compatibility).
-- **Breaking envelope hard-cut:** v1 envelope internals now use the sealed-payload suite (`v1-pbkdf2-hkdf-aes256gcm-sealed-payload`) with updated AAD/HKDF labels; legacy envelope payloads are intentionally unsupported.
+- **Breaking envelope hard-cut:** v1 envelope internals now use the sealed-payload suite (`v1-argon2id-hkdf-aes256gcm-sealed-payload`) with updated AAD/HKDF labels; legacy envelope payloads are intentionally unsupported.
 - **Encrypted metadata contract:** advisory metadata (`type`, `filename`, `mime`) moved from plaintext envelope fields into encrypted payload-frame bytes; server operators can no longer read metadata.
 - **Compression policy defaults:** client envelope creation now supports zstd framing with defaults `threshold=2048`, `min_savings=64`, `min_savings_ratio=10%`, `level=3`, and `decompress_cap=100 MiB`.
 - **Spec contract rewrite:** `spec/v1/envelope.md`, `spec/v1/api.md`, `spec/v1/openapi.yaml`, `spec/v1/server.md`, and `spec/v1/cli.md` are now aligned to sealed payload framing, encrypted metadata-only visibility, and hard-cut non-compatibility semantics.

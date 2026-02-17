@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.11.0 — 2026-02-17
+
+### Changed
+
+- **Passphrase KDF hard-cut:** `seal()`/`open()` now use Argon2id exclusively for passphrase-derived keys.
+- **Argon2id KDF block:** envelope `kdf` now encodes `name=argon2id`, `version`, `salt`, `m_cost`, `t_cost`, `p_cost`, and `length`.
+- **Validation hardening:** `open()` enforces Argon2id parameter bounds (`m_cost`, `t_cost`, `p_cost`) plus combined work cap (`m_cost * t_cost <= 262144`).
+- **Suite identifier:** updated to `v1-argon2id-hkdf-aes256gcm-sealed-payload`.
+- **Spec vectors:** regenerated `spec/v1/envelope.vectors.json` for Argon2id and synced CLI fixture coverage.
+
 ## 0.7.0 — 2026-02-14
 
 No `secrt-core` API/behavior changes in this release. Version bump to align workspace at 0.7.0.
@@ -17,7 +27,7 @@ No `secrt-core` API/behavior changes in this release. Version bump to align work
 
 ### Changed
 
-- **Breaking envelope hard-cut:** `seal()`/`open()` now use `v1-pbkdf2-hkdf-aes256gcm-sealed-payload` with updated AAD/HKDF labels and reject legacy plaintext-metadata envelope shapes.
+- **Breaking envelope hard-cut:** `seal()`/`open()` now use `v1-argon2id-hkdf-aes256gcm-sealed-payload` with updated AAD/HKDF labels and reject legacy plaintext-metadata envelope shapes.
 - **Encrypted payload frame:** envelope plaintext is now a framed structure carrying encrypted metadata (`type`, optional `filename`/`mime`) plus body bytes.
 - **Compression support:** added zstd codec support with default policy `threshold=2048`, `min_savings=64`, `min_savings_ratio=10%`, `level=3`, and decode cap `100 MiB`.
 - **Claim derivation salt:** `derive_claim_token()` now uses fixed domain salt `SHA256("secrt-envelope-v1-claim-salt")` instead of nil/zero salt behavior.
@@ -38,7 +48,7 @@ No changes to secrt-core in this release.
 
 - **Initial release** as a standalone crate, extracted from `secrt-cli`.
 - `seal()` and `open()` — AES-256-GCM encryption/decryption with HKDF-SHA256 key derivation.
-- Optional PBKDF2 passphrase-based key derivation.
+- Optional Argon2id passphrase-based key derivation.
 - `derive_claim_token()` and `hash_claim_token()` — HKDF-based claim token derivation.
 - `parse_ttl()` — human-readable TTL string parsing (e.g., `1h`, `3d`, `30m`).
 - `parse_share_url()` and `format_share_link()` — share URL construction and parsing.
