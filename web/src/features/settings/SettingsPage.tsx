@@ -157,7 +157,7 @@ function ApiKeysCard() {
       {loading && keys.length === 0 ? (
         <p class="text-muted">Loading...</p>
       ) : keys.length === 0 ? (
-        <p class="text-muted">No API keys yet.</p>
+        <p class="text-muted text-center">No API keys yet.</p>
       ) : (
         <div class="overflow-x-auto">
           <table class="w-full">

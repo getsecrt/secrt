@@ -31,17 +31,28 @@ export function Layout({ children }: LayoutProps) {
         {children}
       </main>
 
-      <footer class="mt-auto flex flex-col items-center gap-1.5 py-4 text-xs text-faint">
-        <a
-          href="https://github.com/getsecrt/secrt"
-          target="_blank"
-          rel="noopener noreferrer"
-          class="text-faint transition-colors hover:text-muted"
-          aria-label="GitHub"
-        >
-          <GitHubIcon class="size-6" />
-        </a>
-        &copy; {new Date().getFullYear()} JD Lien
+      <footer class="mt-auto flex flex-col items-center gap-2 py-4 text-xs text-faint">
+        <div class="flex items-center gap-3">
+          <a
+            href="https://github.com/getsecrt/secrt"
+            target="_blank"
+            rel="noopener noreferrer"
+            class="text-faint transition-colors hover:text-muted"
+            aria-label="GitHub"
+          >
+            <GitHubIcon class="size-5" />
+          </a>
+          <span class="text-faint/40">·</span>
+          <a
+            href="mailto:security@secrt.ca"
+            class="text-faint transition-colors hover:text-muted"
+          >
+            security@secrt.ca
+          </a>
+        </div>
+        <div class="flex items-center gap-2">
+          &copy; {new Date().getFullYear()} JD Lien
+        </div>
       </footer>
     </div>
   );

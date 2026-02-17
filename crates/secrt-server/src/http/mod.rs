@@ -287,7 +287,11 @@ pub fn build_router(state: Arc<AppState>) -> Router {
         .route("/how-it-works", get(handle_index))
         .route("/dashboard", get(handle_index))
         .route("/settings", get(handle_index))
-        .route("/robots.txt", get(handle_robots_txt));
+        .route("/robots.txt", get(handle_robots_txt))
+        .route(
+            "/.well-known/security.txt",
+            get(handle_security_txt),
+        );
 
     // Serve static files: env override → embedded assets → filesystem fallback
     let router = if let Ok(dir) = std::env::var("SECRT_WEB_DIST_DIR") {
@@ -1769,10 +1773,27 @@ pub async fn handle_robots_txt() -> Response {
          Disallow: /dashboard\n\
          Disallow: /settings\n\
          Disallow: /login\n\
-         Disallow: /register\n",
+         Disallow: /register\n\
+         \n\
+         # Security contact: https://secrt.ca/.well-known/security.txt\n",
     )
         .into_response();
     insert_header(resp.headers_mut(), "cache-control", "no-store");
+    resp
+}
+
+pub async fn handle_security_txt() -> Response {
+    let mut resp = (
+        StatusCode::OK,
+        [(CONTENT_TYPE, "text/plain; charset=utf-8")],
+        "Contact: mailto:security@secrt.ca\n\
+         Expires: 2027-02-17T00:00:00.000Z\n\
+         Preferred-Languages: en\n\
+         Canonical: https://secrt.ca/.well-known/security.txt\n\
+         Policy: https://github.com/getsecrt/secrt/blob/main/SECURITY.md\n",
+    )
+        .into_response();
+    insert_header(resp.headers_mut(), "cache-control", "public, max-age=86400");
     resp
 }
 
@@ -2849,6 +2870,43 @@ mod tests {
     }
 
     #[tokio::test]
+    #[tokio::test]
+    async fn security_txt_contains_required_fields() {
+        let resp = handle_security_txt().await;
+        assert_eq!(resp.status(), StatusCode::OK);
+        assert_eq!(
+            resp.headers()
+                .get("content-type")
+                .and_then(|v| v.to_str().ok()),
+            Some("text/plain; charset=utf-8")
+        );
+        let body = response_text(resp).await;
+
+        // RFC 9116 required fields
+        assert!(
+            body.contains("Contact: mailto:security@secrt.ca"),
+            "must include Contact field"
+        );
+        assert!(
+            body.contains("Expires:"),
+            "must include Expires field (RFC 9116)"
+        );
+
+        // Recommended fields
+        assert!(
+            body.contains("Policy: https://github.com/getsecrt/secrt/blob/main/SECURITY.md"),
+            "should link to SECURITY.md"
+        );
+        assert!(
+            body.contains("Canonical: https://secrt.ca/.well-known/security.txt"),
+            "should include canonical URL"
+        );
+        assert!(
+            body.contains("Preferred-Languages: en"),
+            "should specify preferred languages"
+        );
+    }
+
     async fn robots_txt_allows_public_pages_and_blocks_secrets() {
         let resp = handle_robots_txt().await;
         assert_eq!(resp.status(), StatusCode::OK);

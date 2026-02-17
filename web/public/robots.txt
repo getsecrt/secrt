@@ -5,12 +5,11 @@
 User-agent: *
 Allow: /
 Allow: /how-it-works
-
-# Secret claim URLs are unguessable (high-entropy tokens)
-# and self-destruct after viewing — no need to crawl /s/ paths
 Disallow: /s/
 Disallow: /api/
 Disallow: /dashboard
 Disallow: /settings
 Disallow: /login
 Disallow: /register
+
+# Security contact: https://secrt.ca/.well-known/security.txt
