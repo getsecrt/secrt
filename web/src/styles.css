@@ -17,15 +17,14 @@
   --color-green-900: oklch(0.31 0.08 146);
   --color-green-950: oklch(0.21 0.05 147);
 
-  --color-neutral-150: oklch(0.95 0 0);
-  --color-neutral-150: oklch(0.95 0 0);
-  --color-neutral-300: oklch(0.87 0 0);
+  /*--color-neutral-150: oklch(0.95 0 0);*/
+  /*--color-neutral-300: oklch(0.87 0 0);*/
   --color-neutral-350: oklch(0.76 0 0);
-  --color-neutral-400: oklch(0.71 0 0);
-  --color-neutral-450: oklch(0.6 0 0);
-  --color-neutral-500: oklch(0.56 0 0);
+  /*--color-neutral-400: oklch(0.71 0 0);*/
+  /*--color-neutral-450: oklch(0.6 0 0);*/
+  /*--color-neutral-500: oklch(0.56 0 0);*/
   --color-neutral-550: oklch(0.5 0 0);
-  --color-neutral-600: oklch(0.44 0 0);
+  /*--color-neutral-600: oklch(0.44 0 0);*/
 
   /* Surfaces & borders (neutral scale) */
   --color-bg: #fff;
@@ -40,7 +39,6 @@
 
   /* Semantic accent (custom green palette) */
   --color-accent: var(--color-green-700);
-  --color-accent-bright: var(--color-green-400);
   --color-accent-hover: var(--color-green-600);
 
   /* Status */
@@ -54,7 +52,6 @@
   --radius-lg: 10px;
   --shadow-sm: 0 1px 2px oklch(0 0 0 / 0.05);
   --shadow-modal: 0 8px 24px oklch(0 0 0 / 0.12), 0 2px 8px oklch(0 0 0 / 0.08);
-  --max-width-sm: 480px;
 }
 
 :root.dark {
@@ -66,9 +63,8 @@
   --color-text-muted: var(--color-neutral-350);
   --color-text-faint: var(--color-neutral-500);
   --color-accent: var(--color-green-400);
-  --color-accent-bright: var(--color-green-600);
   --color-accent-hover: var(--color-green-300);
-  --color-error: var(--color-red-400);
+  --color-error: var(--color-red-500);
   --color-success: var(--color-green-400);
   --shadow-sm: 0 1px 2px oklch(0 0 0 / 0.2);
   --shadow-modal: 0 8px 32px oklch(0 0 0 / 0.9), 0 1px 16px oklch(0 0 0 / 0.8);
@@ -277,10 +273,12 @@
     }
   }
 
+  /*
   .select {
     @apply appearance-none bg-[length:1.25rem] bg-[right_0.5rem_center] bg-no-repeat pr-8;
     background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20' fill='%2371717a'%3E%3Cpath fill-rule='evenodd' d='M5.23 7.21a.75.75 0 011.06.02L10 11.168l3.71-3.938a.75.75 0 111.08 1.04l-4.25 4.5a.75.75 0 01-1.08 0l-4.25-4.5a.75.75 0 01.02-1.06z'/%3E%3C/svg%3E");
   }
+  */
 
   .textarea {
     @apply resize-y;
