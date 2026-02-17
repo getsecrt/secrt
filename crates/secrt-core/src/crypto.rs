@@ -1,9 +1,9 @@
+use argon2::{Algorithm, Argon2, Params, Version};
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use base64::Engine;
 use ring::aead::{Aad, LessSafeKey, Nonce, UnboundKey, AES_256_GCM};
 use ring::digest::{digest, SHA256};
 use ring::hkdf;
-use ring::pbkdf2;
 
 use crate::payload::{decode_payload, encode_payload};
 use crate::types::*;
@@ -62,24 +62,90 @@ pub fn compute_claim_hash(claim_token: &[u8]) -> String {
     b64_encode(hash.as_ref())
 }
 
-fn resolve_pbkdf2_iterations(iterations: u32) -> Result<u32, EnvelopeError> {
-    if iterations == 0 {
-        return Ok(DEFAULT_PBKDF2_ITERATIONS);
-    }
-    if iterations < MIN_PBKDF2_ITERATIONS {
+fn validate_argon2id_params(
+    version: u32,
+    m_cost: u32,
+    t_cost: u32,
+    p_cost: u32,
+    length: u32,
+) -> Result<(), EnvelopeError> {
+    if version != ARGON2_VERSION {
         return Err(EnvelopeError::InvalidEnvelope(format!(
-            "kdf.iterations must be >= {}",
-            MIN_PBKDF2_ITERATIONS
+            "kdf.version must be {}",
+            ARGON2_VERSION
         )));
     }
-    Ok(iterations)
+    if !(ARGON2_M_COST_MIN..=ARGON2_M_COST_MAX).contains(&m_cost) {
+        return Err(EnvelopeError::InvalidEnvelope(format!(
+            "kdf.m_cost must be in range {}..={}",
+            ARGON2_M_COST_MIN, ARGON2_M_COST_MAX
+        )));
+    }
+    if !(ARGON2_T_COST_MIN..=ARGON2_T_COST_MAX).contains(&t_cost) {
+        return Err(EnvelopeError::InvalidEnvelope(format!(
+            "kdf.t_cost must be in range {}..={}",
+            ARGON2_T_COST_MIN, ARGON2_T_COST_MAX
+        )));
+    }
+    if !(ARGON2_P_COST_MIN..=ARGON2_P_COST_MAX).contains(&p_cost) {
+        return Err(EnvelopeError::InvalidEnvelope(format!(
+            "kdf.p_cost must be in range {}..={}",
+            ARGON2_P_COST_MIN, ARGON2_P_COST_MAX
+        )));
+    }
+    if (m_cost as u64) * (t_cost as u64) > ARGON2_M_COST_T_COST_PRODUCT_MAX {
+        return Err(EnvelopeError::InvalidEnvelope(format!(
+            "kdf.m_cost * kdf.t_cost must be <= {}",
+            ARGON2_M_COST_T_COST_PRODUCT_MAX
+        )));
+    }
+    if length != PASS_KEY_LEN as u32 {
+        return Err(EnvelopeError::InvalidEnvelope(format!(
+            "kdf.length must be {}",
+            PASS_KEY_LEN
+        )));
+    }
+    Ok(())
+}
+
+fn derive_argon2id(
+    passphrase: &str,
+    salt: &[u8],
+    version: u32,
+    m_cost: u32,
+    t_cost: u32,
+    p_cost: u32,
+    length: usize,
+) -> Result<Vec<u8>, EnvelopeError> {
+    validate_argon2id_params(version, m_cost, t_cost, p_cost, length as u32)?;
+
+    let params = Params::new(m_cost, t_cost, p_cost, Some(length)).map_err(|e| {
+        EnvelopeError::InvalidEnvelope(format!("kdf parameters are invalid: {}", e))
+    })?;
+    let argon2 = Argon2::new(Algorithm::Argon2id, Version::V0x13, params);
+
+    let mut out = vec![0u8; length];
+    argon2
+        .hash_password_into(passphrase.as_bytes(), salt, &mut out)
+        .map_err(|e| {
+            EnvelopeError::InvalidEnvelope(format!("argon2id derivation failed: {}", e))
+        })?;
+    Ok(out)
 }
 
 fn ensure_kdf_none_has_no_extra_fields(raw: &serde_json::Value) -> Result<(), EnvelopeError> {
     let obj = raw
         .as_object()
         .ok_or_else(|| EnvelopeError::InvalidEnvelope("invalid kdf".into()))?;
-    for forbidden in ["salt", "iterations", "length"] {
+    for forbidden in [
+        "version",
+        "salt",
+        "m_cost",
+        "t_cost",
+        "p_cost",
+        "length",
+        "iterations",
+    ] {
         if obj.contains_key(forbidden) {
             return Err(EnvelopeError::InvalidEnvelope(format!(
                 "kdf.name=none must not include {}",
@@ -109,17 +175,15 @@ pub fn seal(p: SealParams<'_>) -> Result<SealResult, EnvelopeError> {
     } else {
         let mut kdf_salt = vec![0u8; KDF_SALT_LEN];
         (p.rand_bytes)(&mut kdf_salt)?;
-
-        let iterations = resolve_pbkdf2_iterations(p.iterations)?;
-
-        let mut pass_key = vec![0u8; PASS_KEY_LEN];
-        pbkdf2::derive(
-            pbkdf2::PBKDF2_HMAC_SHA256,
-            std::num::NonZeroU32::new(iterations).unwrap(),
+        let pass_key = derive_argon2id(
+            &p.passphrase,
             &kdf_salt,
-            p.passphrase.as_bytes(),
-            &mut pass_key,
-        );
+            ARGON2_VERSION,
+            ARGON2_M_COST_DEFAULT,
+            ARGON2_T_COST_DEFAULT,
+            ARGON2_P_COST_DEFAULT,
+            PASS_KEY_LEN,
+        )?;
 
         // IKM = SHA-256(url_key || pass_key)
         let mut hasher_input = Vec::with_capacity(url_key.len() + pass_key.len());
@@ -128,10 +192,13 @@ pub fn seal(p: SealParams<'_>) -> Result<SealResult, EnvelopeError> {
         let ikm_hash = digest(&SHA256, &hasher_input);
         let ikm = ikm_hash.as_ref().to_vec();
 
-        let kdf = KdfPbkdf2 {
-            name: "PBKDF2-SHA256".into(),
+        let kdf = KdfArgon2id {
+            name: "argon2id".into(),
+            version: ARGON2_VERSION,
             salt: b64_encode(&kdf_salt),
-            iterations,
+            m_cost: ARGON2_M_COST_DEFAULT,
+            t_cost: ARGON2_T_COST_DEFAULT,
+            p_cost: ARGON2_P_COST_DEFAULT,
             length: PASS_KEY_LEN as u32,
         };
         (ikm, serde_json::to_value(kdf).unwrap())
@@ -235,14 +302,15 @@ pub fn open(p: OpenParams) -> Result<OpenResult, EnvelopeError> {
     let ikm = if kdf.name == "none" {
         p.url_key.clone()
     } else {
-        let mut pass_key = vec![0u8; PASS_KEY_LEN];
-        pbkdf2::derive(
-            pbkdf2::PBKDF2_HMAC_SHA256,
-            std::num::NonZeroU32::new(kdf.iterations).unwrap(),
+        let pass_key = derive_argon2id(
+            &p.passphrase,
             &kdf.salt,
-            p.passphrase.as_bytes(),
-            &mut pass_key,
-        );
+            kdf.version,
+            kdf.m_cost,
+            kdf.t_cost,
+            kdf.p_cost,
+            PASS_KEY_LEN,
+        )?;
         let mut hasher_input = Vec::with_capacity(p.url_key.len() + pass_key.len());
         hasher_input.extend_from_slice(&p.url_key);
         hasher_input.extend_from_slice(&pass_key);
@@ -351,12 +419,15 @@ fn parse_kdf(raw: &serde_json::Value) -> Result<KdfParsed, EnvelopeError> {
             ensure_kdf_none_has_no_extra_fields(raw)?;
             Ok(KdfParsed {
                 name: "none".into(),
+                version: 0,
                 salt: Vec::new(),
-                iterations: 0,
+                m_cost: 0,
+                t_cost: 0,
+                p_cost: 0,
             })
         }
-        "PBKDF2-SHA256" => {
-            let k: KdfPbkdf2 = serde_json::from_value(raw.clone())
+        "argon2id" => {
+            let k: KdfArgon2id = serde_json::from_value(raw.clone())
                 .map_err(|_| EnvelopeError::InvalidEnvelope("invalid kdf".into()))?;
             let salt = b64_decode(&k.salt)?;
             if salt.len() < KDF_SALT_LEN {
@@ -365,22 +436,14 @@ fn parse_kdf(raw: &serde_json::Value) -> Result<KdfParsed, EnvelopeError> {
                     KDF_SALT_LEN
                 )));
             }
-            if k.iterations < MIN_PBKDF2_ITERATIONS {
-                return Err(EnvelopeError::InvalidEnvelope(format!(
-                    "kdf.iterations must be >= {}",
-                    MIN_PBKDF2_ITERATIONS
-                )));
-            }
-            if k.length != PASS_KEY_LEN as u32 {
-                return Err(EnvelopeError::InvalidEnvelope(format!(
-                    "kdf.length must be {}",
-                    PASS_KEY_LEN
-                )));
-            }
+            validate_argon2id_params(k.version, k.m_cost, k.t_cost, k.p_cost, k.length)?;
             Ok(KdfParsed {
-                name: "PBKDF2-SHA256".into(),
+                name: "argon2id".into(),
+                version: k.version,
                 salt,
-                iterations: k.iterations,
+                m_cost: k.m_cost,
+                t_cost: k.t_cost,
+                p_cost: k.p_cost,
             })
         }
         _ => Err(EnvelopeError::InvalidEnvelope(format!(
@@ -410,7 +473,6 @@ mod tests {
             rand_bytes: &real_rand,
             metadata: PayloadMeta::text(),
             compression_policy: CompressionPolicy::default(),
-            iterations: 0,
         })
         .unwrap();
         (result, plaintext)
@@ -439,7 +501,6 @@ mod tests {
             rand_bytes: &real_rand,
             metadata: PayloadMeta::text(),
             compression_policy: CompressionPolicy::default(),
-            iterations: 0,
         });
         assert!(matches!(err, Err(EnvelopeError::EmptyPlaintext)));
     }
@@ -455,7 +516,6 @@ mod tests {
             rand_bytes: &fail_rand,
             metadata: PayloadMeta::text(),
             compression_policy: CompressionPolicy::default(),
-            iterations: 0,
         });
         assert!(matches!(err, Err(EnvelopeError::RngError(_))));
     }
@@ -477,7 +537,6 @@ mod tests {
             rand_bytes: &fail_on_second,
             metadata: PayloadMeta::text(),
             compression_policy: CompressionPolicy::default(),
-            iterations: 300_000,
         });
         assert!(matches!(err, Err(EnvelopeError::RngError(_))));
     }
@@ -500,7 +559,6 @@ mod tests {
             rand_bytes: &fail_on_second,
             metadata: PayloadMeta::text(),
             compression_policy: CompressionPolicy::default(),
-            iterations: 0,
         });
         assert!(matches!(err, Err(EnvelopeError::RngError(_))));
     }
@@ -523,38 +581,36 @@ mod tests {
             rand_bytes: &fail_on_third,
             metadata: PayloadMeta::text(),
             compression_policy: CompressionPolicy::default(),
-            iterations: 0,
         });
         assert!(matches!(err, Err(EnvelopeError::RngError(_))));
     }
 
     #[test]
-    fn seal_passphrase_rejects_iterations_below_minimum() {
-        let err = seal(SealParams {
-            content: b"secret".to_vec(),
-            passphrase: "passphrase".into(),
-            rand_bytes: &real_rand,
-            metadata: PayloadMeta::text(),
-            compression_policy: CompressionPolicy::default(),
-            iterations: MIN_PBKDF2_ITERATIONS - 1,
-        });
-        assert!(matches!(err, Err(EnvelopeError::InvalidEnvelope(_))));
-    }
-
-    #[test]
-    fn seal_passphrase_accepts_minimum_iterations() {
+    fn seal_passphrase_uses_argon2id_defaults() {
         let result = seal(SealParams {
             content: b"secret".to_vec(),
             passphrase: "passphrase".into(),
             rand_bytes: &real_rand,
             metadata: PayloadMeta::text(),
             compression_policy: CompressionPolicy::default(),
-            iterations: MIN_PBKDF2_ITERATIONS,
         })
-        .expect("seal should accept minimum iterations");
+        .expect("seal should succeed with passphrase");
+        assert_eq!(result.envelope["kdf"]["name"].as_str(), Some("argon2id"));
         assert_eq!(
-            result.envelope["kdf"]["iterations"].as_u64(),
-            Some(MIN_PBKDF2_ITERATIONS as u64)
+            result.envelope["kdf"]["version"].as_u64(),
+            Some(ARGON2_VERSION as u64)
+        );
+        assert_eq!(
+            result.envelope["kdf"]["m_cost"].as_u64(),
+            Some(ARGON2_M_COST_DEFAULT as u64)
+        );
+        assert_eq!(
+            result.envelope["kdf"]["t_cost"].as_u64(),
+            Some(ARGON2_T_COST_DEFAULT as u64)
+        );
+        assert_eq!(
+            result.envelope["kdf"]["p_cost"].as_u64(),
+            Some(ARGON2_P_COST_DEFAULT as u64)
         );
     }
 
@@ -798,16 +854,19 @@ mod tests {
     }
 
     #[test]
-    fn open_kdf_pbkdf2_short_salt() {
+    fn open_kdf_argon2id_short_salt() {
         let (result, _) = seal_valid();
         let short_salt = b64_encode(&[0u8; 8]);
         let env = mutate_envelope(
             &result.envelope,
             &["kdf"],
             serde_json::json!({
-                "name": "PBKDF2-SHA256",
+                "name": "argon2id",
+                "version": ARGON2_VERSION,
                 "salt": short_salt,
-                "iterations": 600000,
+                "m_cost": ARGON2_M_COST_DEFAULT,
+                "t_cost": ARGON2_T_COST_DEFAULT,
+                "p_cost": ARGON2_P_COST_DEFAULT,
                 "length": 32
             }),
         );
@@ -820,16 +879,19 @@ mod tests {
     }
 
     #[test]
-    fn open_kdf_pbkdf2_low_iterations() {
+    fn open_kdf_argon2id_wrong_version() {
         let (result, _) = seal_valid();
         let salt = b64_encode(&[0u8; 16]);
         let env = mutate_envelope(
             &result.envelope,
             &["kdf"],
             serde_json::json!({
-                "name": "PBKDF2-SHA256",
+                "name": "argon2id",
+                "version": 16,
                 "salt": salt,
-                "iterations": 100,
+                "m_cost": ARGON2_M_COST_DEFAULT,
+                "t_cost": ARGON2_T_COST_DEFAULT,
+                "p_cost": ARGON2_P_COST_DEFAULT,
                 "length": 32
             }),
         );
@@ -842,25 +904,91 @@ mod tests {
     }
 
     #[test]
-    fn open_kdf_pbkdf2_wrong_length() {
+    fn open_kdf_argon2id_out_of_range_costs() {
         let (result, _) = seal_valid();
         let salt = b64_encode(&[0u8; 16]);
-        let env = mutate_envelope(
-            &result.envelope,
-            &["kdf"],
+        for kdf in [
             serde_json::json!({
-                "name": "PBKDF2-SHA256",
+                "name": "argon2id",
+                "version": ARGON2_VERSION,
                 "salt": salt,
-                "iterations": 600000,
+                "m_cost": ARGON2_M_COST_MIN - 1,
+                "t_cost": ARGON2_T_COST_DEFAULT,
+                "p_cost": ARGON2_P_COST_DEFAULT,
+                "length": 32
+            }),
+            serde_json::json!({
+                "name": "argon2id",
+                "version": ARGON2_VERSION,
+                "salt": salt,
+                "m_cost": ARGON2_M_COST_MAX + 1,
+                "t_cost": ARGON2_T_COST_DEFAULT,
+                "p_cost": ARGON2_P_COST_DEFAULT,
+                "length": 32
+            }),
+            serde_json::json!({
+                "name": "argon2id",
+                "version": ARGON2_VERSION,
+                "salt": salt,
+                "m_cost": ARGON2_M_COST_DEFAULT,
+                "t_cost": ARGON2_T_COST_MIN - 1,
+                "p_cost": ARGON2_P_COST_DEFAULT,
+                "length": 32
+            }),
+            serde_json::json!({
+                "name": "argon2id",
+                "version": ARGON2_VERSION,
+                "salt": salt,
+                "m_cost": ARGON2_M_COST_DEFAULT,
+                "t_cost": ARGON2_T_COST_MAX + 1,
+                "p_cost": ARGON2_P_COST_DEFAULT,
+                "length": 32
+            }),
+            serde_json::json!({
+                "name": "argon2id",
+                "version": ARGON2_VERSION,
+                "salt": salt,
+                "m_cost": ARGON2_M_COST_DEFAULT,
+                "t_cost": ARGON2_T_COST_DEFAULT,
+                "p_cost": ARGON2_P_COST_MIN - 1,
+                "length": 32
+            }),
+            serde_json::json!({
+                "name": "argon2id",
+                "version": ARGON2_VERSION,
+                "salt": salt,
+                "m_cost": ARGON2_M_COST_DEFAULT,
+                "t_cost": ARGON2_T_COST_DEFAULT,
+                "p_cost": ARGON2_P_COST_MAX + 1,
+                "length": 32
+            }),
+            serde_json::json!({
+                "name": "argon2id",
+                "version": ARGON2_VERSION,
+                "salt": salt,
+                "m_cost": ARGON2_M_COST_MAX,
+                "t_cost": ARGON2_T_COST_MAX,
+                "p_cost": ARGON2_P_COST_DEFAULT,
+                "length": 32
+            }),
+            serde_json::json!({
+                "name": "argon2id",
+                "version": ARGON2_VERSION,
+                "salt": salt,
+                "m_cost": ARGON2_M_COST_DEFAULT,
+                "t_cost": ARGON2_T_COST_DEFAULT,
+                "p_cost": ARGON2_P_COST_DEFAULT,
                 "length": 64
             }),
-        );
-        let err = open(OpenParams {
-            envelope: env,
-            url_key: result.url_key,
-            passphrase: "test".into(),
-        });
-        assert!(matches!(err, Err(EnvelopeError::InvalidEnvelope(_))));
+        ] {
+            let env = mutate_envelope(&result.envelope, &["kdf"], kdf);
+            let err = open(OpenParams {
+                envelope: env,
+                url_key: result.url_key.clone(),
+                passphrase: "test".into(),
+            });
+            assert!(matches!(err, Err(EnvelopeError::InvalidEnvelope(_))));
+        }
     }
 
     #[test]
@@ -896,7 +1024,6 @@ mod tests {
             passphrase: String::new(),
             rand_bytes: &real_rand,
             compression_policy: CompressionPolicy::default(),
-            iterations: 0,
         })
         .unwrap();
         assert!(result.envelope.get("hint").is_none());
@@ -913,7 +1040,6 @@ mod tests {
             passphrase: String::new(),
             rand_bytes: &real_rand,
             compression_policy: CompressionPolicy::default(),
-            iterations: 0,
         })
         .unwrap();
         let env = mutate_envelope(
@@ -938,7 +1064,6 @@ mod tests {
             passphrase: String::new(),
             rand_bytes: &real_rand,
             compression_policy: CompressionPolicy::default(),
-            iterations: 0,
         })
         .unwrap();
         let opened = open(OpenParams {
@@ -982,8 +1107,8 @@ mod tests {
     }
 
     #[test]
-    fn requires_passphrase_pbkdf2() {
-        let env = serde_json::json!({"kdf": {"name": "PBKDF2-SHA256"}});
+    fn requires_passphrase_argon2id() {
+        let env = serde_json::json!({"kdf": {"name": "argon2id"}});
         assert!(requires_passphrase(&env));
     }
 
@@ -1001,13 +1126,13 @@ mod tests {
     }
 
     #[test]
-    fn open_kdf_pbkdf2_missing_fields() {
-        // PBKDF2-SHA256 with name only (missing salt, iterations, length)
+    fn open_kdf_argon2id_missing_fields() {
+        // Argon2id with name only (missing required fields)
         let (result, _) = seal_valid();
         let env = mutate_envelope(
             &result.envelope,
             &["kdf"],
-            serde_json::json!({"name": "PBKDF2-SHA256"}),
+            serde_json::json!({"name": "argon2id"}),
         );
         let err = open(OpenParams {
             envelope: env,
@@ -1026,7 +1151,6 @@ mod tests {
             rand_bytes: &real_rand,
             metadata: PayloadMeta::text(),
             compression_policy: CompressionPolicy::default(),
-            iterations: 300_000,
         })
         .unwrap();
         assert!(requires_passphrase(&result.envelope));

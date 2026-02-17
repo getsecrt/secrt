@@ -32,7 +32,7 @@ Required primitives:
 - AES-256-GCM
 - HKDF-SHA-256
 - SHA-256
-- Optional PBKDF2-HMAC-SHA-256
+- Optional Argon2id
 
 Constants:
 
@@ -54,7 +54,7 @@ Constants:
 ```json
 {
   "v": 1,
-  "suite": "v1-pbkdf2-hkdf-aes256gcm-sealed-payload",
+  "suite": "v1-argon2id-hkdf-aes256gcm-sealed-payload",
   "enc": {
     "alg": "A256GCM",
     "nonce": "<base64url 12 bytes>",
@@ -77,9 +77,12 @@ If a passphrase is used, `kdf` MUST be:
 
 ```json
 {
-  "name": "PBKDF2-SHA256",
+  "name": "argon2id",
+  "version": 19,
   "salt": "<base64url 16+ bytes>",
-  "iterations": 600000,
+  "m_cost": 19456,
+  "t_cost": 2,
+  "p_cost": 1,
   "length": 32
 }
 ```
@@ -87,26 +90,30 @@ If a passphrase is used, `kdf` MUST be:
 Field validation:
 
 - `v` MUST be integer `1`.
-- `suite` MUST equal `v1-pbkdf2-hkdf-aes256gcm-sealed-payload`.
+- `suite` MUST equal `v1-argon2id-hkdf-aes256gcm-sealed-payload`.
 - `enc.alg` MUST equal `A256GCM`.
 - `enc.nonce` MUST decode to 12 bytes.
 - `enc.ciphertext` MUST decode to at least 16 bytes.
-- `kdf.name` MUST be `none` or `PBKDF2-SHA256`.
+- `kdf.name` MUST be `none` or `argon2id`.
 - `hkdf.hash` MUST equal `SHA-256`.
 - `hkdf.salt` MUST decode to exactly 32 bytes.
 - `hkdf.enc_info` MUST equal `secrt:v1:enc:sealed-payload`.
 - `hkdf.claim_info` MUST equal `secrt:v1:claim:sealed-payload`.
 - `hkdf.length` MUST equal `32`.
 
-For `kdf.name == "PBKDF2-SHA256"`:
+For `kdf.name == "argon2id"`:
 
 - `kdf.salt` MUST decode to at least 16 bytes.
-- `kdf.iterations` MUST be `>= 300000`.
+- `kdf.version` MUST equal `19`.
+- `kdf.m_cost` MUST satisfy `19456 <= m_cost <= 65536`.
+- `kdf.t_cost` MUST satisfy `2 <= t_cost <= 10`.
+- `kdf.p_cost` MUST satisfy `1 <= p_cost <= 4`.
+- `kdf.m_cost * kdf.t_cost` MUST be `<= 262144`.
 - `kdf.length` MUST equal `32`.
 
 For `kdf.name == "none"`:
 
-- `kdf` MUST NOT include `salt`, `iterations`, or `length`.
+- `kdf` MUST NOT include `version`, `salt`, `m_cost`, `t_cost`, `p_cost`, or `length`.
 
 Plaintext metadata prohibition:
 
@@ -188,6 +195,14 @@ Inputs:
 - metadata object (`type`, optional `filename`/`mime`/extra)
 - optional passphrase
 
+Default passphrase KDF parameters (when client does not expose tuning controls):
+
+- `version = 19`
+- `m_cost = 19456`
+- `t_cost = 2`
+- `p_cost = 1`
+- `length = 32`
+
 Steps:
 
 1. Generate `url_key` (32 random bytes).
@@ -195,7 +210,7 @@ Steps:
    - no passphrase: `kdf.name = "none"`, `ikm = url_key`
    - passphrase:
      - generate `kdf.salt`
-     - derive `pass_key = PBKDF2-HMAC-SHA256(passphrase, kdf.salt, iterations, 32)`
+     - derive `pass_key = Argon2id(passphrase, kdf.salt, m_cost, t_cost, p_cost, 32)`
      - `ikm = SHA-256(url_key || pass_key)`
 3. Generate random `hkdf.salt` (32 bytes).
 4. Derive `enc_key = HKDF-SHA-256(ikm, hkdf.salt, HKDF_INFO_ENC, 32)`.
@@ -228,7 +243,7 @@ Clients MUST fail closed for:
 - missing or malformed required fields
 - invalid base64url encodings
 - invalid nonce/salt lengths
-- PBKDF2 iterations below minimum
+- Argon2id parameters outside allowed bounds
 - AEAD authentication failure
 - invalid payload frame (bad magic/version/lengths/codec)
 - decompressed payload exceeding 100 MiB cap

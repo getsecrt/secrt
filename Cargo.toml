@@ -8,7 +8,7 @@ members = [
 ]
 
 [workspace.package]
-version = "0.10.3"
+version = "0.11.0"
 edition = "2021"
 license = "MIT"
 repository = "https://github.com/getsecrt/secrt"
@@ -39,6 +39,7 @@ urlencoding = "2"
 rust-embed = "8"
 mime_guess = "2"
 zstd = "0.13"
+argon2 = "0.5"
 
 [profile.release]
 opt-level = "z"

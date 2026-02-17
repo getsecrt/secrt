@@ -105,7 +105,6 @@ pub fn run_send(args: &[String], deps: &mut Deps) -> i32 {
         passphrase,
         rand_bytes: &*deps.rand_bytes,
         compression_policy: CompressionPolicy::default(),
-        iterations: 0,
     });
 
     let result = match result {

@@ -37,7 +37,6 @@ fn seal_test_secret(plaintext: &[u8], passphrase: &str) -> (String, envelope::Se
         passphrase: passphrase.to_string(),
         rand_bytes: &real_rand,
         compression_policy: envelope::CompressionPolicy::default(),
-        iterations: if passphrase.is_empty() { 0 } else { 300_000 },
     })
     .unwrap();
     let share_link = envelope::format_share_link(
@@ -862,7 +861,6 @@ fn seal_test_file(plaintext: &[u8], filename: &str, mime: &str) -> (String, enve
         passphrase: String::new(),
         rand_bytes: &real_rand,
         compression_policy: envelope::CompressionPolicy::default(),
-        iterations: 0,
     })
     .unwrap();
     let share_link = envelope::format_share_link(

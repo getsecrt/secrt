@@ -13,10 +13,20 @@ pub const AAD: &[u8] = b"secrt.ca/envelope/v1-sealed-payload";
 pub const HKDF_INFO_ENC: &str = "secrt:v1:enc:sealed-payload";
 pub const HKDF_INFO_CLAIM: &str = "secrt:v1:claim:sealed-payload";
 pub const CLAIM_SALT_LABEL: &str = "secrt-envelope-v1-claim-salt";
-pub const SUITE: &str = "v1-pbkdf2-hkdf-aes256gcm-sealed-payload";
+pub const SUITE: &str = "v1-argon2id-hkdf-aes256gcm-sealed-payload";
 
-pub const DEFAULT_PBKDF2_ITERATIONS: u32 = 600_000;
-pub const MIN_PBKDF2_ITERATIONS: u32 = 300_000;
+pub const ARGON2_VERSION: u32 = 19;
+pub const ARGON2_M_COST_DEFAULT: u32 = 19_456;
+pub const ARGON2_T_COST_DEFAULT: u32 = 2;
+pub const ARGON2_P_COST_DEFAULT: u32 = 1;
+
+pub const ARGON2_M_COST_MIN: u32 = 19_456;
+pub const ARGON2_M_COST_MAX: u32 = 65_536;
+pub const ARGON2_T_COST_MIN: u32 = 2;
+pub const ARGON2_T_COST_MAX: u32 = 10;
+pub const ARGON2_P_COST_MIN: u32 = 1;
+pub const ARGON2_P_COST_MAX: u32 = 4;
+pub const ARGON2_M_COST_T_COST_PRODUCT_MAX: u64 = 262_144;
 
 pub const PAYLOAD_MAGIC: &[u8; 4] = b"SCRT";
 pub const PAYLOAD_FRAME_VERSION: u8 = 1;
@@ -61,20 +71,26 @@ pub struct KdfNone {
     pub name: String,
 }
 
-/// KDFPBKDF2 is the KDF block when a passphrase is used.
+/// KDFArgon2id is the KDF block when a passphrase is used.
 #[derive(Debug, Serialize, Deserialize)]
-pub struct KdfPbkdf2 {
+pub struct KdfArgon2id {
     pub name: String,
+    pub version: u32,
     pub salt: String,
-    pub iterations: u32,
+    pub m_cost: u32,
+    pub t_cost: u32,
+    pub p_cost: u32,
     pub length: u32,
 }
 
 /// Internal representation after parsing KDF JSON.
 pub struct KdfParsed {
     pub name: String,
+    pub version: u32,
     pub salt: Vec<u8>,
-    pub iterations: u32,
+    pub m_cost: u32,
+    pub t_cost: u32,
+    pub p_cost: u32,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -164,7 +180,6 @@ pub struct SealParams<'a> {
     pub metadata: PayloadMeta,
     pub passphrase: String,
     pub rand_bytes: &'a dyn Fn(&mut [u8]) -> Result<(), EnvelopeError>,
-    pub iterations: u32,
     pub compression_policy: CompressionPolicy,
 }
 

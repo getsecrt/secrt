@@ -182,19 +182,12 @@ fn test_seal_vectors() {
             .clone()
             .unwrap_or_else(envelope::PayloadMeta::text);
 
-        // Get iterations from envelope
-        let iterations = v.envelope["kdf"]
-            .get("iterations")
-            .and_then(|i| i.as_u64())
-            .unwrap_or(0) as u32;
-
         let result = envelope::seal(envelope::SealParams {
             content: expected_plaintext,
             metadata,
             passphrase,
             rand_bytes: &rand_fn,
             compression_policy: envelope::CompressionPolicy::default(),
-            iterations,
         })
         .unwrap_or_else(|e| panic!("seal failed for {:?}: {}", v.description, e));
 
@@ -282,7 +275,6 @@ fn test_roundtrip() {
         passphrase: String::new(),
         rand_bytes: &rand_fn,
         compression_policy: envelope::CompressionPolicy::default(),
-        iterations: 0,
     })
     .expect("seal failed");
 
@@ -316,7 +308,6 @@ fn test_roundtrip_with_passphrase() {
         passphrase: passphrase.to_string(),
         rand_bytes: &rand_fn,
         compression_policy: envelope::CompressionPolicy::default(),
-        iterations: 0,
     })
     .expect("seal failed");
 
@@ -349,7 +340,6 @@ fn test_wrong_passphrase() {
         passphrase: "correct".to_string(),
         rand_bytes: &rand_fn,
         compression_policy: envelope::CompressionPolicy::default(),
-        iterations: 0,
     })
     .expect("seal failed");
 
