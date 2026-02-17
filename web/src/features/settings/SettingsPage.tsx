@@ -131,7 +131,7 @@ function ApiKeysCard() {
       {error && (
         <div
           role="alert"
-          class="mb-4 rounded-md bg-red-100 px-3 py-2 text-red-700 dark:bg-red-900/30 dark:text-red-400"
+          class="alert-error mb-4"
         >
           {error}
         </div>
@@ -249,7 +249,7 @@ function AccountCard() {
       {error && (
         <div
           role="alert"
-          class="mb-4 rounded-md bg-red-100 px-3 py-2 text-red-700 dark:bg-red-900/30 dark:text-red-400"
+          class="alert-error mb-4"
         >
           {error}
         </div>

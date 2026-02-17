@@ -266,6 +266,10 @@
     }
   }
 
+  .alert-error {
+    @apply rounded-md border border-error/30 bg-error/5 px-3 py-2.5 text-error;
+  }
+
   .input-error {
     @apply border-error;
     &:focus {

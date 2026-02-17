@@ -271,9 +271,9 @@ export function RegisterPage() {
         {state.step === 'error' && (
           <div
             role="alert"
-            class="flex items-start gap-2 rounded-md border border-error/30 bg-error/5 px-3 py-2.5 text-error"
+            class="alert-error flex items-center gap-2"
           >
-            <TriangleExclamationIcon class="mt-0.5 size-5 shrink-0" />
+            <TriangleExclamationIcon class="size-5 shrink-0" />
             {state.message}
           </div>
         )}

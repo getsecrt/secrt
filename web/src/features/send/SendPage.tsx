@@ -587,9 +587,9 @@ export function SendPage() {
         {status.step === 'error' && (
           <div
             role="alert"
-            class="flex items-start gap-2 rounded-md border border-error/30 bg-error/5 px-3 py-2.5 text-error"
+            class="alert-error flex items-center gap-2"
           >
-            <TriangleExclamationIcon class="mt-0.5 size-5 shrink-0" />
+            <TriangleExclamationIcon class="size-5 shrink-0" />
             <span>
               {status.message.split('\n').map((line, i, arr) => (
                 <>
@@ -683,7 +683,7 @@ export function SendPage() {
         {!passwordLengthValid && (
           <div
             role="alert"
-            class="rounded-md border border-error/30 bg-error/5 px-3 py-2 text-sm text-error"
+            class="alert-error text-sm"
           >
             Length must be at least {MIN_PASSWORD_LENGTH}.
           </div>
