@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.10.3 — 2026-02-16
+
+### Added
+
+- **PWA support:** service worker (`sw.js`) with network-only fetch strategy for installability without offline caching; web app manifest with maskable icon; `registerServiceWorker()` helper that registers in production only.
+- **PWA meta tags:** `<meta name="theme-color">` with light/dark media queries, `apple-mobile-web-app-capable`, and `apple-mobile-web-app-status-bar-style` for iOS standalone mode.
+- **Service worker routing:** dedicated `/sw.js` route with `Service-Worker-Allowed: /` header and `no-store` cache control; `site.webmanifest` also served with `no-store`.
+- **PWA tests:** vitest unit tests for service worker registration (4 tests covering all branches); Playwright e2e tests for manifest validation, icon reachability, meta tags, and service worker presence.
+
+### Changed
+
+- **Code formatting:** applied Prettier across all web source files for consistent style.
+
 ## 0.10.2 — 2026-02-16
 
 ### Added

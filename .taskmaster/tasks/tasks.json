@@ -462,8 +462,8 @@
       {
         "id": 18,
         "title": "Extract reusable Alert component",
-        "description": "The same error alert pattern (rounded-md bg-red-100 px-3 py-2 text-sm text-red-700 dark:bg-red-900/30 dark:text-red-400) is duplicated across DashboardPage.tsx, SettingsPage.tsx (3 times), and potentially other pages. Extract to either: (a) a CSS class (.alert, .alert-error, .alert-warning, .alert-success) in styles.css, or (b) a Preact component <Alert variant='error'>. The SettingsPage also has a warning-style alert (amber) for the new API key display. A component approach would handle both variants cleanly.",
-        "status": "pending",
+        "description": "Resolved: extracted .alert-error utility class in styles.css. All 8 alert instances across 6 files now use it consistently with error design tokens, border, and normalized icon sizing.",
+        "status": "done",
         "priority": "medium",
         "dependencies": [],
         "subtasks": []
