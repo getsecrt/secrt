@@ -2,6 +2,7 @@ import { CheckCircleIcon } from '../../components/Icons';
 import { CopyButton } from '../../components/CopyButton';
 import { ClipboardIcon } from '../../components/Icons';
 import { formatExpiryDate } from '../../lib/ttl';
+import { CardHeading } from '../../components/CardHeading';
 
 interface ShareResultProps {
   shareUrl: string;
@@ -16,10 +17,10 @@ export function ShareResult({
 }: ShareResultProps) {
   return (
     <div class="card space-y-5">
-      <div class="flex flex-col items-center gap-2 text-center">
-        <CheckCircleIcon class="size-10 text-success" />
-        <h2 class="text-xl font-semibold">Secret Created</h2>
-      </div>
+      <CardHeading
+        title="Secret Created"
+        icon={<CheckCircleIcon class="size-10 text-accent" />}
+      />
 
       <div class="rounded-md border border-border bg-surface px-3 py-2.5 inset-shadow-sm">
         <pre

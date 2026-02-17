@@ -16,6 +16,7 @@ import {
   SquarePlusIcon,
   CircleXmarkIcon,
 } from '../../components/Icons';
+import { CardHeading } from '../../components/CardHeading';
 import { navigate } from '../../router';
 import type { ApiKeyItem } from '../../types';
 
@@ -109,10 +110,10 @@ function ApiKeysCard() {
   return (
     <div class="card mb-4">
       <div class="mb-4">
-        <h2 class="heading flex w-full items-center justify-center gap-2">
-          <KeyIcon class="size-4" />
-          API Keys
-        </h2>
+        <CardHeading
+          title="API Keys"
+          subtitle="Use API keys with the secrt CLI or custom applications."
+        />
 
         <div class="flex justify-center">
           <button
@@ -151,7 +152,7 @@ function ApiKeysCard() {
             onClick={handleCopy}
           >
             <ClipboardIcon class="size-3.5" />
-            {copied ? 'Copied' : 'Copy'}
+            {copied ? 'Copied!' : 'Copy'}
           </button>
         </div>
       )}
@@ -235,17 +236,15 @@ function AccountCard() {
 
   return (
     <div class="card">
-      <h2 class="heading flex w-full items-center justify-center gap-2">
-        <UserIcon class="size-4" />
-        Your Account
-      </h2>
-
-      <div class="mb-4">
-        <p class="text-center text-muted">
-          Signed in as{' '}
-          <span class="font-medium text-text">{auth.displayName}</span>
-        </p>
-      </div>
+      <CardHeading
+        title="Your Account"
+        subtitle={
+          <>
+            Signed in as{' '}
+            <span class="font-medium text-text">{auth.displayName}</span>
+          </>
+        }
+      />
 
       {error && (
         <div
@@ -291,7 +290,7 @@ function AccountCard() {
             />
             <button
               type="button"
-              class="btn btn-danger"
+              class="btn btn-danger tracking-wider uppercase"
               disabled={confirmText !== 'DELETE' || deleting}
               onClick={handleDelete}
             >
@@ -299,7 +298,7 @@ function AccountCard() {
             </button>
             <button
               type="button"
-              class="btn"
+              class="btn tracking-wider uppercase"
               onClick={() => {
                 setShowConfirm(false);
                 setConfirmText('');

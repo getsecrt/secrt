@@ -1,3 +1,4 @@
+import { CardHeading } from '../../components/CardHeading';
 import { navigate } from '../../router';
 
 export function HowItWorksPage() {
@@ -6,28 +7,30 @@ export function HowItWorksPage() {
     navigate('/');
   };
 
+  const Secrt = () => (
+    <span class="text-black dark:text-white">
+      s<span class="text-green-700 dark:text-green-400">e</span>crt
+    </span>
+  );
+
   return (
     <div class="space-y-10">
       <div class="card space-y-8 bg-white/20 dark:bg-black/20">
-        <div class="mb-6 space-y-2 text-center">
-          <h1 class="heading">How secrt Works</h1>
-          <p class="text-sm text-muted">
-            A technical overview of our zero-knowledge architecture
-          </p>
-        </div>
+        <CardHeading
+          title="How secrt Works"
+          subtitle="A technical overview of our zero-knowledge architecture"
+          underline
+        />
 
         <section class="space-y-2">
           <h2 class="text-xl font-semibold text-black dark:text-white">
             Overview
           </h2>
           <p class="">
-            <span class="text-black dark:text-white">
-              s<span class="text-green-700 dark:text-green-400">e</span>crt
-            </span>{' '}
-            is a zero-knowledge, one-time secret sharing service. Your data is
-            encrypted entirely in your browser before being sent to the server.
-            The server stores only ciphertext — it never has access to your
-            plaintext, decryption keys, or passphrases.
+            <Secrt /> is a zero-knowledge, one-time secret sharing service. Your
+            data is encrypted entirely in your browser before being sent to the
+            server. The server stores only ciphertext — it never has access to
+            your plaintext, decryption keys, or passphrases.
           </p>
         </section>
 
@@ -114,11 +117,15 @@ export function HowItWorksPage() {
       </div>
 
       <div class="card space-y-8 bg-white/20 dark:bg-black/20">
-        <h2 class="heading mb-6 text-center">Frequently Asked Questions</h2>
+        <CardHeading title="Frequently Asked Questions" underline />
 
         <section class="space-y-2">
           <h3 class="text-xl font-semibold text-black dark:text-white">
-            Can secrt read my secrets?
+            Can{' '}
+            <span class="text-black dark:text-white">
+              s<span class="text-green-700 dark:text-green-400">e</span>crt
+            </span>{' '}
+            read my secrets?
           </h3>
           <p class="">
             No. Your secret is encrypted on your device before it reaches our
@@ -150,8 +157,8 @@ export function HowItWorksPage() {
             How can I trust you to keep my data safe?
           </h3>
           <p class="">
-            You don't have to trust us — secrt is designed so that trust isn't
-            required. Your data is encrypted on your device before it ever
+            You don't have to trust us — <Secrt /> is designed so that trust
+            isn't required. Your data is encrypted on your device before it ever
             reaches our server, and the decryption key is never sent to the
             server. We also mask IP addresses and strip identifying information
             from logs, so we can't tell who sent what.
@@ -180,7 +187,7 @@ export function HowItWorksPage() {
             That said, trusting JavaScript served by a website is inherently
             difficult; the code could change between visits, and browser
             extensions or network middleboxes could modify it. This is a known
-            limitation of any web-based encryption tool, not just secrt.
+            limitation of any web-based encryption tool, not just <Secrt />.
           </p>
           <p class="">
             For highly sensitive data or automation, we also provide a
@@ -208,10 +215,10 @@ export function HowItWorksPage() {
 
       <div class="card space-y-8 bg-white/20 dark:bg-black/20">
         <section class="space-y-2">
-          <h2 class="heading mb-6 text-center">Technical Whitepaper</h2>
+          <CardHeading title="Technical Whitepaper" underline />
           <p class="">
-            For an in depth analysis of the architecture of secrt, please refer
-            to the{' '}
+            For an in depth analysis of the architecture of <Secrt />, please
+            refer to the{' '}
             <a
               class="link"
               href="https://github.com/getsecrt/secrt/blob/main/docs/whitepaper.md"

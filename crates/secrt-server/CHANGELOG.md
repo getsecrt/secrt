@@ -1,5 +1,28 @@
 # Changelog
 
+## 0.10.2 — 2026-02-16
+
+### Added
+
+- **Shared Modal component:** replaced hand-rolled modal markup with a native `<dialog>`-based `Modal` component with focus trap, backdrop click dismiss, and optional form mode.
+- **Modal open/close animations:** backdrop fades in first, then card scales up with a staggered delay; reverse on close using CSS `@starting-style` and `transition-behavior: allow-discrete`.
+- **Modal shadow theme token:** added `--shadow-modal` with dark-mode-aware values, applied via `var()` to ensure runtime theme switching.
+- **CardHeading component:** reusable card heading with optional icon, subtitle (supports `\n`), underline, and custom class props.
+
+### Changed
+
+- **Claim page modal consolidation:** collapsed three separate modals (spinner, confirm, passphrase) into a single modal that switches content based on claim state; "View Secret" button now shows inline loading state instead of a spinner overlay.
+- **Modal centering:** fixed horizontal centering (`w-full h-full` to override native `<dialog>` `fit-content`) and switched to upper-biased vertical positioning with `clamp()` padding.
+- **Passphrase retry UX:** input is now auto-focused and text selected on wrong passphrase, so the user can immediately retype.
+- **CopyButton styling:** updated default button style to primary with uppercase tracking.
+- **Page heading consistency:** send page, settings page, and password generator modal now use `CardHeading` for consistent heading style.
+- **How-it-Works page refresh:** updated layout, headings, and copy.
+
+### Fixed
+
+- **HMR double-mount:** `main.tsx` now clears the root element before rendering to prevent duplicate component trees during Vite hot-reload.
+- **iOS Safari auto-zoom:** dropped explicit text size from password preview input to prevent unwanted zoom.
+
 ## 0.10.1 — 2026-02-16
 
 ### Changed

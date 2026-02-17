@@ -5,6 +5,7 @@ import {
   ClipboardIcon,
   FireIcon,
 } from '../../components/Icons';
+import { CardHeading } from '../../components/CardHeading';
 import { navigate } from '../../router';
 import type { ComponentChildren } from 'preact';
 
@@ -19,7 +20,7 @@ function Section({
 }) {
   return (
     <section class="space-y-4">
-      <h2 class="heading">{title}</h2>
+      <CardHeading title={title} />
       {children}
     </section>
   );
@@ -148,13 +149,10 @@ export function ThemePage() {
         {/* Typography */}
         <Section title="Typography">
           <div class="space-y-3">
-            <div class="heading">Section Heading `.heading`</div>
             <p>Body (base) — The quick brown fox jumps over the lazy dog.</p>
             <p class="text-muted">Muted — Secondary information</p>
             <p class="text-faint">Faint — Tertiary information</p>
-            <p class="font-mono text-sm">
-              Monospace — const secret = "abc123"
-            </p>
+            <p class="font-mono text-sm">Monospace — const secret = "abc123"</p>
           </div>
         </Section>
 
@@ -260,11 +258,7 @@ export function ThemePage() {
           <div class="space-y-4">
             <div>
               <label class="mb-1 block font-medium">Text Input</label>
-              <input
-                type="text"
-                placeholder="Placeholder text"
-                class="input"
-              />
+              <input type="text" placeholder="Placeholder text" class="input" />
             </div>
             <div>
               <label class="mb-1 block font-medium">Disabled Input</label>
@@ -277,11 +271,7 @@ export function ThemePage() {
             </div>
             <div>
               <label class="mb-1 block font-medium">Input with Error</label>
-              <input
-                type="text"
-                value="Bad value"
-                class="input input-error"
-              />
+              <input type="text" value="Bad value" class="input input-error" />
               <p class="mt-1 text-xs text-error">This field has an error.</p>
             </div>
             <div>
@@ -298,8 +288,7 @@ export function ThemePage() {
         {/* Inline code */}
         <Section title="Inline Code">
           <p>
-            Secret ID:{' '}
-            <code class="code select-all">abc123-def456-ghi789</code>
+            Secret ID: <code class="code select-all">abc123-def456-ghi789</code>
           </p>
         </Section>
 

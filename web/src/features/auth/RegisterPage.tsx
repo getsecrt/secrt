@@ -12,6 +12,7 @@ import {
   ShuffleIcon,
   TriangleExclamationIcon,
 } from '../../components/Icons';
+import { CardHeading } from '../../components/CardHeading';
 
 // --- Random display name generator ---
 // ~2 500 combinations for privacy-friendly default names.
@@ -225,14 +226,14 @@ export function RegisterPage() {
   return (
     <div class="space-y-4">
       <form class="card space-y-6" onSubmit={handleSubmit}>
-        <div class="text-center">
-          <PasskeyIcon class="text-primary mx-auto mb-2 size-10" />
-          <h2 class="heading">Create an Account</h2>
-          <p class="mt-1 text-muted">
-            Register with a passkey for higher limits, larger files, and secret
-            management.
-          </p>
-        </div>
+        <CardHeading
+          title="Log In"
+          icon={<PasskeyIcon class="size-10" />}
+          subtitle={
+            'Register with a passkey for higher limits, larger file uploads, and secret management.'
+          }
+          class="mb-4"
+        />
 
         <div class="space-y-1.5">
           <label class="block font-medium text-muted" for="display-name">

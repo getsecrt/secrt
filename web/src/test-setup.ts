@@ -1,5 +1,24 @@
 import '@testing-library/jest-dom/vitest';
 
+// Node 21+ ships a built-in localStorage that shadows happy-dom's when
+// --localstorage-file is absent.  The built-in is non-functional (no methods),
+// so we replace it with a simple in-memory implementation.
+if (typeof localStorage !== 'undefined' && typeof localStorage.clear !== 'function') {
+  const data = new Map<string, string>();
+  const storage: Storage = {
+    get length() { return data.size; },
+    clear() { data.clear(); },
+    getItem(key: string) { return data.get(key) ?? null; },
+    key(index: number) { return [...data.keys()][index] ?? null; },
+    removeItem(key: string) { data.delete(key); },
+    setItem(key: string, value: string) { data.set(key, String(value)); },
+  };
+  Object.defineProperty(globalThis, 'localStorage', {
+    configurable: true,
+    value: storage,
+  });
+}
+
 // jsdom lacks <dialog> methods — polyfill for tests
 if (!HTMLDialogElement.prototype.showModal) {
   HTMLDialogElement.prototype.showModal = function showModal() {

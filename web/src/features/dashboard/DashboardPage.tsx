@@ -17,6 +17,7 @@ import {
   ChevronDownIcon,
   ChevronUpIcon,
 } from '../../components/Icons';
+import { CardHeading } from '../../components/CardHeading';
 import { navigate } from '../../router';
 import type { SecretMetadata } from '../../types';
 
@@ -274,7 +275,7 @@ function DashboardContent() {
 
   return (
     <div class="">
-      <h2 class="heading mb text-center">Your Secrets</h2>
+      <CardHeading title="Your Secrets" class="mb-4" />
 
       {error && (
         <div

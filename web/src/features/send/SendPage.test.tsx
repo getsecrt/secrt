@@ -231,7 +231,7 @@ describe('SendPage', () => {
       screen.getByRole('button', { name: 'Password generator settings' }),
     );
     expect(
-      screen.getByRole('heading', { name: 'Generate Password' }),
+      screen.getByRole('heading', { name: /Generate Password/i }),
     ).toBeInTheDocument();
 
     const lengthInput = screen.getByLabelText('Length');
@@ -250,7 +250,7 @@ describe('SendPage', () => {
     });
     expect(mockCopyToClipboard).toHaveBeenCalledWith('Bb2@Bb2@Bb2@Bb2@');
     expect(
-      screen.getByRole('heading', { name: 'Generate Password' }),
+      screen.getByRole('heading', { name: /Generate Password/i }),
     ).toBeInTheDocument();
     expect(screen.getByLabelText('Password Preview')).toHaveValue(
       'Bb2@Bb2@Bb2@Bb2@',
@@ -311,7 +311,7 @@ describe('SendPage', () => {
     );
 
     expect(
-      screen.queryByRole('heading', { name: 'Generate Password' }),
+      screen.queryByRole('heading', { name: /Generate Password/i }),
     ).not.toBeInTheDocument();
   });
 
@@ -325,7 +325,7 @@ describe('SendPage', () => {
     await user.click(screen.getByTestId('password-generator-backdrop'));
 
     expect(
-      screen.queryByRole('heading', { name: 'Generate Password' }),
+      screen.queryByRole('heading', { name: /Generate Password/i }),
     ).not.toBeInTheDocument();
   });
 
@@ -379,7 +379,7 @@ describe('SendPage', () => {
     await user.click(
       screen.getByLabelText('Group characters for easier entry'),
     );
-    await user.click(screen.getByRole('button', { name: 'Close' }));
+    await user.click(screen.getByRole('button', { name: 'Close password generator' }));
 
     mockGeneratePassword.mockClear();
     await user.click(
@@ -401,10 +401,10 @@ describe('SendPage', () => {
     await user.click(
       screen.getByRole('button', { name: 'Password generator settings' }),
     );
-    await user.click(screen.getByRole('button', { name: 'Close' }));
+    await user.click(screen.getByRole('button', { name: 'Close password generator' }));
 
     expect(
-      screen.queryByRole('heading', { name: 'Generate Password' }),
+      screen.queryByRole('heading', { name: /Generate Password/i }),
     ).not.toBeInTheDocument();
     expect(mockGeneratePassword).not.toHaveBeenCalled();
   });
@@ -416,11 +416,12 @@ describe('SendPage', () => {
     await user.click(
       screen.getByRole('button', { name: 'Password generator settings' }),
     );
-    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
+    const dialog = document.querySelector('dialog');
+    dialog?.dispatchEvent(new Event('cancel'));
 
     await waitFor(() => {
       expect(
-        screen.queryByRole('heading', { name: 'Generate Password' }),
+        screen.queryByRole('heading', { name: /Generate Password/i }),
       ).not.toBeInTheDocument();
     });
   });

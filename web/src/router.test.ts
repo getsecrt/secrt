@@ -56,8 +56,8 @@ describe('matchRoute', () => {
     expect(matchRoute('/settings')).toEqual({ page: 'settings' });
   });
 
-  it('"/test/theme" -> not-found in prod (DEV-only route)', () => {
-    expect(matchRoute('/test/theme')).toEqual({ page: 'not-found' });
+  it('"/test/theme" -> theme in dev', () => {
+    expect(matchRoute('/test/theme')).toEqual({ page: 'theme' });
   });
 
   it('"/test/claim" -> not-found (removed)', () => {

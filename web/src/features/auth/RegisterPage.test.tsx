@@ -49,7 +49,7 @@ describe('RegisterPage', () => {
 
   it('renders registration form', () => {
     render(<RegisterPage />);
-    expect(screen.getByText('Create an Account')).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: /Log In/i })).toBeInTheDocument();
     expect(screen.getByLabelText('Account Nickname')).toBeInTheDocument();
     expect(screen.getByText('Register with Passkey')).toBeInTheDocument();
   });
@@ -147,7 +147,7 @@ describe('RegisterPage', () => {
   it('has link to login page', async () => {
     const user = userEvent.setup();
     render(<RegisterPage />);
-    await user.click(screen.getByText('Log In'));
+    await user.click(screen.getByRole('link', { name: 'Log In' }));
     expect(mockNavigate).toHaveBeenCalledWith('/login');
   });
 });

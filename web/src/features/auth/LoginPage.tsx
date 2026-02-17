@@ -5,6 +5,7 @@ import { loginPasskeyStart, loginPasskeyFinish } from '../../lib/api';
 import { base64urlEncode } from '../../crypto/encoding';
 import { navigate } from '../../router';
 import { PasskeyIcon, TriangleExclamationIcon } from '../../components/Icons';
+import { CardHeading } from '../../components/CardHeading';
 
 type LoginState =
   | { step: 'ready' }
@@ -101,15 +102,14 @@ export function LoginPage() {
   return (
     <div class="space-y-4">
       <div class="card space-y-6 text-center">
-        <div>
-          <PasskeyIcon class="text-primary mx-auto mb-2 size-10" />
-          <h2 class="heading">Log In</h2>
-          <p class="mt-1">
-            Use your passkey to sign in anonymously.
-            <br />
-            Your browser will show available passkeys.
-          </p>
-        </div>
+        <CardHeading
+          title="Log In"
+          icon={<PasskeyIcon class="size-10" />}
+          subtitle={
+            'Use your passkey to sign in anonymously.\nYour browser will show available passkeys.'
+          }
+          class="mb-4"
+        />
 
         {state.step === 'error' && (
           <div

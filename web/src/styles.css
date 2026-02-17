@@ -169,10 +169,6 @@
 }
 
 @layer components {
-  .heading {
-    @apply mb-3 border-b border-border pb-2 text-xl font-semibold tracking-widest text-neutral-700 uppercase dark:text-neutral-300 dark:text-shadow-black;
-  }
-
   .label {
     @apply flex items-center gap-1.5 font-medium text-neutral-700 dark:text-neutral-300;
   }
@@ -296,22 +292,65 @@
 
   /* ── Modal (native <dialog>) ── */
   .modal-backdrop {
-    @apply m-0 h-full max-h-full w-full max-w-full border-none bg-transparent p-0;
+    @apply m-0 h-full max-h-full w-full max-w-full overflow-y-auto border-none bg-transparent p-0;
     /* Centre the inner card (upper-biased) */
-    @apply fixed inset-0 flex items-start justify-center px-4 text-text;
-    padding-top: clamp(2.5rem, calc(20vh - 20px), 10rem);
+    @apply fixed inset-0 flex items-start justify-center px-4 pb-4 text-text;
+    padding-top: clamp(2.5rem, calc(20vh - 40px), 10rem);
 
+    /* Keep dialog in top-layer during exit animation */
+    transition:
+      display 0.2s allow-discrete,
+      overlay 0.2s allow-discrete;
+
+    /* Backdrop: closed state (transparent) */
     &::backdrop {
-      background: oklch(0 0 0 / 0.03);
+      background: oklch(0 0 0 / 0);
+      transition:
+        background 0.15s ease-in,
+        display 0.15s allow-discrete,
+        overlay 0.15s allow-discrete;
     }
 
+    /* Backdrop: open state */
+    &[open]::backdrop {
+      background: oklch(0 0 0 / 0.3);
+      transition: background 0.2s ease-out;
+    }
+
+    /* Card: closed state (scaled down + hidden) */
     & > * {
       box-shadow: var(--shadow-modal);
+      opacity: 0;
+      transform: scale(0.96);
+      transition:
+        opacity 0.1s ease-in,
+        transform 0.1s ease-in;
     }
 
-    /* Hide when not open (native handles this, but be explicit) */
+    /* Card: open state */
+    &[open] > * {
+      opacity: 1;
+      transform: scale(1);
+      transition:
+        opacity 0.2s ease-out 0.08s,
+        transform 0.2s ease-out 0.08s;
+    }
+
+    /* Must re-assert display:none since @apply flex overrides the UA default */
     &:not([open]) {
       display: none;
+    }
+
+    /* Entry from display:none — where the open animation starts */
+    @starting-style {
+      &[open]::backdrop {
+        background: oklch(0 0 0 / 0);
+      }
+
+      &[open] > * {
+        opacity: 0;
+        transform: scale(0.96);
+      }
     }
   }
 }

@@ -29,6 +29,7 @@ import {
   XMarkIcon,
 } from '../../components/Icons';
 import type { ApiInfo, PayloadMeta } from '../../types';
+import { CardHeading } from '../../components/CardHeading';
 import { Modal } from '../../components/Modal';
 import { FileDropZone } from './FileDropZone';
 import { TtlSelector } from './TtlSelector';
@@ -419,14 +420,10 @@ export function SendPage() {
         onSubmit={handleSubmit}
         onDragOver={handlePageDragOver}
       >
-        <h2 class="-m-2 mb-6 border-b border-border pb-3 text-center">
-          <div class="pb-1 text-xl font-semibold tracking-widest text-neutral-700 uppercase dark:text-neutral-300 dark:text-shadow-black">
-            Send a Secret
-          </div>
-          <div class="text-sm text-muted">
-            The server never sees the original text or file.
-          </div>
-        </h2>
+        <CardHeading
+          title="Send a Secret"
+          subtitle="The server never sees the original text or file."
+        />
 
         {/* Content input */}
         <div class="space-y-1">
@@ -622,13 +619,13 @@ export function SendPage() {
         </button>
 
         <div class="flex flex-col items-center gap-2 text-center">
-          <KeyIcon class="size-10 text-accent" />
-          <h2 class="mb-2 text-xl font-semibold">Generate Password</h2>
-          <p class="text-sm text-muted">
-            Replace the message with a random password
-            <br />
-            and copies it directly to your clipboard.
-          </p>
+          <CardHeading
+            icon={<KeyIcon class="size-10" />}
+            title="Generate Password"
+            subtitle={
+              'Replace the message with a random password\nand copies it directly to your clipboard.'
+            }
+          />
         </div>
 
         <div class="space-y-1">
