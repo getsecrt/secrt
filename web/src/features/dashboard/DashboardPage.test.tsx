@@ -31,15 +31,17 @@ import { listSecrets, checkSecrets, burnSecretAuthed } from '../../lib/api';
 
 const futureDate = new Date(Date.now() + 3600000).toISOString();
 
-function makeSecret(overrides: Partial<{
-  id: string;
-  share_url: string;
-  expires_at: string;
-  created_at: string;
-  state: string;
-  ciphertext_size: number;
-  passphrase_protected: boolean;
-}> = {}) {
+function makeSecret(
+  overrides: Partial<{
+    id: string;
+    share_url: string;
+    expires_at: string;
+    created_at: string;
+    state: string;
+    ciphertext_size: number;
+    passphrase_protected: boolean;
+  }> = {},
+) {
   return {
     id: 'abc123def456gh',
     share_url: 'https://secrt.ca/s/abc123def456gh#key',
@@ -93,13 +95,23 @@ describe('DashboardPage', () => {
     });
 
     render(<DashboardPage />);
-    expect(await screen.findByText('You have no active secrets.')).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: 'Send a New Secret' })).toBeInTheDocument();
+    expect(
+      await screen.findByText('You have no active secrets.'),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole('link', { name: 'Send a New Secret' }),
+    ).toBeInTheDocument();
   });
 
   it('renders secrets list with correct metadata', async () => {
-    const s1 = makeSecret({ id: 'aaaa1111bbbb2222', created_at: '2026-01-15T10:00:00Z' });
-    const s2 = makeSecret({ id: 'cccc3333dddd4444', created_at: '2026-01-15T10:00:00Z' });
+    const s1 = makeSecret({
+      id: 'aaaa1111bbbb2222',
+      created_at: '2026-01-15T10:00:00Z',
+    });
+    const s2 = makeSecret({
+      id: 'cccc3333dddd4444',
+      created_at: '2026-01-15T10:00:00Z',
+    });
 
     vi.mocked(listSecrets).mockResolvedValue({
       secrets: [s1, s2],
@@ -169,7 +181,10 @@ describe('DashboardPage', () => {
     await user.click(screen.getByText('Burn'));
     await user.click(screen.getByText('Yes, burn'));
 
-    expect(burnSecretAuthed).toHaveBeenCalledWith('uss_test.secret', 'aaaa1111bbbb2222');
+    expect(burnSecretAuthed).toHaveBeenCalledWith(
+      'uss_test.secret',
+      'aaaa1111bbbb2222',
+    );
 
     // Secret should be removed, empty state should appear
     await waitFor(() => {

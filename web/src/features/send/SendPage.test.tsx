@@ -379,7 +379,9 @@ describe('SendPage', () => {
     await user.click(
       screen.getByLabelText('Group characters for easier entry'),
     );
-    await user.click(screen.getByRole('button', { name: 'Close password generator' }));
+    await user.click(
+      screen.getByRole('button', { name: 'Close password generator' }),
+    );
 
     mockGeneratePassword.mockClear();
     await user.click(
@@ -401,7 +403,9 @@ describe('SendPage', () => {
     await user.click(
       screen.getByRole('button', { name: 'Password generator settings' }),
     );
-    await user.click(screen.getByRole('button', { name: 'Close password generator' }));
+    await user.click(
+      screen.getByRole('button', { name: 'Close password generator' }),
+    );
 
     expect(
       screen.queryByRole('heading', { name: /Generate Password/i }),

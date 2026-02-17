@@ -1,8 +1,16 @@
 import { describe, it, expect } from 'vitest';
-import { checkEnvelopeSize, estimateEnvelopeSize, frameSizeError } from './envelope-size';
+import {
+  checkEnvelopeSize,
+  estimateEnvelopeSize,
+  frameSizeError,
+} from './envelope-size';
 import type { ApiInfo, EnvelopeJson } from '../types';
 
-function makeInfo(maxPublic: number, maxAuthed: number, authenticated: boolean): ApiInfo {
+function makeInfo(
+  maxPublic: number,
+  maxAuthed: number,
+  authenticated: boolean,
+): ApiInfo {
   const rate = { requests_per_second: 1, burst: 10 };
   return {
     authenticated,

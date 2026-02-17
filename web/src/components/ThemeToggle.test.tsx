@@ -11,7 +11,9 @@ describe('ThemeToggle', () => {
 
   it('renders switch with accessible label', () => {
     render(<ThemeToggle />);
-    expect(screen.getByRole('switch', { name: 'Toggle dark mode' })).toBeInTheDocument();
+    expect(
+      screen.getByRole('switch', { name: 'Toggle dark mode' }),
+    ).toBeInTheDocument();
   });
 
   it('toggles dark mode on click', () => {

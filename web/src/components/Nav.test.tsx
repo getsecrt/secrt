@@ -143,7 +143,9 @@ describe('Nav', () => {
     const user = userEvent.setup();
     const { container } = render(<Nav />);
     await user.click(screen.getByLabelText('Open menu'));
-    const backdrop = container.querySelector('div.fixed.inset-0') as HTMLElement;
+    const backdrop = container.querySelector(
+      'div.fixed.inset-0',
+    ) as HTMLElement;
     expect(backdrop).toBeTruthy();
     await user.click(backdrop);
     expect(screen.getByLabelText('Open menu')).toBeInTheDocument();

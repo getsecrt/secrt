@@ -277,9 +277,7 @@ describe('parseFrame', () => {
 
   it('throws on non-zero reserved field', async () => {
     const header = makeHeader(CODEC_NONE, 0, 0, { reserved: 1 });
-    await expect(parseFrame(header)).rejects.toThrow(
-      'non-zero reserved field',
-    );
+    await expect(parseFrame(header)).rejects.toThrow('non-zero reserved field');
   });
 
   it('throws when meta_len exceeds frame size', async () => {

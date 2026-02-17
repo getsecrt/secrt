@@ -94,7 +94,9 @@ describe('navigate', () => {
 
   it('dispatches PopStateEvent', () => {
     navigate('/');
-    expect(window.dispatchEvent).toHaveBeenCalledWith(expect.any(PopStateEvent));
+    expect(window.dispatchEvent).toHaveBeenCalledWith(
+      expect.any(PopStateEvent),
+    );
   });
 });
 

@@ -18,15 +18,21 @@ async function rootSalt(): Promise<ArrayBuffer> {
 }
 
 /** Derive the auth token from a 32-byte root key using HKDF-SHA256. */
-export async function deriveAuthToken(rootKey: Uint8Array): Promise<Uint8Array> {
+export async function deriveAuthToken(
+  rootKey: Uint8Array,
+): Promise<Uint8Array> {
   if (rootKey.length !== ROOT_KEY_LEN) {
     throw new Error(`root key must be ${ROOT_KEY_LEN} bytes`);
   }
 
   const salt = await rootSalt();
-  const ikm = await crypto.subtle.importKey('raw', buf(rootKey), 'HKDF', false, [
-    'deriveBits',
-  ]);
+  const ikm = await crypto.subtle.importKey(
+    'raw',
+    buf(rootKey),
+    'HKDF',
+    false,
+    ['deriveBits'],
+  );
   const bits = await crypto.subtle.deriveBits(
     {
       name: 'HKDF',
@@ -57,6 +63,9 @@ export async function generateApiKeyMaterial(): Promise<{
 }
 
 /** Format the wire API key string: ak2_<prefix>.<b64(authToken)> */
-export function formatWireApiKey(prefix: string, authToken: Uint8Array): string {
+export function formatWireApiKey(
+  prefix: string,
+  authToken: Uint8Array,
+): string {
   return `ak2_${prefix}.${base64urlEncode(authToken)}`;
 }

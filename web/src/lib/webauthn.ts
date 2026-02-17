@@ -30,8 +30,8 @@ export async function createPasskeyCredential(
         displayName,
       },
       pubKeyCredParams: [
-        { alg: -7, type: 'public-key' },   // ES256
-        { alg: -257, type: 'public-key' },  // RS256
+        { alg: -7, type: 'public-key' }, // ES256
+        { alg: -257, type: 'public-key' }, // RS256
       ],
       authenticatorSelection: {
         residentKey: 'required',

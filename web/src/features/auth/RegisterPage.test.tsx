@@ -49,7 +49,9 @@ describe('RegisterPage', () => {
 
   it('renders registration form', () => {
     render(<RegisterPage />);
-    expect(screen.getByRole('heading', { name: /Log In/i })).toBeInTheDocument();
+    expect(
+      screen.getByRole('heading', { name: /Log In/i }),
+    ).toBeInTheDocument();
     expect(screen.getByLabelText('Account Nickname')).toBeInTheDocument();
     expect(screen.getByText('Register with Passkey')).toBeInTheDocument();
   });
@@ -73,7 +75,9 @@ describe('RegisterPage', () => {
     const input = screen.getByLabelText('Account Nickname');
     await user.clear(input);
     await user.click(screen.getByText('Register with Passkey'));
-    expect(screen.getByRole('alert')).toHaveTextContent('Please enter a display name');
+    expect(screen.getByRole('alert')).toHaveTextContent(
+      'Please enter a display name',
+    );
   });
 
   it('submit button is enabled with pre-filled name', () => {
@@ -114,9 +118,7 @@ describe('RegisterPage', () => {
 
   it('shows error when registration fails', async () => {
     const user = userEvent.setup();
-    vi.mocked(registerPasskeyStart).mockRejectedValue(
-      new Error('server down'),
-    );
+    vi.mocked(registerPasskeyStart).mockRejectedValue(new Error('server down'));
 
     render(<RegisterPage />);
     await user.type(screen.getByLabelText('Account Nickname'), 'Bob');

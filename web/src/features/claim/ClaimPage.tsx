@@ -397,10 +397,7 @@ export function ClaimPage({ id }: ClaimPageProps) {
             </div>
 
             {passphraseError && (
-              <div
-                role="alert"
-                class="alert-error flex items-center gap-2"
-              >
+              <div role="alert" class="alert-error flex items-center gap-2">
                 <TriangleExclamationIcon class="size-5 shrink-0" />
                 {passphraseError}
               </div>
@@ -421,9 +418,7 @@ export function ClaimPage({ id }: ClaimPageProps) {
               <h2 class="mb-2 text-xl font-semibold">
                 Someone Sent You a Secret
               </h2>
-              <p>
-                This secret can only be viewed once.
-              </p>
+              <p>This secret can only be viewed once.</p>
               <p class="mt-4 text-sm text-muted">
                 Be ready to save it and ensure no one else can see your screen.
               </p>

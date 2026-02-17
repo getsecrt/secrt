@@ -92,7 +92,8 @@ export async function seal(
   const claimHash = await deriveClaimHash(urlKey);
 
   // 6. Build framed payload (reuse pre-built frame if provided)
-  const frameBytes = options?.prebuiltFrame ?? buildFrame(meta, content, options?.compress);
+  const frameBytes =
+    options?.prebuiltFrame ?? buildFrame(meta, content, options?.compress);
 
   // 7. Generate nonce
   const nonce = new Uint8Array(GCM_NONCE_LEN);

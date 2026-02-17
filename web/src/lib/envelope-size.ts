@@ -7,7 +7,7 @@ import { formatSize } from './format';
  * and JSON structure overhead (~400 bytes for keys, nonces, salts, suite string).
  */
 export function estimateEnvelopeSize(frameBytes: number): number {
-  return Math.ceil((frameBytes + 16) * 4 / 3) + 400;
+  return Math.ceil(((frameBytes + 16) * 4) / 3) + 400;
 }
 
 /**

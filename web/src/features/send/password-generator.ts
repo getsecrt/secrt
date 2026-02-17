@@ -117,7 +117,9 @@ export function generatePassword(
 ): string {
   const length = options.length ?? DEFAULT_PASSWORD_LENGTH;
   if (!Number.isInteger(length) || length < 1) {
-    throw new Error(`length must be a positive integer, got ${JSON.stringify(length)}`);
+    throw new Error(
+      `length must be a positive integer, got ${JSON.stringify(length)}`,
+    );
   }
 
   if (length < CLASSES.length) {

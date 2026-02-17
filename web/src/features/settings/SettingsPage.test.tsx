@@ -36,7 +36,12 @@ vi.mock('../../crypto/apikey', () => ({
 /* ---------- imports (after vi.mock) ---------- */
 
 import { SettingsPage } from './SettingsPage';
-import { listApiKeys, revokeApiKey, registerApiKey, deleteAccount } from '../../lib/api';
+import {
+  listApiKeys,
+  revokeApiKey,
+  registerApiKey,
+  deleteAccount,
+} from '../../lib/api';
 import { generateApiKeyMaterial, formatWireApiKey } from '../../crypto/apikey';
 
 /* ---------- helpers ---------- */
@@ -136,7 +141,10 @@ describe('SettingsPage', () => {
     const revokeBtn = await screen.findByText('Revoke');
     await user.click(revokeBtn);
 
-    expect(mockedRevokeApiKey).toHaveBeenCalledWith('uss_test.secret', 'abc123');
+    expect(mockedRevokeApiKey).toHaveBeenCalledWith(
+      'uss_test.secret',
+      'abc123',
+    );
   });
 
   /* ---- 4. Create API key shows generated wire key ---- */
@@ -149,7 +157,10 @@ describe('SettingsPage', () => {
       authToken: new Uint8Array(32),
       authTokenB64: 'dGVzdC1hdXRoLXRva2Vu',
     });
-    mockedRegisterApiKey.mockResolvedValue({ prefix: 'abcdef', scopes: 'full' });
+    mockedRegisterApiKey.mockResolvedValue({
+      prefix: 'abcdef',
+      scopes: 'full',
+    });
     mockedFormatWireApiKey.mockReturnValue('ak2_abcdef.dGVzdC1hdXRoLXRva2Vu');
 
     render(<SettingsPage />);
@@ -163,12 +174,20 @@ describe('SettingsPage', () => {
     await user.click(createBtn);
 
     // Wait for the wire key to appear
-    expect(await screen.findByText('ak2_abcdef.dGVzdC1hdXRoLXRva2Vu')).toBeTruthy();
+    expect(
+      await screen.findByText('ak2_abcdef.dGVzdC1hdXRoLXRva2Vu'),
+    ).toBeTruthy();
 
     // Verify the crypto functions were called correctly
     expect(mockedGenerateApiKeyMaterial).toHaveBeenCalled();
-    expect(mockedRegisterApiKey).toHaveBeenCalledWith('uss_test.secret', 'dGVzdC1hdXRoLXRva2Vu');
-    expect(mockedFormatWireApiKey).toHaveBeenCalledWith('abcdef', new Uint8Array(32));
+    expect(mockedRegisterApiKey).toHaveBeenCalledWith(
+      'uss_test.secret',
+      'dGVzdC1hdXRoLXRva2Vu',
+    );
+    expect(mockedFormatWireApiKey).toHaveBeenCalledWith(
+      'abcdef',
+      new Uint8Array(32),
+    );
   });
 
   /* ---- 5. Delete account requires typing DELETE ---- */

@@ -41,7 +41,10 @@ describe('password generator', () => {
 
   it('enforces minimum length based on enabled classes', () => {
     expect(() =>
-      generatePassword({ length: MIN_PASSWORD_LENGTH - 1 }, makeCounterRandom()),
+      generatePassword(
+        { length: MIN_PASSWORD_LENGTH - 1 },
+        makeCounterRandom(),
+      ),
     ).toThrow(/too short/);
   });
 

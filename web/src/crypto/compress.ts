@@ -16,6 +16,9 @@ export async function ensureCompressor(): Promise<void> {
 
 /** Compress data with zstd at level 3. Call ensureCompressor() first. */
 export function compress(data: Uint8Array): Uint8Array {
-  if (!ready) throw new Error('compressor not initialized — call ensureCompressor() first');
+  if (!ready)
+    throw new Error(
+      'compressor not initialized — call ensureCompressor() first',
+    );
   return zstdCompress(data, 3);
 }

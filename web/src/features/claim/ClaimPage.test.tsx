@@ -136,7 +136,9 @@ describe('ClaimPage', () => {
     setHash(fakeFragment);
     render(<ClaimPage id="test123" />);
     await waitFor(() => {
-      expect(screen.getByText(/Someone sent you a secret/i)).toBeInTheDocument();
+      expect(
+        screen.getByText(/Someone sent you a secret/i),
+      ).toBeInTheDocument();
     });
     expect(
       screen.getByRole('button', { name: /View Secret/i }),

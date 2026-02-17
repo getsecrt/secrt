@@ -57,11 +57,15 @@ describe('base64urlEncode / base64urlDecode', () => {
 
   it('cross-checks spec vector url_key', () => {
     // Vector 1: url_key = "AQIDBAUGBwgJEBESExQVFhcYGSAhIiMkJSYnKCkwMTI"
-    const decoded = base64urlDecode('AQIDBAUGBwgJEBESExQVFhcYGSAhIiMkJSYnKCkwMTI');
+    const decoded = base64urlDecode(
+      'AQIDBAUGBwgJEBESExQVFhcYGSAhIiMkJSYnKCkwMTI',
+    );
     expect(decoded.length).toBe(32);
     expect(decoded[0]).toBe(0x01);
     expect(decoded[1]).toBe(0x02);
-    expect(base64urlEncode(decoded)).toBe('AQIDBAUGBwgJEBESExQVFhcYGSAhIiMkJSYnKCkwMTI');
+    expect(base64urlEncode(decoded)).toBe(
+      'AQIDBAUGBwgJEBESExQVFhcYGSAhIiMkJSYnKCkwMTI',
+    );
   });
 
   it('round-trips random-ish 64 bytes', () => {

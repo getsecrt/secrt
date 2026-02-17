@@ -129,10 +129,7 @@ function ApiKeysCard() {
       </div>
 
       {error && (
-        <div
-          role="alert"
-          class="alert-error mb-4"
-        >
+        <div role="alert" class="alert-error mb-4">
           {error}
         </div>
       )}
@@ -247,10 +244,7 @@ function AccountCard() {
       />
 
       {error && (
-        <div
-          role="alert"
-          class="alert-error mb-4"
-        >
+        <div role="alert" class="alert-error mb-4">
           {error}
         </div>
       )}

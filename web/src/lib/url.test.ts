@@ -14,7 +14,9 @@ describe('formatShareLink', () => {
     const key = makeUrlKey();
     const link = formatShareLink('abc123', key);
     expect(link).toMatch(
-      new RegExp(`^${window.location.origin.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}/s/abc123#`),
+      new RegExp(
+        `^${window.location.origin.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}/s/abc123#`,
+      ),
     );
   });
 
@@ -103,9 +105,7 @@ describe('parseShareUrl', () => {
   it('handles URL-safe ID characters (alphanumeric, -, _)', () => {
     const key = makeUrlKey(5);
     const fragment = base64urlEncode(key);
-    const result = parseShareUrl(
-      `https://secrt.ca/s/aB3-z_9#${fragment}`,
-    );
+    const result = parseShareUrl(`https://secrt.ca/s/aB3-z_9#${fragment}`);
     expect(result).not.toBeNull();
     expect(result!.id).toBe('aB3-z_9');
   });

@@ -258,7 +258,9 @@ describe('claimSecret', () => {
 
   it('throws on 404', async () => {
     vi.mocked(fetch).mockResolvedValue(
-      errorResponse(404, 'Not Found', { error: 'secret not found or already claimed' }),
+      errorResponse(404, 'Not Found', {
+        error: 'secret not found or already claimed',
+      }),
     );
 
     await expect(claimSecret('id', { claim: 'token' })).rejects.toThrow(
@@ -291,9 +293,7 @@ describe('burnSecret', () => {
   it('resolves on success (void return)', async () => {
     vi.mocked(fetch).mockResolvedValue(jsonResponse({ ok: true }));
 
-    await expect(
-      burnSecret('id', { claim: 'token' }),
-    ).resolves.toBeUndefined();
+    await expect(burnSecret('id', { claim: 'token' })).resolves.toBeUndefined();
   });
 
   it('throws on error', async () => {
@@ -435,9 +435,9 @@ describe('registerPasskeyStart', () => {
       errorResponse(400, 'Bad Request', { error: 'display_name required' }),
     );
 
-    await expect(
-      registerPasskeyStart({ display_name: '' }),
-    ).rejects.toThrow('display_name required');
+    await expect(registerPasskeyStart({ display_name: '' })).rejects.toThrow(
+      'display_name required',
+    );
   });
 });
 
@@ -451,9 +451,9 @@ describe('registerPasskeyFinish', () => {
       public_key: 'pk_1',
     });
     expect(result).toEqual(mockAuthFinish);
-    expect(
-      'user_id' in (result as unknown as Record<string, unknown>),
-    ).toBe(false);
+    expect('user_id' in (result as unknown as Record<string, unknown>)).toBe(
+      false,
+    );
     expect(fetch).toHaveBeenCalledWith(
       '/api/v1/auth/passkeys/register/finish',
       expect.objectContaining({ method: 'POST' }),
@@ -483,9 +483,9 @@ describe('loginPasskeyFinish', () => {
       credential_id: 'cred_xyz',
     });
     expect(result).toEqual(mockAuthFinish);
-    expect(
-      'user_id' in (result as unknown as Record<string, unknown>),
-    ).toBe(false);
+    expect('user_id' in (result as unknown as Record<string, unknown>)).toBe(
+      false,
+    );
     expect(fetch).toHaveBeenCalledWith(
       '/api/v1/auth/passkeys/login/finish',
       expect.objectContaining({ method: 'POST' }),
@@ -505,9 +505,9 @@ describe('fetchSession', () => {
 
     const result = await fetchSession('uss_tok.secret');
     expect(result).toEqual(mockSession);
-    expect(
-      'user_id' in (result as unknown as Record<string, unknown>),
-    ).toBe(false);
+    expect('user_id' in (result as unknown as Record<string, unknown>)).toBe(
+      false,
+    );
     const callArgs = vi.mocked(fetch).mock.calls[0];
     const init = callArgs[1] as RequestInit;
     const headers = new Headers(init.headers);

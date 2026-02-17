@@ -19,7 +19,10 @@ function AuthConsumer() {
       <span data-testid="authenticated">{String(auth.authenticated)}</span>
       <span data-testid="displayName">{String(auth.displayName)}</span>
       <span data-testid="sessionToken">{String(auth.sessionToken)}</span>
-      <button data-testid="login-btn" onClick={() => auth.login('tok_new', 'alice')}>
+      <button
+        data-testid="login-btn"
+        onClick={() => auth.login('tok_new', 'alice')}
+      >
         Login
       </button>
       <button data-testid="logout-btn" onClick={() => auth.logout()}>
@@ -72,7 +75,9 @@ describe('AuthProvider', () => {
     });
     expect(screen.getByTestId('authenticated').textContent).toBe('true');
     expect(screen.getByTestId('displayName').textContent).toBe('bob');
-    expect(screen.getByTestId('sessionToken').textContent).toBe('uss_stored.secret');
+    expect(screen.getByTestId('sessionToken').textContent).toBe(
+      'uss_stored.secret',
+    );
   });
 
   it('clears stored token when session validation returns unauthenticated', async () => {

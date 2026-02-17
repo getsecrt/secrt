@@ -28,7 +28,9 @@ describe('CopyButton', () => {
 
   it('renders with provided label', () => {
     render(<CopyButton text="hello" label="Copy link" />);
-    expect(screen.getByRole('button', { name: 'Copy link' })).toBeInTheDocument();
+    expect(
+      screen.getByRole('button', { name: 'Copy link' }),
+    ).toBeInTheDocument();
   });
 
   it('calls copyToClipboard(text) on click', async () => {
@@ -60,7 +62,9 @@ describe('CopyButton', () => {
   });
 
   it('renders icon when provided', () => {
-    render(<CopyButton text="hello" icon={<span data-testid="icon">IC</span>} />);
+    render(
+      <CopyButton text="hello" icon={<span data-testid="icon">IC</span>} />,
+    );
     expect(screen.getByTestId('icon')).toBeInTheDocument();
   });
 });
