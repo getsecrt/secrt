@@ -87,6 +87,9 @@ pub struct ParsedArgs {
     pub gen_grouped: bool,
     pub gen_count: u32,
 
+    // Notes (authenticated only)
+    pub note: String,
+
     // List
     pub list_limit: Option<i64>,
     pub list_offset: Option<i64>,
@@ -140,6 +143,8 @@ pub fn run(args: &[String], deps: &mut Deps) -> i32 {
         "burn" => run_burn(remaining, deps),
         "gen" | "generate" => run_gen(remaining, deps),
         "list" => run_list(remaining, deps),
+        "info" => crate::info::run_info(remaining, deps),
+        "sync" => crate::sync::run_sync(remaining, deps),
         "auth" => crate::auth::run_auth(remaining, deps),
         _ if looks_like_share_url(command) => {
             // Implicit get: treat share URLs/bare IDs as `secrt get <url>`
@@ -193,6 +198,8 @@ fn run_help(args: &[String], deps: &mut Deps) -> i32 {
         "burn" => print_burn_help(deps),
         "gen" | "generate" => print_gen_help(deps),
         "list" => print_list_help(deps),
+        "info" => crate::info::print_info_help(deps),
+        "sync" => crate::sync::print_sync_help(deps),
         "config" => print_config_help(deps),
         "auth" => print_auth_help(deps),
         _ => {
@@ -315,6 +322,7 @@ pub fn parse_flags(args: &[String]) -> Result<ParsedArgs, CliError> {
             "--hidden" => pa.hidden = true,
             "--silent" => pa.silent = true,
             "--qr" | "-Q" => pa.qr = true,
+            "--note" => pa.note = next_val!("--note"),
             "--output" | "-o" => pa.output = next_val!("--output"),
             "--passphrase-prompt" | "-p" => pa.passphrase_prompt = true,
             "--no-passphrase" | "-n" => pa.no_passphrase = true,
@@ -1040,6 +1048,8 @@ pub fn print_help(deps: &mut Deps) {
             ("get", "Retrieve and decrypt a secret"),
             ("burn", "Destroy a secret (requires API key)"),
             ("list", "List your active secrets (requires API key)"),
+            ("info", "Show metadata for a secret (requires API key)"),
+            ("sync", "Import notes encryption key from a sync link"),
             ("gen", "Generate a random password"),
             ("auth", "Login, setup, or manage authentication"),
             ("config", "Show or initialize configuration"),
@@ -1131,6 +1141,11 @@ pub fn print_send_help(deps: &mut Deps) {
             ("-n, --no-passphrase", "", "Skip default passphrase"),
             ("--passphrase-env", "<name>", "Read passphrase from env var"),
             ("--passphrase-file", "<path>", "Read passphrase from file"),
+            (
+                "--note",
+                "<text>",
+                "Private note (requires auth, encrypted)",
+            ),
             ("--base-url", "<url>", "Server URL"),
             ("--api-key", "<key>", "API key"),
             ("-Q, --qr", "", "Display share URL as QR code"),
@@ -1938,12 +1953,36 @@ mod tests {
     ///   "burn" = print_burn_help
     const FLAG_REGISTRY: &[(&str, bool, &[&str])] = &[
         // Global flags — should appear in main help
-        ("--base-url", true, &["main", "send", "get", "burn", "list"]),
-        ("--api-key", true, &["main", "send", "burn", "list"]),
-        ("--json", false, &["main", "send", "get", "burn", "list"]),
-        ("--silent", false, &["main", "send", "get", "burn", "list"]),
-        ("-h", false, &["main", "send", "get", "burn", "list"]),
-        ("--help", false, &["main", "send", "get", "burn", "list"]),
+        (
+            "--base-url",
+            true,
+            &["main", "send", "get", "burn", "list", "info", "sync"],
+        ),
+        (
+            "--api-key",
+            true,
+            &["main", "send", "burn", "list", "info", "sync"],
+        ),
+        (
+            "--json",
+            false,
+            &["main", "send", "get", "burn", "list", "info", "sync"],
+        ),
+        (
+            "--silent",
+            false,
+            &["main", "send", "get", "burn", "list", "info", "sync"],
+        ),
+        (
+            "-h",
+            false,
+            &["main", "send", "get", "burn", "list", "info", "sync"],
+        ),
+        (
+            "--help",
+            false,
+            &["main", "send", "get", "burn", "list", "info", "sync"],
+        ),
         // Send flags
         ("--ttl", true, &["send"]),
         ("--text", true, &["send"]),
@@ -2059,6 +2098,8 @@ mod tests {
             ("get", capture_help(print_get_help)),
             ("burn", capture_help(print_burn_help)),
             ("list", capture_help(print_list_help)),
+            ("info", capture_help(crate::info::print_info_help)),
+            ("sync", capture_help(crate::sync::print_sync_help)),
             ("gen", capture_help(print_gen_help)),
             ("auth", capture_help(print_auth_help)),
         ]

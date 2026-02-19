@@ -9,19 +9,28 @@ import {
 import { AuthGuard } from '../../components/AuthGuard';
 import { useAuth } from '../../lib/auth-context';
 import { listSecrets, checkSecrets, burnSecretAuthed } from '../../lib/api';
+import { decryptNote } from '../../crypto/amk';
+import { utf8Decode } from '../../crypto/encoding';
+import { loadAmk } from '../../lib/amk-store';
 import {
   FireIcon,
   LockIcon,
+  NoteIcon,
+  ClipboardIcon,
+  XMarkIcon,
   ChevronLeftIcon,
   ChevronRightIcon,
   ChevronDownIcon,
   ChevronUpIcon,
 } from '../../components/Icons';
 import { CardHeading } from '../../components/CardHeading';
+import { CopyButton } from '../../components/CopyButton';
+import { Modal } from '../../components/Modal';
+import { SyncNotesKeyButton } from '../../components/SyncNotesKeyButton';
 import { navigate } from '../../router';
 import type { SecretMetadata } from '../../types';
 
-const PAGE_SIZE = 10;
+const PAGE_SIZE = 100;
 const FETCH_LIMIT = 20_000;
 
 type SortColumn = 'created_at' | 'expires_at' | 'ciphertext_size';
@@ -177,11 +186,74 @@ function DashboardContent() {
   const [sortBy, setSortBy] = useState<SortColumn>('created_at');
   const [sortOrder, setSortOrder] = useState<SortOrder>('desc');
   const [page, setPage] = useState(0);
+  const [decryptedNotes, setDecryptedNotes] = useState<Record<string, string>>(
+    {},
+  );
+  const [selectedSecret, setSelectedSecret] = useState<SecretMetadata | null>(
+    null,
+  );
+  const amkRef = useRef<Uint8Array | null>(null);
+  const [hasAmk, setHasAmk] = useState(false);
+  const [visible, setVisible] = useState(true);
+
+  // Pause polling when tab is backgrounded
+  useEffect(() => {
+    const onChange = () => setVisible(document.visibilityState === 'visible');
+    document.addEventListener('visibilitychange', onChange);
+    return () => document.removeEventListener('visibilitychange', onChange);
+  }, []);
+
+  // Load AMK from IndexedDB on mount
+  useEffect(() => {
+    if (!auth.userId) return;
+    loadAmk(auth.userId)
+      .then((amk) => {
+        amkRef.current = amk;
+        setHasAmk(amk !== null);
+      })
+      .catch(() => {
+        /* AMK unavailable */
+      });
+  }, [auth.userId]);
+
+  // Clear stale decrypted notes on user change
+  useEffect(() => {
+    setDecryptedNotes({});
+  }, [auth.userId]);
+
+  // Decrypt notes when secrets or AMK availability change
+  useEffect(() => {
+    const amk = amkRef.current;
+    if (!amk) return;
+
+    const secretsWithNotes = allSecrets.filter((s) => s.enc_meta?.note);
+    if (secretsWithNotes.length === 0) return;
+
+    let cancelled = false;
+    (async () => {
+      const notes: Record<string, string> = {};
+      for (const s of secretsWithNotes) {
+        if (cancelled) return;
+        try {
+          const pt = await decryptNote(amk, s.id, s.enc_meta!.note);
+          notes[s.id] = utf8Decode(pt);
+        } catch {
+          notes[s.id] = '\u26A0 Unable to decrypt note';
+        }
+      }
+      if (!cancelled) setDecryptedNotes(notes);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [allSecrets, hasAmk]);
 
   useEffect(() => {
+    if (!visible) return;
+    setNow(Date.now());
     const id = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(id);
-  }, []);
+  }, [visible]);
 
   const fetchSecrets = useCallback(async () => {
     if (!auth.sessionToken) return;
@@ -205,9 +277,10 @@ function DashboardContent() {
   // Poll for changes via lightweight checksum endpoint
   const lastChecksum = useRef<string>('');
   useEffect(() => {
-    if (!auth.sessionToken) return;
+    if (!auth.sessionToken || !visible) return;
     const controller = new AbortController();
-    const id = setInterval(async () => {
+    // Immediate check when tab becomes visible (or on first mount)
+    const doCheck = async () => {
       if (loading) return;
       try {
         const res = await checkSecrets(auth.sessionToken!, controller.signal);
@@ -218,12 +291,14 @@ function DashboardContent() {
       } catch {
         // Silently ignore poll errors (network blips, unmount abort)
       }
-    }, 4000);
+    };
+    doCheck();
+    const id = setInterval(doCheck, 4000);
     return () => {
       clearInterval(id);
       controller.abort();
     };
-  }, [auth.sessionToken, loading, fetchSecrets]);
+  }, [auth.sessionToken, loading, fetchSecrets, visible]);
 
   const sorted = useMemo(() => {
     const copy = [...allSecrets];
@@ -324,6 +399,9 @@ function DashboardContent() {
                       sortOrder={sortOrder}
                     />
                   </th>
+                  <th class="hidden pr-3 pb-2 font-medium md:table-cell">
+                    <NoteIcon class="size-3.5" />
+                  </th>
                   <th class="pr-3 pb-2 font-medium">
                     <LockIcon class="size-3.5" />
                   </th>
@@ -344,7 +422,10 @@ function DashboardContent() {
               <tbody>
                 {pageSecrets.map((s) => (
                   <tr key={s.id} class="border-b border-border/50">
-                    <td class="max-w-[8rem] truncate py-2 pr-3 font-mono text-xs sm:max-w-[12rem] md:max-w-[18rem] lg:max-w-none">
+                    <td
+                      class="link-subtle max-w-[8rem] cursor-pointer truncate py-2 pr-3 font-mono text-xs hover:text-accent sm:max-w-[12rem] md:max-w-[18rem] lg:max-w-none"
+                      onClick={() => setSelectedSecret(s)}
+                    >
                       {s.id}
                     </td>
                     <td class="py-2 pr-3 whitespace-nowrap">
@@ -352,6 +433,28 @@ function DashboardContent() {
                     </td>
                     <td class="hidden py-2 pr-3 whitespace-nowrap sm:table-cell">
                       {formatSize(s.ciphertext_size)}
+                    </td>
+                    <td
+                      class={`hidden max-w-[12rem] truncate py-2 pr-3 text-xs md:table-cell ${
+                        decryptedNotes[s.id] || s.enc_meta?.note
+                          ? 'link-subtle cursor-pointer text-muted hover:text-accent'
+                          : 'text-muted'
+                      }`}
+                      title={
+                        decryptedNotes[s.id] ??
+                        (s.enc_meta?.note ? 'Encrypted' : '')
+                      }
+                      onClick={() =>
+                        (decryptedNotes[s.id] || s.enc_meta?.note) &&
+                        setSelectedSecret(s)
+                      }
+                    >
+                      {decryptedNotes[s.id] ??
+                        (s.enc_meta?.note ? (
+                          <span class="italic opacity-60">Encrypted</span>
+                        ) : (
+                          ''
+                        ))}
                     </td>
                     <td class="py-2 pr-3">
                       {s.passphrase_protected && (
@@ -429,7 +532,83 @@ function DashboardContent() {
         >
           API Keys & Account Settings
         </a>
+
+        <SyncNotesKeyButton />
       </div>
+
+      {/* Secret detail modal */}
+      <Modal
+        open={selectedSecret !== null}
+        onClose={() => setSelectedSecret(null)}
+        dismissible
+      >
+        {selectedSecret && (
+          <>
+            <button
+              type="button"
+              class="absolute top-3 right-3 rounded p-1 text-muted transition-colors hover:text-text"
+              onClick={() => setSelectedSecret(null)}
+              aria-label="Close"
+            >
+              <XMarkIcon class="size-5" />
+            </button>
+
+            <CardHeading title="Secret Details" />
+
+            <dl class="space-y-4 text-sm">
+              <div>
+                <dt class="font-medium text-muted">ID</dt>
+                <dd class="mt-0.5 font-mono text-xs break-all">
+                  {selectedSecret.id}
+                </dd>
+              </div>
+              <div>
+                <dt class="font-medium text-muted">Created</dt>
+                <dd class="mt-0.5">{formatDate(selectedSecret.created_at)}</dd>
+              </div>
+              <div>
+                <dt class="font-medium text-muted">Remaining</dt>
+                <dd class="mt-0.5">
+                  {timeRemaining(selectedSecret.expires_at, now)}
+                </dd>
+              </div>
+              <div>
+                <dt class="font-medium text-muted">Envelope Size</dt>
+                <dd class="mt-0.5">
+                  {formatSize(selectedSecret.ciphertext_size)}
+                </dd>
+              </div>
+              {selectedSecret.passphrase_protected && (
+                <div>
+                  <dt class="font-medium text-muted">Protection</dt>
+                  <dd class="mt-0.5 flex items-center gap-1">
+                    <LockIcon class="size-3.5" /> Passphrase protected
+                  </dd>
+                </div>
+              )}
+              {decryptedNotes[selectedSecret.id] ? (
+                <div>
+                  <dt class="font-medium text-muted">Note</dt>
+                  <dd class="mt-0.5 whitespace-pre-wrap">
+                    {decryptedNotes[selectedSecret.id]}
+                  </dd>
+                </div>
+              ) : (
+                selectedSecret.enc_meta?.note && (
+                  <div>
+                    <dt class="font-medium text-muted">Note</dt>
+                    <dd class="mt-0.5 text-muted italic">
+                      {hasAmk
+                        ? 'Unable to decrypt note'
+                        : 'Sync your notes key from another browser to view this note.'}
+                    </dd>
+                  </div>
+                )
+              )}
+            </dl>
+          </>
+        )}
+      </Modal>
     </div>
   );
 }

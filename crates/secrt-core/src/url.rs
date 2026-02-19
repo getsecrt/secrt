@@ -1,6 +1,82 @@
 use crate::crypto::{b64_decode, b64_encode};
 use crate::types::{EnvelopeError, URL_KEY_LEN};
 
+/// Parsed result from `parse_secret_url()` — distinguishes share vs sync URLs.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ParsedSecretUrl {
+    Share { id: String, url_key: Vec<u8> },
+    Sync { id: String, url_key: Vec<u8> },
+}
+
+/// Parse a share or sync URL to extract ID and url_key.
+/// Accepts formats:
+///   - https://host/s/<id>#<url_key_b64>     → Share
+///   - https://host/sync/<id>#<url_key_b64>  → Sync
+///   - <id>#<url_key_b64> (bare ID)          → Share (no path to distinguish)
+pub fn parse_secret_url(raw_url: &str) -> Result<ParsedSecretUrl, EnvelopeError> {
+    let (id, fragment, is_sync) = if raw_url.contains("://") {
+        let (base, frag) = match raw_url.find('#') {
+            Some(idx) => (&raw_url[..idx], &raw_url[idx + 1..]),
+            None => {
+                return Err(EnvelopeError::InvalidFragment("missing fragment".into()));
+            }
+        };
+
+        let path = if let Some(scheme_end) = base.find("://") {
+            let after_scheme = &base[scheme_end + 3..];
+            match after_scheme.find('/') {
+                Some(idx) => &after_scheme[idx..],
+                None => "",
+            }
+        } else {
+            ""
+        };
+
+        if let Some(id) = path.strip_prefix("/sync/") {
+            if id.is_empty() {
+                return Err(EnvelopeError::InvalidFragment(
+                    "expected /sync/<id> path".into(),
+                ));
+            }
+            (id.to_string(), frag.to_string(), true)
+        } else if let Some(id) = path.strip_prefix("/s/") {
+            if id.is_empty() {
+                return Err(EnvelopeError::InvalidFragment(
+                    "expected /s/<id> path".into(),
+                ));
+            }
+            (id.to_string(), frag.to_string(), false)
+        } else {
+            return Err(EnvelopeError::InvalidFragment(
+                "expected /s/<id> or /sync/<id> path".into(),
+            ));
+        }
+    } else {
+        let parts: Vec<&str> = raw_url.splitn(2, '#').collect();
+        if parts.len() != 2 || parts[0].is_empty() {
+            return Err(EnvelopeError::InvalidFragment("missing fragment".into()));
+        }
+        (parts[0].to_string(), parts[1].to_string(), false)
+    };
+
+    let url_key = b64_decode(&fragment)
+        .map_err(|_| EnvelopeError::InvalidFragment("invalid url_key encoding".into()))?;
+
+    if url_key.len() != URL_KEY_LEN {
+        return Err(EnvelopeError::InvalidFragment(format!(
+            "url_key must be {} bytes, got {}",
+            URL_KEY_LEN,
+            url_key.len()
+        )));
+    }
+
+    if is_sync {
+        Ok(ParsedSecretUrl::Sync { id, url_key })
+    } else {
+        Ok(ParsedSecretUrl::Share { id, url_key })
+    }
+}
+
 /// Parse a share URL to extract ID and url_key.
 /// Accepts formats:
 ///   - https://host/s/<id>#<url_key_b64>
@@ -177,6 +253,98 @@ mod tests {
         let key_b64 = make_key_b64();
         let url = format!("https://secrt.ca/s/#{}", key_b64);
         let err = parse_share_url(&url);
+        assert!(matches!(err, Err(EnvelopeError::InvalidFragment(_))));
+    }
+
+    // --- parse_secret_url tests ---
+
+    #[test]
+    fn secret_url_share() {
+        let key = make_key();
+        let key_b64 = make_key_b64();
+        let url = format!("https://secrt.ca/s/abc123#{}", key_b64);
+        let result = parse_secret_url(&url).unwrap();
+        assert_eq!(
+            result,
+            ParsedSecretUrl::Share {
+                id: "abc123".into(),
+                url_key: key
+            }
+        );
+    }
+
+    #[test]
+    fn secret_url_sync() {
+        let key = make_key();
+        let key_b64 = make_key_b64();
+        let url = format!("https://secrt.ca/sync/abc123#{}", key_b64);
+        let result = parse_secret_url(&url).unwrap();
+        assert_eq!(
+            result,
+            ParsedSecretUrl::Sync {
+                id: "abc123".into(),
+                url_key: key
+            }
+        );
+    }
+
+    #[test]
+    fn secret_url_sync_with_port() {
+        let key = make_key();
+        let key_b64 = make_key_b64();
+        let url = format!("https://localhost:8443/sync/testid#{}", key_b64);
+        let result = parse_secret_url(&url).unwrap();
+        assert_eq!(
+            result,
+            ParsedSecretUrl::Sync {
+                id: "testid".into(),
+                url_key: key
+            }
+        );
+    }
+
+    #[test]
+    fn secret_url_bare_defaults_to_share() {
+        let key = make_key();
+        let key_b64 = make_key_b64();
+        let url = format!("abc123#{}", key_b64);
+        let result = parse_secret_url(&url).unwrap();
+        assert_eq!(
+            result,
+            ParsedSecretUrl::Share {
+                id: "abc123".into(),
+                url_key: key
+            }
+        );
+    }
+
+    #[test]
+    fn secret_url_missing_fragment() {
+        let err = parse_secret_url("https://secrt.ca/sync/abc123");
+        assert!(matches!(err, Err(EnvelopeError::InvalidFragment(_))));
+    }
+
+    #[test]
+    fn secret_url_empty_sync_id() {
+        let key_b64 = make_key_b64();
+        let url = format!("https://secrt.ca/sync/#{}", key_b64);
+        let err = parse_secret_url(&url);
+        assert!(matches!(err, Err(EnvelopeError::InvalidFragment(_))));
+    }
+
+    #[test]
+    fn secret_url_unknown_path() {
+        let key_b64 = make_key_b64();
+        let url = format!("https://secrt.ca/x/abc#{}", key_b64);
+        let err = parse_secret_url(&url);
+        assert!(matches!(err, Err(EnvelopeError::InvalidFragment(_))));
+    }
+
+    #[test]
+    fn secret_url_wrong_key_length() {
+        let short_key = b64_encode(&[0u8; 16]);
+        let url = format!("https://secrt.ca/sync/abc#{}", short_key);
+        let err = parse_secret_url(&url);
         assert!(matches!(err, Err(EnvelopeError::InvalidFragment(_))));
     }
 }

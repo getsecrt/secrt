@@ -1,8 +1,11 @@
 mod helpers;
 
+use base64::engine::general_purpose::URL_SAFE_NO_PAD;
+use base64::Engine;
+
 use helpers::{args, TestDepsBuilder};
 use secrt_cli::cli;
-use secrt_cli::client::CreateResponse;
+use secrt_cli::client::{AmkWrapperResponse, CreateResponse};
 
 /// Use a non-routable address to ensure API calls fail
 const DEAD_URL: &str = "http://127.0.0.1:19191";
@@ -816,5 +819,117 @@ fn send_hidden_read_error() {
         stderr.to_string().contains("read secret"),
         "should contain read error: {}",
         stderr.to_string()
+    );
+}
+
+// ── --note tests ────────────────────────────────────────────────────
+
+#[test]
+fn send_note_no_api_key_fails() {
+    // --note with no API key: must fail before creating the secret
+    // No mock_create registered — if send tried to create, it would panic.
+    let (mut deps, stdout, stderr) = TestDepsBuilder::new()
+        .stdin(b"my secret")
+        .build();
+    let code = cli::run(
+        &args(&["secrt", "send", "--note", "remember this"]),
+        &mut deps,
+    );
+    assert_eq!(code, 1, "should fail: {}", stderr.to_string());
+    assert!(
+        stdout.to_string().is_empty(),
+        "should not output a share link: {}",
+        stdout.to_string()
+    );
+    let err = stderr.to_string();
+    assert!(
+        err.contains("--note requires authentication"),
+        "should report missing auth: {}",
+        err
+    );
+}
+
+#[test]
+fn send_note_no_amk_fails() {
+    // --note with sk2_ key but no AMK wrapper on server: must fail before
+    // creating the secret so no one-time secret is wasted.
+    let root_key = [0x22u8; 32];
+    let api_key = format!("sk2_abcdef.{}", URL_SAFE_NO_PAD.encode(root_key));
+
+    // No mock_create registered — if send tried to create, it would panic.
+    let (mut deps, stdout, stderr) = TestDepsBuilder::new()
+        .stdin(b"my secret")
+        .env("SECRET_API_KEY", &api_key)
+        .mock_get_amk_wrapper(Ok(None))
+        .build();
+    let code = cli::run(&args(&["secrt", "send", "--note", "a note"]), &mut deps);
+    assert_eq!(code, 1, "should fail: {}", stderr.to_string());
+    assert!(
+        stdout.to_string().is_empty(),
+        "should not output a share link: {}",
+        stdout.to_string()
+    );
+    let err = stderr.to_string();
+    assert!(
+        err.contains("no notes key found"),
+        "should report missing AMK: {}",
+        err
+    );
+}
+
+#[test]
+fn send_note_success_attaches_note() {
+    use secrt_core::amk;
+    use secrt_core::types::EnvelopeError;
+
+    // Build a valid AMK wrapper for resolve_amk to unwrap
+    let amk_bytes = [0x11u8; 32];
+    let root_key = [0x22u8; 32];
+    let prefix = "abcdef";
+    let api_key = format!("sk2_{}.{}", prefix, URL_SAFE_NO_PAD.encode(root_key));
+
+    let wrap_key = amk::derive_amk_wrap_key(&root_key).unwrap();
+    let user_id = "test-user-123";
+    let aad = amk::build_wrap_aad(user_id, prefix, 1);
+    let det_rng = |buf: &mut [u8]| -> Result<(), EnvelopeError> {
+        buf.fill(0x42);
+        Ok(())
+    };
+    let wrapped = amk::wrap_amk(&amk_bytes, &wrap_key, &aad, &det_rng).unwrap();
+
+    let wrapper_resp = AmkWrapperResponse {
+        user_id: user_id.into(),
+        wrapped_amk: URL_SAFE_NO_PAD.encode(&wrapped.ct),
+        nonce: URL_SAFE_NO_PAD.encode(&wrapped.nonce),
+        version: 1,
+    };
+
+    let (mut deps, stdout, stderr) = TestDepsBuilder::new()
+        .stdin(b"my secret")
+        .env("SECRET_API_KEY", &api_key)
+        .mock_create(Ok(mock_send_response()))
+        .mock_get_amk_wrapper(Ok(Some(wrapper_resp)))
+        .mock_update_secret_meta(Ok(()))
+        .build();
+    let code = cli::run(
+        &args(&["secrt", "send", "--note", "deployment note"]),
+        &mut deps,
+    );
+    assert_eq!(code, 0, "send should succeed: {}", stderr.to_string());
+    assert!(
+        stdout.to_string().contains("#"),
+        "should output share link: {}",
+        stdout.to_string()
+    );
+    let err = stderr.to_string();
+    assert!(
+        !err.contains("note not attached"),
+        "should not warn about note failure: {}",
+        err
+    );
+    assert!(
+        !err.contains("--note requires"),
+        "should not warn about missing auth: {}",
+        err
     );
 }

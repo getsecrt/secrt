@@ -8,7 +8,7 @@ use crate::passphrase::write_error;
 
 /// Strip a trailing ellipsis character (U+2026 `…`) and anything after it.
 /// This handles the common case of copying a truncated ID from `secrt list`.
-fn strip_ellipsis(id: &str) -> &str {
+pub(crate) fn strip_ellipsis(id: &str) -> &str {
     match id.find('\u{2026}') {
         Some(pos) => &id[..pos],
         None => id,
@@ -17,7 +17,7 @@ fn strip_ellipsis(id: &str) -> &str {
 
 /// Resolve a possibly-partial secret ID to a full ID using the list endpoint.
 /// Returns `Ok(full_id)` on unique match, or an error message otherwise.
-fn resolve_prefix(client: &dyn SecretApi, prefix: &str) -> Result<String, String> {
+pub(crate) fn resolve_prefix(client: &dyn SecretApi, prefix: &str) -> Result<String, String> {
     // Fetch all secrets (up to a generous limit)
     let resp = client.list(Some(20_000), None)?;
 
@@ -227,6 +227,7 @@ mod tests {
             created_at: "2026-01-01T00:00:00Z".into(),
             ciphertext_size: 100,
             passphrase_protected: false,
+            enc_meta: None,
         }
     }
 

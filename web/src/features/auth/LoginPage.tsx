@@ -75,7 +75,7 @@ export function LoginPage() {
       });
 
       // Step 4: Store session
-      auth.login(finishRes.session_token, finishRes.display_name);
+      auth.login(finishRes.session_token, finishRes.user_id, finishRes.display_name);
       setState({ step: 'done' });
       navigate(redirectTo);
     } catch (err) {

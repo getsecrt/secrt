@@ -30,6 +30,7 @@ function makeInfo(
       },
     },
     claim_rate: rate,
+    features: { encrypted_notes: false },
   };
 }
 

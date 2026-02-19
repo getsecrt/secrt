@@ -44,6 +44,8 @@ pub struct ClaimResponse {
 #[derive(Clone, Deserialize)]
 pub struct InfoResponse {
     pub authenticated: bool,
+    #[serde(default)]
+    pub user_id: Option<String>,
     pub ttl: InfoTTL,
     pub limits: InfoLimits,
     pub claim_rate: InfoRate,
@@ -84,6 +86,25 @@ pub struct SecretMetadataItem {
     pub created_at: String,
     pub ciphertext_size: i64,
     pub passphrase_protected: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub enc_meta: Option<EncMetaV1>,
+}
+
+/// Encrypted metadata v1 envelope (strict schema, deny unknown fields).
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct EncMetaV1 {
+    pub v: u16,
+    pub note: EncMetaNoteV1,
+}
+
+/// Encrypted note blob within enc_meta.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct EncMetaNoteV1 {
+    pub ct: String,    // base64url, max 8 KiB decoded
+    pub nonce: String, // base64url, exactly 12 bytes decoded
+    pub salt: String,  // base64url, exactly 32 bytes decoded
 }
 
 /// API response from listing secrets.
@@ -102,4 +123,45 @@ pub trait SecretApi {
     fn burn(&self, secret_id: &str) -> Result<(), String>;
     fn info(&self) -> Result<InfoResponse, String>;
     fn list(&self, limit: Option<i64>, offset: Option<i64>) -> Result<ListSecretsResponse, String>;
+
+    /// Get metadata for a single secret by ID.
+    fn get_secret_metadata(&self, _id: &str) -> Result<SecretMetadataItem, String> {
+        Err("get_secret_metadata not implemented".into())
+    }
+
+    /// Attach or update encrypted metadata on a secret.
+    fn update_secret_meta(
+        &self,
+        _secret_id: &str,
+        _enc_meta: &EncMetaV1,
+        _meta_key_version: i16,
+    ) -> Result<(), String> {
+        Err("update_secret_meta not implemented".into())
+    }
+
+    /// Get the AMK wrapper for the caller's API key. Returns None if no wrapper exists.
+    fn get_amk_wrapper(&self) -> Result<Option<AmkWrapperResponse>, String> {
+        Err("get_amk_wrapper not implemented".into())
+    }
+
+    /// Upsert an AMK wrapper (with commit verification).
+    fn upsert_amk_wrapper(
+        &self,
+        _key_prefix: &str,
+        _wrapped_amk: &str,
+        _nonce: &str,
+        _amk_commit: &str,
+        _version: i16,
+    ) -> Result<(), String> {
+        Err("upsert_amk_wrapper not implemented".into())
+    }
+}
+
+/// Response from GET /api/v1/amk/wrapper.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct AmkWrapperResponse {
+    pub user_id: String,
+    pub wrapped_amk: String,
+    pub nonce: String,
+    pub version: i16,
 }

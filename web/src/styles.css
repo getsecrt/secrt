@@ -126,11 +126,13 @@
   }
 
   .link {
-    @apply text-accent no-underline;
+    @apply text-accent underline transition-colors;
+    text-underline-offset: 3px;
+    text-decoration-color: color-mix(in oklch, currentColor 0%, transparent);
   }
 
   .link:hover {
-    @apply underline transition-colors;
+    @apply underline;
     color: var(--color-accent-hover);
     text-underline-offset: 3px;
     text-decoration-color: color-mix(

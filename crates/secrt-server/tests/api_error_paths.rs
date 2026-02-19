@@ -10,11 +10,12 @@ use secrt_server::config::Config;
 use secrt_server::domain::auth::hash_api_key_auth_token;
 use secrt_server::http::{build_router, AppState};
 use secrt_server::storage::{
-    ApiKeyRecord, ApiKeyRegistrationLimits, ApiKeysStore, AuthStore, ChallengeRecord,
-    PasskeyRecord, SecretRecord, SecretSummary, SecretsStore, SessionRecord, StorageError,
-    StorageUsage, UserId, UserRecord,
+    AmkStore, AmkUpsertResult, AmkWrapperRecord, ApiKeyRecord, ApiKeyRegistrationLimits,
+    ApiKeysStore, AuthStore, ChallengeRecord, PasskeyRecord, SecretRecord, SecretSummary,
+    SecretsStore, SessionRecord, StorageError, StorageUsage, UserId, UserRecord,
 };
 use tower::ServiceExt;
+use uuid::Uuid;
 
 fn cfg() -> Config {
     Config {
@@ -54,6 +55,7 @@ fn cfg() -> Config {
         apikey_register_account_max_per_day: 20,
         apikey_register_ip_max_per_hour: 5,
         apikey_register_ip_max_per_day: 20,
+        encrypted_notes_enabled: false,
     }
 }
 
@@ -173,6 +175,14 @@ impl SecretsStore for ErrStore {
         _now: DateTime<Utc>,
     ) -> Result<(i64, String), StorageError> {
         Err(StorageError::Other("error".into()))
+    }
+    async fn get_summary_by_id(
+        &self,
+        _id: &str,
+        _owner_keys: &[String],
+        _now: DateTime<Utc>,
+    ) -> Result<Option<SecretSummary>, StorageError> {
+        Ok(None)
     }
 }
 
@@ -345,11 +355,61 @@ impl AuthStore for ErrStore {
     }
 }
 
+#[async_trait]
+impl AmkStore for ErrStore {
+    async fn upsert_wrapper(
+        &self,
+        _w: AmkWrapperRecord,
+        _amk_commit: &[u8],
+    ) -> Result<AmkUpsertResult, StorageError> {
+        Err(StorageError::Other("error".into()))
+    }
+    async fn get_wrapper(
+        &self,
+        _user_id: Uuid,
+        _key_prefix: &str,
+    ) -> Result<Option<AmkWrapperRecord>, StorageError> {
+        Ok(None)
+    }
+    async fn list_wrappers(&self, _user_id: Uuid) -> Result<Vec<AmkWrapperRecord>, StorageError> {
+        Ok(vec![])
+    }
+    async fn delete_wrapper(
+        &self,
+        _user_id: Uuid,
+        _key_prefix: &str,
+    ) -> Result<bool, StorageError> {
+        Ok(false)
+    }
+    async fn has_any_wrapper(&self, _user_id: Uuid) -> Result<bool, StorageError> {
+        Ok(false)
+    }
+    async fn get_amk_commit(&self, _user_id: Uuid) -> Result<Option<Vec<u8>>, StorageError> {
+        Ok(None)
+    }
+    async fn update_enc_meta(
+        &self,
+        _secret_id: &str,
+        _owner_keys: &[String],
+        _enc_meta: &secrt_core::api::EncMetaV1,
+        _meta_key_version: i16,
+    ) -> Result<(), StorageError> {
+        Err(StorageError::NotFound)
+    }
+}
+
 fn app_with_store(store: Arc<ErrStore>) -> axum::Router {
     let secrets: Arc<dyn SecretsStore> = store.clone();
     let api_keys: Arc<dyn ApiKeysStore> = store.clone();
-    let auth_store: Arc<dyn AuthStore> = store;
-    let state = Arc::new(AppState::new(cfg(), secrets, api_keys, auth_store));
+    let auth_store: Arc<dyn AuthStore> = store.clone();
+    let amk_store: Arc<dyn AmkStore> = store;
+    let state = Arc::new(AppState::new(
+        cfg(),
+        secrets,
+        api_keys,
+        auth_store,
+        amk_store,
+    ));
     build_router(state)
 }
 
@@ -686,8 +746,9 @@ async fn info_rate_limited_path() {
     let store = Arc::new(ErrStore::default());
     let secrets: Arc<dyn SecretsStore> = store.clone();
     let api_keys: Arc<dyn ApiKeysStore> = store.clone();
-    let auth_store: Arc<dyn AuthStore> = store;
-    let state = Arc::new(AppState::new(c, secrets, api_keys, auth_store));
+    let auth_store: Arc<dyn AuthStore> = store.clone();
+    let amk_store: Arc<dyn AmkStore> = store;
+    let state = Arc::new(AppState::new(c, secrets, api_keys, auth_store, amk_store));
     let app = build_router(state);
 
     let req1 = Request::builder()
@@ -728,8 +789,9 @@ async fn authed_create_rate_limited_path() {
     });
     let secrets: Arc<dyn SecretsStore> = store.clone();
     let api_keys: Arc<dyn ApiKeysStore> = store.clone();
-    let auth_store: Arc<dyn AuthStore> = store;
-    let state = Arc::new(AppState::new(c, secrets, api_keys, auth_store));
+    let auth_store: Arc<dyn AuthStore> = store.clone();
+    let amk_store: Arc<dyn AmkStore> = store;
+    let state = Arc::new(AppState::new(c, secrets, api_keys, auth_store, amk_store));
     let app = build_router(state);
 
     let claim = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode([31u8; 32]);

@@ -6,6 +6,33 @@ All notable changes to the secrt monorepo are documented here. Individual crate 
 - [secrt-core](crates/secrt-core/CHANGELOG.md)
 - [secrt-server](crates/secrt-server/CHANGELOG.md)
 
+## 0.13.0 — 2026-02-19
+
+### Added
+
+- **Zero-knowledge encrypted notes:** authenticated users can attach private notes to secrets (e.g., "AWS prod key for Bob"). Notes are encrypted client-side with a per-user Account Master Key (AMK) that the server never sees — extending the zero-knowledge property to user metadata.
+- **Account Master Key (AMK) infrastructure:** 32-byte symmetric key per user, stored in IndexedDB, wrapped per API key for cross-device recovery. First-writer-wins commitment protocol prevents AMK forks across devices.
+- **AMK key syncing:** two mechanisms for cross-device AMK transfer — automatic recovery via API key wrappers, and manual browser-to-browser sync via one-time secret sharing with 10-minute TTL.
+- **ECDH AMK transfer during device auth:** `secrt login` now performs ephemeral P-256 ECDH key agreement to securely transfer the AMK from browser to CLI during device authorization.
+- **Per-secret metadata endpoint:** `GET /api/v1/secrets/:id` returns metadata for a single secret (for CLI detail views).
+- **CLI `secrt sync` command:** import a notes encryption key from a sync URL.
+- **CLI `secrt info` command:** show metadata for a single secret (ID, URL, created/expires dates, size, passphrase indicator, and decrypted note). Supports prefix resolution and `--json` output.
+- **AMK database tables:** `amk_accounts` (commitment anchors) and `amk_wrappers` (per-API-key wrapped blobs) with cascading deletion.
+- **Five new API endpoints:** `PUT /api/v1/secrets/:id/meta`, `PUT /api/v1/amk/wrapper`, `GET /api/v1/amk/wrapper`, `GET /api/v1/amk/wrappers`, `GET /api/v1/amk/exists`.
+- **Whitepaper expansion:** new "Encrypted Notes (Account Master Key)" section documenting AMK architecture, note encryption, key wrapping, cross-device sync, ECDH transfer, and commitment protocol.
+
+### Fixed
+
+- **AMK generation on first note:** AMK is now created on-the-fly when the user writes their first note, rather than requiring an API key to exist first.
+
+### Changed
+
+- **Feature-gated encrypted notes:** all AMK/enc_meta endpoints are behind `ENCRYPTED_NOTES_ENABLED` env var (default: `true`), allowing self-hosters to disable the feature.
+- **Send page icon:** "Secret Message" label now uses a document icon.
+- **Server info endpoint:** `/api/v1/info` now includes a `features` object with `encrypted_notes` flag.
+
+See [CLI](crates/secrt-cli/CHANGELOG.md), [core](crates/secrt-core/CHANGELOG.md), and [server](crates/secrt-server/CHANGELOG.md) changelogs for details.
+
 ## 0.12.2 — 2026-02-19
 
 ### Changed

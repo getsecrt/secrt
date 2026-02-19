@@ -1,3 +1,4 @@
+pub mod amk;
 pub mod api;
 pub mod apikey;
 pub mod crypto;
@@ -18,4 +19,4 @@ pub use crypto::{b64_encode, derive_claim_token, open, requires_passphrase, seal
 pub use server::{hash_claim_token, normalize_api_ttl, validate_claim_hash, DEFAULT_TTL_SECONDS};
 pub use ttl::parse_ttl;
 pub use types::*;
-pub use url::{format_share_link, parse_share_url};
+pub use url::{format_share_link, parse_secret_url, parse_share_url, ParsedSecretUrl};

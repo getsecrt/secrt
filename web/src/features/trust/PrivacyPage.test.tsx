@@ -23,15 +23,15 @@ describe('PrivacyPage', () => {
   it('renders all major sections', () => {
     render(<PrivacyPage />);
     expect(
-      screen.getByText('Zero-knowledge architecture'),
+      screen.getByText('Zero-Knowledge Architecture'),
     ).toBeInTheDocument();
-    expect(screen.getByText('What we store')).toBeInTheDocument();
-    expect(screen.getByText("What we don't store")).toBeInTheDocument();
-    expect(screen.getByText('IP address privacy')).toBeInTheDocument();
-    expect(screen.getByText('No tracking')).toBeInTheDocument();
+    expect(screen.getByText('What We Store')).toBeInTheDocument();
+    expect(screen.getByText("What We Don't Store")).toBeInTheDocument();
+    expect(screen.getByText('IP Address Privacy')).toBeInTheDocument();
+    expect(screen.getByText('No Tracking')).toBeInTheDocument();
     expect(screen.getByText('Infrastructure')).toBeInTheDocument();
-    expect(screen.getByText('Open source')).toBeInTheDocument();
-    expect(screen.getByText('Contact')).toBeInTheDocument();
+    expect(screen.getByText('Open Source')).toBeInTheDocument();
+    expect(screen.getByText('Contact Us')).toBeInTheDocument();
   });
 
   it('contains contact email link', () => {

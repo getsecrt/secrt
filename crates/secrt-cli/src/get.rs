@@ -33,8 +33,8 @@ pub fn run_get(args: &[String], deps: &mut Deps) -> i32 {
 
     let share_url = &pa.args[0];
 
-    // Parse URL to extract ID and url_key
-    let (id, url_key) = match envelope::parse_share_url(share_url) {
+    // Parse URL to extract ID, url_key, and detect sync URLs
+    let parsed = match envelope::parse_secret_url(share_url) {
         Ok(r) => r,
         Err(e) => {
             write_error(
@@ -49,7 +49,6 @@ pub fn run_get(args: &[String], deps: &mut Deps) -> i32 {
 
     // Derive base URL from share URL if not explicitly set via flag/env
     let base_url = if !pa.base_url_from_flag && (deps.getenv)("SECRET_BASE_URL").is_none() {
-        // Try to extract base URL from share URL
         if share_url.contains("://") {
             if let Some(scheme_end) = share_url.find("://") {
                 let after_scheme = &share_url[scheme_end + 3..];
@@ -66,6 +65,22 @@ pub fn run_get(args: &[String], deps: &mut Deps) -> i32 {
         }
     } else {
         pa.base_url.clone()
+    };
+
+    // If this is a sync URL, delegate to the sync handler
+    let (id, url_key) = match parsed {
+        envelope::ParsedSecretUrl::Sync { id, url_key } => {
+            return crate::sync::handle_sync_url(
+                &id,
+                &url_key,
+                &base_url,
+                &pa.api_key,
+                deps,
+                pa.json,
+                pa.silent,
+            );
+        }
+        envelope::ParsedSecretUrl::Share { id, url_key } => (id, url_key),
     };
 
     // Derive claim token from url_key alone

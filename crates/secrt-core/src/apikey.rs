@@ -110,7 +110,11 @@ pub fn derive_meta_key(root_key: &[u8]) -> Result<Vec<u8>, ApiKeyError> {
     derive_from_root(root_key, HKDF_INFO_META, API_KEY_META_LEN)
 }
 
-fn derive_from_root(root_key: &[u8], info: &str, out_len: usize) -> Result<Vec<u8>, ApiKeyError> {
+pub(crate) fn derive_from_root(
+    root_key: &[u8],
+    info: &str,
+    out_len: usize,
+) -> Result<Vec<u8>, ApiKeyError> {
     if root_key.len() != API_KEY_ROOT_LEN {
         return Err(ApiKeyError::InvalidLength);
     }

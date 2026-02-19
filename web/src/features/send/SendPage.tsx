@@ -4,7 +4,9 @@ import { utf8Encode } from '../../crypto/encoding';
 import { buildFrame } from '../../crypto/frame';
 import { ensureCompressor, compress } from '../../crypto/compress';
 import { CODEC_ZSTD } from '../../crypto/constants';
-import { createSecret, fetchInfo } from '../../lib/api';
+import { encryptNote, generateAmk } from '../../crypto/amk';
+import { createSecret, fetchInfo, updateSecretMeta } from '../../lib/api';
+import { loadAmk, storeAmk } from '../../lib/amk-store';
 import {
   checkEnvelopeSize,
   estimateEnvelopeSize,
@@ -18,6 +20,7 @@ import {
   setSendPasswordGeneratorSettings,
 } from '../../lib/theme';
 import {
+  DocumentIcon,
   EyeIcon,
   EyeSlashIcon,
   GearIcon,
@@ -28,7 +31,7 @@ import {
   UploadIcon,
   XMarkIcon,
 } from '../../components/Icons';
-import type { ApiInfo, PayloadMeta } from '../../types';
+import type { ApiInfo, PayloadMeta, EncMetaV1 } from '../../types';
 import { CardHeading } from '../../components/CardHeading';
 import { Modal } from '../../components/Modal';
 import { FileDropZone } from './FileDropZone';
@@ -58,6 +61,7 @@ export function SendPage() {
   const [mode, setMode] = useState<'text' | 'file'>('text');
   const [text, setText] = useState('');
   const [file, setFile] = useState<File | null>(null);
+  const [note, setNote] = useState('');
   const [passphrase, setPassphrase] = useState('');
   const [showPassphrase, setShowPassphrase] = useState(false);
   const [ttlSeconds, setTtlSeconds] = useState(TTL_DEFAULT);
@@ -80,12 +84,26 @@ export function SendPage() {
   const abortRef = useRef<AbortController | null>(null);
   const passwordCopiedTimerRef = useRef<number | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const [serverInfo, setServerInfo] = useState<ApiInfo | null>(null);
+  const [serverInfo, setServerInfo] = useState<ApiInfo | null>(() => {
+    try {
+      const cached = sessionStorage.getItem('server_info');
+      return cached ? (JSON.parse(cached) as ApiInfo) : null;
+    } catch {
+      return null;
+    }
+  });
 
   useEffect(() => {
     const controller = new AbortController();
     fetchInfo(controller.signal)
-      .then(setServerInfo)
+      .then((info) => {
+        setServerInfo(info);
+        try {
+          sessionStorage.setItem('server_info', JSON.stringify(info));
+        } catch {
+          /* best-effort */
+        }
+      })
       .catch(() => {
         /* best-effort; server will still enforce limits */
       });
@@ -197,6 +215,7 @@ export function SendPage() {
     setText('');
     setFile(null);
     setCachedFrame(null);
+    setNote('');
     setPassphrase('');
     setShowPassphrase(false);
     setTtlSeconds(TTL_DEFAULT);
@@ -221,6 +240,8 @@ export function SendPage() {
   }, []);
 
   const busy = status.step === 'encrypting' || status.step === 'sending';
+  const notesAvailable =
+    auth.authenticated && !!serverInfo?.features?.encrypted_notes;
   const hasContent = mode === 'text' ? text.trim().length > 0 : file !== null;
   const contentError =
     status.step === 'error' &&
@@ -381,6 +402,42 @@ export function SendPage() {
           controller.signal,
         );
 
+        // Attach encrypted note if provided
+        if (note.trim() && auth.sessionToken && auth.userId) {
+          try {
+            let amk = await loadAmk(auth.userId);
+            if (!amk) {
+              // First note: generate AMK and store locally.
+              // Wrapper upload happens on next API key creation or device sync.
+              amk = generateAmk();
+              await storeAmk(auth.userId, amk);
+            }
+            const encrypted = await encryptNote(
+              amk,
+              res.id,
+              utf8Encode(note),
+            );
+            const encMeta: EncMetaV1 = {
+              v: 1,
+              note: {
+                ct: encrypted.ct,
+                nonce: encrypted.nonce,
+                salt: encrypted.salt,
+              },
+            };
+            await updateSecretMeta(
+              auth.sessionToken,
+              res.id,
+              encMeta,
+              1,
+              controller.signal,
+            );
+          } catch (noteErr) {
+            // Non-fatal: secret was created, but note couldn't be attached
+            console.error('[secrt] failed to attach note:', noteErr);
+          }
+        }
+
         // Build share URL
         const shareUrl = formatShareLink(res.id, urlKey);
 
@@ -394,6 +451,7 @@ export function SendPage() {
       mode,
       text,
       file,
+      note,
       passphrase,
       ttlSeconds,
       hasContent,
@@ -402,6 +460,7 @@ export function SendPage() {
       cachedFrame,
       auth.authenticated,
       auth.sessionToken,
+      auth.userId,
     ],
   );
 
@@ -441,7 +500,7 @@ export function SendPage() {
             <label class="label">
               {mode === 'text' ? (
                 <>
-                  <NoteIcon class="size-4 opacity-60" /> Secret Message
+                  <DocumentIcon class="size-4 opacity-60" /> Secret Message
                 </>
               ) : (
                 <>
@@ -483,7 +542,7 @@ export function SendPage() {
             <textarea
               class={`textarea mb-0 [grid-area:1/1] ${mode === 'file' ? 'invisible' : ''} ${contentError && mode === 'text' ? 'input-error' : ''}`}
               rows={5}
-              placeholder="Enter your secret..."
+              placeholder="Enter your secret or drag a file here..."
               value={text}
               onInput={(e) => {
                 setText((e.target as HTMLTextAreaElement).value);
@@ -510,9 +569,9 @@ export function SendPage() {
                   class="link"
                   onClick={() => fileInputRef.current?.click()}
                 >
-                  Choose a file
+                  Choose a File
                 </button>{' '}
-                or drag one here to upload
+                {/*or drag one here to upload*/}
                 <input
                   ref={fileInputRef}
                   type="file"
@@ -570,10 +629,37 @@ export function SendPage() {
               )}
             </button>
           </div>
-          <p class="text-center text-sm">
+          <p class="text-center text-sm text-muted">
             {passphrase ? 'The recipient must enter this password' : '\u00A0'}
           </p>
         </div>
+
+        {/* Private note (only shown when authenticated + feature enabled) */}
+        {notesAvailable && (
+          <div class="space-y-1">
+            <label class="label" for="note">
+              <NoteIcon class="size-4 opacity-60" />
+              <span class="flex items-baseline gap-2">
+                Private Note{' '}
+                <span class="text-sm font-normal text-faint">optional</span>
+              </span>
+            </label>
+            <input
+              id="note"
+              type="text"
+              class="input"
+              placeholder="Description"
+              value={note}
+              onInput={(e) => setNote((e.target as HTMLInputElement).value)}
+              disabled={busy}
+              maxLength={500}
+              autocomplete="off"
+            />
+            <p class="text-center text-sm text-muted">
+              Only visible to you on your dashboard
+            </p>
+          </div>
+        )}
 
         {/* TTL */}
         <TtlSelector

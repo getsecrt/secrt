@@ -6,10 +6,12 @@ use deadpool_postgres::{
 use tokio_postgres::error::SqlState;
 use uuid::Uuid;
 
+use secrt_core::api::EncMetaV1;
+
 use super::{
-    ApiKeyRecord, ApiKeyRegistrationLimits, ApiKeysStore, AuthStore, ChallengeRecord,
-    PasskeyRecord, SecretQuotaLimits, SecretRecord, SecretSummary, SecretsStore, SessionRecord,
-    StorageError, StorageUsage, UserId, UserRecord,
+    AmkStore, AmkUpsertResult, AmkWrapperRecord, ApiKeyRecord, ApiKeyRegistrationLimits,
+    ApiKeysStore, AuthStore, ChallengeRecord, PasskeyRecord, SecretQuotaLimits, SecretRecord,
+    SecretSummary, SecretsStore, SessionRecord, StorageError, StorageUsage, UserId, UserRecord,
 };
 
 const POOL_MAX_SIZE: usize = 10;
@@ -150,7 +152,7 @@ impl SecretsStore for PgStore {
 
             let row = tx
                 .query_one(
-                    "SELECT COUNT(*), COALESCE(SUM(LENGTH(envelope::text)), 0) \
+                    "SELECT COUNT(*), COALESCE(SUM(LENGTH(envelope::text) + COALESCE(LENGTH(enc_meta::text), 0)), 0) \
                      FROM secrets WHERE owner_key = $1 AND expires_at > $2",
                     &[&secret.owner_key, &now],
                 )
@@ -269,7 +271,7 @@ impl SecretsStore for PgStore {
         let client = self.pool.get().await?;
         let row = client
             .query_one(
-                "SELECT COUNT(*), COALESCE(SUM(LENGTH(envelope::text)), 0) \
+                "SELECT COUNT(*), COALESCE(SUM(LENGTH(envelope::text) + COALESCE(LENGTH(enc_meta::text), 0)), 0) \
                  FROM secrets WHERE owner_key = $1 AND expires_at > now()",
                 &[&owner_key],
             )
@@ -297,7 +299,8 @@ impl SecretsStore for PgStore {
             .query(
                 "SELECT id, expires_at, created_at, \
                         octet_length(envelope::text)::bigint AS ciphertext_size, \
-                        COALESCE(envelope->'kdf'->>'name', 'none') <> 'none' AS passphrase_protected \
+                        COALESCE(envelope->'kdf'->>'name', 'none') <> 'none' AS passphrase_protected, \
+                        enc_meta \
                  FROM secrets \
                  WHERE owner_key = ANY($1) AND expires_at > $2 \
                  ORDER BY created_at DESC LIMIT $3 OFFSET $4",
@@ -306,12 +309,18 @@ impl SecretsStore for PgStore {
             .await?;
         let mut out = Vec::with_capacity(rows.len());
         for row in &rows {
+            let enc_meta_json: Option<serde_json::Value> = row.try_get(5)?;
+            let enc_meta: Option<EncMetaV1> = enc_meta_json
+                .map(serde_json::from_value)
+                .transpose()
+                .map_err(|e| StorageError::Other(format!("decode enc_meta: {e}")))?;
             out.push(SecretSummary {
                 id: row.try_get(0)?,
                 expires_at: row.try_get(1)?,
                 created_at: row.try_get(2)?,
                 ciphertext_size: row.try_get(3)?,
                 passphrase_protected: row.try_get(4)?,
+                enc_meta,
             });
         }
         Ok(out)
@@ -371,6 +380,45 @@ impl SecretsStore for PgStore {
         let count: i64 = row.try_get(0)?;
         let checksum: String = row.try_get(1)?;
         Ok((count, checksum))
+    }
+
+    async fn get_summary_by_id(
+        &self,
+        id: &str,
+        owner_keys: &[String],
+        now: DateTime<Utc>,
+    ) -> Result<Option<SecretSummary>, StorageError> {
+        if owner_keys.is_empty() {
+            return Ok(None);
+        }
+        let client = self.pool.get().await?;
+        let row = client
+            .query_opt(
+                "SELECT id, expires_at, created_at, \
+                        octet_length(envelope::text)::bigint AS ciphertext_size, \
+                        COALESCE(envelope->'kdf'->>'name', 'none') <> 'none' AS passphrase_protected, \
+                        enc_meta \
+                 FROM secrets \
+                 WHERE id = $1 AND owner_key = ANY($2) AND expires_at > $3",
+                &[&id, &owner_keys, &now],
+            )
+            .await?;
+        let Some(row) = row else {
+            return Ok(None);
+        };
+        let enc_meta_json: Option<serde_json::Value> = row.try_get(5)?;
+        let enc_meta: Option<EncMetaV1> = enc_meta_json
+            .map(serde_json::from_value)
+            .transpose()
+            .map_err(|e| StorageError::Other(format!("decode enc_meta: {e}")))?;
+        Ok(Some(SecretSummary {
+            id: row.try_get(0)?,
+            expires_at: row.try_get(1)?,
+            created_at: row.try_get(2)?,
+            ciphertext_size: row.try_get(3)?,
+            passphrase_protected: row.try_get(4)?,
+            enc_meta,
+        }))
     }
 }
 
@@ -936,5 +984,166 @@ impl AuthStore for PgStore {
             expires_at: row.try_get(5)?,
             created_at: row.try_get(6)?,
         })
+    }
+}
+
+#[async_trait]
+impl AmkStore for PgStore {
+    async fn upsert_wrapper(
+        &self,
+        w: AmkWrapperRecord,
+        amk_commit: &[u8],
+    ) -> Result<AmkUpsertResult, StorageError> {
+        let mut client = self.pool.get().await?;
+        let tx = client.transaction().await?;
+
+        // 1. Anchor the AMK commit (first writer wins)
+        tx.execute(
+            "INSERT INTO amk_accounts (user_id, amk_commit) \
+             VALUES ($1, $2) ON CONFLICT (user_id) DO NOTHING",
+            &[&w.user_id, &amk_commit],
+        )
+        .await?;
+
+        // 2. Read back the stored commit and verify
+        let row = tx
+            .query_one(
+                "SELECT amk_commit FROM amk_accounts WHERE user_id = $1",
+                &[&w.user_id],
+            )
+            .await?;
+        let stored_commit: Vec<u8> = row.try_get(0)?;
+        if stored_commit != amk_commit {
+            return Ok(AmkUpsertResult::CommitMismatch);
+        }
+
+        // 3. Upsert the wrapper
+        tx.execute(
+            "INSERT INTO amk_wrappers (user_id, key_prefix, wrapped_amk, nonce, version) \
+             VALUES ($1, $2, $3, $4, $5) \
+             ON CONFLICT (user_id, key_prefix) DO UPDATE SET \
+                wrapped_amk = EXCLUDED.wrapped_amk, \
+                nonce = EXCLUDED.nonce, \
+                version = EXCLUDED.version",
+            &[
+                &w.user_id,
+                &w.key_prefix,
+                &w.wrapped_amk,
+                &w.nonce,
+                &w.version,
+            ],
+        )
+        .await?;
+
+        tx.commit().await?;
+        Ok(AmkUpsertResult::Ok)
+    }
+
+    async fn get_wrapper(
+        &self,
+        user_id: Uuid,
+        key_prefix: &str,
+    ) -> Result<Option<AmkWrapperRecord>, StorageError> {
+        let client = self.pool.get().await?;
+        let row = client
+            .query_opt(
+                "SELECT user_id, key_prefix, wrapped_amk, nonce, version, created_at \
+                 FROM amk_wrappers WHERE user_id = $1 AND key_prefix = $2",
+                &[&user_id, &key_prefix],
+            )
+            .await?;
+        let Some(row) = row else {
+            return Ok(None);
+        };
+        Ok(Some(AmkWrapperRecord {
+            user_id: row.try_get(0)?,
+            key_prefix: row.try_get(1)?,
+            wrapped_amk: row.try_get(2)?,
+            nonce: row.try_get(3)?,
+            version: row.try_get(4)?,
+            created_at: row.try_get(5)?,
+        }))
+    }
+
+    async fn list_wrappers(&self, user_id: Uuid) -> Result<Vec<AmkWrapperRecord>, StorageError> {
+        let client = self.pool.get().await?;
+        let rows = client
+            .query(
+                "SELECT user_id, key_prefix, wrapped_amk, nonce, version, created_at \
+                 FROM amk_wrappers WHERE user_id = $1 ORDER BY created_at",
+                &[&user_id],
+            )
+            .await?;
+        let mut out = Vec::with_capacity(rows.len());
+        for row in &rows {
+            out.push(AmkWrapperRecord {
+                user_id: row.try_get(0)?,
+                key_prefix: row.try_get(1)?,
+                wrapped_amk: row.try_get(2)?,
+                nonce: row.try_get(3)?,
+                version: row.try_get(4)?,
+                created_at: row.try_get(5)?,
+            });
+        }
+        Ok(out)
+    }
+
+    async fn delete_wrapper(&self, user_id: Uuid, key_prefix: &str) -> Result<bool, StorageError> {
+        let client = self.pool.get().await?;
+        let n = client
+            .execute(
+                "DELETE FROM amk_wrappers WHERE user_id = $1 AND key_prefix = $2",
+                &[&user_id, &key_prefix],
+            )
+            .await?;
+        Ok(n > 0)
+    }
+
+    async fn has_any_wrapper(&self, user_id: Uuid) -> Result<bool, StorageError> {
+        let client = self.pool.get().await?;
+        let row = client
+            .query_one(
+                "SELECT EXISTS(SELECT 1 FROM amk_wrappers WHERE user_id = $1)",
+                &[&user_id],
+            )
+            .await?;
+        Ok(row.try_get(0)?)
+    }
+
+    async fn get_amk_commit(&self, user_id: Uuid) -> Result<Option<Vec<u8>>, StorageError> {
+        let client = self.pool.get().await?;
+        let row = client
+            .query_opt(
+                "SELECT amk_commit FROM amk_accounts WHERE user_id = $1",
+                &[&user_id],
+            )
+            .await?;
+        Ok(row.map(|r| r.try_get(0)).transpose()?)
+    }
+
+    async fn update_enc_meta(
+        &self,
+        secret_id: &str,
+        owner_keys: &[String],
+        enc_meta: &EncMetaV1,
+        meta_key_version: i16,
+    ) -> Result<(), StorageError> {
+        if owner_keys.is_empty() {
+            return Err(StorageError::NotFound);
+        }
+        let enc_meta_json = serde_json::to_value(enc_meta)
+            .map_err(|e| StorageError::Other(format!("encode enc_meta: {e}")))?;
+        let client = self.pool.get().await?;
+        let n = client
+            .execute(
+                "UPDATE secrets SET enc_meta = $1::jsonb, meta_key_version = $2 \
+                 WHERE id = $3 AND owner_key = ANY($4) AND expires_at > now()",
+                &[&enc_meta_json, &meta_key_version, &secret_id, &owner_keys],
+            )
+            .await?;
+        if n == 0 {
+            return Err(StorageError::NotFound);
+        }
+        Ok(())
     }
 }

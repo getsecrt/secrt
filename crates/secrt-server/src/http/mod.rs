@@ -22,6 +22,7 @@ use serde_json::value::RawValue;
 use tower_http::catch_panic::CatchPanicLayer;
 use tower_http::services::ServeDir;
 use tracing::{error, info, warn};
+use uuid::Uuid;
 
 use crate::config::Config;
 use crate::domain::auth::Authenticator;
@@ -30,8 +31,9 @@ use crate::domain::secret_rules::{
     format_bytes, generate_id, validate_envelope, OwnerHasher, SecretRuleError,
 };
 use crate::storage::{
-    ApiKeyRecord, ApiKeyRegistrationLimits, ApiKeysStore, AuthStore, SecretQuotaLimits,
-    SecretRecord, SecretsStore, SessionRecord, StorageError, UserId,
+    AmkStore, AmkUpsertResult, AmkWrapperRecord, ApiKeyRecord, ApiKeyRegistrationLimits,
+    ApiKeysStore, AuthStore, SecretQuotaLimits, SecretRecord, SecretsStore, SessionRecord,
+    StorageError, UserId,
 };
 
 #[derive(Clone)]
@@ -40,6 +42,7 @@ pub struct AppState {
     pub secrets: Arc<dyn SecretsStore>,
     pub api_keys: Arc<dyn ApiKeysStore>,
     pub auth_store: Arc<dyn AuthStore>,
+    pub amk_store: Arc<dyn AmkStore>,
     pub auth: Authenticator<Arc<dyn ApiKeysStore>>,
     pub public_create_limiter: Limiter,
     pub claim_limiter: Limiter,
@@ -55,6 +58,7 @@ impl AppState {
         secrets: Arc<dyn SecretsStore>,
         api_keys: Arc<dyn ApiKeysStore>,
         auth_store: Arc<dyn AuthStore>,
+        amk_store: Arc<dyn AmkStore>,
     ) -> Self {
         Self {
             public_create_limiter: Limiter::new(cfg.public_create_rate, cfg.public_create_burst),
@@ -68,6 +72,7 @@ impl AppState {
             privacy_checked: Arc::new(AtomicBool::new(false)),
             auth: Authenticator::new(cfg.api_key_pepper.clone(), api_keys.clone()),
             auth_store,
+            amk_store,
             cfg,
             secrets,
             api_keys,
@@ -132,9 +137,17 @@ struct HealthResponse {
 #[derive(Serialize)]
 struct InfoResponse {
     authenticated: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    user_id: Option<String>,
     ttl: InfoTtl,
     limits: InfoLimits,
     claim_rate: InfoRate,
+    features: InfoFeatures,
+}
+
+#[derive(Serialize)]
+struct InfoFeatures {
+    encrypted_notes: bool,
 }
 
 #[derive(Serialize)]
@@ -200,6 +213,7 @@ struct PasskeyLoginFinishRequest {
 #[derive(Serialize)]
 struct SessionResponse {
     authenticated: bool,
+    user_id: Option<Uuid>,
     display_name: Option<String>,
     expires_at: Option<DateTime<Utc>>,
 }
@@ -232,6 +246,8 @@ struct SecretMetadataItem {
     created_at: DateTime<Utc>,
     ciphertext_size: i64,
     passphrase_protected: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    enc_meta: Option<secrt_core::api::EncMetaV1>,
 }
 
 #[derive(Serialize)]
@@ -274,6 +290,8 @@ struct DeleteAccountResponse {
 #[serde(deny_unknown_fields)]
 struct DeviceStartRequest {
     auth_token: String,
+    #[serde(default)]
+    ecdh_public_key: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -296,12 +314,23 @@ struct DevicePollResponse {
     status: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     prefix: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    amk_transfer: Option<AmkTransferJson>,
 }
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct DeviceApproveRequest {
     user_code: String,
+    #[serde(default)]
+    amk_transfer: Option<AmkTransferJson>,
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+struct AmkTransferJson {
+    ct: String,
+    nonce: String,
+    ecdh_public_key: String,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -311,11 +340,85 @@ struct DeviceChallengeJson {
     status: String,
     prefix: Option<String>,
     user_id: Option<String>,
+    #[serde(default)]
+    ecdh_public_key: Option<String>,
+    #[serde(default)]
+    amk_transfer: Option<AmkTransferJson>,
+}
+
+// --- AMK wrapper types ---
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct UpsertAmkWrapperRequest {
+    /// Required for session auth; implicit for API key auth.
+    #[serde(default)]
+    key_prefix: Option<String>,
+    wrapped_amk: String,
+    nonce: String,
+    amk_commit: String,
+    version: i16,
+}
+
+#[derive(Serialize)]
+struct AmkWrapperResponse {
+    user_id: Uuid,
+    wrapped_amk: String,
+    nonce: String,
+    version: i16,
+}
+
+#[derive(Serialize)]
+struct AmkWrappersListItem {
+    key_prefix: String,
+    version: i16,
+    created_at: DateTime<Utc>,
+}
+
+#[derive(Serialize)]
+struct AmkWrappersListResponse {
+    wrappers: Vec<AmkWrappersListItem>,
+}
+
+#[derive(Serialize)]
+struct AmkExistsResponse {
+    exists: bool,
+}
+
+// --- Encrypted metadata types ---
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct UpdateEncMetaRequest {
+    enc_meta: secrt_core::api::EncMetaV1,
+    meta_key_version: i16,
+}
+
+/// Query parameter for wrapper GET with session auth.
+#[derive(Deserialize)]
+pub struct AmkWrapperQuery {
+    #[serde(default)]
+    key_prefix: Option<String>,
+}
+
+/// Query parameter for device challenge GET.
+#[derive(Deserialize)]
+pub struct DeviceChallengeQuery {
+    user_code: String,
+}
+
+#[derive(Serialize)]
+struct DeviceChallengeResponse {
+    user_code: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    ecdh_public_key: Option<String>,
+    status: String,
 }
 
 #[derive(Serialize)]
 struct AuthFinishResponse {
     session_token: String,
+    user_id: Uuid,
     display_name: String,
     expires_at: DateTime<Utc>,
 }
@@ -368,6 +471,10 @@ pub fn build_router(state: Arc<AppState>) -> Router {
         .route("/api/v1/public/secrets", any(handle_create_public_entry))
         .route("/api/v1/secrets/check", any(handle_secrets_check_entry))
         .route("/api/v1/secrets", any(handle_secrets_entry))
+        .route(
+            "/api/v1/secrets/{id}",
+            any(handle_get_secret_metadata_entry),
+        )
         .route("/api/v1/secrets/{id}/claim", any(handle_claim_entry))
         .route("/api/v1/secrets/{id}/burn", any(handle_burn_entry))
         .route(
@@ -404,6 +511,14 @@ pub fn build_router(state: Arc<AppState>) -> Router {
             "/api/v1/auth/device/approve",
             any(handle_device_approve_entry),
         )
+        .route(
+            "/api/v1/auth/device/challenge",
+            any(handle_device_challenge_entry),
+        )
+        .route("/api/v1/amk/wrapper", any(handle_amk_wrapper_entry))
+        .route("/api/v1/amk/wrappers", any(handle_amk_wrappers_list_entry))
+        .route("/api/v1/amk/exists", any(handle_amk_exists_entry))
+        .route("/api/v1/secrets/{id}/meta", any(handle_secret_meta_entry))
         .layer(CatchPanicLayer::custom(handle_panic))
         .route_layer(middleware::from_fn_with_state(
             state.clone(),
@@ -924,6 +1039,7 @@ async fn handle_list_secrets(
             created_at: s.created_at,
             ciphertext_size: s.ciphertext_size,
             passphrase_protected: s.passphrase_protected,
+            enc_meta: s.enc_meta,
         })
         .collect();
 
@@ -972,6 +1088,54 @@ pub async fn handle_secrets_check_entry(
         }
         Err(_) => internal_server_error(),
     }
+}
+
+pub async fn handle_get_secret_metadata_entry(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<String>,
+    req: Request,
+) -> Response {
+    if req.method() != Method::GET {
+        return method_not_allowed();
+    }
+
+    // Same auth pattern as list_secrets: session first, API key fallback
+    let owner_keys = if let Ok((user_id, _, _)) = require_session_user(&state, req.headers()).await
+    {
+        match owner_keys_for_user(&state, user_id).await {
+            Ok(keys) => keys,
+            Err(resp) => return resp,
+        }
+    } else {
+        let raw_key = api_key_from_headers(req.headers());
+        let api_key = match require_api_key(&state, raw_key).await {
+            Ok(k) => k,
+            Err(resp) => return resp,
+        };
+        match owner_keys_for_api_key(&state, &api_key).await {
+            Ok(keys) => keys,
+            Err(resp) => return resp,
+        }
+    };
+
+    let now = Utc::now();
+    let summary = match state.secrets.get_summary_by_id(&id, &owner_keys, now).await {
+        Ok(Some(s)) => s,
+        Ok(None) => return not_found(),
+        Err(_) => return internal_server_error(),
+    };
+
+    let item = SecretMetadataItem {
+        share_url: format!("{}/s/{}", state.cfg.public_base_url, summary.id),
+        id: summary.id,
+        expires_at: summary.expires_at,
+        created_at: summary.created_at,
+        ciphertext_size: summary.ciphertext_size,
+        passphrase_protected: summary.passphrase_protected,
+        enc_meta: summary.enc_meta,
+    };
+
+    json_response(StatusCode::OK, item)
 }
 
 pub async fn handle_claim_entry(
@@ -1293,6 +1457,7 @@ pub async fn handle_passkey_register_finish_entry(
         StatusCode::OK,
         AuthFinishResponse {
             session_token: token,
+            user_id: user.id,
             display_name: user.display_name,
             expires_at,
         },
@@ -1417,6 +1582,7 @@ pub async fn handle_passkey_login_finish_entry(
         StatusCode::OK,
         AuthFinishResponse {
             session_token: token,
+            user_id: user.id,
             display_name: user.display_name,
             expires_at,
         },
@@ -1430,7 +1596,7 @@ pub async fn handle_auth_session_entry(
     if req.method() != Method::GET {
         return method_not_allowed();
     }
-    let (_user_id, display_name, expires_at) =
+    let (user_id, display_name, expires_at) =
         match require_session_user(&state, req.headers()).await {
             Ok(v) => v,
             Err(_) => {
@@ -1438,6 +1604,7 @@ pub async fn handle_auth_session_entry(
                     StatusCode::OK,
                     SessionResponse {
                         authenticated: false,
+                        user_id: None,
                         display_name: None,
                         expires_at: None,
                     },
@@ -1448,6 +1615,7 @@ pub async fn handle_auth_session_entry(
         StatusCode::OK,
         SessionResponse {
             authenticated: true,
+            user_id: Some(user_id),
             display_name: Some(display_name),
             expires_at: Some(expires_at),
         },
@@ -1729,6 +1897,8 @@ pub async fn handle_device_start_entry(
         status: "pending".into(),
         prefix: None,
         user_id: None,
+        ecdh_public_key: payload.ecdh_public_key,
+        amk_transfer: None,
     };
     let challenge_json = match serde_json::to_string(&challenge_data) {
         Ok(v) => v,
@@ -1830,6 +2000,7 @@ pub async fn handle_device_poll_entry(
             DevicePollResponse {
                 status: "complete".into(),
                 prefix: data.prefix,
+                amk_transfer: data.amk_transfer,
             },
         );
     }
@@ -1839,6 +2010,7 @@ pub async fn handle_device_poll_entry(
         DevicePollResponse {
             status: "authorization_pending".into(),
             prefix: None,
+            amk_transfer: None,
         },
     )
 }
@@ -1968,13 +2140,15 @@ pub async fn handle_device_approve_entry(
         }
     }
 
-    // Update challenge to approved state
+    // Update challenge to approved state (include amk_transfer atomically)
     let updated = DeviceChallengeJson {
         user_code: data.user_code,
         auth_token_b64: data.auth_token_b64,
         status: "approved".into(),
         prefix: Some(prefix),
         user_id: Some(user_id.to_string()),
+        ecdh_public_key: data.ecdh_public_key,
+        amk_transfer: payload.amk_transfer,
     };
     let updated_json = match serde_json::to_string(&updated) {
         Ok(v) => v,
@@ -1997,6 +2171,372 @@ pub async fn handle_device_approve_entry(
     json_response(StatusCode::OK, serde_json::json!({ "ok": true }))
 }
 
+#[allow(clippy::result_large_err)]
+fn require_encrypted_notes(state: &AppState) -> Result<(), Response> {
+    if state.cfg.encrypted_notes_enabled {
+        Ok(())
+    } else {
+        Err(not_found())
+    }
+}
+
+// --- AMK wrapper endpoints ---
+
+/// Resolve user_id and key_prefix from either session auth or API key auth.
+/// Tries session auth first so session Bearer tokens aren't misinterpreted as API keys.
+/// Returns (user_id, key_prefix) or an error response.
+async fn resolve_amk_auth(
+    state: &Arc<AppState>,
+    headers: &HeaderMap,
+    explicit_prefix: Option<&str>,
+) -> Result<(UserId, String), Response> {
+    // Try session auth first
+    if let Ok((user_id, _, _)) = require_session_user(state, headers).await {
+        let Some(prefix) = explicit_prefix else {
+            return Err(bad_request("key_prefix is required for session auth"));
+        };
+        // Verify the prefix belongs to a non-revoked key owned by the session's user
+        let keys = state
+            .api_keys
+            .list_by_user_id(user_id)
+            .await
+            .map_err(|_| internal_server_error())?;
+        let valid = keys
+            .iter()
+            .any(|k| k.prefix == prefix && k.revoked_at.is_none());
+        if !valid {
+            return Err(bad_request("key_prefix does not match any active key"));
+        }
+        return Ok((user_id, prefix.to_string()));
+    }
+
+    // Fall back to API key auth
+    if let Some(raw) = api_key_from_headers(headers) {
+        if let Ok(api_key) = state.auth.authenticate(&raw).await {
+            let Some(user_id) = api_key.user_id else {
+                return Err(bad_request("api key is not linked to a user account"));
+            };
+            // API key auth: prefix is always the caller's own prefix
+            return Ok((user_id, api_key.prefix));
+        }
+    }
+
+    Err(unauthorized())
+}
+
+/// `PUT /api/v1/amk/wrapper` — upsert, `GET /api/v1/amk/wrapper` — get.
+pub async fn handle_amk_wrapper_entry(
+    State(state): State<Arc<AppState>>,
+    query: Query<AmkWrapperQuery>,
+    req: Request,
+) -> Response {
+    if let Err(resp) = require_encrypted_notes(&state) {
+        return resp;
+    }
+    match *req.method() {
+        Method::PUT => handle_amk_wrapper_upsert(state, req).await,
+        Method::GET => handle_amk_wrapper_get(state, query, req).await,
+        _ => method_not_allowed(),
+    }
+}
+
+async fn handle_amk_wrapper_upsert(state: Arc<AppState>, req: Request) -> Response {
+    let headers = req.headers().clone();
+    let payload: UpsertAmkWrapperRequest = match read_json_body(req, 8 * 1024, None).await {
+        Ok(v) => v,
+        Err(resp) => return resp,
+    };
+
+    let (user_id, prefix) =
+        match resolve_amk_auth(&state, &headers, payload.key_prefix.as_deref()).await {
+            Ok(v) => v,
+            Err(resp) => return resp,
+        };
+
+    // Decode and validate fields
+    let wrapped_amk = match URL_SAFE_NO_PAD.decode(&payload.wrapped_amk) {
+        Ok(v) if v.len() == 48 => v, // 32 bytes AMK + 16 bytes GCM tag
+        _ => return bad_request("wrapped_amk must be base64url-encoded 48 bytes"),
+    };
+    let nonce = match URL_SAFE_NO_PAD.decode(&payload.nonce) {
+        Ok(v) if v.len() == 12 => v,
+        _ => return bad_request("nonce must be base64url-encoded 12 bytes"),
+    };
+    let amk_commit = match URL_SAFE_NO_PAD.decode(&payload.amk_commit) {
+        Ok(v) if v.len() == 32 => v,
+        _ => return bad_request("amk_commit must be base64url-encoded 32 bytes"),
+    };
+    if payload.version != 1 {
+        return bad_request("unsupported version");
+    }
+
+    let rec = AmkWrapperRecord {
+        user_id,
+        key_prefix: prefix,
+        wrapped_amk,
+        nonce,
+        version: payload.version,
+        created_at: Utc::now(),
+    };
+
+    match state.amk_store.upsert_wrapper(rec, &amk_commit).await {
+        Ok(AmkUpsertResult::Ok) => {
+            json_response(StatusCode::OK, serde_json::json!({ "ok": true }))
+        }
+        Ok(AmkUpsertResult::CommitMismatch) => error_response(
+            StatusCode::CONFLICT,
+            "a different AMK is already committed for this account; obtain the existing AMK via device sync",
+        ),
+        Err(e) => {
+            error!(error = %e, "failed to upsert AMK wrapper");
+            internal_server_error()
+        }
+    }
+}
+
+async fn handle_amk_wrapper_get(
+    state: Arc<AppState>,
+    Query(query): Query<AmkWrapperQuery>,
+    req: Request,
+) -> Response {
+    let (user_id, prefix) =
+        match resolve_amk_auth(&state, req.headers(), query.key_prefix.as_deref()).await {
+            Ok(v) => v,
+            Err(resp) => return resp,
+        };
+
+    match state.amk_store.get_wrapper(user_id, &prefix).await {
+        Ok(Some(w)) => json_response(
+            StatusCode::OK,
+            AmkWrapperResponse {
+                user_id,
+                wrapped_amk: URL_SAFE_NO_PAD.encode(&w.wrapped_amk),
+                nonce: URL_SAFE_NO_PAD.encode(&w.nonce),
+                version: w.version,
+            },
+        ),
+        Ok(None) => not_found(),
+        Err(e) => {
+            error!(error = %e, "failed to get AMK wrapper");
+            internal_server_error()
+        }
+    }
+}
+
+/// `GET /api/v1/amk/wrappers` — list all wrappers (session auth only).
+pub async fn handle_amk_wrappers_list_entry(
+    State(state): State<Arc<AppState>>,
+    req: Request,
+) -> Response {
+    if let Err(resp) = require_encrypted_notes(&state) {
+        return resp;
+    }
+    if req.method() != Method::GET {
+        return method_not_allowed();
+    }
+
+    let (user_id, _, _) = match require_session_user(&state, req.headers()).await {
+        Ok(v) => v,
+        Err(resp) => return resp,
+    };
+
+    match state.amk_store.list_wrappers(user_id).await {
+        Ok(wrappers) => json_response(
+            StatusCode::OK,
+            AmkWrappersListResponse {
+                wrappers: wrappers
+                    .into_iter()
+                    .map(|w| AmkWrappersListItem {
+                        key_prefix: w.key_prefix,
+                        version: w.version,
+                        created_at: w.created_at,
+                    })
+                    .collect(),
+            },
+        ),
+        Err(e) => {
+            error!(error = %e, "failed to list AMK wrappers");
+            internal_server_error()
+        }
+    }
+}
+
+/// `GET /api/v1/amk/exists` — check if user has any AMK wrapper.
+pub async fn handle_amk_exists_entry(State(state): State<Arc<AppState>>, req: Request) -> Response {
+    if let Err(resp) = require_encrypted_notes(&state) {
+        return resp;
+    }
+    if req.method() != Method::GET {
+        return method_not_allowed();
+    }
+
+    // Either auth works — try session first so session Bearer tokens aren't misinterpreted.
+    let user_id = if let Ok((uid, _, _)) = require_session_user(&state, req.headers()).await {
+        uid
+    } else if let Some(raw) = api_key_from_headers(req.headers()) {
+        match state.auth.authenticate(&raw).await {
+            Ok(k) => match k.user_id {
+                Some(uid) => uid,
+                None => return bad_request("api key is not linked to a user account"),
+            },
+            Err(_) => return unauthorized(),
+        }
+    } else {
+        return unauthorized();
+    };
+
+    match state.amk_store.has_any_wrapper(user_id).await {
+        Ok(exists) => json_response(StatusCode::OK, AmkExistsResponse { exists }),
+        Err(e) => {
+            error!(error = %e, "failed to check AMK existence");
+            internal_server_error()
+        }
+    }
+}
+
+// --- Encrypted metadata endpoint ---
+
+/// `PUT /api/v1/secrets/:id/meta` — attach or update enc_meta on an existing secret.
+pub async fn handle_secret_meta_entry(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<String>,
+    req: Request,
+) -> Response {
+    if let Err(resp) = require_encrypted_notes(&state) {
+        return resp;
+    }
+    if req.method() != Method::PUT {
+        return method_not_allowed();
+    }
+
+    // Auth required (session or API key, must resolve to user).
+    // Try session auth first so a session Bearer token isn't misinterpreted as an API key.
+    let owner_keys = if let Ok((user_id, _, _)) = require_session_user(&state, req.headers()).await
+    {
+        match owner_keys_for_user(&state, user_id).await {
+            Ok(keys) => keys,
+            Err(resp) => return resp,
+        }
+    } else if let Some(raw) = api_key_from_headers(req.headers()) {
+        let api_key = match state.auth.authenticate(&raw).await {
+            Ok(k) => k,
+            Err(_) => return unauthorized(),
+        };
+        match owner_keys_for_api_key(&state, &api_key).await {
+            Ok(keys) => keys,
+            Err(resp) => return resp,
+        }
+    } else {
+        return unauthorized();
+    };
+
+    let payload: UpdateEncMetaRequest = match read_json_body(req, 16 * 1024, None).await {
+        Ok(v) => v,
+        Err(resp) => return resp,
+    };
+
+    // Validate enc_meta fields
+    if payload.enc_meta.v != 1 {
+        return bad_request("enc_meta.v must be 1");
+    }
+
+    // Validate ct: base64url, max 8192 bytes decoded
+    let ct_bytes = match URL_SAFE_NO_PAD.decode(&payload.enc_meta.note.ct) {
+        Ok(v) => v,
+        Err(_) => return bad_request("enc_meta.note.ct is not valid base64url"),
+    };
+    if ct_bytes.len() > 8192 {
+        return bad_request("enc_meta.note.ct exceeds 8 KiB decoded");
+    }
+
+    // Validate nonce: exactly 12 bytes
+    let nonce_bytes = match URL_SAFE_NO_PAD.decode(&payload.enc_meta.note.nonce) {
+        Ok(v) => v,
+        Err(_) => return bad_request("enc_meta.note.nonce is not valid base64url"),
+    };
+    if nonce_bytes.len() != 12 {
+        return bad_request("enc_meta.note.nonce must be exactly 12 bytes");
+    }
+
+    // Validate salt: exactly 32 bytes
+    let salt_bytes = match URL_SAFE_NO_PAD.decode(&payload.enc_meta.note.salt) {
+        Ok(v) => v,
+        Err(_) => return bad_request("enc_meta.note.salt is not valid base64url"),
+    };
+    if salt_bytes.len() != 32 {
+        return bad_request("enc_meta.note.salt must be exactly 32 bytes");
+    }
+
+    match state
+        .amk_store
+        .update_enc_meta(
+            &id,
+            &owner_keys,
+            &payload.enc_meta,
+            payload.meta_key_version,
+        )
+        .await
+    {
+        Ok(()) => json_response(StatusCode::OK, serde_json::json!({ "ok": true })),
+        Err(StorageError::NotFound) => not_found(),
+        Err(e) => {
+            error!(error = %e, "failed to update enc_meta");
+            internal_server_error()
+        }
+    }
+}
+
+// --- Device challenge endpoint ---
+
+/// `GET /api/v1/auth/device/challenge?user_code=X` — fetch challenge details for ECDH.
+pub async fn handle_device_challenge_entry(
+    State(state): State<Arc<AppState>>,
+    query: Query<DeviceChallengeQuery>,
+    req: Request,
+) -> Response {
+    if req.method() != Method::GET {
+        return method_not_allowed();
+    }
+
+    // Session auth only (the approving browser user)
+    if let Err(resp) = require_session_user(&state, req.headers()).await {
+        return resp;
+    }
+
+    let now = Utc::now();
+    let challenge = match state
+        .auth_store
+        .find_device_challenge_by_user_code(&query.user_code, now)
+        .await
+    {
+        Ok(c) => c,
+        Err(StorageError::NotFound) => return not_found(),
+        Err(e) => {
+            error!(error = %e, "failed to find device challenge");
+            return internal_server_error();
+        }
+    };
+
+    let data: DeviceChallengeJson = match serde_json::from_str(&challenge.challenge_json) {
+        Ok(v) => v,
+        Err(_) => return internal_server_error(),
+    };
+
+    // Only return pending challenges
+    if data.status != "pending" {
+        return not_found();
+    }
+
+    json_response(
+        StatusCode::OK,
+        DeviceChallengeResponse {
+            user_code: data.user_code,
+            ecdh_public_key: data.ecdh_public_key,
+            status: data.status,
+        },
+    )
+}
+
 pub async fn handle_info_entry(State(state): State<Arc<AppState>>, req: Request) -> Response {
     if req.method() != Method::GET {
         return method_not_allowed();
@@ -2007,16 +2547,20 @@ pub async fn handle_info_entry(State(state): State<Arc<AppState>>, req: Request)
         return rate_limited();
     }
 
-    let authenticated = if let Some(raw) = api_key_from_headers(req.headers()) {
-        state.auth.authenticate(&raw).await.is_ok()
+    let (authenticated, user_id) = if let Some(raw) = api_key_from_headers(req.headers()) {
+        match state.auth.authenticate(&raw).await {
+            Ok(api_key) => (true, api_key.user_id.map(|uid| uid.to_string())),
+            Err(_) => (false, None),
+        }
     } else {
-        false
+        (false, None)
     };
 
     let mut resp = json_response(
         StatusCode::OK,
         InfoResponse {
             authenticated,
+            user_id,
             ttl: InfoTtl {
                 default_seconds: secrt_core::DEFAULT_TTL_SECONDS,
                 max_seconds: secrt_core::ttl::MAX_TTL_SECONDS,
@@ -2045,10 +2589,18 @@ pub async fn handle_info_entry(State(state): State<Arc<AppState>>, req: Request)
                 requests_per_second: state.cfg.claim_rate,
                 burst: state.cfg.claim_burst as i64,
             },
+            features: InfoFeatures {
+                encrypted_notes: state.cfg.encrypted_notes_enabled,
+            },
         },
     );
 
-    insert_header(resp.headers_mut(), "cache-control", "public, max-age=300");
+    if authenticated {
+        insert_header(resp.headers_mut(), "cache-control", "private, no-store");
+        insert_header(resp.headers_mut(), "vary", "Authorization, X-API-Key");
+    } else {
+        insert_header(resp.headers_mut(), "cache-control", "public, max-age=300");
+    }
     resp
 }
 
@@ -2252,6 +2804,7 @@ mod tests {
         users: Mutex<HashMap<UserId, UserRecord>>,
         sessions: Mutex<HashMap<String, SessionRecord>>,
         challenges: Mutex<HashMap<String, ChallengeRecord>>,
+        amk_wrappers: Mutex<HashMap<String, AmkWrapperRecord>>,
     }
 
     #[async_trait]
@@ -2347,6 +2900,7 @@ mod tests {
                         created_at: s.created_at,
                         ciphertext_size: s.envelope.len() as i64,
                         passphrase_protected,
+                        enc_meta: None,
                     }
                 })
                 .collect())
@@ -2391,6 +2945,33 @@ mod tests {
             std::hash::Hash::hash(&joined, &mut hasher);
             let checksum = format!("{:016x}", std::hash::Hasher::finish(&hasher));
             Ok((count, checksum))
+        }
+
+        async fn get_summary_by_id(
+            &self,
+            id: &str,
+            owner_keys: &[String],
+            now: DateTime<Utc>,
+        ) -> Result<Option<SecretSummary>, StorageError> {
+            let m = self.secrets.lock().unwrap();
+            let Some(s) = m.get(id) else {
+                return Ok(None);
+            };
+            if !owner_keys.contains(&s.owner_key) || s.expires_at <= now {
+                return Ok(None);
+            }
+            let passphrase_protected = serde_json::from_str::<serde_json::Value>(&s.envelope)
+                .ok()
+                .and_then(|v| v.get("kdf")?.get("name")?.as_str().map(|n| n != "none"))
+                .unwrap_or(false);
+            Ok(Some(SecretSummary {
+                id: s.id.clone(),
+                expires_at: s.expires_at,
+                created_at: s.created_at,
+                ciphertext_size: s.envelope.len() as i64,
+                passphrase_protected,
+                enc_meta: None,
+            }))
         }
     }
 
@@ -2674,6 +3255,75 @@ mod tests {
                     .retain(|_, s| s.user_id != user_id);
             }
             Ok(removed)
+        }
+    }
+
+    #[async_trait]
+    impl AmkStore for MemStore {
+        async fn upsert_wrapper(
+            &self,
+            w: AmkWrapperRecord,
+            _amk_commit: &[u8],
+        ) -> Result<AmkUpsertResult, StorageError> {
+            // Simplified: always accept (no commit check in test mock)
+            let key = format!("{}:{}", w.user_id, w.key_prefix);
+            self.amk_wrappers.lock().unwrap().insert(key, w);
+            Ok(AmkUpsertResult::Ok)
+        }
+
+        async fn get_wrapper(
+            &self,
+            user_id: Uuid,
+            key_prefix: &str,
+        ) -> Result<Option<AmkWrapperRecord>, StorageError> {
+            let key = format!("{user_id}:{key_prefix}");
+            Ok(self.amk_wrappers.lock().unwrap().get(&key).cloned())
+        }
+
+        async fn list_wrappers(
+            &self,
+            user_id: Uuid,
+        ) -> Result<Vec<AmkWrapperRecord>, StorageError> {
+            let m = self.amk_wrappers.lock().unwrap();
+            Ok(m.values()
+                .filter(|w| w.user_id == user_id)
+                .cloned()
+                .collect())
+        }
+
+        async fn delete_wrapper(
+            &self,
+            user_id: Uuid,
+            key_prefix: &str,
+        ) -> Result<bool, StorageError> {
+            let key = format!("{user_id}:{key_prefix}");
+            Ok(self.amk_wrappers.lock().unwrap().remove(&key).is_some())
+        }
+
+        async fn has_any_wrapper(&self, user_id: Uuid) -> Result<bool, StorageError> {
+            let m = self.amk_wrappers.lock().unwrap();
+            Ok(m.values().any(|w| w.user_id == user_id))
+        }
+
+        async fn get_amk_commit(&self, _user_id: Uuid) -> Result<Option<Vec<u8>>, StorageError> {
+            Ok(None)
+        }
+
+        async fn update_enc_meta(
+            &self,
+            secret_id: &str,
+            owner_keys: &[String],
+            _enc_meta: &secrt_core::api::EncMetaV1,
+            _meta_key_version: i16,
+        ) -> Result<(), StorageError> {
+            let m = self.secrets.lock().unwrap();
+            let Some(s) = m.get(secret_id) else {
+                return Err(StorageError::NotFound);
+            };
+            if !owner_keys.contains(&s.owner_key) {
+                return Err(StorageError::NotFound);
+            }
+            Ok(())
         }
     }
 
@@ -3330,12 +3980,14 @@ mod tests {
             apikey_register_account_max_per_day: 20,
             apikey_register_ip_max_per_hour: 5,
             apikey_register_ip_max_per_day: 20,
+            encrypted_notes_enabled: false,
         };
         let store = Arc::new(MemStore::default());
         let secrets: Arc<dyn SecretsStore> = store.clone();
         let keys: Arc<dyn ApiKeysStore> = store.clone();
-        let auth_store: Arc<dyn AuthStore> = store;
-        Arc::new(AppState::new(cfg, secrets, keys, auth_store))
+        let auth_store: Arc<dyn AuthStore> = store.clone();
+        let amk_store: Arc<dyn AmkStore> = store;
+        Arc::new(AppState::new(cfg, secrets, keys, auth_store, amk_store))
     }
 
     #[test]

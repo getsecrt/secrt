@@ -28,7 +28,7 @@ export function TtlSelector({ value, onChange, disabled }: TtlSelectorProps) {
             key={preset.seconds}
             type="button"
             aria-pressed={preset.seconds === value}
-            class={`rounded-full border px-3 py-1 text-xs font-medium transition-colors ${
+            class={`rounded-full border px-3 py-1 text-xs font-medium text-muted transition-colors ${
               preset.seconds === value
                 ? 'border-green-600 bg-green-500 text-white'
                 : 'border-border bg-neutral-200 hover:text-text dark:bg-neutral-800'

@@ -1,10 +1,13 @@
 use std::io::Write;
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use base64::engine::general_purpose::URL_SAFE_NO_PAD;
+use base64::Engine;
+
 use crate::cli::{parse_flags, print_list_help, resolve_globals, CliError, Deps};
 use crate::color::{color_func, ColorFn, DIM, HEADING, WARN};
 use crate::passphrase::write_error;
-use crate::send::parse_iso_to_epoch;
+use crate::send::{parse_iso_to_epoch, resolve_amk};
 
 /// Format bytes into a compact human-readable size (e.g. "1.2 KB", "256 B").
 fn format_size(bytes: i64) -> String {
@@ -103,6 +106,51 @@ fn humanize_compact(secs: u64, c: &ColorFn) -> (String, usize) {
     }
 }
 
+/// Get terminal width, defaulting to 80 if unavailable.
+fn terminal_width() -> usize {
+    // Try $COLUMNS first (set by most shells on resize)
+    if let Ok(val) = std::env::var("COLUMNS") {
+        if let Ok(cols) = val.parse::<usize>() {
+            if cols > 0 {
+                return cols;
+            }
+        }
+    }
+    // Fall back to stty size (works on macOS and Linux)
+    #[cfg(unix)]
+    if let Ok(output) = std::process::Command::new("stty")
+        .arg("size")
+        .stdin(std::process::Stdio::inherit())
+        .stderr(std::process::Stdio::null())
+        .output()
+    {
+        if let Ok(s) = std::str::from_utf8(&output.stdout) {
+            // Format: "rows cols"
+            if let Some(cols_str) = s.split_whitespace().nth(1) {
+                if let Ok(cols) = cols_str.parse::<usize>() {
+                    if cols > 0 {
+                        return cols;
+                    }
+                }
+            }
+        }
+    }
+    80
+}
+
+/// Truncate a string to at most `max` visible characters, appending `…` if truncated.
+fn truncate_str(s: &str, max: usize) -> String {
+    if max <= 1 {
+        return String::new();
+    }
+    if s.chars().count() <= max {
+        s.to_string()
+    } else {
+        let truncated: String = s.chars().take(max - 1).collect();
+        format!("{}\u{2026}", truncated)
+    }
+}
+
 /// Truncate an ID to at most `max` chars, appending `…` if truncated.
 fn truncate_id(id: &str, max: usize) -> String {
     if id.len() <= max {
@@ -110,6 +158,44 @@ fn truncate_id(id: &str, max: usize) -> String {
     } else {
         format!("{}\u{2026}", &id[..max])
     }
+}
+
+struct ListRow {
+    id: String,
+    created: String,
+    expires_display: String,
+    expires_vw: usize,
+    size: String,
+    passphrase: bool,
+    note: Option<String>,
+    has_enc_meta: bool,
+}
+
+/// Try to decrypt a note from enc_meta. Returns `None` if AMK is missing or decryption fails.
+fn decrypt_note_text(
+    amk: &Option<Vec<u8>>,
+    secret_id: &str,
+    enc_meta: Option<&secrt_core::api::EncMetaV1>,
+) -> Option<String> {
+    let amk = amk.as_ref()?;
+    let meta = enc_meta?;
+    if meta.v != 1 {
+        return None;
+    }
+
+    let ct = URL_SAFE_NO_PAD.decode(&meta.note.ct).ok()?;
+    let nonce = URL_SAFE_NO_PAD.decode(&meta.note.nonce).ok()?;
+    let salt = URL_SAFE_NO_PAD.decode(&meta.note.salt).ok()?;
+
+    let encrypted = secrt_core::amk::EncryptedNote {
+        ct,
+        nonce,
+        salt,
+        version: meta.v,
+    };
+
+    let plaintext = secrt_core::amk::decrypt_note(amk, secret_id, &encrypted).ok()?;
+    String::from_utf8(plaintext).ok()
 }
 
 pub fn run_list(args: &[String], deps: &mut Deps) -> i32 {
@@ -173,77 +259,128 @@ pub fn run_list(args: &[String], deps: &mut Deps) -> i32 {
     let is_tty = (deps.is_tty)();
     let c = color_func(is_tty);
 
-    // Build table rows: (id, created, expires_display, expires_visual_width, size, passphrase)
+    // Check if any secrets have enc_meta — if so, try to resolve the AMK for note decryption
+    let any_enc_meta = resp.secrets.iter().any(|s| s.enc_meta.is_some());
+    let amk_result = if any_enc_meta {
+        Some(resolve_amk(&pa, &*client))
+    } else {
+        None
+    };
+    let amk = amk_result.as_ref().and_then(|r| r.as_ref().ok().cloned());
+
+    // Build table rows
     let id_max = 16;
-    let rows: Vec<(String, String, String, usize, String, bool)> = resp
+    let rows: Vec<ListRow> = resp
         .secrets
         .iter()
         .map(|s| {
             let (exp_display, exp_width) = format_expires_in(&s.expires_at, &c);
-            (
-                truncate_id(&s.id, id_max),
-                format_created(&s.created_at),
-                exp_display,
-                exp_width,
-                format_size(s.ciphertext_size),
-                s.passphrase_protected,
-            )
+            let note = decrypt_note_text(&amk, &s.id, s.enc_meta.as_ref());
+            ListRow {
+                id: truncate_id(&s.id, id_max),
+                created: format_created(&s.created_at),
+                expires_display: exp_display,
+                expires_vw: exp_width,
+                size: format_size(s.ciphertext_size),
+                passphrase: s.passphrase_protected,
+                note,
+                has_enc_meta: s.enc_meta.is_some(),
+            }
         })
         .collect();
+
+    // Show Note column when any secret has encrypted metadata (even if we couldn't decrypt)
+    let show_notes = rows.iter().any(|r| r.has_enc_meta);
 
     // Measure column widths
     let hdr = ("ID", "Created", "Expires In", "Size", "\u{26b7}");
     let w_id = rows
         .iter()
-        .map(|r| r.0.len())
+        .map(|r| r.id.len())
         .max()
         .unwrap_or(0)
         .max(hdr.0.len());
     let w_created = rows
         .iter()
-        .map(|r| r.1.len())
+        .map(|r| r.created.len())
         .max()
         .unwrap_or(0)
         .max(hdr.1.len());
-    let w_expires = rows.iter().map(|r| r.3).max().unwrap_or(0).max(hdr.2.len());
+    let w_expires = rows
+        .iter()
+        .map(|r| r.expires_vw)
+        .max()
+        .unwrap_or(0)
+        .max(hdr.2.len());
     let w_size = rows
         .iter()
-        .map(|r| r.4.len())
+        .map(|r| r.size.len())
         .max()
         .unwrap_or(0)
         .max(hdr.3.len());
 
     // Print header (centered above each column)
+    let note_hdr = if show_notes { "  Note" } else { "" };
     let _ = writeln!(
         deps.stdout,
         "{}",
         c(
             HEADING,
             &format!(
-                "{:^w_id$}  {:^w_created$}  {:^w_expires$}  {:^w_size$}  {}",
-                hdr.0, hdr.1, hdr.2, hdr.3, hdr.4
+                "{:^w_id$}  {:^w_created$}  {:^w_expires$}  {:^w_size$}  {}{}",
+                hdr.0, hdr.1, hdr.2, hdr.3, hdr.4, note_hdr
             )
         )
     );
 
+    // Compute max note width from terminal width
+    let fixed_cols = w_id + 2 + w_created + 2 + w_expires + 2 + w_size + 2 + 1 + 2;
+    let max_note = terminal_width().saturating_sub(fixed_cols);
+
     // Print rows
-    for (id, created, expires_display, expires_vw, size, pp) in &rows {
-        let pp_display = if *pp {
+    for row in &rows {
+        let pp_display = if row.passphrase {
             c(WARN, "\u{26b7}")
         } else {
             String::new()
         };
+        let note_display = if show_notes {
+            match &row.note {
+                Some(n) => {
+                    let truncated = truncate_str(n, max_note);
+                    format!("  {}", c(DIM, &truncated))
+                }
+                None if row.has_enc_meta => format!("  {}", c(WARN, "(encrypted)")),
+                None => String::new(),
+            }
+        } else {
+            String::new()
+        };
         // Right-align expires column manually since the display string contains ANSI escapes
-        let exp_pad = w_expires.saturating_sub(*expires_vw);
+        let exp_pad = w_expires.saturating_sub(row.expires_vw);
         let _ = writeln!(
             deps.stdout,
-            "{:<w_id$}  {:<w_created$}  {}{}  {:>w_size$}  {}",
-            id,
-            c(DIM, created),
+            "{:<w_id$}  {:<w_created$}  {}{}  {:>w_size$}  {}{}",
+            row.id,
+            c(DIM, &row.created),
             " ".repeat(exp_pad),
-            expires_display,
-            size,
-            pp_display
+            row.expires_display,
+            row.size,
+            pp_display,
+            note_display
+        );
+    }
+
+    // Hint when notes exist but AMK is unavailable
+    let has_encrypted_notes = rows.iter().any(|r| r.has_enc_meta && r.note.is_none());
+    if has_encrypted_notes && !pa.silent {
+        let _ = writeln!(
+            deps.stderr,
+            "{}",
+            c(
+                WARN,
+                "Sync your notes key from another browser/device to view your notes (secrt sync)"
+            )
         );
     }
 

@@ -40,6 +40,9 @@ pub struct Config {
     pub apikey_register_account_max_per_day: i64,
     pub apikey_register_ip_max_per_hour: i64,
     pub apikey_register_ip_max_per_day: i64,
+
+    /// Feature flags
+    pub encrypted_notes_enabled: bool,
 }
 
 #[derive(Debug, Error)]
@@ -151,6 +154,8 @@ impl Config {
                 "APIKEY_REGISTER_IP_MAX_PER_DAY",
                 20,
             ),
+
+            encrypted_notes_enabled: getenv_bool_default("ENCRYPTED_NOTES_ENABLED", true),
         })
     }
 
@@ -215,6 +220,13 @@ fn getenv_usize_default(key: &str, default: usize) -> usize {
     env::var(key)
         .ok()
         .and_then(|v| v.trim().parse::<usize>().ok())
+        .unwrap_or(default)
+}
+
+fn getenv_bool_default(key: &str, default: bool) -> bool {
+    env::var(key)
+        .ok()
+        .map(|v| matches!(v.trim().to_lowercase().as_str(), "1" | "true" | "yes"))
         .unwrap_or(default)
 }
 

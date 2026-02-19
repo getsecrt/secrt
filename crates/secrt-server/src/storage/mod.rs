@@ -1,5 +1,6 @@
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
+use secrt_core::api::EncMetaV1;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use uuid::Uuid;
@@ -16,6 +17,26 @@ pub struct SecretSummary {
     pub created_at: DateTime<Utc>,
     pub ciphertext_size: i64,
     pub passphrase_protected: bool,
+    pub enc_meta: Option<EncMetaV1>,
+}
+
+#[derive(Clone, Debug)]
+pub struct AmkWrapperRecord {
+    pub user_id: Uuid,
+    pub key_prefix: String,
+    pub wrapped_amk: Vec<u8>,
+    pub nonce: Vec<u8>,
+    pub version: i16,
+    pub created_at: DateTime<Utc>,
+}
+
+/// Result of an atomic commit-then-upsert-wrapper operation.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum AmkUpsertResult {
+    /// Wrapper upserted successfully (commit matched or was first).
+    Ok,
+    /// A different AMK already committed for this user.
+    CommitMismatch,
 }
 
 #[derive(Clone, Debug)]
@@ -193,6 +214,12 @@ pub trait SecretsStore: Send + Sync {
         owner_keys: &[String],
         now: DateTime<Utc>,
     ) -> Result<(i64, String), StorageError>;
+    async fn get_summary_by_id(
+        &self,
+        id: &str,
+        owner_keys: &[String],
+        now: DateTime<Utc>,
+    ) -> Result<Option<SecretSummary>, StorageError>;
 }
 
 #[async_trait]
@@ -302,6 +329,40 @@ pub trait AuthStore: Send + Sync {
 }
 
 #[async_trait]
+pub trait AmkStore: Send + Sync {
+    /// Atomically: ensure amk_accounts row exists (INSERT ON CONFLICT DO NOTHING),
+    /// verify submitted commit matches stored commit, then upsert wrapper.
+    async fn upsert_wrapper(
+        &self,
+        w: AmkWrapperRecord,
+        amk_commit: &[u8],
+    ) -> Result<AmkUpsertResult, StorageError>;
+
+    async fn get_wrapper(
+        &self,
+        user_id: Uuid,
+        key_prefix: &str,
+    ) -> Result<Option<AmkWrapperRecord>, StorageError>;
+
+    async fn list_wrappers(&self, user_id: Uuid) -> Result<Vec<AmkWrapperRecord>, StorageError>;
+
+    async fn delete_wrapper(&self, user_id: Uuid, key_prefix: &str) -> Result<bool, StorageError>;
+
+    async fn has_any_wrapper(&self, user_id: Uuid) -> Result<bool, StorageError>;
+
+    async fn get_amk_commit(&self, user_id: Uuid) -> Result<Option<Vec<u8>>, StorageError>;
+
+    /// Update enc_meta on an existing secret owned by one of the given owner_keys.
+    async fn update_enc_meta(
+        &self,
+        secret_id: &str,
+        owner_keys: &[String],
+        enc_meta: &EncMetaV1,
+        meta_key_version: i16,
+    ) -> Result<(), StorageError>;
+}
+
+#[async_trait]
 impl<T> SecretsStore for Arc<T>
 where
     T: SecretsStore + ?Sized,
@@ -370,6 +431,15 @@ where
         now: DateTime<Utc>,
     ) -> Result<(i64, String), StorageError> {
         (**self).checksum_by_owner_keys(owner_keys, now).await
+    }
+
+    async fn get_summary_by_id(
+        &self,
+        id: &str,
+        owner_keys: &[String],
+        now: DateTime<Utc>,
+    ) -> Result<Option<SecretSummary>, StorageError> {
+        (**self).get_summary_by_id(id, owner_keys, now).await
     }
 }
 
@@ -556,6 +626,56 @@ where
     ) -> Result<ChallengeRecord, StorageError> {
         (**self)
             .find_device_challenge_by_user_code(user_code, now)
+            .await
+    }
+}
+
+#[async_trait]
+impl<T> AmkStore for Arc<T>
+where
+    T: AmkStore + ?Sized,
+{
+    async fn upsert_wrapper(
+        &self,
+        w: AmkWrapperRecord,
+        amk_commit: &[u8],
+    ) -> Result<AmkUpsertResult, StorageError> {
+        (**self).upsert_wrapper(w, amk_commit).await
+    }
+
+    async fn get_wrapper(
+        &self,
+        user_id: Uuid,
+        key_prefix: &str,
+    ) -> Result<Option<AmkWrapperRecord>, StorageError> {
+        (**self).get_wrapper(user_id, key_prefix).await
+    }
+
+    async fn list_wrappers(&self, user_id: Uuid) -> Result<Vec<AmkWrapperRecord>, StorageError> {
+        (**self).list_wrappers(user_id).await
+    }
+
+    async fn delete_wrapper(&self, user_id: Uuid, key_prefix: &str) -> Result<bool, StorageError> {
+        (**self).delete_wrapper(user_id, key_prefix).await
+    }
+
+    async fn has_any_wrapper(&self, user_id: Uuid) -> Result<bool, StorageError> {
+        (**self).has_any_wrapper(user_id).await
+    }
+
+    async fn get_amk_commit(&self, user_id: Uuid) -> Result<Option<Vec<u8>>, StorageError> {
+        (**self).get_amk_commit(user_id).await
+    }
+
+    async fn update_enc_meta(
+        &self,
+        secret_id: &str,
+        owner_keys: &[String],
+        enc_meta: &EncMetaV1,
+        meta_key_version: i16,
+    ) -> Result<(), StorageError> {
+        (**self)
+            .update_enc_meta(secret_id, owner_keys, enc_meta, meta_key_version)
             .await
     }
 }

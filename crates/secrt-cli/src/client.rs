@@ -115,16 +115,32 @@ pub struct DeviceStartResponse {
 }
 
 #[derive(Debug, Deserialize)]
+pub struct AmkTransferPayload {
+    pub ct: String,
+    pub nonce: String,
+    pub ecdh_public_key: String,
+}
+
+#[derive(Debug, Deserialize)]
 pub struct DevicePollResponse {
     pub status: String,
     pub prefix: Option<String>,
+    pub amk_transfer: Option<AmkTransferPayload>,
 }
 
 impl ApiClient {
     /// Start a device authorization flow (unauthenticated).
-    pub fn device_start(&self, auth_token_b64: &str) -> Result<DeviceStartResponse, String> {
+    /// If `ecdh_public_key_b64` is provided, it's included in the request for AMK transfer.
+    pub fn device_start(
+        &self,
+        auth_token_b64: &str,
+        ecdh_public_key_b64: Option<&str>,
+    ) -> Result<DeviceStartResponse, String> {
         let endpoint = format!("{}/api/v1/auth/device/start", self.url());
-        let body = serde_json::json!({ "auth_token": auth_token_b64 });
+        let mut body = serde_json::json!({ "auth_token": auth_token_b64 });
+        if let Some(pk) = ecdh_public_key_b64 {
+            body["ecdh_public_key"] = serde_json::Value::String(pk.to_string());
+        }
         let body_bytes =
             serde_json::to_vec(&body).map_err(|e| format!("marshal request: {}", e))?;
 
@@ -300,6 +316,135 @@ impl SecretApi for ApiClient {
             .read_to_string()
             .map_err(|e| format!("decode response: {}", e))?;
         serde_json::from_str(&body_str).map_err(|e| format!("decode response: {}", e))
+    }
+
+    fn get_secret_metadata(&self, id: &str) -> Result<SecretMetadataItem, String> {
+        let endpoint = format!("{}/api/v1/secrets/{}", self.url(), id);
+        let wire_api_key = self.api_key_for_wire()?;
+
+        let mut request = self.agent().get(&endpoint);
+        if let Some(key) = wire_api_key.as_ref() {
+            request = request.header("X-API-Key", key);
+        }
+
+        let resp = request.call().map_err(|e| self.handle_ureq_error(e))?;
+
+        if resp.status().as_u16() != 200 {
+            return Err(self.read_api_error_from_response(resp));
+        }
+
+        let body_str = resp
+            .into_body()
+            .read_to_string()
+            .map_err(|e| format!("decode response: {}", e))?;
+        serde_json::from_str(&body_str).map_err(|e| format!("decode response: {}", e))
+    }
+
+    fn update_secret_meta(
+        &self,
+        secret_id: &str,
+        enc_meta: &EncMetaV1,
+        meta_key_version: i16,
+    ) -> Result<(), String> {
+        let wire_api_key = self.api_key_for_wire()?;
+        let endpoint = format!("{}/api/v1/secrets/{}/meta", self.url(), secret_id);
+
+        let body = serde_json::json!({
+            "enc_meta": enc_meta,
+            "meta_key_version": meta_key_version,
+        });
+        let body_bytes =
+            serde_json::to_vec(&body).map_err(|e| format!("marshal request: {}", e))?;
+
+        let mut request = self
+            .agent()
+            .put(&endpoint)
+            .header("Content-Type", "application/json");
+        if let Some(key) = wire_api_key.as_ref() {
+            request = request.header("X-API-Key", key);
+        }
+
+        let resp = request
+            .send(&body_bytes[..])
+            .map_err(|e| self.handle_ureq_error(e))?;
+
+        if resp.status().as_u16() != 200 {
+            return Err(self.read_api_error_from_response(resp));
+        }
+        Ok(())
+    }
+
+    fn get_amk_wrapper(&self) -> Result<Option<AmkWrapperResponse>, String> {
+        let wire_api_key = self
+            .api_key_for_wire()?
+            .ok_or_else(|| "API key required for AMK operations".to_string())?;
+        let endpoint = format!("{}/api/v1/amk/wrapper", self.url());
+
+        let resp = self
+            .agent()
+            .get(&endpoint)
+            .header("X-API-Key", &wire_api_key)
+            .call()
+            .map_err(|e| self.handle_ureq_error(e))?;
+
+        let status = resp.status().as_u16();
+        if status == 404 {
+            return Ok(None);
+        }
+        if status != 200 {
+            return Err(self.read_api_error_from_response(resp));
+        }
+
+        let body_str = resp
+            .into_body()
+            .read_to_string()
+            .map_err(|e| format!("decode response: {}", e))?;
+        let wrapper: AmkWrapperResponse =
+            serde_json::from_str(&body_str).map_err(|e| format!("decode response: {}", e))?;
+        Ok(Some(wrapper))
+    }
+
+    fn upsert_amk_wrapper(
+        &self,
+        key_prefix: &str,
+        wrapped_amk: &str,
+        nonce: &str,
+        amk_commit: &str,
+        version: i16,
+    ) -> Result<(), String> {
+        let wire_api_key = self
+            .api_key_for_wire()?
+            .ok_or_else(|| "API key required for AMK operations".to_string())?;
+        let endpoint = format!("{}/api/v1/amk/wrapper", self.url());
+
+        let body = serde_json::json!({
+            "key_prefix": key_prefix,
+            "wrapped_amk": wrapped_amk,
+            "nonce": nonce,
+            "amk_commit": amk_commit,
+            "version": version,
+        });
+        let body_bytes =
+            serde_json::to_vec(&body).map_err(|e| format!("marshal request: {}", e))?;
+
+        let resp = self
+            .agent()
+            .put(&endpoint)
+            .header("Content-Type", "application/json")
+            .header("X-API-Key", &wire_api_key)
+            .send(&body_bytes[..])
+            .map_err(|e| self.handle_ureq_error(e))?;
+
+        let status = resp.status().as_u16();
+        if status == 409 {
+            return Err(
+                "AMK commit mismatch: another device committed a different notes key".to_string(),
+            );
+        }
+        if status != 200 {
+            return Err(self.read_api_error_from_response(resp));
+        }
+        Ok(())
     }
 
     fn info(&self) -> Result<InfoResponse, String> {
@@ -751,7 +896,7 @@ mod tests {
             api_key: String::new(),
         };
         client
-            .device_start("dGVzdA")
+            .device_start("dGVzdA", None)
             .expect("should succeed despite trailing slash");
         server.join().expect("server join");
     }
@@ -765,7 +910,9 @@ mod tests {
             base_url: base_url.clone(),
             api_key: String::new(),
         };
-        let err = client.device_start("dGVzdA").expect_err("should fail");
+        let err = client
+            .device_start("dGVzdA", None)
+            .expect_err("should fail");
         assert!(
             err.contains("device auth endpoint not found"),
             "expected endpoint-not-found message, got: {}",
@@ -788,7 +935,9 @@ mod tests {
             base_url,
             api_key: String::new(),
         };
-        let err = client.device_start("dGVzdA").expect_err("should fail");
+        let err = client
+            .device_start("dGVzdA", None)
+            .expect_err("should fail");
         assert!(err.contains("429"));
         assert!(err.contains("rate limit"));
         server.join().expect("server join");
@@ -807,7 +956,7 @@ mod tests {
             base_url,
             api_key: String::new(),
         };
-        let resp = client.device_start("dGVzdA").expect("should succeed");
+        let resp = client.device_start("dGVzdA", None).expect("should succeed");
         assert_eq!(resp.device_code, "dc123");
         assert_eq!(resp.user_code, "ABCD-1234");
         assert_eq!(resp.expires_in, 600);

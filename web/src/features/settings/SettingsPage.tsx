@@ -6,8 +6,19 @@ import {
   revokeApiKey,
   registerApiKey,
   deleteAccount,
+  upsertAmkWrapper,
+  fetchInfo,
 } from '../../lib/api';
 import { generateApiKeyMaterial, formatWireApiKey } from '../../crypto/apikey';
+import {
+  generateAmk,
+  computeAmkCommit,
+  deriveAmkWrapKey,
+  buildWrapAad,
+  wrapAmk,
+} from '../../crypto/amk';
+import { base64urlEncode } from '../../crypto/encoding';
+import { storeAmk, loadAmk, clearAmk } from '../../lib/amk-store';
 import {
   KeyIcon,
   TrashIcon,
@@ -16,6 +27,7 @@ import {
   SquarePlusIcon,
   CircleXmarkIcon,
 } from '../../components/Icons';
+import { SyncNotesKeyButton } from '../../components/SyncNotesKeyButton';
 import { CardHeading } from '../../components/CardHeading';
 import { navigate } from '../../router';
 import type { ApiKeyItem } from '../../types';
@@ -57,7 +69,7 @@ function ApiKeysCard() {
   }, [fetchKeys]);
 
   const handleCreate = useCallback(async () => {
-    if (!auth.sessionToken) return;
+    if (!auth.sessionToken || !auth.userId) return;
     setCreating(true);
     setError(null);
     setNewKey(null);
@@ -69,13 +81,48 @@ function ApiKeysCard() {
       );
       const wireKey = formatWireApiKey(prefix, material.authToken);
       setNewKey(wireKey);
+
+      // Bootstrap AMK: generate or load existing
+      try {
+        const info = await fetchInfo();
+        if (info.features?.encrypted_notes) {
+          let amk = await loadAmk(auth.userId);
+          if (!amk) {
+            amk = generateAmk();
+            await storeAmk(auth.userId, amk);
+          }
+          const commit = await computeAmkCommit(amk);
+          const wrapKey = await deriveAmkWrapKey(material.rootKey);
+          const aad = buildWrapAad(auth.userId, prefix, 1);
+          const wrapped = await wrapAmk(amk, wrapKey, aad);
+          try {
+            await upsertAmkWrapper(auth.sessionToken, {
+              key_prefix: prefix,
+              wrapped_amk: wrapped.ct,
+              nonce: wrapped.nonce,
+              amk_commit: base64urlEncode(commit),
+              version: wrapped.version,
+            });
+          } catch (wrapErr) {
+            // 409 = commit mismatch, another device committed a different AMK
+            const msg = wrapErr instanceof Error ? wrapErr.message : '';
+            if (msg.includes('409') || msg.includes('mismatch')) {
+              await clearAmk(auth.userId);
+            }
+            // Non-fatal: key was created, wrapper upload failed
+          }
+        }
+      } catch {
+        // Non-fatal: AMK bootstrap failed but API key still works
+      }
+
       await fetchKeys();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to create API key');
     } finally {
       setCreating(false);
     }
-  }, [auth.sessionToken, fetchKeys]);
+  }, [auth.sessionToken, auth.userId, fetchKeys]);
 
   const handleRevoke = useCallback(
     async (prefix: string) => {
@@ -157,7 +204,7 @@ function ApiKeysCard() {
       {loading && keys.length === 0 ? (
         <p class="text-muted">Loading...</p>
       ) : keys.length === 0 ? (
-        <p class="text-muted text-center">No API keys yet.</p>
+        <p class="text-center text-muted">No API keys yet.</p>
       ) : (
         <div class="overflow-x-auto">
           <table class="w-full">
@@ -309,8 +356,18 @@ function AccountCard() {
 
 function SettingsContent() {
   return (
-    <div>
+    <div class="space-y-4">
       <ApiKeysCard />
+      <div class="card">
+        <CardHeading
+          title="Notes Key"
+          subtitle="Allow your encrypted notes to be viewed on another browser or device."
+          class="mb-3"
+        />
+        <div class="text-center">
+          <SyncNotesKeyButton />
+        </div>
+      </div>
       <AccountCard />
     </div>
   );

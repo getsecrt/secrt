@@ -16,6 +16,7 @@ const VALID_API_KEY: &str = "sk2_testprefix.qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq
 fn mock_info_response(authenticated: bool) -> InfoResponse {
     InfoResponse {
         authenticated,
+        user_id: None,
         ttl: InfoTTL {
             default_seconds: 86400,
             max_seconds: 31536000,

@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.13.0 — 2026-02-19
+
+### Added
+
+- **AMK crypto module:** `amk` module with Account Master Key operations — ECDH key agreement (P-256), transfer key derivation, SAS computation, AMK wrap/unwrap, note encrypt/decrypt, and blinded commitment hashing.
+- **`EncMetaV1` / `EncMetaNoteV1` types:** typed representations of encrypted note metadata blobs with serde support.
+- **`AmkWrapperResponse` type:** API response type for AMK wrapper retrieval.
+- **`SecretApi` extensions:** `update_secret_meta()`, `get_secret_metadata()`, `get_amk_wrapper()`, and `upsert_amk_wrapper()` methods (with default stubs for backward compatibility).
+- **`parse_secret_url()` public export:** URL parsing for sync URL handling.
+
 ## 0.11.0 — 2026-02-17
 
 ### Changed

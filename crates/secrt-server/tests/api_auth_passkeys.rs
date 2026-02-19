@@ -66,7 +66,7 @@ async fn passkey_register_flow(
     credential_id: &str,
 ) -> String {
     let finish_json = passkey_register_finish_response(app, display_name, credential_id).await;
-    assert!(finish_json.get("user_id").is_none());
+    assert!(finish_json.get("user_id").is_some());
     finish_json["session_token"]
         .as_str()
         .expect("session_token")
@@ -112,7 +112,7 @@ async fn passkey_login_finish_response(app: &axum::Router, credential_id: &str) 
 
 async fn passkey_login_flow(app: &axum::Router, credential_id: &str) -> String {
     let finish_json = passkey_login_finish_response(app, credential_id).await;
-    assert!(finish_json.get("user_id").is_none());
+    assert!(finish_json.get("user_id").is_some());
     finish_json["session_token"]
         .as_str()
         .expect("session_token")
@@ -203,7 +203,7 @@ async fn passkey_register_login_and_session_happy_path() {
     assert_eq!(session_resp.status(), StatusCode::OK);
     let body = response_json(session_resp).await;
     assert_eq!(body["authenticated"].as_bool(), Some(true));
-    assert!(body.get("user_id").is_none());
+    assert!(body.get("user_id").is_some());
 }
 
 #[tokio::test]
@@ -213,13 +213,13 @@ async fn passkey_finish_responses_return_public_session_fields_only() {
     assert!(register_finish["session_token"].as_str().is_some());
     assert_eq!(register_finish["display_name"].as_str(), Some("Alice"));
     assert!(register_finish["expires_at"].as_str().is_some());
-    assert!(register_finish.get("user_id").is_none());
+    assert!(register_finish.get("user_id").is_some());
 
     let login_finish = passkey_login_finish_response(&app, "cred-redact").await;
     assert!(login_finish["session_token"].as_str().is_some());
     assert_eq!(login_finish["display_name"].as_str(), Some("Alice"));
     assert!(login_finish["expires_at"].as_str().is_some());
-    assert!(login_finish.get("user_id").is_none());
+    assert!(login_finish.get("user_id").is_some());
 }
 
 #[tokio::test]
@@ -471,7 +471,7 @@ async fn logout_rejects_tampered_token_secret_and_preserves_session() {
     let session_resp = app.clone().oneshot(session_req).await.expect("response");
     let body = response_json(session_resp).await;
     assert_eq!(body["authenticated"].as_bool(), Some(true));
-    assert!(body.get("user_id").is_none());
+    assert!(body.get("user_id").is_some());
 }
 
 #[tokio::test]
