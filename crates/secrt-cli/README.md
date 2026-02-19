@@ -16,7 +16,7 @@ A fast, small CLI for [secrt.ca](https://secrt.ca) — one-time secret sharing w
 
 Built in Rust. No async runtime, no framework overhead. AES-256-GCM + HKDF-SHA256 + optional Argon2id passphrase protection, powered by [ring](https://github.com/briansmith/ring) + [argon2](https://crates.io/crates/argon2).
 
-**Download:** [macOS (Universal)](https://github.com/getsecrt/secrt/releases/latest/download/secrt-darwin-universal) | [Linux (x86_64)](https://github.com/getsecrt/secrt/releases/latest/download/secrt-linux-amd64) | [Windows (x86_64)](https://github.com/getsecrt/secrt/releases/latest/download/secrt-windows-amd64.exe) | [Windows (ARM64)](https://github.com/getsecrt/secrt/releases/latest/download/secrt-windows-arm64.exe)
+**Download:** [macOS (Universal)](https://github.com/getsecrt/secrt/releases/latest/download/secrt-macos.zip) | [Linux (x86_64)](https://github.com/getsecrt/secrt/releases/latest/download/secrt-linux-amd64.tar.gz) | [Windows (x86_64)](https://github.com/getsecrt/secrt/releases/latest/download/secrt-windows-amd64.zip) | [Windows (ARM64)](https://github.com/getsecrt/secrt/releases/latest/download/secrt-windows-arm64.zip)
 
 ## Install
 

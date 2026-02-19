@@ -6,6 +6,15 @@ All notable changes to the secrt monorepo are documented here. Individual crate 
 - [secrt-core](crates/secrt-core/CHANGELOG.md)
 - [secrt-server](crates/secrt-server/CHANGELOG.md)
 
+## 0.12.2 — 2026-02-19
+
+### Changed
+
+- **CLI release archives:** downloads are now `.zip` (macOS/Windows) and `.tar.gz` (Linux) containing a properly named `secrt` binary — no more renaming after download.
+- **GitHub "latest" release:** server releases no longer claim the repo-wide "latest" tag, so CLI download links (`/releases/latest/download/`) always resolve to the CLI release.
+
+See [CLI](crates/secrt-cli/CHANGELOG.md) and [server](crates/secrt-server/CHANGELOG.md) changelogs for details.
+
 ## 0.12.1 — 2026-02-18
 
 ### Added

@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.12.2 — 2026-02-19
+
+### Changed
+
+- **Release pipeline:** server releases no longer claim GitHub's repo-wide "latest" tag (`make_latest: false`), ensuring `/releases/latest/download/` URLs always resolve to CLI assets.
+- **Download links:** web frontend download menu updated to point to new archive filenames (`.zip`/`.tar.gz`).
+
 ## 0.12.1 — 2026-02-18
 
 ### Changed

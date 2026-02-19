@@ -188,27 +188,27 @@ const DOWNLOAD_BASE =
 const downloadLinks = [
   {
     label: 'macOS',
-    href: `${DOWNLOAD_BASE}/secrt-darwin-universal`,
+    href: `${DOWNLOAD_BASE}/secrt-macos.zip`,
     icon: AppleIcon,
   },
   {
     label: 'Windows x64',
-    href: `${DOWNLOAD_BASE}/secrt-windows-amd64.exe`,
+    href: `${DOWNLOAD_BASE}/secrt-windows-amd64.zip`,
     icon: WindowsIcon,
   },
   {
     label: 'Windows ARM',
-    href: `${DOWNLOAD_BASE}/secrt-windows-arm64.exe`,
+    href: `${DOWNLOAD_BASE}/secrt-windows-arm64.zip`,
     icon: WindowsIcon,
   },
   {
     label: 'Linux x64',
-    href: `${DOWNLOAD_BASE}/secrt-linux-amd64`,
+    href: `${DOWNLOAD_BASE}/secrt-linux-amd64.tar.gz`,
     icon: LinuxIcon,
   },
   {
     label: 'Linux ARM',
-    href: `${DOWNLOAD_BASE}/secrt-linux-arm64`,
+    href: `${DOWNLOAD_BASE}/secrt-linux-arm64.tar.gz`,
     icon: LinuxIcon,
   },
 ];

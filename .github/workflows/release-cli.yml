@@ -218,9 +218,36 @@ jobs:
       - name: List artifacts
         run: ls -la artifacts/
 
+      - name: Create archives
+        working-directory: artifacts
+        run: |
+          # macOS archives (zip containing 'secrt')
+          for arch in darwin-universal darwin-arm64 darwin-amd64; do
+            cp "secrt-${arch}" secrt
+            chmod +x secrt
+            zip "secrt-macos-${arch#darwin-}.zip" secrt
+            rm secrt
+          done
+          mv secrt-macos-universal.zip secrt-macos.zip
+
+          # Linux archives (tar.gz containing 'secrt')
+          for arch in linux-amd64 linux-arm64; do
+            cp "secrt-${arch}" secrt
+            chmod +x secrt
+            tar czf "secrt-${arch}.tar.gz" secrt
+            rm secrt
+          done
+
+          # Windows archives (zip containing 'secrt.exe')
+          for arch in windows-amd64 windows-arm64; do
+            cp "secrt-${arch}.exe" secrt.exe
+            zip "secrt-${arch}.zip" secrt.exe
+            rm secrt.exe
+          done
+
       - name: Generate checksums
         working-directory: artifacts
-        run: sha256sum secrt-darwin-* secrt-linux-* secrt-windows-* > secrt-checksums-sha256.txt
+        run: sha256sum secrt-macos*.zip secrt-linux-*.tar.gz secrt-windows-*.zip > secrt-checksums-sha256.txt
 
       - name: Show checksums
         run: cat artifacts/secrt-checksums-sha256.txt
@@ -230,11 +257,11 @@ jobs:
         with:
           generate_release_notes: true
           files: |
-            artifacts/secrt-darwin-arm64
-            artifacts/secrt-darwin-amd64
-            artifacts/secrt-darwin-universal
-            artifacts/secrt-linux-amd64
-            artifacts/secrt-linux-arm64
-            artifacts/secrt-windows-amd64.exe
-            artifacts/secrt-windows-arm64.exe
+            artifacts/secrt-macos.zip
+            artifacts/secrt-macos-arm64.zip
+            artifacts/secrt-macos-amd64.zip
+            artifacts/secrt-linux-amd64.tar.gz
+            artifacts/secrt-linux-arm64.tar.gz
+            artifacts/secrt-windows-amd64.zip
+            artifacts/secrt-windows-arm64.zip
             artifacts/secrt-checksums-sha256.txt

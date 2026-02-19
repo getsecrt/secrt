@@ -27,11 +27,11 @@ Monorepo for the [secrt.ca](https://secrt.ca) protocol. Share secrets that self-
 
 | Platform | Download |
 |----------|----------|
-| macOS (Universal) | [secrt-darwin-universal](https://github.com/getsecrt/secrt/releases/latest/download/secrt-darwin-universal) |
-| Windows x64 | [secrt-windows-amd64.exe](https://github.com/getsecrt/secrt/releases/latest/download/secrt-windows-amd64.exe) |
-| Windows ARM64 | [secrt-windows-arm64.exe](https://github.com/getsecrt/secrt/releases/latest/download/secrt-windows-arm64.exe) |
-| Linux x64 | [secrt-linux-amd64](https://github.com/getsecrt/secrt/releases/latest/download/secrt-linux-amd64) |
-| Linux ARM64 | [secrt-linux-arm64](https://github.com/getsecrt/secrt/releases/latest/download/secrt-linux-arm64) |
+| macOS (Universal) | [secrt-macos.zip](https://github.com/getsecrt/secrt/releases/latest/download/secrt-macos.zip) |
+| Windows x64 | [secrt-windows-amd64.zip](https://github.com/getsecrt/secrt/releases/latest/download/secrt-windows-amd64.zip) |
+| Windows ARM64 | [secrt-windows-arm64.zip](https://github.com/getsecrt/secrt/releases/latest/download/secrt-windows-arm64.zip) |
+| Linux x64 | [secrt-linux-amd64.tar.gz](https://github.com/getsecrt/secrt/releases/latest/download/secrt-linux-amd64.tar.gz) |
+| Linux ARM64 | [secrt-linux-arm64.tar.gz](https://github.com/getsecrt/secrt/releases/latest/download/secrt-linux-arm64.tar.gz) |
 
 ### Server
 
@@ -39,8 +39,8 @@ Server releases use separate tags (`server/v*`). Download from the [latest serve
 
 | Platform | Download |
 |----------|----------|
-| Linux x64 | [secrt-server-linux-amd64](https://github.com/getsecrt/secrt/releases/download/server%2Fv0.9.0/secrt-server-linux-amd64) |
-| Linux ARM64 | [secrt-server-linux-arm64](https://github.com/getsecrt/secrt/releases/download/server%2Fv0.9.0/secrt-server-linux-arm64) |
+| Linux x64 | [secrt-server-linux-amd64](https://github.com/getsecrt/secrt/releases/download/server%2Fv0.12.1/secrt-server-linux-amd64) |
+| Linux ARM64 | [secrt-server-linux-arm64](https://github.com/getsecrt/secrt/releases/download/server%2Fv0.12.1/secrt-server-linux-arm64) |
 
 ## Quick start
 

@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.12.2 — 2026-02-19
+
+### Changed
+
+- **Release archives:** CLI downloads are now `.zip` (macOS/Windows) and `.tar.gz` (Linux) containing a properly named `secrt` (or `secrt.exe`) binary instead of bare platform-suffixed executables. macOS universal binary renamed from `secrt-darwin-universal` to `secrt-macos.zip`.
+
 ## 0.12.1 — 2026-02-18
 
 ### Added
