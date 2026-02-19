@@ -195,9 +195,14 @@ pub fn run_sync(args: &[String], deps: &mut Deps) -> i32 {
 
     let (id, url_key) = match parsed {
         crate::envelope::ParsedSecretUrl::Sync { id, url_key } => (id, url_key),
-        crate::envelope::ParsedSecretUrl::Share { id, url_key } => {
-            // Accept share URLs too — the user might just be pasting the link
-            (id, url_key)
+        crate::envelope::ParsedSecretUrl::Share { .. } => {
+            write_error(
+                &mut deps.stderr,
+                pa.json,
+                (deps.is_tty)(),
+                "this is a share URL, not a sync URL (hint: use `secrt get` to retrieve shared secrets)",
+            );
+            return 2;
         }
     };
 
