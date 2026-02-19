@@ -176,6 +176,14 @@ impl SecretsStore for ErrStore {
     ) -> Result<(i64, String), StorageError> {
         Err(StorageError::Other("error".into()))
     }
+    async fn get_summary_by_id(
+        &self,
+        _id: &str,
+        _owner_keys: &[String],
+        _now: DateTime<Utc>,
+    ) -> Result<Option<SecretSummary>, StorageError> {
+        Ok(None)
+    }
 }
 
 #[async_trait]

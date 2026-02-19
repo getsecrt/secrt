@@ -72,6 +72,14 @@ impl SecretsStore for CountingStore {
     ) -> Result<(i64, String), StorageError> {
         Ok((0, String::new()))
     }
+    async fn get_summary_by_id(
+        &self,
+        _id: &str,
+        _owner_keys: &[String],
+        _now: DateTime<Utc>,
+    ) -> Result<Option<SecretSummary>, StorageError> {
+        Ok(None)
+    }
 }
 
 struct ErrorStore;
@@ -131,6 +139,14 @@ impl SecretsStore for ErrorStore {
         _now: DateTime<Utc>,
     ) -> Result<(i64, String), StorageError> {
         Ok((0, String::new()))
+    }
+    async fn get_summary_by_id(
+        &self,
+        _id: &str,
+        _owner_keys: &[String],
+        _now: DateTime<Utc>,
+    ) -> Result<Option<SecretSummary>, StorageError> {
+        Ok(None)
     }
 }
 
@@ -192,6 +208,14 @@ impl SecretsStore for DeletedStore {
     ) -> Result<(i64, String), StorageError> {
         Ok((0, String::new()))
     }
+    async fn get_summary_by_id(
+        &self,
+        _id: &str,
+        _owner_keys: &[String],
+        _now: DateTime<Utc>,
+    ) -> Result<Option<SecretSummary>, StorageError> {
+        Ok(None)
+    }
 }
 
 struct SlowStore;
@@ -252,6 +276,14 @@ impl SecretsStore for SlowStore {
         _now: DateTime<Utc>,
     ) -> Result<(i64, String), StorageError> {
         Ok((0, String::new()))
+    }
+    async fn get_summary_by_id(
+        &self,
+        _id: &str,
+        _owner_keys: &[String],
+        _now: DateTime<Utc>,
+    ) -> Result<Option<SecretSummary>, StorageError> {
+        Ok(None)
     }
 }
 

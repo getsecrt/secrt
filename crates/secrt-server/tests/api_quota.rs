@@ -183,6 +183,14 @@ impl SecretsStore for QuotaRaceStore {
     ) -> Result<(i64, String), StorageError> {
         Ok((0, String::new()))
     }
+    async fn get_summary_by_id(
+        &self,
+        _id: &str,
+        _owner_keys: &[String],
+        _now: DateTime<Utc>,
+    ) -> Result<Option<SecretSummary>, StorageError> {
+        Ok(None)
+    }
 }
 
 fn test_app_with_custom_secrets(

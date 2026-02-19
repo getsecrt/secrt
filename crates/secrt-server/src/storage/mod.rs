@@ -214,6 +214,12 @@ pub trait SecretsStore: Send + Sync {
         owner_keys: &[String],
         now: DateTime<Utc>,
     ) -> Result<(i64, String), StorageError>;
+    async fn get_summary_by_id(
+        &self,
+        id: &str,
+        owner_keys: &[String],
+        now: DateTime<Utc>,
+    ) -> Result<Option<SecretSummary>, StorageError>;
 }
 
 #[async_trait]
@@ -425,6 +431,15 @@ where
         now: DateTime<Utc>,
     ) -> Result<(i64, String), StorageError> {
         (**self).checksum_by_owner_keys(owner_keys, now).await
+    }
+
+    async fn get_summary_by_id(
+        &self,
+        id: &str,
+        owner_keys: &[String],
+        now: DateTime<Utc>,
+    ) -> Result<Option<SecretSummary>, StorageError> {
+        (**self).get_summary_by_id(id, owner_keys, now).await
     }
 }
 

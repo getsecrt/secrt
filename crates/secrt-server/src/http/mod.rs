@@ -469,6 +469,10 @@ pub fn build_router(state: Arc<AppState>) -> Router {
         .route("/api/v1/public/secrets", any(handle_create_public_entry))
         .route("/api/v1/secrets/check", any(handle_secrets_check_entry))
         .route("/api/v1/secrets", any(handle_secrets_entry))
+        .route(
+            "/api/v1/secrets/{id}",
+            any(handle_get_secret_metadata_entry),
+        )
         .route("/api/v1/secrets/{id}/claim", any(handle_claim_entry))
         .route("/api/v1/secrets/{id}/burn", any(handle_burn_entry))
         .route(
@@ -1082,6 +1086,54 @@ pub async fn handle_secrets_check_entry(
         }
         Err(_) => internal_server_error(),
     }
+}
+
+pub async fn handle_get_secret_metadata_entry(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<String>,
+    req: Request,
+) -> Response {
+    if req.method() != Method::GET {
+        return method_not_allowed();
+    }
+
+    // Same auth pattern as list_secrets: session first, API key fallback
+    let owner_keys = if let Ok((user_id, _, _)) = require_session_user(&state, req.headers()).await
+    {
+        match owner_keys_for_user(&state, user_id).await {
+            Ok(keys) => keys,
+            Err(resp) => return resp,
+        }
+    } else {
+        let raw_key = api_key_from_headers(req.headers());
+        let api_key = match require_api_key(&state, raw_key).await {
+            Ok(k) => k,
+            Err(resp) => return resp,
+        };
+        match owner_keys_for_api_key(&state, &api_key).await {
+            Ok(keys) => keys,
+            Err(resp) => return resp,
+        }
+    };
+
+    let now = Utc::now();
+    let summary = match state.secrets.get_summary_by_id(&id, &owner_keys, now).await {
+        Ok(Some(s)) => s,
+        Ok(None) => return not_found(),
+        Err(_) => return internal_server_error(),
+    };
+
+    let item = SecretMetadataItem {
+        share_url: format!("{}/s/{}", state.cfg.public_base_url, summary.id),
+        id: summary.id,
+        expires_at: summary.expires_at,
+        created_at: summary.created_at,
+        ciphertext_size: summary.ciphertext_size,
+        passphrase_protected: summary.passphrase_protected,
+        enc_meta: summary.enc_meta,
+    };
+
+    json_response(StatusCode::OK, item)
 }
 
 pub async fn handle_claim_entry(
@@ -2128,14 +2180,35 @@ fn require_encrypted_notes(state: &AppState) -> Result<(), Response> {
 
 // --- AMK wrapper endpoints ---
 
-/// Resolve user_id and key_prefix from either API key auth or session auth.
+/// Resolve user_id and key_prefix from either session auth or API key auth.
+/// Tries session auth first so session Bearer tokens aren't misinterpreted as API keys.
 /// Returns (user_id, key_prefix) or an error response.
 async fn resolve_amk_auth(
     state: &Arc<AppState>,
     headers: &HeaderMap,
     explicit_prefix: Option<&str>,
 ) -> Result<(UserId, String), Response> {
-    // Try API key auth first
+    // Try session auth first
+    if let Ok((user_id, _, _)) = require_session_user(state, headers).await {
+        let Some(prefix) = explicit_prefix else {
+            return Err(bad_request("key_prefix is required for session auth"));
+        };
+        // Verify the prefix belongs to a non-revoked key owned by the session's user
+        let keys = state
+            .api_keys
+            .list_by_user_id(user_id)
+            .await
+            .map_err(|_| internal_server_error())?;
+        let valid = keys
+            .iter()
+            .any(|k| k.prefix == prefix && k.revoked_at.is_none());
+        if !valid {
+            return Err(bad_request("key_prefix does not match any active key"));
+        }
+        return Ok((user_id, prefix.to_string()));
+    }
+
+    // Fall back to API key auth
     if let Some(raw) = api_key_from_headers(headers) {
         if let Ok(api_key) = state.auth.authenticate(&raw).await {
             let Some(user_id) = api_key.user_id else {
@@ -2146,24 +2219,7 @@ async fn resolve_amk_auth(
         }
     }
 
-    // Fall back to session auth
-    let (user_id, _, _) = require_session_user(state, headers).await?;
-    let Some(prefix) = explicit_prefix else {
-        return Err(bad_request("key_prefix is required for session auth"));
-    };
-    // Verify the prefix belongs to a non-revoked key owned by the session's user
-    let keys = state
-        .api_keys
-        .list_by_user_id(user_id)
-        .await
-        .map_err(|_| internal_server_error())?;
-    let valid = keys
-        .iter()
-        .any(|k| k.prefix == prefix && k.revoked_at.is_none());
-    if !valid {
-        return Err(bad_request("key_prefix does not match any active key"));
-    }
-    Ok((user_id, prefix.to_string()))
+    Err(unauthorized())
 }
 
 /// `PUT /api/v1/amk/wrapper` — upsert, `GET /api/v1/amk/wrapper` — get.
@@ -2312,8 +2368,10 @@ pub async fn handle_amk_exists_entry(State(state): State<Arc<AppState>>, req: Re
         return method_not_allowed();
     }
 
-    // Either auth works
-    let user_id = if let Some(raw) = api_key_from_headers(req.headers()) {
+    // Either auth works — try session first so session Bearer tokens aren't misinterpreted.
+    let user_id = if let Ok((uid, _, _)) = require_session_user(&state, req.headers()).await {
+        uid
+    } else if let Some(raw) = api_key_from_headers(req.headers()) {
         match state.auth.authenticate(&raw).await {
             Ok(k) => match k.user_id {
                 Some(uid) => uid,
@@ -2322,10 +2380,7 @@ pub async fn handle_amk_exists_entry(State(state): State<Arc<AppState>>, req: Re
             Err(_) => return unauthorized(),
         }
     } else {
-        match require_session_user(&state, req.headers()).await {
-            Ok((uid, _, _)) => uid,
-            Err(resp) => return resp,
-        }
+        return unauthorized();
     };
 
     match state.amk_store.has_any_wrapper(user_id).await {
@@ -2352,8 +2407,15 @@ pub async fn handle_secret_meta_entry(
         return method_not_allowed();
     }
 
-    // Auth required (session or API key, must resolve to user)
-    let owner_keys = if let Some(raw) = api_key_from_headers(req.headers()) {
+    // Auth required (session or API key, must resolve to user).
+    // Try session auth first so a session Bearer token isn't misinterpreted as an API key.
+    let owner_keys = if let Ok((user_id, _, _)) = require_session_user(&state, req.headers()).await
+    {
+        match owner_keys_for_user(&state, user_id).await {
+            Ok(keys) => keys,
+            Err(resp) => return resp,
+        }
+    } else if let Some(raw) = api_key_from_headers(req.headers()) {
         let api_key = match state.auth.authenticate(&raw).await {
             Ok(k) => k,
             Err(_) => return unauthorized(),
@@ -2363,14 +2425,7 @@ pub async fn handle_secret_meta_entry(
             Err(resp) => return resp,
         }
     } else {
-        let (user_id, _, _) = match require_session_user(&state, req.headers()).await {
-            Ok(v) => v,
-            Err(resp) => return resp,
-        };
-        match owner_keys_for_user(&state, user_id).await {
-            Ok(keys) => keys,
-            Err(resp) => return resp,
-        }
+        return unauthorized();
     };
 
     let payload: UpdateEncMetaRequest = match read_json_body(req, 16 * 1024, None).await {
@@ -2879,6 +2934,33 @@ mod tests {
             std::hash::Hash::hash(&joined, &mut hasher);
             let checksum = format!("{:016x}", std::hash::Hasher::finish(&hasher));
             Ok((count, checksum))
+        }
+
+        async fn get_summary_by_id(
+            &self,
+            id: &str,
+            owner_keys: &[String],
+            now: DateTime<Utc>,
+        ) -> Result<Option<SecretSummary>, StorageError> {
+            let m = self.secrets.lock().unwrap();
+            let Some(s) = m.get(id) else {
+                return Ok(None);
+            };
+            if !owner_keys.contains(&s.owner_key) || s.expires_at <= now {
+                return Ok(None);
+            }
+            let passphrase_protected = serde_json::from_str::<serde_json::Value>(&s.envelope)
+                .ok()
+                .and_then(|v| v.get("kdf")?.get("name")?.as_str().map(|n| n != "none"))
+                .unwrap_or(false);
+            Ok(Some(SecretSummary {
+                id: s.id.clone(),
+                expires_at: s.expires_at,
+                created_at: s.created_at,
+                ciphertext_size: s.envelope.len() as i64,
+                passphrase_protected,
+                enc_meta: None,
+            }))
         }
     }
 

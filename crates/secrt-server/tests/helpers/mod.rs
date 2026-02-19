@@ -214,6 +214,14 @@ impl SecretsStore for MemStore {
         let checksum = format!("{:016x}", hasher.finish());
         Ok((count, checksum))
     }
+    async fn get_summary_by_id(
+        &self,
+        _id: &str,
+        _owner_keys: &[String],
+        _now: DateTime<Utc>,
+    ) -> Result<Option<SecretSummary>, StorageError> {
+        Ok(None)
+    }
 }
 
 #[async_trait]

@@ -381,6 +381,45 @@ impl SecretsStore for PgStore {
         let checksum: String = row.try_get(1)?;
         Ok((count, checksum))
     }
+
+    async fn get_summary_by_id(
+        &self,
+        id: &str,
+        owner_keys: &[String],
+        now: DateTime<Utc>,
+    ) -> Result<Option<SecretSummary>, StorageError> {
+        if owner_keys.is_empty() {
+            return Ok(None);
+        }
+        let client = self.pool.get().await?;
+        let row = client
+            .query_opt(
+                "SELECT id, expires_at, created_at, \
+                        octet_length(envelope::text)::bigint AS ciphertext_size, \
+                        COALESCE(envelope->'kdf'->>'name', 'none') <> 'none' AS passphrase_protected, \
+                        enc_meta \
+                 FROM secrets \
+                 WHERE id = $1 AND owner_key = ANY($2) AND expires_at > $3",
+                &[&id, &owner_keys, &now],
+            )
+            .await?;
+        let Some(row) = row else {
+            return Ok(None);
+        };
+        let enc_meta_json: Option<serde_json::Value> = row.try_get(5)?;
+        let enc_meta: Option<EncMetaV1> = enc_meta_json
+            .map(serde_json::from_value)
+            .transpose()
+            .map_err(|e| StorageError::Other(format!("decode enc_meta: {e}")))?;
+        Ok(Some(SecretSummary {
+            id: row.try_get(0)?,
+            expires_at: row.try_get(1)?,
+            created_at: row.try_get(2)?,
+            ciphertext_size: row.try_get(3)?,
+            passphrase_protected: row.try_get(4)?,
+            enc_meta,
+        }))
+    }
 }
 
 #[cfg(test)]
