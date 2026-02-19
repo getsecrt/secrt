@@ -828,9 +828,7 @@ fn send_hidden_read_error() {
 fn send_note_no_api_key_fails() {
     // --note with no API key: must fail before creating the secret
     // No mock_create registered — if send tried to create, it would panic.
-    let (mut deps, stdout, stderr) = TestDepsBuilder::new()
-        .stdin(b"my secret")
-        .build();
+    let (mut deps, stdout, stderr) = TestDepsBuilder::new().stdin(b"my secret").build();
     let code = cli::run(
         &args(&["secrt", "send", "--note", "remember this"]),
         &mut deps,

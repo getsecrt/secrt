@@ -245,7 +245,11 @@ pub fn run_send(args: &[String], deps: &mut Deps) -> i32 {
         }
     }
 
-    if note_failed { 1 } else { 0 }
+    if note_failed {
+        1
+    } else {
+        0
+    }
 }
 
 /// Parse a subset of ISO 8601 UTC timestamps ("2026-02-09T00:00:00Z") to unix epoch seconds.

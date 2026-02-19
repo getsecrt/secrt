@@ -215,10 +215,7 @@ async fn info_endpoint_authenticated_and_cache_header() {
         "authenticated /info must not be publicly cacheable"
     );
     assert_eq!(
-        resp2
-            .headers()
-            .get("vary")
-            .and_then(|v| v.to_str().ok()),
+        resp2.headers().get("vary").and_then(|v| v.to_str().ok()),
         Some("Authorization, X-API-Key"),
         "authenticated /info must include Vary header"
     );

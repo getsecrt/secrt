@@ -79,7 +79,12 @@ fn sync_rejects_share_url_without_claiming() {
     // No mock_claim registered — if sync tried to claim, it would panic.
     let (mut deps, _stdout, stderr) = TestDepsBuilder::new().build();
     let code = cli::run(&args(&["secrt", "sync", &share_url]), &mut deps);
-    assert_eq!(code, 2, "share URL should be rejected; stderr: {}", stderr.to_string());
+    assert_eq!(
+        code,
+        2,
+        "share URL should be rejected; stderr: {}",
+        stderr.to_string()
+    );
     let err = stderr.to_string();
     assert!(
         err.contains("share URL, not a sync URL"),
