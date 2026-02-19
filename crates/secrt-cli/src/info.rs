@@ -281,7 +281,7 @@ pub fn run_info(args: &[String], deps: &mut Deps) -> i32 {
     }
 
     if let Some(ref n) = note {
-        let _ = writeln!(deps.stdout, "  {}\n  {}", c(OPT, "Note:"), c(DIM, n));
+        let _ = writeln!(deps.stdout, "  {}\n  {}", c(OPT, "Note:"), n);
     } else if meta.enc_meta.is_some() {
         let _ = writeln!(
             deps.stdout,
