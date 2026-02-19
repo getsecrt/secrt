@@ -1,5 +1,6 @@
 pub use secrt_core as envelope;
 
+pub mod auth;
 pub mod burn;
 pub mod cli;
 pub mod client;
@@ -12,4 +13,5 @@ pub mod get;
 pub mod keychain;
 pub mod mime;
 pub mod passphrase;
+pub mod qr;
 pub mod send;

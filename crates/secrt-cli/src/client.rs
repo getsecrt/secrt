@@ -16,6 +16,11 @@ struct ApiErrorResponse {
 }
 
 impl ApiClient {
+    /// Base URL with trailing slashes stripped.
+    fn url(&self) -> &str {
+        self.base_url.trim_end_matches('/')
+    }
+
     fn agent(&self) -> ureq::Agent {
         ureq::Agent::new_with_config(
             ureq::config::Config::builder()
@@ -75,7 +80,7 @@ fn format_status_error(status: u16) -> String {
     let desc = match status {
         401 => "unauthorized; check your API key",
         403 => "forbidden",
-        404 => "secret not found or already claimed",
+        404 => "not found",
         429 => "rate limit exceeded; please try again in a few seconds",
         500 | 502 | 503 => "server is temporarily unavailable; please try again later",
         _ => "",
@@ -98,13 +103,91 @@ fn format_api_error(status: u16, body: &str) -> String {
     format_status_error(status)
 }
 
+// --- Device authorization flow types ---
+
+#[derive(Debug, Deserialize)]
+pub struct DeviceStartResponse {
+    pub device_code: String,
+    pub user_code: String,
+    pub verification_url: String,
+    pub expires_in: u64,
+    pub interval: u64,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct DevicePollResponse {
+    pub status: String,
+    pub prefix: Option<String>,
+}
+
+impl ApiClient {
+    /// Start a device authorization flow (unauthenticated).
+    pub fn device_start(&self, auth_token_b64: &str) -> Result<DeviceStartResponse, String> {
+        let endpoint = format!("{}/api/v1/auth/device/start", self.url());
+        let body = serde_json::json!({ "auth_token": auth_token_b64 });
+        let body_bytes =
+            serde_json::to_vec(&body).map_err(|e| format!("marshal request: {}", e))?;
+
+        let resp = self
+            .agent()
+            .post(&endpoint)
+            .header("Content-Type", "application/json")
+            .send(&body_bytes[..])
+            .map_err(|e| self.handle_ureq_error(e))?;
+
+        let status = resp.status().as_u16();
+        if status != 200 {
+            let inner = self.read_api_error_from_response(resp);
+            return if status == 404 {
+                Err(format!(
+                    "device auth endpoint not found at {} (is the server up to date?)",
+                    self.base_url
+                ))
+            } else {
+                Err(inner)
+            };
+        }
+
+        let body_str = resp
+            .into_body()
+            .read_to_string()
+            .map_err(|e| format!("decode response: {}", e))?;
+        serde_json::from_str(&body_str).map_err(|e| format!("decode response: {}", e))
+    }
+
+    /// Poll for device authorization completion (unauthenticated).
+    pub fn device_poll(&self, device_code: &str) -> Result<DevicePollResponse, String> {
+        let endpoint = format!("{}/api/v1/auth/device/poll", self.url());
+        let body = serde_json::json!({ "device_code": device_code });
+        let body_bytes =
+            serde_json::to_vec(&body).map_err(|e| format!("marshal request: {}", e))?;
+
+        let resp = self
+            .agent()
+            .post(&endpoint)
+            .header("Content-Type", "application/json")
+            .send(&body_bytes[..])
+            .map_err(|e| self.handle_ureq_error(e))?;
+
+        if resp.status().as_u16() != 200 {
+            return Err(self.read_api_error_from_response(resp));
+        }
+
+        let body_str = resp
+            .into_body()
+            .read_to_string()
+            .map_err(|e| format!("decode response: {}", e))?;
+        serde_json::from_str(&body_str).map_err(|e| format!("decode response: {}", e))
+    }
+}
+
 impl SecretApi for ApiClient {
     fn create(&self, req: CreateRequest) -> Result<CreateResponse, String> {
         let wire_api_key = self.api_key_for_wire()?;
         let endpoint = if wire_api_key.is_none() {
-            format!("{}/api/v1/public/secrets", self.base_url)
+            format!("{}/api/v1/public/secrets", self.url())
         } else {
-            format!("{}/api/v1/secrets", self.base_url)
+            format!("{}/api/v1/secrets", self.url())
         };
 
         let body = serde_json::to_vec(&req).map_err(|e| format!("marshal request: {}", e))?;
@@ -140,7 +223,7 @@ impl SecretApi for ApiClient {
         let req = ClaimRequest::from_token(claim_token);
         let body = serde_json::to_vec(&req).map_err(|e| format!("marshal request: {}", e))?;
 
-        let endpoint = format!("{}/api/v1/secrets/{}/claim", self.base_url, secret_id);
+        let endpoint = format!("{}/api/v1/secrets/{}/claim", self.url(), secret_id);
 
         let resp = self
             .agent()
@@ -164,7 +247,7 @@ impl SecretApi for ApiClient {
     }
 
     fn burn(&self, secret_id: &str) -> Result<(), String> {
-        let endpoint = format!("{}/api/v1/secrets/{}/burn", self.base_url, secret_id);
+        let endpoint = format!("{}/api/v1/secrets/{}/burn", self.url(), secret_id);
         let wire_api_key = self.api_key_for_wire()?;
 
         let mut request = self
@@ -188,7 +271,7 @@ impl SecretApi for ApiClient {
     }
 
     fn info(&self) -> Result<InfoResponse, String> {
-        let endpoint = format!("{}/api/v1/info", self.base_url);
+        let endpoint = format!("{}/api/v1/info", self.url());
         let wire_api_key = self.api_key_for_wire()?;
 
         let agent = ureq::Agent::new_with_config(
@@ -325,10 +408,7 @@ mod tests {
     #[test]
     fn status_404_not_found() {
         let msg = format_status_error(404);
-        assert_eq!(
-            msg,
-            "server error (404): secret not found or already claimed"
-        );
+        assert_eq!(msg, "server error (404): not found");
     }
 
     #[test]
@@ -616,6 +696,138 @@ mod tests {
             .expect("claim decode fail");
         assert!(err.contains("decode response"));
         server_decode.join().expect("server join");
+    }
+
+    // --- trailing-slash base_url handling ---
+
+    #[test]
+    fn trailing_slash_base_url_does_not_double_slash() {
+        let (base_url, server) = spawn_one_shot_server(|req| {
+            // Verify no double slash in the path
+            assert!(
+                req.contains("POST /api/v1/auth/device/start "),
+                "expected clean path, got: {}",
+                req.lines().next().unwrap_or("")
+            );
+            json_response(
+                "200 OK",
+                r#"{"device_code":"dc","user_code":"AB-CD","verification_url":"http://x/device?code=AB-CD","expires_in":600,"interval":5}"#,
+            )
+        });
+        let client = ApiClient {
+            base_url: format!("{}/", base_url),
+            api_key: String::new(),
+        };
+        client
+            .device_start("dGVzdA")
+            .expect("should succeed despite trailing slash");
+        server.join().expect("server join");
+    }
+
+    // --- device_start error handling ---
+
+    #[test]
+    fn device_start_404_gives_endpoint_not_found_error() {
+        let (base_url, server) = spawn_one_shot_server(|_| json_response("404 Not Found", ""));
+        let client = ApiClient {
+            base_url: base_url.clone(),
+            api_key: String::new(),
+        };
+        let err = client.device_start("dGVzdA").expect_err("should fail");
+        assert!(
+            err.contains("device auth endpoint not found"),
+            "expected endpoint-not-found message, got: {}",
+            err
+        );
+        assert!(err.contains(&base_url), "should include base_url");
+        assert!(err.contains("is the server up to date?"));
+        server.join().expect("server join");
+    }
+
+    #[test]
+    fn device_start_429_passes_through_server_error() {
+        let (base_url, server) = spawn_one_shot_server(|_| {
+            json_response(
+                "429 Too Many Requests",
+                r#"{"error":"rate limit exceeded; please try again in a few seconds"}"#,
+            )
+        });
+        let client = ApiClient {
+            base_url,
+            api_key: String::new(),
+        };
+        let err = client.device_start("dGVzdA").expect_err("should fail");
+        assert!(err.contains("429"));
+        assert!(err.contains("rate limit"));
+        server.join().expect("server join");
+    }
+
+    #[test]
+    fn device_start_success_parses_response() {
+        let (base_url, server) = spawn_one_shot_server(|req| {
+            assert!(req.starts_with("POST /api/v1/auth/device/start "));
+            json_response(
+                "200 OK",
+                r#"{"device_code":"dc123","user_code":"ABCD-1234","verification_url":"https://example.com/device?code=ABCD-1234","expires_in":600,"interval":5}"#,
+            )
+        });
+        let client = ApiClient {
+            base_url,
+            api_key: String::new(),
+        };
+        let resp = client.device_start("dGVzdA").expect("should succeed");
+        assert_eq!(resp.device_code, "dc123");
+        assert_eq!(resp.user_code, "ABCD-1234");
+        assert_eq!(resp.expires_in, 600);
+        assert_eq!(resp.interval, 5);
+        server.join().expect("server join");
+    }
+
+    // --- device_poll error handling ---
+
+    #[test]
+    fn device_poll_non_200_returns_server_error() {
+        let (base_url, server) = spawn_one_shot_server(|_| {
+            json_response("400 Bad Request", r#"{"error":"expired_token"}"#)
+        });
+        let client = ApiClient {
+            base_url,
+            api_key: String::new(),
+        };
+        let err = client.device_poll("dc123").expect_err("should fail");
+        assert!(err.contains("expired_token"));
+        server.join().expect("server join");
+    }
+
+    #[test]
+    fn device_poll_pending_parses_response() {
+        let (base_url, server) = spawn_one_shot_server(|req| {
+            assert!(req.starts_with("POST /api/v1/auth/device/poll "));
+            json_response("200 OK", r#"{"status":"authorization_pending"}"#)
+        });
+        let client = ApiClient {
+            base_url,
+            api_key: String::new(),
+        };
+        let resp = client.device_poll("dc123").expect("should succeed");
+        assert_eq!(resp.status, "authorization_pending");
+        assert!(resp.prefix.is_none());
+        server.join().expect("server join");
+    }
+
+    #[test]
+    fn device_poll_complete_includes_prefix() {
+        let (base_url, server) = spawn_one_shot_server(|_| {
+            json_response("200 OK", r#"{"status":"complete","prefix":"aBcDeF"}"#)
+        });
+        let client = ApiClient {
+            base_url,
+            api_key: String::new(),
+        };
+        let resp = client.device_poll("dc123").expect("should succeed");
+        assert_eq!(resp.status, "complete");
+        assert_eq!(resp.prefix.as_deref(), Some("aBcDeF"));
+        server.join().expect("server join");
     }
 
     #[test]

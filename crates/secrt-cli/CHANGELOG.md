@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.12.0 — 2026-02-18
+
+### Added
+
+- **`secrt auth login`:** browser-based device authorization flow — generates key material locally, opens a verification URL (with QR code on TTY), polls for approval, and stores the API key in OS keychain or config file. The root key never leaves the CLI.
+- **`secrt auth setup`:** interactive API key setup — paste an existing `sk2_` key, validate format, optionally verify against the server, and store securely.
+- **`secrt auth status`:** show current authentication state — displays masked key, source (env/keychain/config), and server connectivity.
+- **`secrt auth logout`:** clear stored credentials from both OS keychain and config file.
+- **`--qr` / `-Q` flag for `send`:** display the share URL as a terminal QR code after sending a secret. Requires TTY; skipped in `--json` mode.
+- **QR code rendering:** `auth login` prints a scannable QR code of the verification URL when stderr is a TTY.
+- **Config write-back:** `set_config_key()` and `remove_config_key()` for programmatic config file editing that preserves comments and enforces `0600` permissions.
+- **Shell completions:** `auth` command with `login`, `setup`, `status`, `logout` subcommands added to bash, zsh, and fish completions.
+
 ## 0.11.0 — 2026-02-17
 
 ### Changed

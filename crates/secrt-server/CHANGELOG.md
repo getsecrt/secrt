@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.12.0 — 2026-02-18
+
+### Added
+
+- **QR code on share result:** after sending a secret, the web frontend now displays a scannable QR code of the share URL using [`uqr`](https://github.com/unjs/uqr) (~8 kB gzipped, zero dependencies). Adapts to light and dark mode. Only bundled on the sender path.
+- **Privacy policy page:** `/privacy` SPA route serving the privacy policy; server routes `/privacy` to the SPA `index.html`.
+- **`/.well-known/security.txt`:** security contact endpoint per [RFC 9116](https://www.rfc-editor.org/rfc/rfc9116) — includes `Contact`, `Expires`, `Canonical`, and `Policy` fields. Cached for 24 hours.
+- **Device authorization endpoints:** three new endpoints for CLI device-auth flow:
+  - `POST /api/v1/auth/device/start` — generates device code + user code, stores challenge (10-min expiry, IP rate-limited).
+  - `POST /api/v1/auth/device/poll` — checks challenge status; returns `complete` with API key prefix on approval.
+  - `POST /api/v1/auth/device/approve` — session-authenticated endpoint that creates an API key and marks the challenge as approved.
+- **Device approval page:** `/device?code=XXXX-XXXX` SPA route with user code confirmation, approve/cancel buttons, and success/error states. Requires authenticated session (redirects to login if needed).
+- **Storage trait extensions:** `get_challenge`, `update_challenge_json`, and `find_device_challenge_by_user_code` methods on `AuthStore` for non-destructive challenge reads and user-code lookup.
+
 ## 0.11.0 — 2026-02-17
 
 ### Changed

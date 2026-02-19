@@ -3,7 +3,7 @@ pub const BASH_COMPLETION: &str = r#"_secrt() {
     COMPREPLY=()
     cur="${COMP_WORDS[COMP_CWORD]}"
     prev="${COMP_WORDS[COMP_CWORD-1]}"
-    commands="send get burn gen generate config version help completion"
+    commands="send get burn gen generate auth config version help completion"
 
     if [[ ${COMP_CWORD} -eq 1 ]]; then
         COMPREPLY=($(compgen -W "${commands}" -- "${cur}"))
@@ -12,7 +12,7 @@ pub const BASH_COMPLETION: &str = r#"_secrt() {
 
     case "${prev}" in
         send)
-            COMPREPLY=($(compgen -W "gen generate --ttl --api-key --base-url --json --text --file --show --hidden --silent --multi-line --trim --passphrase-prompt --passphrase-env --passphrase-file --help" -- "${cur}"))
+            COMPREPLY=($(compgen -W "gen generate --ttl --api-key --base-url --json --text --file --show --hidden --silent --multi-line --trim --qr --passphrase-prompt --passphrase-env --passphrase-file --help" -- "${cur}"))
             ;;
         get)
             COMPREPLY=($(compgen -W "--output --base-url --json --silent --passphrase-prompt --passphrase-env --passphrase-file --help" -- "${cur}"))
@@ -22,6 +22,9 @@ pub const BASH_COMPLETION: &str = r#"_secrt() {
             ;;
         gen|generate)
             COMPREPLY=($(compgen -W "send --length --no-symbols --no-numbers --no-caps --grouped --count --json --help" -- "${cur}"))
+            ;;
+        auth)
+            COMPREPLY=($(compgen -W "login setup status logout --base-url --help" -- "${cur}"))
             ;;
         config)
             COMPREPLY=($(compgen -W "init path set-passphrase delete-passphrase --force" -- "${cur}"))
@@ -45,6 +48,7 @@ _secrt() {
         'burn:Destroy a secret (requires API key)'
         'gen:Generate a random password'
         'generate:Generate a random password'
+        'auth:Manage authentication'
         'config:Show config / init / path'
         'version:Show version'
         'help:Show help'
@@ -75,6 +79,7 @@ _secrt() {
                         '--silent[Suppress status output]' \
                         {-m,--multi-line}'[Multi-line input]' \
                         '--trim[Trim whitespace]' \
+                        {-Q,--qr}'[Display share URL as QR code]' \
                         {-p,--passphrase-prompt}'[Prompt for passphrase]' \
                         '--passphrase-env[Passphrase env var]:var:' \
                         '--passphrase-file[Passphrase file]:file:_files' \
@@ -111,6 +116,11 @@ _secrt() {
                         '--json[Output as JSON]' \
                         '--help[Show help]'
                     ;;
+                auth)
+                    _arguments \
+                        '1:subcommand:(login setup status logout)' \
+                        '--base-url[Server URL]:url:'
+                    ;;
                 config)
                     _arguments \
                         '1:subcommand:(init path set-passphrase delete-passphrase)' \
@@ -133,6 +143,7 @@ complete -c secrt -n '__fish_use_subcommand' -a get -d 'Retrieve and decrypt a s
 complete -c secrt -n '__fish_use_subcommand' -a burn -d 'Destroy a secret (requires API key)'
 complete -c secrt -n '__fish_use_subcommand' -a gen -d 'Generate a random password'
 complete -c secrt -n '__fish_use_subcommand' -a generate -d 'Generate a random password'
+complete -c secrt -n '__fish_use_subcommand' -a auth -d 'Manage authentication'
 complete -c secrt -n '__fish_use_subcommand' -a config -d 'Show config / init / path'
 complete -c secrt -n '__fish_use_subcommand' -a version -d 'Show version'
 complete -c secrt -n '__fish_use_subcommand' -a help -d 'Show help'
@@ -149,6 +160,7 @@ complete -c secrt -n '__fish_seen_subcommand_from send' -l hidden -d 'Hide input
 complete -c secrt -n '__fish_seen_subcommand_from send' -l silent -d 'Suppress status output'
 complete -c secrt -n '__fish_seen_subcommand_from send' -s m -l multi-line -d 'Multi-line input'
 complete -c secrt -n '__fish_seen_subcommand_from send' -l trim -d 'Trim whitespace'
+complete -c secrt -n '__fish_seen_subcommand_from send' -s Q -l qr -d 'Display share URL as QR code'
 complete -c secrt -n '__fish_seen_subcommand_from send' -s p -l passphrase-prompt -d 'Prompt for passphrase'
 complete -c secrt -n '__fish_seen_subcommand_from send' -l passphrase-env -d 'Passphrase env var'
 complete -c secrt -n '__fish_seen_subcommand_from send' -l passphrase-file -d 'Passphrase file' -F
@@ -175,6 +187,9 @@ complete -c secrt -n '__fish_seen_subcommand_from gen generate' -s G -l grouped 
 complete -c secrt -n '__fish_seen_subcommand_from gen generate' -l count -d 'Generate multiple passwords'
 complete -c secrt -n '__fish_seen_subcommand_from gen generate' -l json -d 'Output as JSON'
 complete -c secrt -n '__fish_seen_subcommand_from gen generate' -a 'send' -d 'Generate and share a password'
+
+complete -c secrt -n '__fish_seen_subcommand_from auth' -a 'login setup status logout' -d 'Auth subcommand'
+complete -c secrt -n '__fish_seen_subcommand_from auth' -l base-url -d 'Server URL'
 
 complete -c secrt -n '__fish_seen_subcommand_from config' -a 'init path set-passphrase delete-passphrase' -d 'Config subcommand'
 complete -c secrt -n '__fish_seen_subcommand_from config' -l force -d 'Overwrite existing config file'

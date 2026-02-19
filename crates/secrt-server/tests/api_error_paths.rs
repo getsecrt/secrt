@@ -278,6 +278,33 @@ impl AuthStore for ErrStore {
         Err(StorageError::NotFound)
     }
 
+    async fn get_challenge(
+        &self,
+        _challenge_id: &str,
+        _purpose: &str,
+        _now: DateTime<Utc>,
+    ) -> Result<ChallengeRecord, StorageError> {
+        Err(StorageError::NotFound)
+    }
+
+    async fn update_challenge_json(
+        &self,
+        _challenge_id: &str,
+        _purpose: &str,
+        _challenge_json: &str,
+        _now: DateTime<Utc>,
+    ) -> Result<(), StorageError> {
+        Err(StorageError::NotFound)
+    }
+
+    async fn find_device_challenge_by_user_code(
+        &self,
+        _user_code: &str,
+        _now: DateTime<Utc>,
+    ) -> Result<ChallengeRecord, StorageError> {
+        Err(StorageError::NotFound)
+    }
+
     async fn count_apikey_registrations_by_user_since(
         &self,
         _user_id: UserId,

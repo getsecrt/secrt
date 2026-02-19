@@ -200,6 +200,14 @@ pub fn run_send(args: &[String], deps: &mut Deps) -> i32 {
         let _ = writeln!(deps.stdout, "{}", share_link);
     }
 
+    // Render QR code to stderr if requested and TTY (skip in --json mode)
+    if pa.qr && !pa.json && is_tty {
+        if let Ok(code) = qrcode::QrCode::new(&share_link) {
+            let qr_string = crate::qr::render_qr_compact(&code);
+            let _ = write!(deps.stderr, "\n{}", qr_string);
+        }
+    }
+
     0
 }
 

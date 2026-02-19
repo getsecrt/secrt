@@ -30,7 +30,41 @@ fn main() {
             rpassword::read_password()
         }),
         get_keychain_secret: Box::new(secrt_cli::keychain::get_secret),
+        set_keychain_secret: Box::new(secrt_cli::keychain::set_secret),
+        delete_keychain_secret: Box::new(secrt_cli::keychain::delete_secret),
         get_keychain_secret_list: Box::new(secrt_cli::keychain::get_secret_list),
+        open_browser: Box::new(|url: &str| {
+            #[cfg(target_os = "macos")]
+            {
+                std::process::Command::new("open")
+                    .arg(url)
+                    .spawn()
+                    .map(|_| ())
+                    .map_err(|e| e.to_string())
+            }
+            #[cfg(target_os = "linux")]
+            {
+                std::process::Command::new("xdg-open")
+                    .arg(url)
+                    .spawn()
+                    .map(|_| ())
+                    .map_err(|e| e.to_string())
+            }
+            #[cfg(target_os = "windows")]
+            {
+                std::process::Command::new("cmd")
+                    .args(["/c", "start", url])
+                    .spawn()
+                    .map(|_| ())
+                    .map_err(|e| e.to_string())
+            }
+            #[cfg(not(any(target_os = "macos", target_os = "linux", target_os = "windows")))]
+            {
+                let _ = url;
+                Err("unsupported platform".into())
+            }
+        }),
+        sleep: Box::new(|d: std::time::Duration| std::thread::sleep(d)),
     };
 
     let args: Vec<String> = std::env::args().collect();

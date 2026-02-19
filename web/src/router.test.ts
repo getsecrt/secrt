@@ -56,6 +56,14 @@ describe('matchRoute', () => {
     expect(matchRoute('/settings')).toEqual({ page: 'settings' });
   });
 
+  it('"/device" -> device page', () => {
+    expect(matchRoute('/device')).toEqual({ page: 'device' });
+  });
+
+  it('"/privacy" -> privacy page', () => {
+    expect(matchRoute('/privacy')).toEqual({ page: 'privacy' });
+  });
+
   it('"/test/theme" -> theme in dev', () => {
     expect(matchRoute('/test/theme')).toEqual({ page: 'theme' });
   });

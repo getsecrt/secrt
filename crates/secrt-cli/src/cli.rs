@@ -16,7 +16,11 @@ pub type RandBytesFn = Box<dyn Fn(&mut [u8]) -> Result<(), crate::envelope::Enve
 pub type ReadPassFn = Box<dyn Fn(&str, &mut dyn Write) -> io::Result<String>>;
 pub type MakeApiFn = Box<dyn Fn(&str, &str) -> Box<dyn SecretApi>>;
 pub type KeychainGetFn = Box<dyn Fn(&str) -> Option<String>>;
+pub type KeychainSetFn = Box<dyn Fn(&str, &str) -> Result<(), String>>;
+pub type KeychainDeleteFn = Box<dyn Fn(&str) -> Result<(), String>>;
 pub type KeychainListFn = Box<dyn Fn(&str) -> Vec<String>>;
+pub type OpenBrowserFn = Box<dyn Fn(&str) -> Result<(), String>>;
+pub type SleepFn = Box<dyn Fn(std::time::Duration)>;
 
 /// Injectable dependencies for testing.
 pub struct Deps {
@@ -30,7 +34,11 @@ pub struct Deps {
     pub read_pass: ReadPassFn,
     pub make_api: MakeApiFn,
     pub get_keychain_secret: KeychainGetFn,
+    pub set_keychain_secret: KeychainSetFn,
+    pub delete_keychain_secret: KeychainDeleteFn,
     pub get_keychain_secret_list: KeychainListFn,
+    pub open_browser: OpenBrowserFn,
+    pub sleep: SleepFn,
 }
 
 /// Parsed global and command-specific flags.
@@ -57,6 +65,9 @@ pub struct ParsedArgs {
 
     // Global
     pub silent: bool,
+
+    // Send
+    pub qr: bool,
 
     // Passphrase
     pub passphrase_prompt: bool,
@@ -123,6 +134,7 @@ pub fn run(args: &[String], deps: &mut Deps) -> i32 {
         "get" => run_get(remaining, deps),
         "burn" => run_burn(remaining, deps),
         "gen" | "generate" => run_gen(remaining, deps),
+        "auth" => crate::auth::run_auth(remaining, deps),
         _ if looks_like_share_url(command) => {
             // Implicit get: treat share URLs/bare IDs as `secrt get <url>`
             run_get(&args[1..], deps)
@@ -159,7 +171,7 @@ enum ShortFlagKind {
 fn classify_short_flag(flag: &str) -> ShortFlagKind {
     match flag {
         "-f" | "-o" | "-L" => ShortFlagKind::TakesValue,
-        "-h" | "-m" | "-s" | "-p" | "-n" | "-S" | "-N" | "-C" | "-G" => ShortFlagKind::Bool,
+        "-h" | "-m" | "-s" | "-p" | "-n" | "-Q" | "-S" | "-N" | "-C" | "-G" => ShortFlagKind::Bool,
         _ => ShortFlagKind::Other,
     }
 }
@@ -175,6 +187,7 @@ fn run_help(args: &[String], deps: &mut Deps) -> i32 {
         "burn" => print_burn_help(deps),
         "gen" | "generate" => print_gen_help(deps),
         "config" => print_config_help(deps),
+        "auth" => print_auth_help(deps),
         _ => {
             let _ = writeln!(deps.stderr, "error: unknown command {:?}", args[0]);
             return 2;
@@ -294,6 +307,7 @@ pub fn parse_flags(args: &[String]) -> Result<ParsedArgs, CliError> {
             "--show" | "-s" => pa.show = true,
             "--hidden" => pa.hidden = true,
             "--silent" => pa.silent = true,
+            "--qr" | "-Q" => pa.qr = true,
             "--output" | "-o" => pa.output = next_val!("--output"),
             "--passphrase-prompt" | "-p" => pa.passphrase_prompt = true,
             "--no-passphrase" | "-n" => pa.no_passphrase = true,
@@ -998,6 +1012,7 @@ pub fn print_help(deps: &mut Deps) {
             ("get", "Retrieve and decrypt a secret"),
             ("burn", "Destroy a secret (requires API key)"),
             ("gen", "Generate a random password"),
+            ("auth", "Login, setup, or manage authentication"),
             ("config", "Show or initialize configuration"),
             ("version", "Show version"),
             ("help", "Show this help"),
@@ -1089,6 +1104,7 @@ pub fn print_send_help(deps: &mut Deps) {
             ("--passphrase-file", "<path>", "Read passphrase from file"),
             ("--base-url", "<url>", "Server URL"),
             ("--api-key", "<key>", "API key"),
+            ("-Q, --qr", "", "Display share URL as QR code"),
             ("--json", "", "Output as JSON"),
             ("--silent", "", "Suppress status output"),
             ("-h, --help", "", "Show help"),
@@ -1385,6 +1401,59 @@ pub fn print_config_help(deps: &mut Deps) {
         c(DIM, "\u{203a}"),
         c(DIM, "\u{203a}"),
         c(DIM, "\u{203a}"),
+    );
+}
+
+pub fn print_auth_help(deps: &mut Deps) {
+    let c = color_func((deps.is_stdout_tty)());
+    let w = &mut deps.stderr;
+    let _ = writeln!(
+        w,
+        "{} {} — Manage authentication\n",
+        c(CMD, "secrt"),
+        c(CMD, "auth")
+    );
+    let _ = writeln!(w, "{}", c(HEADING, "SUBCOMMANDS"));
+    write_cmd_rows(
+        w,
+        &c,
+        &[
+            ("secrt auth login", "Browser-based device authorization"),
+            ("secrt auth setup", "Interactively paste an API key"),
+            ("secrt auth status", "Show current auth state"),
+            ("secrt auth logout", "Clear stored credentials"),
+        ],
+    );
+    let _ = writeln!(w, "\n{}", c(HEADING, "OPTIONS"));
+    write_option_rows(
+        w,
+        &c,
+        &[
+            ("--base-url", "<url>", "Server URL"),
+            ("-h, --help", "", "Show help"),
+        ],
+    );
+    let _ = writeln!(w, "\n{}", c(HEADING, "EXAMPLES"));
+    let _ = writeln!(
+        w,
+        "  {} {} {}   log in via browser",
+        c(CMD, "secrt"),
+        c(CMD, "auth"),
+        c(CMD, "login")
+    );
+    let _ = writeln!(
+        w,
+        "  {} {} {}   paste an API key",
+        c(CMD, "secrt"),
+        c(CMD, "auth"),
+        c(CMD, "setup")
+    );
+    let _ = writeln!(
+        w,
+        "  {} {} {}  check auth status",
+        c(CMD, "secrt"),
+        c(CMD, "auth"),
+        c(CMD, "status")
     );
 }
 
@@ -1808,6 +1877,8 @@ mod tests {
         ("-s", false, &["send"]),
         ("--show", false, &["send"]),
         ("--hidden", false, &["send"]),
+        ("-Q", false, &["send"]),
+        ("--qr", false, &["send"]),
         // Passphrase flags — send + get
         ("-p", false, &["send", "get"]),
         ("--passphrase-prompt", false, &["send", "get"]),
@@ -1886,7 +1957,11 @@ mod tests {
                 })
             }),
             get_keychain_secret: Box::new(|_: &str| None),
+            set_keychain_secret: Box::new(|_: &str, _: &str| Err("unused".into())),
+            delete_keychain_secret: Box::new(|_: &str| Err("unused".into())),
             get_keychain_secret_list: Box::new(|_: &str| Vec::new()),
+            open_browser: Box::new(|_: &str| Err("unused".into())),
+            sleep: Box::new(|_: std::time::Duration| {}),
         };
         f(&mut deps);
         drop(deps);
@@ -1903,6 +1978,7 @@ mod tests {
             ("get", capture_help(print_get_help)),
             ("burn", capture_help(print_burn_help)),
             ("gen", capture_help(print_gen_help)),
+            ("auth", capture_help(print_auth_help)),
         ]
         .into_iter()
         .collect();
@@ -1941,7 +2017,11 @@ mod tests {
                 })
             }),
             get_keychain_secret: Box::new(|_key: &str| None),
+            set_keychain_secret: Box::new(|_: &str, _: &str| Err("unused".into())),
+            delete_keychain_secret: Box::new(|_: &str| Err("unused".into())),
             get_keychain_secret_list: Box::new(|_key: &str| Vec::new()),
+            open_browser: Box::new(|_: &str| Err("unused".into())),
+            sleep: Box::new(|_: std::time::Duration| {}),
         }
     }
 

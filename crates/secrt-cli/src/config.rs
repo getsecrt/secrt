@@ -190,6 +190,113 @@ pub fn mask_secret_list(values: &[String]) -> String {
     format!("[{}]", masked.join(", "))
 }
 
+/// Set a key in the config file. Creates the file from template if missing.
+/// If the key already exists (commented or not), updates or uncomments it.
+/// Otherwise, appends the key.
+pub fn set_config_key(
+    getenv: &dyn Fn(&str) -> Option<String>,
+    key: &str,
+    value: &str,
+) -> Result<(), String> {
+    let path = config_path_with(getenv).ok_or("could not determine config directory")?;
+
+    // Create parent dirs + file from template if missing
+    if !path.exists() {
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent)
+                .map_err(|e| format!("failed to create {}: {}", parent.display(), e))?;
+        }
+        fs::write(&path, CONFIG_TEMPLATE)
+            .map_err(|e| format!("failed to write {}: {}", path.display(), e))?;
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let _ = fs::set_permissions(&path, fs::Permissions::from_mode(0o600));
+        }
+    }
+
+    let contents = fs::read_to_string(&path)
+        .map_err(|e| format!("failed to read {}: {}", path.display(), e))?;
+
+    let escaped_value = format!("\"{}\"", value.replace('\\', "\\\\").replace('"', "\\\""));
+    let new_line = format!("{} = {}", key, escaped_value);
+
+    let mut found = false;
+    let mut lines: Vec<String> = contents
+        .lines()
+        .map(|line| {
+            let trimmed = line.trim_start();
+            // Match "key = ..." or "# key = ..."
+            let is_match = trimmed.starts_with(&format!("{} =", key))
+                || trimmed.starts_with(&format!("{} =", key))
+                || trimmed.starts_with(&format!("# {} =", key))
+                || trimmed.starts_with(&format!("# {} =", key));
+            if is_match && !found {
+                found = true;
+                new_line.clone()
+            } else {
+                line.to_string()
+            }
+        })
+        .collect();
+
+    if !found {
+        lines.push(new_line);
+    }
+
+    let output = lines.join("\n");
+    // Ensure trailing newline
+    let output = if output.ends_with('\n') {
+        output
+    } else {
+        format!("{}\n", output)
+    };
+
+    fs::write(&path, output).map_err(|e| format!("failed to write {}: {}", path.display(), e))?;
+
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let _ = fs::set_permissions(&path, fs::Permissions::from_mode(0o600));
+    }
+
+    Ok(())
+}
+
+/// Comment out a key in the config file.
+pub fn remove_config_key(getenv: &dyn Fn(&str) -> Option<String>, key: &str) -> Result<(), String> {
+    let path = config_path_with(getenv).ok_or("could not determine config directory")?;
+    if !path.exists() {
+        return Ok(()); // Nothing to remove
+    }
+
+    let contents = fs::read_to_string(&path)
+        .map_err(|e| format!("failed to read {}: {}", path.display(), e))?;
+
+    let lines: Vec<String> = contents
+        .lines()
+        .map(|line| {
+            let trimmed = line.trim_start();
+            if trimmed.starts_with(&format!("{} =", key)) {
+                format!("# {}", trimmed)
+            } else {
+                line.to_string()
+            }
+        })
+        .collect();
+
+    let output = lines.join("\n");
+    let output = if output.ends_with('\n') {
+        output
+    } else {
+        format!("{}\n", output)
+    };
+
+    fs::write(&path, output).map_err(|e| format!("failed to write {}: {}", path.display(), e))?;
+
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

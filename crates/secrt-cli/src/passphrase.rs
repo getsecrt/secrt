@@ -172,7 +172,11 @@ mod tests {
                 })
             }),
             get_keychain_secret: Box::new(|_key: &str| None),
+            set_keychain_secret: Box::new(|_: &str, _: &str| Err("unused".into())),
+            delete_keychain_secret: Box::new(|_: &str| Err("unused".into())),
             get_keychain_secret_list: Box::new(|_key: &str| Vec::new()),
+            open_browser: Box::new(|_: &str| Err("unused".into())),
+            sleep: Box::new(|_: std::time::Duration| {}),
         }
     }
 

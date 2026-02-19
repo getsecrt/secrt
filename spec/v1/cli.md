@@ -38,6 +38,13 @@ Optional commands:
 - `secrt burn <id-or-share-url>` (API-key authenticated)
 - `secrt gen` (password generation)
 
+Authentication commands:
+
+- `secrt auth login`: browser-based device authorization flow.
+- `secrt auth setup`: interactively paste and store an API key.
+- `secrt auth status`: show current authentication state.
+- `secrt auth logout`: clear stored credentials.
+
 Built-in commands:
 
 - `secrt --version` or `secrt version`: print version string and exit.
@@ -423,6 +430,108 @@ Output in combined mode:
 
 - Default: print share link only (same as `send`)
 - `--json`: include `password` field alongside `id`, `share_url`, `share_link`, `expires_at`
+
+## `auth`
+
+Authentication management. All subcommands are optional for v1-compatible CLIs.
+
+### `auth login`
+
+Browser-based device authorization flow.
+
+Usage:
+
+```bash
+secrt auth login [--base-url <url>]
+```
+
+Behavior:
+
+1. Generate `root_key` (32 random bytes) locally.
+2. Derive `auth_token = HKDF-SHA256(root_key, ROOT_SALT, "secrt-auth", 32)`.
+3. POST `/api/v1/auth/device/start` with `{ "auth_token": "<base64url>" }`.
+4. Display `user_code` prominently on stderr.
+5. If stderr is a TTY, render a QR code of `verification_url` for mobile scanning.
+6. Open `verification_url` in default browser (fallback: print URL to stderr).
+7. Poll `/api/v1/auth/device/poll` with `{ "device_code": "..." }` every 5 seconds.
+8. On `"complete"` response, construct `sk2_<prefix>.<base64(root_key)>`.
+9. Store the key using the shared key storage logic (see below).
+10. Print success with masked key preview.
+
+Security invariant: the `root_key` never leaves the CLI process. Only the derived `auth_token` is sent to the server.
+
+### `auth setup`
+
+Interactive API key setup for users who already have a key.
+
+Usage:
+
+```bash
+secrt auth setup [--base-url <url>]
+```
+
+Behavior:
+
+1. Prompt: "Paste your API key (sk2_...):" with hidden input.
+2. Validate format via `parse_local_api_key()`.
+3. Optionally verify against server by deriving wire key and calling `GET /api/v1/info`.
+4. Store the key using the shared key storage logic (see below).
+5. Print success.
+
+### `auth status`
+
+Show current authentication state.
+
+Usage:
+
+```bash
+secrt auth status [--base-url <url>] [--api-key <key>]
+```
+
+Behavior:
+
+1. Resolve API key from all sources (flag → env → keychain → config).
+2. If none: print "Not authenticated" and exit 0.
+3. Print key info: `Key: sk2_<prefix>.***  (from: keychain|config|env|flag)`.
+4. Derive wire key and call `GET /api/v1/info` to check server connectivity.
+5. Print: `Server: <base_url> (connected)` or `(unreachable)`.
+
+### `auth logout`
+
+Clear stored credentials.
+
+Usage:
+
+```bash
+secrt auth logout
+```
+
+Behavior:
+
+1. Delete `api_key` from OS keychain (if present).
+2. Comment out `api_key` in config file (if present).
+3. Print success.
+
+### Key Storage Logic (shared by `auth login` and `auth setup`)
+
+After obtaining a valid API key:
+
+1. Load config to check `use_keychain` setting.
+2. If `use_keychain = true`: store in keychain, done.
+3. If `use_keychain` is not set and stdin is a TTY, prompt: "Store API key in OS keychain? (recommended for security) [y/N]:"
+   - Yes: store in keychain + set `use_keychain = true` in config file.
+   - No: store as `api_key = "sk2_..."` in config file.
+4. If non-interactive (piped stdin): store in config file.
+
+### Config Write-Back
+
+`auth login`, `auth setup`, and `auth logout` write to the config file. Write-back rules:
+
+- Creates file from template if missing.
+- Preserves existing comments and formatting.
+- Finds and updates (or uncomments) the target key line.
+- `remove_config_key` comments out the key line (does not delete it).
+- File permissions are enforced at `0600` on write.
 
 ## Error and Exit Behavior
 

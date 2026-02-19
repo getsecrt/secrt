@@ -22,19 +22,17 @@ export function PrivacyPage() {
         />
 
         {/* TL;DR */}
-        <section class="space-y-3">
-          <p class="text-lg font-medium text-default">
-            The short version: we can't read your secrets. That's the whole
-            point.
+        <section class="space-y-1">
+          <h2 class="text-xl font-semibold">The short version:</h2>
+          <p class="text-lg">
+            We can't see your secrets. That's the whole point.
           </p>
         </section>
 
         {/* Zero-knowledge */}
-        <section class="space-y-3">
-          <h2 class="text-lg font-semibold text-default">
-            Zero-knowledge architecture
-          </h2>
-          <p class="text-sm leading-relaxed text-muted">
+        <section class="space-y-2">
+          <h2 class="text-xl font-semibold">Zero-knowledge architecture</h2>
+          <p class="leading-relaxed text-muted">
             Secrets are encrypted in your browser before they reach our server.
             The decryption key lives in the URL fragment (the part after{' '}
             <code class="rounded bg-black/5 px-1 py-0.5 text-xs dark:bg-white/10">
@@ -51,7 +49,14 @@ export function PrivacyPage() {
             </a>{' '}
             by your browser. We store only ciphertext — meaningless without the
             key. For a deeper explanation, see{' '}
-            <a href="/how-it-works" onClick={(e: MouseEvent) => { e.preventDefault(); navigate('/how-it-works'); }} class="link">
+            <a
+              href="/how-it-works"
+              onClick={(e: MouseEvent) => {
+                e.preventDefault();
+                navigate('/how-it-works');
+              }}
+              class="link"
+            >
               How <Secrt /> Works
             </a>
             .
@@ -59,22 +64,22 @@ export function PrivacyPage() {
         </section>
 
         {/* What we store */}
-        <section class="space-y-3">
-          <h2 class="text-lg font-semibold text-default">What we store</h2>
-          <ul class="list-inside list-disc space-y-1.5 text-sm text-muted">
+        <section class="space-y-2">
+          <h2 class="text-xl font-semibold">What we store</h2>
+          <ul class="list-inside list-disc space-y-1.5 text-muted">
             <li>
-              <strong class="text-default">Encrypted secret payloads</strong> —
+              <strong class="text-default">Encrypted secret payloads:</strong>
               deleted immediately after first read, or automatically on expiry
               (max 1 year)
             </li>
             <li>
-              <strong class="text-default">Rate limiting data</strong> — IP
+              <strong class="text-default">Rate limiting data:</strong> IP
               addresses are HMAC-hashed with a per-process random key and held
               in memory only. Raw IPs are never written to the database. Stale
               entries are evicted every 2 minutes.
             </li>
             <li>
-              <strong class="text-default">Account credentials</strong> — if you
+              <strong class="text-default">Account credentials:</strong> if you
               register (optional), we store your email and a passkey credential.
               No passwords — authentication is passkey-only.
             </li>
@@ -82,26 +87,20 @@ export function PrivacyPage() {
         </section>
 
         {/* What we don't store */}
-        <section class="space-y-3">
-          <h2 class="text-lg font-semibold text-default">
-            What we don't store
-          </h2>
-          <ul class="list-inside list-disc space-y-1.5 text-sm text-muted">
+        <section class="space-y-2">
+          <h2 class="text-xl font-semibold">What we don't store</h2>
+          <ul class="list-inside list-disc space-y-1.5 text-muted">
             <li>Your plaintext secrets — ever</li>
             <li>Decryption keys or URL fragments</li>
             <li>Analytics or tracking data</li>
-            <li>
-              Cookies beyond what's needed for authentication
-            </li>
+            <li>Cookies beyond what's needed for authentication</li>
           </ul>
         </section>
 
         {/* IP privacy */}
-        <section class="space-y-3">
-          <h2 class="text-lg font-semibold text-default">
-            IP address privacy
-          </h2>
-          <p class="text-sm leading-relaxed text-muted">
+        <section class="space-y-2">
+          <h2 class="text-xl font-semibold">IP address privacy</h2>
+          <p class="leading-relaxed text-muted">
             Our reverse proxy masks IP addresses in all access logs — the last
             octet of IPv4 addresses and the last 80 bits of IPv6 addresses are
             zeroed before writing to disk. User-Agent, Referer, and query
@@ -111,27 +110,27 @@ export function PrivacyPage() {
         </section>
 
         {/* No tracking */}
-        <section class="space-y-3">
-          <h2 class="text-lg font-semibold text-default">No tracking</h2>
-          <p class="text-sm leading-relaxed text-muted">
+        <section class="space-y-2">
+          <h2 class="text-xl font-semibold">No tracking</h2>
+          <p class="leading-relaxed text-muted">
             We don't use Google Analytics, tracking pixels, or any third-party
             analytics. No ads. No data brokers. No fingerprinting.
           </p>
         </section>
 
         {/* Infrastructure */}
-        <section class="space-y-3">
-          <h2 class="text-lg font-semibold text-default">Infrastructure</h2>
-          <p class="text-sm leading-relaxed text-muted">
+        <section class="space-y-2">
+          <h2 class="text-xl font-semibold">Infrastructure</h2>
+          <p class="leading-relaxed text-muted">
             <Secrt /> is hosted on DigitalOcean in Canada. All connections use
             TLS. The server enforces HSTS with preload.
           </p>
         </section>
 
         {/* Open source */}
-        <section class="space-y-3">
-          <h2 class="text-lg font-semibold text-default">Open source</h2>
-          <p class="text-sm leading-relaxed text-muted">
+        <section class="space-y-2">
+          <h2 class="text-xl font-semibold">Open source</h2>
+          <p class="leading-relaxed text-muted">
             The entire codebase — client, server, CLI, and protocol
             specification — is{' '}
             <a
@@ -147,15 +146,15 @@ export function PrivacyPage() {
         </section>
 
         {/* Contact */}
-        <section class="space-y-3">
-          <h2 class="text-lg font-semibold text-default">Contact</h2>
-          <p class="text-sm leading-relaxed text-muted">
+        <section class="space-y-2">
+          <h2 class="text-xl font-semibold">Contact</h2>
+          <p class="leading-relaxed text-muted">
             Questions or concerns:{' '}
             <a href="mailto:security@secrt.ca" class="link">
               security@secrt.ca
             </a>
           </p>
-          <p class="text-sm leading-relaxed text-muted">
+          <p class="leading-relaxed text-muted">
             Security vulnerabilities:{' '}
             <a
               href="https://github.com/getsecrt/secrt/blob/main/SECURITY.md"
@@ -173,7 +172,7 @@ export function PrivacyPage() {
         <a
           href="/"
           onClick={handleHome}
-          class="text-sm text-muted transition-colors hover:text-default"
+          class="hover:text-default text-muted transition-colors"
         >
           ← Back to <Secrt />
         </a>

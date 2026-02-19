@@ -23,6 +23,10 @@ export default defineConfig(({ mode }) => {
         '/healthz': {
           target: apiOrigin,
           changeOrigin: true
+        },
+        '/.well-known': {
+          target: apiOrigin,
+          changeOrigin: true
         }
       }
     },

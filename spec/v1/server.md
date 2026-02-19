@@ -164,6 +164,10 @@ The header is an internal signal between the reverse proxy and the application a
 - `POST /api/v1/apikeys/register`
 - `GET /api/v1/apikeys`
 - `POST /api/v1/apikeys/{prefix}/revoke`
+- `GET /device`
+- `POST /api/v1/auth/device/start`
+- `POST /api/v1/auth/device/poll`
+- `POST /api/v1/auth/device/approve`
 - `DELETE /api/v1/auth/account`
 
 ## 6. Auth and Authorization
@@ -212,6 +216,35 @@ Notes:
 - `GET/POST /api/v1/secrets` and `GET /api/v1/secrets/check` try session auth first, then API key fallback.
 - `POST /api/v1/secrets/{id}/burn` tries API key auth first, then session fallback.
 
+### 6.1. Device Authorization Flow
+
+Device authorization enables CLI tools to obtain API keys via browser-based approval. The root key never leaves the CLI — only the derived `auth_token` is sent to the server.
+
+Storage reuse: device-auth challenges are stored in the `webauthn_challenges` table with `purpose = "device-auth"`. No schema migration is needed.
+
+**`POST /api/v1/auth/device/start`** (unauthenticated, IP rate-limited):
+
+1. Validate `auth_token` decodes as base64url to exactly 32 bytes.
+2. Generate `device_code` (32 random bytes, base64url) and `user_code` (8 chars from `ABCDEFGHJKLMNPQRSTUVWXYZ23456789`, formatted `XXXX-XXXX`).
+3. Store challenge: `challenge_id = device_code`, `purpose = "device-auth"`, 10-minute expiry, `challenge_json = { user_code, auth_token_b64, status: "pending", prefix: null, user_id: null }`.
+4. Return `{ device_code, user_code, verification_url, expires_in: 600, interval: 5 }`.
+
+**`POST /api/v1/auth/device/poll`** (unauthenticated, IP rate-limited):
+
+1. Look up challenge by `device_code` and `purpose = "device-auth"` (non-consuming read).
+2. If pending → return `{ "status": "authorization_pending" }`.
+3. If approved → consume the challenge (delete it), return `{ "status": "complete", "prefix": "..." }`.
+4. If not found or expired → return `400` `{ "error": "expired_token" }`.
+
+**`POST /api/v1/auth/device/approve`** (requires session auth):
+
+1. Look up a pending `device-auth` challenge by `user_code` (constant-time comparison).
+2. Verify challenge status is `"pending"`.
+3. Generate API key prefix, compute `auth_hash` from `pepper + prefix + auth_token` (same verifier contract as `POST /api/v1/apikeys/register`).
+4. Register API key linked to session user (reuses existing registration quota logic).
+5. Update challenge status to `"approved"` with the generated prefix.
+6. Return `{ "ok": true }`.
+
 ## 7. Ownership and Quota Model
 
 The server tracks an internal `owner_key` for each secret:
@@ -244,6 +277,7 @@ Configured limits:
 - Claim: `1.0 rps`, burst `10` keyed by client IP hash.
 - Authenticated create: `2.0 rps`, burst `20`, keyed by `user:<id>` (session auth) or `apikey:<prefix>` (API key auth).
 - API-key registration: `0.5 rps`, burst `6` keyed by client IP.
+- Device auth start/poll: uses public create limiter (`0.5 rps`, burst `6`) keyed by client IP hash.
 - Burn: no dedicated limiter in v1 (API key auth + owner checks apply).
 
 Important runtime property:
@@ -284,6 +318,26 @@ API-key registration request (`POST /api/v1/apikeys/register`):
 - Default limits:
   - account: `5/hour`, `20/day`
   - IP: `5/hour`, `20/day`
+
+Device authorization start (`POST /api/v1/auth/device/start`):
+
+- Requires `Content-Type: application/json`
+- Body field `auth_token` MUST decode as base64url to exactly 32 bytes
+- IP rate-limited
+
+Device authorization poll (`POST /api/v1/auth/device/poll`):
+
+- Requires `Content-Type: application/json`
+- Body field `device_code` MUST be a non-empty string
+- IP rate-limited
+
+Device authorization approve (`POST /api/v1/auth/device/approve`):
+
+- Requires `Authorization: Bearer uss_<sid>.<secret>`
+- Requires `Content-Type: application/json`
+- Body field `user_code` MUST be a non-empty string
+- User code comparison is constant-time
+- Reuses API key registration quota enforcement
 
 List request (`GET /api/v1/secrets`):
 

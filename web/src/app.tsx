@@ -9,6 +9,7 @@ import { LoginPage } from './features/auth/LoginPage';
 import { RegisterPage } from './features/auth/RegisterPage';
 import { DashboardPage } from './features/dashboard/DashboardPage';
 import { SettingsPage } from './features/settings/SettingsPage';
+import { DevicePage } from './features/auth/DevicePage';
 import { ThemePage } from './features/test/ThemePage';
 
 export function App() {
@@ -43,6 +44,9 @@ export function App() {
       break;
     case 'settings':
       page = <SettingsPage />;
+      break;
+    case 'device':
+      page = <DevicePage />;
       break;
     case 'not-found':
       page = (

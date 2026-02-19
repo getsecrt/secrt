@@ -287,6 +287,27 @@ export async function registerApiKey(
   );
 }
 
+/* ── Device Auth API ─────────────────────────────────── */
+
+export async function deviceApprove(
+  token: string,
+  userCode: string,
+  signal?: AbortSignal,
+): Promise<{ ok: boolean }> {
+  return requestJson<{ ok: boolean }>(
+    '/api/v1/auth/device/approve',
+    {
+      method: 'POST',
+      headers: {
+        authorization: `Bearer ${token}`,
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({ user_code: userCode }),
+    },
+    signal,
+  );
+}
+
 export async function deleteAccount(
   token: string,
   signal?: AbortSignal,

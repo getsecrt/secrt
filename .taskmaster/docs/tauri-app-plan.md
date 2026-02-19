@@ -61,7 +61,8 @@ Since secrt already has a Rust codebase (`secrt-core`, `secrt-cli`), the Tauri b
 
 ## Ideas & Considerations
 
-- **QR code on success screen** — Show QR code for the share link on the web UI success page too (not just desktop). Enables the "hey Bob, scan this" in-person sharing flow — scan with phone, drop into password manager. No copy-paste, no sending links over insecure channels.
+- **
+code on success screen** — Show QR code for the share link on the web UI success page too (not just desktop). Enables the "hey Bob, scan this" in-person sharing flow — scan with phone, drop into password manager. No copy-paste, no sending links over insecure channels.
 - **Offline mode** — With native crypto, the app could create encrypted payloads offline and upload when connectivity returns
 - **Biometric unlock** — Use Touch ID / Windows Hello to unlock stored passphrases
 - **CLI integration** — Could the desktop app and CLI share config? Same keychain entries?

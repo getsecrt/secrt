@@ -1,8 +1,60 @@
+import { encode } from 'uqr';
+import { useEffect, useRef } from 'preact/hooks';
 import { CheckCircleIcon } from '../../components/Icons';
 import { CopyButton } from '../../components/CopyButton';
 import { ClipboardIcon } from '../../components/Icons';
 import { formatExpiryDate } from '../../lib/ttl';
 import { CardHeading } from '../../components/CardHeading';
+
+interface QrCanvasProps {
+  url: string;
+  size?: number;
+}
+
+function QrCanvas({ url, size = 192 }: QrCanvasProps) {
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+
+    const qr = encode(url);
+    const modules = qr.size;
+    const dpr = window.devicePixelRatio || 1;
+    const px = Math.floor((size * dpr) / modules);
+    const dim = px * modules;
+
+    canvas.width = dim;
+    canvas.height = dim;
+    canvas.style.width = `${size}px`;
+    canvas.style.height = `${size}px`;
+
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+    const dark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+
+    ctx.fillStyle = dark ? '#000' : '#fff';
+    ctx.fillRect(0, 0, dim, dim);
+    ctx.fillStyle = dark ? '#fff' : '#000';
+
+    for (let y = 0; y < modules; y++) {
+      for (let x = 0; x < modules; x++) {
+        if (qr.data[y][x]) {
+          ctx.fillRect(x * px, y * px, px, px);
+        }
+      }
+    }
+  }, [url, size]);
+
+  return (
+    <canvas
+      ref={canvasRef}
+      aria-label="QR code for share URL"
+      role="img"
+      class="rounded-lg"
+    />
+  );
+}
 
 interface ShareResultProps {
   shareUrl: string;
@@ -39,6 +91,10 @@ export function ShareResult({
         class="w-full"
         label="Copy Link"
       />
+
+      <div class="flex justify-center">
+        <QrCanvas url={shareUrl} />
+      </div>
 
       <div>
         <p class="mb-1 text-center text-sm">

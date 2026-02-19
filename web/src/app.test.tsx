@@ -17,6 +17,12 @@ vi.mock('./features/dashboard/DashboardPage', () => ({
 vi.mock('./features/settings/SettingsPage', () => ({
   SettingsPage: () => <div data-testid="settings-page">SettingsPage</div>,
 }));
+vi.mock('./features/auth/DevicePage', () => ({
+  DevicePage: () => <div data-testid="device-page">DevicePage</div>,
+}));
+vi.mock('./features/trust/PrivacyPage', () => ({
+  PrivacyPage: () => <div data-testid="privacy-page">PrivacyPage</div>,
+}));
 vi.mock('./components/Layout', () => ({
   Layout: ({ children }: { children: preact.ComponentChildren }) => (
     <div data-testid="layout">{children}</div>
@@ -64,6 +70,24 @@ describe('App', () => {
     mockUseRoute.mockReturnValue({ page: 'settings' });
     render(<App />);
     expect(screen.getByTestId('settings-page')).toBeInTheDocument();
+  });
+
+  it('renders DevicePage for "device" route', () => {
+    mockUseRoute.mockReturnValue({ page: 'device' });
+    render(<App />);
+    expect(screen.getByTestId('device-page')).toBeInTheDocument();
+  });
+
+  it('renders PrivacyPage for "privacy" route', () => {
+    mockUseRoute.mockReturnValue({ page: 'privacy' });
+    render(<App />);
+    expect(screen.getByTestId('privacy-page')).toBeInTheDocument();
+  });
+
+  it('renders not-found page for unknown routes', () => {
+    mockUseRoute.mockReturnValue({ page: 'not-found' });
+    render(<App />);
+    expect(screen.getByText('Not found')).toBeInTheDocument();
   });
 
   it('wraps content in AuthProvider and Layout', () => {

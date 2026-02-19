@@ -479,6 +479,108 @@ paths:
         "500":
           $ref: "#/components/responses/InternalError"
 
+  /api/v1/auth/device/start:
+    post:
+      operationId: deviceStart
+      summary: Start device authorization flow
+      description: |
+        Initiates a device authorization flow for CLI login. The CLI pre-generates
+        key material and sends only the derived auth_token. The server issues a
+        device_code (for polling) and a human-readable user_code (for browser approval).
+        Challenge expires after 10 minutes.
+      tags: [auth]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DeviceStartRequest"
+      responses:
+        "200":
+          description: Device authorization started
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DeviceStartResponse"
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/X-Request-Id"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /api/v1/auth/device/poll:
+    post:
+      operationId: devicePoll
+      summary: Poll device authorization status
+      description: |
+        Checks the status of a pending device authorization. Returns
+        `authorization_pending` while waiting for browser approval, or
+        `complete` with the API key prefix once approved. The challenge
+        is consumed on successful completion.
+      tags: [auth]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DevicePollRequest"
+      responses:
+        "200":
+          description: Authorization status
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DevicePollResponse"
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/X-Request-Id"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /api/v1/auth/device/approve:
+    post:
+      operationId: deviceApprove
+      summary: Approve device authorization (session required)
+      description: |
+        Approves a pending device authorization by user_code. Requires an
+        authenticated passkey session. Creates an API key linked to the
+        session user and marks the challenge as approved.
+      tags: [auth]
+      security:
+        - sessionBearer: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DeviceApproveRequest"
+      responses:
+        "200":
+          description: Device authorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BurnResponse"
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/X-Request-Id"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
   /api/v1/apikeys/register:
     post:
       operationId: registerApiKey
@@ -859,6 +961,70 @@ components:
           format: date-time
           nullable: true
 
+    DeviceStartRequest:
+      type: object
+      required: [auth_token]
+      additionalProperties: false
+      properties:
+        auth_token:
+          type: string
+          description: base64url-encoded 32-byte auth token derived from CLI-generated root key
+
+    DeviceStartResponse:
+      type: object
+      required: [device_code, user_code, verification_url, expires_in, interval]
+      properties:
+        device_code:
+          type: string
+          description: Opaque identifier for polling (base64url-encoded 32 random bytes)
+        user_code:
+          type: string
+          description: Human-readable code for browser verification (format XXXX-XXXX)
+          example: "ABCD-1234"
+        verification_url:
+          type: string
+          format: uri
+          description: URL to open in browser for approval
+          example: "https://secrt.ca/device?code=ABCD-1234"
+        expires_in:
+          type: integer
+          description: Challenge lifetime in seconds (600 = 10 minutes)
+        interval:
+          type: integer
+          description: Recommended polling interval in seconds
+
+    DevicePollRequest:
+      type: object
+      required: [device_code]
+      additionalProperties: false
+      properties:
+        device_code:
+          type: string
+          description: Device code returned by /device/start
+
+    DevicePollResponse:
+      type: object
+      required: [status]
+      properties:
+        status:
+          type: string
+          enum: [authorization_pending, complete]
+          description: |
+            `authorization_pending` while waiting for browser approval.
+            `complete` when the device has been authorized.
+        prefix:
+          type: string
+          description: API key prefix (present only when status is `complete`)
+
+    DeviceApproveRequest:
+      type: object
+      required: [user_code]
+      additionalProperties: false
+      properties:
+        user_code:
+          type: string
+          description: User code displayed in the CLI terminal (format XXXX-XXXX)
+
     RegisterApiKeyRequest:
       type: object
       required: [auth_token]
@@ -1047,6 +1213,6 @@ tags:
   - name: secrets
     description: One-time secret creation, claim, and burn operations
   - name: auth
-    description: Passkey registration/login and browser session management
+    description: Passkey registration/login, device authorization, and browser session management
   - name: apikeys
     description: API key registration, listing, and revocation endpoints

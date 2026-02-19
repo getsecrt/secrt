@@ -431,6 +431,56 @@ impl AuthStore for MemStore {
         Ok(c)
     }
 
+    async fn get_challenge(
+        &self,
+        challenge_id: &str,
+        purpose: &str,
+        now: DateTime<Utc>,
+    ) -> Result<ChallengeRecord, StorageError> {
+        self.challenges
+            .lock()
+            .expect("challenges mutex poisoned")
+            .get(challenge_id)
+            .filter(|r| r.purpose == purpose && r.expires_at > now)
+            .cloned()
+            .ok_or(StorageError::NotFound)
+    }
+
+    async fn update_challenge_json(
+        &self,
+        challenge_id: &str,
+        purpose: &str,
+        challenge_json: &str,
+        now: DateTime<Utc>,
+    ) -> Result<(), StorageError> {
+        let mut m = self.challenges.lock().expect("challenges mutex poisoned");
+        let rec = m
+            .get_mut(challenge_id)
+            .filter(|r| r.purpose == purpose && r.expires_at > now)
+            .ok_or(StorageError::NotFound)?;
+        rec.challenge_json = challenge_json.to_string();
+        Ok(())
+    }
+
+    async fn find_device_challenge_by_user_code(
+        &self,
+        user_code: &str,
+        now: DateTime<Utc>,
+    ) -> Result<ChallengeRecord, StorageError> {
+        let m = self.challenges.lock().expect("challenges mutex poisoned");
+        for rec in m.values() {
+            if rec.purpose != "device-auth" || rec.expires_at <= now {
+                continue;
+            }
+            if let Ok(json) = serde_json::from_str::<serde_json::Value>(&rec.challenge_json) {
+                if json.get("user_code").and_then(|v| v.as_str()) == Some(user_code) {
+                    return Ok(rec.clone());
+                }
+            }
+        }
+        Err(StorageError::NotFound)
+    }
+
     async fn count_apikey_registrations_by_user_since(
         &self,
         user_id: UserId,

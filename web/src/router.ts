@@ -9,6 +9,7 @@ export type Route =
   | { page: 'register' }
   | { page: 'dashboard' }
   | { page: 'settings' }
+  | { page: 'device' }
   | { page: 'theme' }
   | { page: 'not-found' };
 
@@ -44,6 +45,10 @@ export function matchRoute(path: string): Route {
 
   if (path === '/settings') {
     return { page: 'settings' };
+  }
+
+  if (path === '/device') {
+    return { page: 'device' };
   }
 
   if (import.meta.env.DEV) {

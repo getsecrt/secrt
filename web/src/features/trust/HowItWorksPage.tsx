@@ -121,6 +121,38 @@ export function HowItWorksPage() {
 
         <section class="space-y-2">
           <h3 class="text-xl font-semibold text-black dark:text-white">
+            What is your privacy policy?
+          </h3>
+          <p class="">
+            We have a strict{' '}
+            <a
+              class="link"
+              href="/privacy"
+              onClick={(e: MouseEvent) => {
+                e.preventDefault();
+                navigate('/privacy');
+              }}
+            >
+              privacy policy
+            </a>{' '}
+            emphasizing our complete inability to read your data and limit
+            identifiable information as much as possible. Read it at{' '}
+            <a
+              class="link"
+              href="/privacy"
+              onClick={(e: MouseEvent) => {
+                e.preventDefault();
+                navigate('/privacy');
+              }}
+            >
+              {location.origin}/privacy
+            </a>
+            .
+          </p>
+        </section>
+
+        <section class="space-y-2">
+          <h3 class="text-xl font-semibold text-black dark:text-white">
             Can{' '}
             <span class="text-black dark:text-white">
               s<span class="text-green-700 dark:text-green-400">e</span>crt

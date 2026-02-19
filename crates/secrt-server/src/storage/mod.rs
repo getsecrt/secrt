@@ -275,6 +275,30 @@ pub trait AuthStore: Send + Sync {
         now: DateTime<Utc>,
     ) -> Result<(), StorageError>;
     async fn delete_user(&self, user_id: UserId) -> Result<bool, StorageError>;
+
+    /// Read a challenge without consuming it (for device-auth polling).
+    async fn get_challenge(
+        &self,
+        challenge_id: &str,
+        purpose: &str,
+        now: DateTime<Utc>,
+    ) -> Result<ChallengeRecord, StorageError>;
+
+    /// Update the challenge_json field in-place (for marking device-auth approved).
+    async fn update_challenge_json(
+        &self,
+        challenge_id: &str,
+        purpose: &str,
+        challenge_json: &str,
+        now: DateTime<Utc>,
+    ) -> Result<(), StorageError>;
+
+    /// Find a device-auth challenge by its user_code (for the approve endpoint).
+    async fn find_device_challenge_by_user_code(
+        &self,
+        user_code: &str,
+        now: DateTime<Utc>,
+    ) -> Result<ChallengeRecord, StorageError>;
 }
 
 #[async_trait]
@@ -502,6 +526,37 @@ where
 
     async fn delete_user(&self, user_id: UserId) -> Result<bool, StorageError> {
         (**self).delete_user(user_id).await
+    }
+
+    async fn get_challenge(
+        &self,
+        challenge_id: &str,
+        purpose: &str,
+        now: DateTime<Utc>,
+    ) -> Result<ChallengeRecord, StorageError> {
+        (**self).get_challenge(challenge_id, purpose, now).await
+    }
+
+    async fn update_challenge_json(
+        &self,
+        challenge_id: &str,
+        purpose: &str,
+        challenge_json: &str,
+        now: DateTime<Utc>,
+    ) -> Result<(), StorageError> {
+        (**self)
+            .update_challenge_json(challenge_id, purpose, challenge_json, now)
+            .await
+    }
+
+    async fn find_device_challenge_by_user_code(
+        &self,
+        user_code: &str,
+        now: DateTime<Utc>,
+    ) -> Result<ChallengeRecord, StorageError> {
+        (**self)
+            .find_device_challenge_by_user_code(user_code, now)
+            .await
     }
 }
 

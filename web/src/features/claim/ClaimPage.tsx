@@ -21,6 +21,7 @@ import {
   LockIcon,
   TriangleExclamationIcon,
 } from '../../components/Icons';
+import { CardHeading } from '../../components/CardHeading';
 import { CopyButton } from '../../components/CopyButton';
 import { Modal } from '../../components/Modal';
 import { navigate } from '../../router';
@@ -276,13 +277,17 @@ export function ClaimPage({ id }: ClaimPageProps) {
         <div class="flex flex-col items-center gap-2 text-center">
           {isLocked ? (
             <>
-              <LockIcon class="size-10 text-muted" />
-              <h2 class="text-xl font-semibold">Secret Ready</h2>
+              <CardHeading
+                title="Secret Decrypted"
+                icon={<LockIcon class="size-10 text-muted" />}
+              />
             </>
           ) : (
             <>
-              <CheckCircleIcon class="size-10 text-success" />
-              <h2 class="text-xl font-semibold">Secret Decrypted</h2>
+              <CardHeading
+                title="Secret Decrypted"
+                icon={<CheckCircleIcon class="size-10 text-success" />}
+              />
             </>
           )}
         </div>

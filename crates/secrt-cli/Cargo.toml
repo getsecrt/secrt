@@ -11,7 +11,7 @@ name = "secrt"
 path = "src/main.rs"
 
 [dependencies]
-secrt-core = { path = "../secrt-core", version = "0.11.0" }
+secrt-core = { path = "../secrt-core", version = "0.12.0" }
 ring.workspace = true
 ureq = { version = "3", default-features = false, features = ["rustls"] }
 serde.workspace = true
@@ -22,6 +22,7 @@ rpassword = "7"
 toml = "0.8"
 dirs = "6"
 keyring = { version = "3", optional = true, features = ["apple-native", "linux-native", "windows-native"] }
+qrcode.workspace = true
 
 [features]
 default = ["keychain"]

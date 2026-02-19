@@ -252,10 +252,14 @@ impl TestDepsBuilder {
                 let kc = self.keychain_secrets;
                 Box::new(move |key: &str| kc.get(key).cloned())
             },
+            set_keychain_secret: Box::new(|_: &str, _: &str| Ok(())),
+            delete_keychain_secret: Box::new(|_: &str| Ok(())),
             get_keychain_secret_list: {
                 let kcl = self.keychain_secret_lists;
                 Box::new(move |key: &str| kcl.get(key).cloned().unwrap_or_default())
             },
+            open_browser: Box::new(|_: &str| Ok(())),
+            sleep: Box::new(|_: std::time::Duration| {}),
             make_api: if let Some(mock_responses) = self.mock_responses {
                 Box::new(move |_base_url: &str, _api_key: &str| {
                     Box::new(MockApi::new(mock_responses.clone())) as Box<dyn SecretApi>

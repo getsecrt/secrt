@@ -34,6 +34,30 @@ export function Layout({ children }: LayoutProps) {
       <footer class="mt-auto flex flex-col items-center gap-2 py-4 text-xs text-faint">
         <div class="flex items-center gap-3">
           <a
+            href="/privacy"
+            onClick={(e: MouseEvent) => {
+              e.preventDefault();
+              navigate('/privacy');
+            }}
+            class="w-20 text-faint transition-colors hover:text-muted"
+          >
+            Privacy Policy
+          </a>
+          <span class="text-faint/40">·</span>
+          <a
+            href="/how-it-works"
+            onClick={(e: MouseEvent) => {
+              e.preventDefault();
+              navigate('/how-it-works');
+            }}
+            class="w-20 text-faint transition-colors hover:text-muted"
+          >
+            How it Works
+          </a>
+        </div>
+
+        <div>
+          <a
             href="https://github.com/getsecrt/secrt"
             target="_blank"
             rel="noopener noreferrer"
@@ -42,32 +66,13 @@ export function Layout({ children }: LayoutProps) {
           >
             <GitHubIcon class="size-5" />
           </a>
-          <span class="text-faint/40">·</span>
-          <a
-            href="/privacy"
-            onClick={(e: MouseEvent) => { e.preventDefault(); navigate('/privacy'); }}
-            class="text-faint transition-colors hover:text-muted"
-          >
-            Privacy
-          </a>
-          <span class="text-faint/40">·</span>
-          <a
-            href="/how-it-works"
-            onClick={(e: MouseEvent) => { e.preventDefault(); navigate('/how-it-works'); }}
-            class="text-faint transition-colors hover:text-muted"
-          >
-            How it works
-          </a>
-          <span class="text-faint/40">·</span>
-          <a
-            href="mailto:security@secrt.ca"
-            class="text-faint transition-colors hover:text-muted"
-          >
+        </div>
+
+        <div class="flex flex-col items-center gap-2">
+          <div>&copy; {new Date().getFullYear()} JD Lien</div>
+          <a href="mailto:security@secrt.ca" class="link">
             security@secrt.ca
           </a>
-        </div>
-        <div class="flex items-center gap-2">
-          &copy; {new Date().getFullYear()} JD Lien
         </div>
       </footer>
     </div>

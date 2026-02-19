@@ -289,6 +289,98 @@ v1 passkey model note:
 - `/start` issues random `challenge_id` and opaque `challenge`.
 - `/finish` authorizes via valid unexpired `challenge_id` + expected credential linkage.
 
+### Device Authorization (CLI login flow)
+
+Device authorization enables CLI tools to obtain API keys via browser-based approval without exposing the root key to the server. The CLI pre-generates key material and sends only the derived `auth_token` to the server.
+
+#### Start device authorization
+
+`POST /api/v1/auth/device/start`
+
+Unauthenticated. IP rate-limited.
+
+Request:
+
+```json
+{
+  "auth_token": "<base64url 32-byte auth token>"
+}
+```
+
+Response (`200`):
+
+```json
+{
+  "device_code": "<base64url opaque identifier>",
+  "user_code": "ABCD-1234",
+  "verification_url": "https://secrt.ca/device?code=ABCD-1234",
+  "expires_in": 600,
+  "interval": 5
+}
+```
+
+Validation:
+
+- `auth_token` MUST decode as base64url to exactly 32 bytes.
+- `device_code` is 32 bytes of random data (base64url encoded), stored as `challenge_id` in the `webauthn_challenges` table with `purpose = "device-auth"` and 10-minute expiry.
+- `user_code` is 8 characters from charset `ABCDEFGHJKLMNPQRSTUVWXYZ23456789` (no ambiguous `0`, `O`, `I`, `1`), formatted as `XXXX-XXXX`.
+
+#### Poll device authorization status
+
+`POST /api/v1/auth/device/poll`
+
+Unauthenticated. IP rate-limited.
+
+Request:
+
+```json
+{
+  "device_code": "<base64url>"
+}
+```
+
+Responses:
+
+- Pending: `200` `{ "status": "authorization_pending" }`
+- Approved: `200` `{ "status": "complete", "prefix": "<api_key_prefix>" }` — the challenge is consumed on this response.
+- Expired or not found: `400` `{ "error": "expired_token" }`
+
+The CLI constructs the full local key as `sk2_<prefix>.<base64(root_key)>` using the prefix from the response and the locally-held root key.
+
+#### Approve device authorization (session required)
+
+`POST /api/v1/auth/device/approve`
+
+Headers:
+
+- `Authorization: Bearer uss_<sid>.<secret>`
+
+Request:
+
+```json
+{
+  "user_code": "ABCD-1234"
+}
+```
+
+Response (`200`):
+
+```json
+{ "ok": true }
+```
+
+Behavior:
+
+1. Looks up a pending `device-auth` challenge by `user_code` (constant-time comparison).
+2. Generates an API key prefix, computes `auth_hash` from the stored `auth_token` + pepper.
+3. Registers the API key linked to the session user (reuses existing quota logic from `POST /api/v1/apikeys/register`).
+4. Updates challenge status to `"approved"` with the generated prefix.
+
+Other outcomes:
+
+- `400` if `user_code` is not found or challenge is not pending
+- `401` if session token is missing or invalid
+
 ### API key management (session required)
 
 #### Register API key auth token

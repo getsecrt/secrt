@@ -16,6 +16,7 @@ import {
   listApiKeys,
   revokeApiKey,
   registerApiKey,
+  deviceApprove,
   deleteAccount,
 } from './api';
 import type {
@@ -400,6 +401,55 @@ describe('dashboard and account endpoints', () => {
     expect(fetch).toHaveBeenCalledWith(
       '/api/v1/auth/account',
       expect.objectContaining({ method: 'DELETE' }),
+    );
+  });
+});
+
+/* ── Device Auth API ──────────────────────────────────── */
+
+describe('deviceApprove', () => {
+  it('POSTs to device approve endpoint with bearer token', async () => {
+    vi.mocked(fetch).mockResolvedValue(jsonResponse({ ok: true }));
+
+    const result = await deviceApprove('uss_tok.secret', 'ABCD-1234');
+    expect(result).toEqual({ ok: true });
+    expect(fetch).toHaveBeenCalledWith(
+      '/api/v1/auth/device/approve',
+      expect.objectContaining({ method: 'POST' }),
+    );
+    const init = vi.mocked(fetch).mock.calls[0][1] as RequestInit;
+    const headers = new Headers(init.headers);
+    expect(headers.get('authorization')).toBe('Bearer uss_tok.secret');
+  });
+
+  it('sends user_code in request body', async () => {
+    vi.mocked(fetch).mockResolvedValue(jsonResponse({ ok: true }));
+
+    await deviceApprove('uss_tok.secret', 'WXYZ-5678');
+    const init = vi.mocked(fetch).mock.calls[0][1] as RequestInit;
+    expect(JSON.parse(init.body as string)).toEqual({
+      user_code: 'WXYZ-5678',
+    });
+  });
+
+  it('throws on error response', async () => {
+    vi.mocked(fetch).mockResolvedValue(
+      errorResponse(400, 'Bad Request', { error: 'invalid user code' }),
+    );
+
+    await expect(
+      deviceApprove('uss_tok.secret', 'BAD-CODE'),
+    ).rejects.toThrow('invalid user code');
+  });
+
+  it('passes signal to fetch', async () => {
+    vi.mocked(fetch).mockResolvedValue(jsonResponse({ ok: true }));
+    const controller = new AbortController();
+
+    await deviceApprove('uss_tok.secret', 'ABCD-1234', controller.signal);
+    expect(fetch).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ signal: controller.signal }),
     );
   });
 });

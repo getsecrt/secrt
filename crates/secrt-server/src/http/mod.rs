@@ -268,11 +268,73 @@ struct DeleteAccountResponse {
     keys_revoked: i64,
 }
 
+// --- Device authorization flow types ---
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct DeviceStartRequest {
+    auth_token: String,
+}
+
+#[derive(Serialize)]
+struct DeviceStartResponse {
+    device_code: String,
+    user_code: String,
+    verification_url: String,
+    expires_in: u64,
+    interval: u64,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct DevicePollRequest {
+    device_code: String,
+}
+
+#[derive(Serialize)]
+struct DevicePollResponse {
+    status: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    prefix: Option<String>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct DeviceApproveRequest {
+    user_code: String,
+}
+
+#[derive(Serialize, Deserialize)]
+struct DeviceChallengeJson {
+    user_code: String,
+    auth_token_b64: String,
+    status: String,
+    prefix: Option<String>,
+    user_id: Option<String>,
+}
+
 #[derive(Serialize)]
 struct AuthFinishResponse {
     session_token: String,
     display_name: String,
     expires_at: DateTime<Utc>,
+}
+
+/// Character set for user codes (no ambiguous chars: 0/O, 1/I/L).
+const USER_CODE_CHARS: &[u8] = b"ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+const DEVICE_CODE_LEN: usize = 32;
+const DEVICE_AUTH_PURPOSE: &str = "device-auth";
+const DEVICE_AUTH_EXPIRY_SECS: i64 = 600;
+
+fn generate_user_code() -> Result<String, ()> {
+    let rng = SystemRandom::new();
+    let mut bytes = [0u8; 8];
+    rng.fill(&mut bytes).map_err(|_| ())?;
+    let code: String = bytes
+        .iter()
+        .map(|b| USER_CODE_CHARS[(*b as usize) % USER_CODE_CHARS.len()] as char)
+        .collect();
+    Ok(format!("{}-{}", &code[..4], &code[4..]))
 }
 
 pub fn build_router(state: Arc<AppState>) -> Router {
@@ -288,6 +350,7 @@ pub fn build_router(state: Arc<AppState>) -> Router {
         .route("/privacy", get(handle_index))
         .route("/dashboard", get(handle_index))
         .route("/settings", get(handle_index))
+        .route("/device", get(handle_index))
         .route("/robots.txt", get(handle_robots_txt))
         .route("/.well-known/security.txt", get(handle_security_txt));
 
@@ -335,6 +398,12 @@ pub fn build_router(state: Arc<AppState>) -> Router {
             any(handle_revoke_apikey_entry),
         )
         .route("/api/v1/auth/account", any(handle_delete_account_entry))
+        .route("/api/v1/auth/device/start", any(handle_device_start_entry))
+        .route("/api/v1/auth/device/poll", any(handle_device_poll_entry))
+        .route(
+            "/api/v1/auth/device/approve",
+            any(handle_device_approve_entry),
+        )
         .layer(CatchPanicLayer::custom(handle_panic))
         .route_layer(middleware::from_fn_with_state(
             state.clone(),
@@ -1596,6 +1665,317 @@ pub async fn handle_delete_account_entry(
     )
 }
 
+// --- Device authorization flow endpoints ---
+
+pub async fn handle_device_start_entry(
+    State(state): State<Arc<AppState>>,
+    req: Request,
+) -> Response {
+    if req.method() != Method::POST {
+        return method_not_allowed();
+    }
+
+    let ip = get_client_ip(req.headers(), request_connect_addr(&req));
+    if !state.apikey_register_limiter.allow(&ip) {
+        return rate_limited();
+    }
+
+    let payload: DeviceStartRequest = match read_json_body(req, 4 * 1024, None).await {
+        Ok(v) => v,
+        Err(resp) => return resp,
+    };
+
+    // Validate auth_token is valid base64url for 32 bytes
+    let auth_token_bytes = match URL_SAFE_NO_PAD.decode(payload.auth_token.trim()) {
+        Ok(v) if v.len() == secrt_core::API_KEY_AUTH_LEN => v,
+        _ => return bad_request("auth_token must be base64url-encoded 32 bytes"),
+    };
+    let auth_token_b64 = URL_SAFE_NO_PAD.encode(&auth_token_bytes);
+
+    // Generate device_code and user_code
+    let device_code = match random_b64(DEVICE_CODE_LEN) {
+        Ok(v) => v,
+        Err(_) => return internal_server_error(),
+    };
+    let user_code = match generate_user_code() {
+        Ok(v) => v,
+        Err(_) => return internal_server_error(),
+    };
+
+    let challenge_data = DeviceChallengeJson {
+        user_code: user_code.clone(),
+        auth_token_b64,
+        status: "pending".into(),
+        prefix: None,
+        user_id: None,
+    };
+    let challenge_json = match serde_json::to_string(&challenge_data) {
+        Ok(v) => v,
+        Err(_) => return internal_server_error(),
+    };
+
+    let expires_at = Utc::now() + chrono::Duration::seconds(DEVICE_AUTH_EXPIRY_SECS);
+    if let Err(e) = state
+        .auth_store
+        .insert_challenge(
+            &device_code,
+            None,
+            DEVICE_AUTH_PURPOSE,
+            &challenge_json,
+            expires_at,
+        )
+        .await
+    {
+        error!(error = %e, "failed to insert device challenge");
+        return internal_server_error();
+    }
+
+    let verification_url = format!(
+        "{}/device?code={}",
+        state.cfg.public_base_url,
+        urlencoding::encode(&user_code)
+    );
+
+    json_response(
+        StatusCode::OK,
+        DeviceStartResponse {
+            device_code,
+            user_code,
+            verification_url,
+            expires_in: DEVICE_AUTH_EXPIRY_SECS as u64,
+            interval: 5,
+        },
+    )
+}
+
+pub async fn handle_device_poll_entry(
+    State(state): State<Arc<AppState>>,
+    req: Request,
+) -> Response {
+    if req.method() != Method::POST {
+        return method_not_allowed();
+    }
+
+    let ip = get_client_ip(req.headers(), request_connect_addr(&req));
+    if !state.apikey_register_limiter.allow(&ip) {
+        return rate_limited();
+    }
+
+    let payload: DevicePollRequest = match read_json_body(req, 4 * 1024, None).await {
+        Ok(v) => v,
+        Err(resp) => return resp,
+    };
+
+    let now = Utc::now();
+    let challenge = match state
+        .auth_store
+        .get_challenge(&payload.device_code, DEVICE_AUTH_PURPOSE, now)
+        .await
+    {
+        Ok(c) => c,
+        Err(StorageError::NotFound) => {
+            return bad_request("expired_token");
+        }
+        Err(e) => {
+            error!(error = %e, "failed to get device challenge");
+            return internal_server_error();
+        }
+    };
+
+    let data: DeviceChallengeJson = match serde_json::from_str(&challenge.challenge_json) {
+        Ok(v) => v,
+        Err(_) => return internal_server_error(),
+    };
+
+    if data.status == "approved" {
+        // Consume the challenge atomically (one-time read)
+        match state
+            .auth_store
+            .consume_challenge(&payload.device_code, DEVICE_AUTH_PURPOSE, now)
+            .await
+        {
+            Ok(_) => {}
+            Err(StorageError::NotFound) => {
+                // Already consumed by a concurrent poll
+                return bad_request("expired_token");
+            }
+            Err(e) => {
+                error!(error = %e, "failed to consume device challenge");
+                return internal_server_error();
+            }
+        }
+        return json_response(
+            StatusCode::OK,
+            DevicePollResponse {
+                status: "complete".into(),
+                prefix: data.prefix,
+            },
+        );
+    }
+
+    json_response(
+        StatusCode::OK,
+        DevicePollResponse {
+            status: "authorization_pending".into(),
+            prefix: None,
+        },
+    )
+}
+
+pub async fn handle_device_approve_entry(
+    State(state): State<Arc<AppState>>,
+    req: Request,
+) -> Response {
+    if req.method() != Method::POST {
+        return method_not_allowed();
+    }
+
+    let (user_id, _, _) = match require_session_user(&state, req.headers()).await {
+        Ok(v) => v,
+        Err(resp) => return resp,
+    };
+
+    let payload: DeviceApproveRequest = match read_json_body(req, 4 * 1024, None).await {
+        Ok(v) => v,
+        Err(resp) => return resp,
+    };
+
+    let now = Utc::now();
+
+    // Find the challenge by user_code
+    let challenge = match state
+        .auth_store
+        .find_device_challenge_by_user_code(&payload.user_code, now)
+        .await
+    {
+        Ok(c) => c,
+        Err(StorageError::NotFound) => {
+            return bad_request("invalid or expired code");
+        }
+        Err(e) => {
+            error!(error = %e, "failed to find device challenge");
+            return internal_server_error();
+        }
+    };
+
+    let data: DeviceChallengeJson = match serde_json::from_str(&challenge.challenge_json) {
+        Ok(v) => v,
+        Err(_) => return internal_server_error(),
+    };
+
+    // Verify it's still pending
+    if data.status != "pending" {
+        return bad_request("device already authorized");
+    }
+
+    // Constant-time user_code comparison
+    if !crate::domain::auth::secure_equals_hex(
+        &hex::encode(data.user_code.as_bytes()),
+        &hex::encode(payload.user_code.as_bytes()),
+    ) {
+        return bad_request("invalid or expired code");
+    }
+
+    // Decode the stored auth_token
+    let auth_token = match URL_SAFE_NO_PAD.decode(&data.auth_token_b64) {
+        Ok(v) if v.len() == secrt_core::API_KEY_AUTH_LEN => v,
+        _ => return internal_server_error(),
+    };
+
+    // Generate prefix and create API key (same logic as apikey/register)
+    let ip = "device-auth"; // No IP rate limiting for approve (session-gated)
+    let ip_hash = state.owner_hasher.hash_ip(ip);
+
+    let mut prefix = String::new();
+    for _ in 0..=3 {
+        prefix = match crate::domain::auth::generate_api_key_prefix() {
+            Ok(v) => v,
+            Err(e) => {
+                error!(error = %e, "failed to generate api key prefix");
+                return internal_server_error();
+            }
+        };
+        let auth_hash = match crate::domain::auth::hash_api_key_auth_token(
+            &state.cfg.api_key_pepper,
+            &prefix,
+            &auth_token,
+        ) {
+            Ok(v) => v,
+            Err(e) => {
+                error!(error = %e, "failed to hash api key auth token");
+                return internal_server_error();
+            }
+        };
+        let rec = ApiKeyRecord {
+            id: 0,
+            prefix: prefix.clone(),
+            auth_hash,
+            scopes: String::new(),
+            user_id: Some(user_id),
+            created_at: now,
+            revoked_at: None,
+        };
+        match state
+            .auth_store
+            .register_api_key(
+                rec,
+                &ip_hash,
+                now,
+                ApiKeyRegistrationLimits {
+                    account_hour: state.cfg.apikey_register_account_max_per_hour,
+                    account_day: state.cfg.apikey_register_account_max_per_day,
+                    ip_hour: 0, // Don't IP-limit device-auth approve
+                    ip_day: 0,
+                },
+            )
+            .await
+        {
+            Ok(_) => break,
+            Err(StorageError::DuplicateId) => continue,
+            Err(StorageError::QuotaExceeded(scope)) => {
+                let detail = match scope.as_str() {
+                    "account/hour" => "api key registration limit exceeded (account/hour)",
+                    "account/day" => "api key registration limit exceeded (account/day)",
+                    _ => "api key registration limit exceeded",
+                };
+                return error_response(StatusCode::TOO_MANY_REQUESTS, detail);
+            }
+            Err(e) => {
+                error!(error = %e, "failed to register api key from device auth");
+                return internal_server_error();
+            }
+        }
+    }
+
+    // Update challenge to approved state
+    let updated = DeviceChallengeJson {
+        user_code: data.user_code,
+        auth_token_b64: data.auth_token_b64,
+        status: "approved".into(),
+        prefix: Some(prefix),
+        user_id: Some(user_id.to_string()),
+    };
+    let updated_json = match serde_json::to_string(&updated) {
+        Ok(v) => v,
+        Err(_) => return internal_server_error(),
+    };
+    if let Err(e) = state
+        .auth_store
+        .update_challenge_json(
+            &challenge.challenge_id,
+            DEVICE_AUTH_PURPOSE,
+            &updated_json,
+            now,
+        )
+        .await
+    {
+        error!(error = %e, "failed to update device challenge");
+        return internal_server_error();
+    }
+
+    json_response(StatusCode::OK, serde_json::json!({ "ok": true }))
+}
+
 pub async fn handle_info_entry(State(state): State<Arc<AppState>>, req: Request) -> Response {
     if req.method() != Method::GET {
         return method_not_allowed();
@@ -1850,6 +2230,7 @@ mod tests {
         keys: Mutex<HashMap<String, ApiKeyRecord>>,
         users: Mutex<HashMap<UserId, UserRecord>>,
         sessions: Mutex<HashMap<String, SessionRecord>>,
+        challenges: Mutex<HashMap<String, ChallengeRecord>>,
     }
 
     #[async_trait]
@@ -2139,21 +2520,91 @@ mod tests {
 
         async fn insert_challenge(
             &self,
-            _challenge_id: &str,
-            _user_id: Option<UserId>,
-            _purpose: &str,
-            _challenge_json: &str,
-            _expires_at: DateTime<Utc>,
+            challenge_id: &str,
+            user_id: Option<UserId>,
+            purpose: &str,
+            challenge_json: &str,
+            expires_at: DateTime<Utc>,
         ) -> Result<ChallengeRecord, StorageError> {
-            Err(StorageError::Other("unsupported".into()))
+            let rec = ChallengeRecord {
+                id: 0,
+                challenge_id: challenge_id.to_string(),
+                user_id,
+                purpose: purpose.to_string(),
+                challenge_json: challenge_json.to_string(),
+                expires_at,
+                created_at: Utc::now(),
+            };
+            self.challenges
+                .lock()
+                .unwrap()
+                .insert(challenge_id.to_string(), rec.clone());
+            Ok(rec)
         }
 
         async fn consume_challenge(
             &self,
-            _challenge_id: &str,
-            _purpose: &str,
-            _now: DateTime<Utc>,
+            challenge_id: &str,
+            purpose: &str,
+            now: DateTime<Utc>,
         ) -> Result<ChallengeRecord, StorageError> {
+            let mut m = self.challenges.lock().unwrap();
+            let rec = m
+                .get(challenge_id)
+                .filter(|r| r.purpose == purpose && r.expires_at > now)
+                .cloned()
+                .ok_or(StorageError::NotFound)?;
+            m.remove(challenge_id);
+            Ok(rec)
+        }
+
+        async fn get_challenge(
+            &self,
+            challenge_id: &str,
+            purpose: &str,
+            now: DateTime<Utc>,
+        ) -> Result<ChallengeRecord, StorageError> {
+            self.challenges
+                .lock()
+                .unwrap()
+                .get(challenge_id)
+                .filter(|r| r.purpose == purpose && r.expires_at > now)
+                .cloned()
+                .ok_or(StorageError::NotFound)
+        }
+
+        async fn update_challenge_json(
+            &self,
+            challenge_id: &str,
+            purpose: &str,
+            challenge_json: &str,
+            now: DateTime<Utc>,
+        ) -> Result<(), StorageError> {
+            let mut m = self.challenges.lock().unwrap();
+            let rec = m
+                .get_mut(challenge_id)
+                .filter(|r| r.purpose == purpose && r.expires_at > now)
+                .ok_or(StorageError::NotFound)?;
+            rec.challenge_json = challenge_json.to_string();
+            Ok(())
+        }
+
+        async fn find_device_challenge_by_user_code(
+            &self,
+            user_code: &str,
+            now: DateTime<Utc>,
+        ) -> Result<ChallengeRecord, StorageError> {
+            let m = self.challenges.lock().unwrap();
+            for rec in m.values() {
+                if rec.purpose != "device-auth" || rec.expires_at <= now {
+                    continue;
+                }
+                if let Ok(json) = serde_json::from_str::<serde_json::Value>(&rec.challenge_json) {
+                    if json.get("user_code").and_then(|v| v.as_str()) == Some(user_code) {
+                        return Ok(rec.clone());
+                    }
+                }
+            }
             Err(StorageError::NotFound)
         }
 
@@ -2477,17 +2928,17 @@ mod tests {
             StatusCode::BAD_REQUEST
         );
 
-        let ok_payload_unsupported_store = Request::builder()
+        let ok_payload = Request::builder()
             .method("POST")
             .uri("/x")
             .header("content-type", "application/json")
             .body(Body::from(r#"{"display_name":"Alice"}"#))
             .expect("request");
         assert_eq!(
-            handle_passkey_register_start_entry(State(state.clone()), ok_payload_unsupported_store)
+            handle_passkey_register_start_entry(State(state.clone()), ok_payload)
                 .await
                 .status(),
-            StatusCode::INTERNAL_SERVER_ERROR
+            StatusCode::OK
         );
 
         let get_finish_req = Request::builder()
@@ -2721,15 +3172,55 @@ mod tests {
             .await
             .expect("revoke missing"));
 
-        // challenge stubs
+        // challenges
+        let ch = store
+            .insert_challenge("cid", None, "p", "{}", now + chrono::Duration::minutes(1))
+            .await
+            .expect("insert challenge");
+        assert_eq!(ch.challenge_id, "cid");
+        let fetched_ch = store
+            .get_challenge("cid", "p", now)
+            .await
+            .expect("get challenge");
+        assert_eq!(fetched_ch.challenge_id, "cid");
         assert!(matches!(
-            store
-                .insert_challenge("cid", None, "p", "{}", now + chrono::Duration::minutes(1))
-                .await,
-            Err(StorageError::Other(_))
+            store.get_challenge("cid", "wrong", now).await,
+            Err(StorageError::NotFound)
         ));
+        store
+            .update_challenge_json("cid", "p", r#"{"updated":true}"#, now)
+            .await
+            .expect("update challenge json");
+        let consumed = store
+            .consume_challenge("cid", "p", now)
+            .await
+            .expect("consume challenge");
+        assert_eq!(consumed.challenge_json, r#"{"updated":true}"#);
         assert!(matches!(
             store.consume_challenge("cid", "p", now).await,
+            Err(StorageError::NotFound)
+        ));
+
+        // device challenge by user_code
+        let _dc = store
+            .insert_challenge(
+                "dc1",
+                None,
+                "device-auth",
+                r#"{"user_code":"ABCD-1234","status":"pending"}"#,
+                now + chrono::Duration::minutes(10),
+            )
+            .await
+            .expect("insert device challenge");
+        let found = store
+            .find_device_challenge_by_user_code("ABCD-1234", now)
+            .await
+            .expect("find by user_code");
+        assert_eq!(found.challenge_id, "dc1");
+        assert!(matches!(
+            store
+                .find_device_challenge_by_user_code("XXXX-0000", now)
+                .await,
             Err(StorageError::NotFound)
         ));
 
@@ -3880,5 +4371,245 @@ mod tests {
             serde_json::from_str(&response_text(resp).await).expect("json");
         assert_eq!(body["count"], 0);
         assert_eq!(body["checksum"], "");
+    }
+
+    // ── Device authorization flow tests ───────────────────
+
+    /// Helper: build a POST request with JSON body (no auth header).
+    fn post_json(uri: &str, body_json: &str) -> Request<Body> {
+        Request::builder()
+            .method("POST")
+            .uri(uri)
+            .header("content-type", "application/json")
+            .body(Body::from(body_json.to_string()))
+            .expect("request")
+    }
+
+    /// Helper: build a POST request with JSON body and Bearer auth header.
+    fn authed_post_json(uri: &str, token: &str, body_json: &str) -> Request<Body> {
+        Request::builder()
+            .method("POST")
+            .uri(uri)
+            .header("content-type", "application/json")
+            .header("authorization", format!("Bearer {token}"))
+            .body(Body::from(body_json.to_string()))
+            .expect("request")
+    }
+
+    /// Helper: generate a valid base64url-encoded 32-byte auth_token for device flow tests.
+    fn device_auth_token() -> String {
+        URL_SAFE_NO_PAD.encode([0x42u8; 32])
+    }
+
+    #[tokio::test]
+    async fn device_start_returns_codes() {
+        let state = test_state();
+        let auth_token = device_auth_token();
+        let payload = serde_json::json!({ "auth_token": auth_token }).to_string();
+
+        let resp = handle_device_start_entry(State(state.clone()), post_json("/x", &payload)).await;
+        assert_eq!(resp.status(), StatusCode::OK);
+
+        let body: serde_json::Value =
+            serde_json::from_str(&response_text(resp).await).expect("json");
+
+        // device_code should be present and non-empty
+        let device_code = body["device_code"].as_str().expect("device_code");
+        assert!(!device_code.is_empty());
+
+        // user_code should match XXXX-XXXX pattern
+        let user_code = body["user_code"].as_str().expect("user_code");
+        assert_eq!(
+            user_code.len(),
+            9,
+            "user_code should be 9 chars (XXXX-XXXX)"
+        );
+        assert_eq!(
+            &user_code[4..5],
+            "-",
+            "user_code should have dash in middle"
+        );
+
+        // verification_url should contain base URL and user_code
+        let verification_url = body["verification_url"].as_str().expect("verification_url");
+        assert!(
+            verification_url.starts_with("https://example.com/device"),
+            "verification_url should start with public_base_url/device"
+        );
+
+        // expires_in and interval should be present
+        assert_eq!(body["expires_in"], DEVICE_AUTH_EXPIRY_SECS as u64);
+        assert_eq!(body["interval"], 5);
+    }
+
+    #[tokio::test]
+    async fn device_start_invalid_auth_token() {
+        let state = test_state();
+
+        // Too short (only 16 bytes instead of 32)
+        let short_token = URL_SAFE_NO_PAD.encode([0xAAu8; 16]);
+        let payload = serde_json::json!({ "auth_token": short_token }).to_string();
+        let resp = handle_device_start_entry(State(state.clone()), post_json("/x", &payload)).await;
+        assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+
+        // Missing auth_token field entirely
+        let empty_payload = serde_json::json!({}).to_string();
+        let resp =
+            handle_device_start_entry(State(state.clone()), post_json("/x", &empty_payload)).await;
+        assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+
+        // Not valid base64url
+        let bad_payload = serde_json::json!({ "auth_token": "not-base64!!!" }).to_string();
+        let resp = handle_device_start_entry(State(state), post_json("/x", &bad_payload)).await;
+        assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+    }
+
+    #[tokio::test]
+    async fn device_poll_pending() {
+        let state = test_state();
+        let auth_token = device_auth_token();
+
+        // Start the device flow
+        let start_payload = serde_json::json!({ "auth_token": auth_token }).to_string();
+        let start_resp =
+            handle_device_start_entry(State(state.clone()), post_json("/x", &start_payload)).await;
+        assert_eq!(start_resp.status(), StatusCode::OK);
+        let start_body: serde_json::Value =
+            serde_json::from_str(&response_text(start_resp).await).expect("json");
+        let device_code = start_body["device_code"].as_str().expect("device_code");
+
+        // Poll immediately — should be pending
+        let poll_payload = serde_json::json!({ "device_code": device_code }).to_string();
+        let poll_resp =
+            handle_device_poll_entry(State(state), post_json("/x", &poll_payload)).await;
+        assert_eq!(poll_resp.status(), StatusCode::OK);
+        let poll_body: serde_json::Value =
+            serde_json::from_str(&response_text(poll_resp).await).expect("json");
+        assert_eq!(poll_body["status"], "authorization_pending");
+        assert!(
+            poll_body.get("prefix").is_none() || poll_body["prefix"].is_null(),
+            "prefix should not be present while pending"
+        );
+    }
+
+    #[tokio::test]
+    async fn device_poll_approved() {
+        let (state, token, _user_id, _prefix) = test_state_with_session().await;
+        let auth_token = device_auth_token();
+
+        // 1. Start device flow
+        let start_payload = serde_json::json!({ "auth_token": auth_token }).to_string();
+        let start_resp =
+            handle_device_start_entry(State(state.clone()), post_json("/x", &start_payload)).await;
+        assert_eq!(start_resp.status(), StatusCode::OK);
+        let start_body: serde_json::Value =
+            serde_json::from_str(&response_text(start_resp).await).expect("json");
+        let device_code = start_body["device_code"]
+            .as_str()
+            .expect("device_code")
+            .to_string();
+        let user_code = start_body["user_code"]
+            .as_str()
+            .expect("user_code")
+            .to_string();
+
+        // 2. Approve with authenticated session
+        let approve_payload = serde_json::json!({ "user_code": user_code }).to_string();
+        let approve_resp = handle_device_approve_entry(
+            State(state.clone()),
+            authed_post_json("/x", &token, &approve_payload),
+        )
+        .await;
+        assert_eq!(approve_resp.status(), StatusCode::OK);
+        let approve_body: serde_json::Value =
+            serde_json::from_str(&response_text(approve_resp).await).expect("json");
+        assert_eq!(approve_body["ok"], true);
+
+        // 3. Poll — should get "complete" with prefix
+        let poll_payload = serde_json::json!({ "device_code": device_code }).to_string();
+        let poll_resp =
+            handle_device_poll_entry(State(state.clone()), post_json("/x", &poll_payload)).await;
+        assert_eq!(poll_resp.status(), StatusCode::OK);
+        let poll_body: serde_json::Value =
+            serde_json::from_str(&response_text(poll_resp).await).expect("json");
+        assert_eq!(poll_body["status"], "complete");
+        let prefix = poll_body["prefix"]
+            .as_str()
+            .expect("prefix should be present");
+        assert!(!prefix.is_empty(), "prefix should be non-empty");
+
+        // 4. Poll again — challenge was consumed, should get expired_token
+        let poll_resp2 =
+            handle_device_poll_entry(State(state), post_json("/x", &poll_payload)).await;
+        assert_eq!(poll_resp2.status(), StatusCode::BAD_REQUEST);
+        let poll_body2 = response_text(poll_resp2).await;
+        assert!(
+            poll_body2.contains("expired_token"),
+            "second poll should return expired_token"
+        );
+    }
+
+    #[tokio::test]
+    async fn device_poll_expired() {
+        let state = test_state();
+
+        // Poll with a nonexistent device_code
+        let poll_payload =
+            serde_json::json!({ "device_code": "nonexistent_code_that_does_not_exist" })
+                .to_string();
+        let resp = handle_device_poll_entry(State(state), post_json("/x", &poll_payload)).await;
+        assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+        let body = response_text(resp).await;
+        assert!(
+            body.contains("expired_token"),
+            "polling nonexistent device_code should return expired_token"
+        );
+    }
+
+    #[tokio::test]
+    async fn device_approve_requires_session() {
+        let state = test_state();
+        let auth_token = device_auth_token();
+
+        // Start the device flow
+        let start_payload = serde_json::json!({ "auth_token": auth_token }).to_string();
+        let start_resp =
+            handle_device_start_entry(State(state.clone()), post_json("/x", &start_payload)).await;
+        assert_eq!(start_resp.status(), StatusCode::OK);
+        let start_body: serde_json::Value =
+            serde_json::from_str(&response_text(start_resp).await).expect("json");
+        let user_code = start_body["user_code"].as_str().expect("user_code");
+
+        // Try to approve without session token — should get 401
+        let approve_payload = serde_json::json!({ "user_code": user_code }).to_string();
+        let resp =
+            handle_device_approve_entry(State(state), post_json("/x", &approve_payload)).await;
+        assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
+    }
+
+    #[tokio::test]
+    async fn device_approve_wrong_user_code() {
+        let (state, token, _user_id, _prefix) = test_state_with_session().await;
+        let auth_token = device_auth_token();
+
+        // Start the device flow
+        let start_payload = serde_json::json!({ "auth_token": auth_token }).to_string();
+        let start_resp =
+            handle_device_start_entry(State(state.clone()), post_json("/x", &start_payload)).await;
+        assert_eq!(start_resp.status(), StatusCode::OK);
+
+        // Approve with wrong user_code
+        let wrong_code_payload = serde_json::json!({ "user_code": "ZZZZ-9999" }).to_string();
+        let resp = handle_device_approve_entry(
+            State(state),
+            authed_post_json("/x", &token, &wrong_code_payload),
+        )
+        .await;
+        assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+        let body = response_text(resp).await;
+        assert!(
+            body.contains("invalid or expired code"),
+            "wrong user_code should return 'invalid or expired code'"
+        );
     }
 }
