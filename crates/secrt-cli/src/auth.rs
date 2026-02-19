@@ -273,7 +273,6 @@ fn run_auth_login(args: &[String], deps: &mut Deps) -> i32 {
                             &c,
                             transfer,
                             ecdh_private,
-                            &cli_pk_bytes,
                             &root_key,
                             &prefix,
                             &base_url,
@@ -306,14 +305,13 @@ fn run_auth_login(args: &[String], deps: &mut Deps) -> i32 {
 /// Handle ECDH-based AMK transfer from the browser.
 /// This is called after auth completes if the poll response contains an `amk_transfer` blob.
 /// The CLI does ECDH with the browser's ephemeral public key, derives the transfer key,
-/// decrypts the AMK, verifies via SAS (if interactive), wraps the AMK, and uploads the wrapper.
+/// decrypts the AMK, wraps it for the local API key, and uploads the wrapper.
 #[allow(clippy::too_many_arguments)]
 fn handle_amk_transfer(
     deps: &mut Deps,
     c: &crate::color::ColorFn,
     transfer: &AmkTransferPayload,
     ecdh_private: agreement::EphemeralPrivateKey,
-    cli_pk_bytes: &[u8],
     root_key: &[u8],
     prefix: &str,
     base_url: &str,
@@ -365,54 +363,6 @@ fn handle_amk_transfer(
             return;
         }
     };
-
-    // Compute SAS for verification
-    let sas_code = match amk::compute_sas(&shared_secret, cli_pk_bytes, &browser_pk) {
-        Ok(code) => code,
-        Err(e) => {
-            let _ = writeln!(
-                deps.stderr,
-                "  {} notes key transfer: SAS computation: {}",
-                c(WARN, "warning:"),
-                e
-            );
-            return;
-        }
-    };
-
-    // SAS verification — require interactive confirmation, skip in non-TTY
-    if !(deps.is_tty)() {
-        let _ = writeln!(
-            deps.stderr,
-            "  {} notes key transfer skipped (non-interactive session, cannot verify security code)",
-            c(WARN, "warning:")
-        );
-        return;
-    }
-
-    let _ = writeln!(deps.stderr);
-    let _ = writeln!(
-        deps.stderr,
-        "  {} Notes key transfer available",
-        c(HEADING, "\u{1f511}")
-    );
-    let _ = writeln!(
-        deps.stderr,
-        "  Security code: {}",
-        c(HEADING, &format!("{:06}", sas_code))
-    );
-    let _ = write!(deps.stderr, "  Does this match your browser? [y/N]: ");
-    let _ = deps.stderr.flush();
-
-    let answer = read_stdin_line(&mut *deps.stdin).to_ascii_lowercase();
-    if answer != "y" && answer != "yes" {
-        let _ = writeln!(
-            deps.stderr,
-            "  {} Transfer rejected. You can sync notes key later via web settings.",
-            c(WARN, "warning:")
-        );
-        return;
-    }
 
     // Decrypt AMK from transfer blob
     let ct = match URL_SAFE_NO_PAD.decode(&transfer.ct) {
@@ -539,7 +489,7 @@ fn handle_amk_transfer(
         Ok(()) => {
             let _ = writeln!(
                 deps.stderr,
-                "  {} Notes key synced from browser",
+                "{} Notes key synced from browser",
                 c(SUCCESS, "\u{2713}")
             );
         }
