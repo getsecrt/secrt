@@ -158,7 +158,7 @@ describe('SendPage', () => {
   it('renders form with textarea, passphrase, TTL, and enabled submit', () => {
     render(<SendPage />);
     expect(
-      screen.getByPlaceholderText('Enter your secret...'),
+      screen.getByPlaceholderText('Enter your secret or drag a file here...'),
     ).toBeInTheDocument();
     expect(screen.getByLabelText(/Passphrase/)).toBeInTheDocument();
     expect(screen.getByText('Expires After')).toBeInTheDocument();
@@ -189,7 +189,7 @@ describe('SendPage', () => {
       });
     });
     expect(mockCopyToClipboard).toHaveBeenCalledWith('Aa1!Aa1!Aa1!Aa1!Aa1!');
-    expect(screen.getByPlaceholderText('Enter your secret...')).toHaveValue(
+    expect(screen.getByPlaceholderText('Enter your secret or drag a file here...')).toHaveValue(
       'Aa1!Aa1!Aa1!Aa1!Aa1!',
     );
     expect(screen.getByRole('button', { name: /copied/i })).toBeInTheDocument();
@@ -268,7 +268,7 @@ describe('SendPage', () => {
     expect(screen.getByLabelText('Password Preview')).toHaveValue(
       'Bb2@Bb2@Bb2@Bb2@',
     );
-    expect(screen.getByPlaceholderText('Enter your secret...')).toHaveValue(
+    expect(screen.getByPlaceholderText('Enter your secret or drag a file here...')).toHaveValue(
       'Bb2@Bb2@Bb2@Bb2@',
     );
 
@@ -283,7 +283,7 @@ describe('SendPage', () => {
     expect(screen.getByLabelText('Password Preview')).toHaveValue(
       'Cc3#Cc3#Cc3#Cc3#',
     );
-    expect(screen.getByPlaceholderText('Enter your secret...')).toHaveValue(
+    expect(screen.getByPlaceholderText('Enter your secret or drag a file here...')).toHaveValue(
       'Cc3#Cc3#Cc3#Cc3#',
     );
   });
@@ -293,7 +293,7 @@ describe('SendPage', () => {
     render(<SendPage />);
 
     await user.type(
-      screen.getByPlaceholderText('Enter your secret...'),
+      screen.getByPlaceholderText('Enter your secret or drag a file here...'),
       'initial value',
     );
     await user.click(
@@ -307,7 +307,7 @@ describe('SendPage', () => {
     expect(screen.getByLabelText('Password Preview')).toHaveValue(
       'edited-password-value',
     );
-    expect(screen.getByPlaceholderText('Enter your secret...')).toHaveValue(
+    expect(screen.getByPlaceholderText('Enter your secret or drag a file here...')).toHaveValue(
       'edited-password-value',
     );
   });
@@ -468,7 +468,7 @@ describe('SendPage', () => {
     const user = userEvent.setup();
     render(<SendPage />);
     await user.type(
-      screen.getByPlaceholderText('Enter your secret...'),
+      screen.getByPlaceholderText('Enter your secret or drag a file here...'),
       'my secret',
     );
     await user.click(screen.getByRole('button', { name: 'Create secret' }));
@@ -484,7 +484,7 @@ describe('SendPage', () => {
     const user = userEvent.setup();
     render(<SendPage />);
     await user.type(
-      screen.getByPlaceholderText('Enter your secret...'),
+      screen.getByPlaceholderText('Enter your secret or drag a file here...'),
       'text',
     );
     await user.type(screen.getByLabelText(/Passphrase/), 'mypass');
@@ -506,7 +506,7 @@ describe('SendPage', () => {
     const user = userEvent.setup();
     render(<SendPage />);
     await user.type(
-      screen.getByPlaceholderText('Enter your secret...'),
+      screen.getByPlaceholderText('Enter your secret or drag a file here...'),
       'text',
     );
     await user.click(screen.getByRole('button', { name: 'Create secret' }));
@@ -524,7 +524,7 @@ describe('SendPage', () => {
     const user = userEvent.setup();
     render(<SendPage />);
     await user.type(
-      screen.getByPlaceholderText('Enter your secret...'),
+      screen.getByPlaceholderText('Enter your secret or drag a file here...'),
       'text',
     );
     await user.click(screen.getByRole('button', { name: 'Create secret' }));
@@ -539,7 +539,7 @@ describe('SendPage', () => {
     const user = userEvent.setup();
     render(<SendPage />);
     await user.type(
-      screen.getByPlaceholderText('Enter your secret...'),
+      screen.getByPlaceholderText('Enter your secret or drag a file here...'),
       'text',
     );
     await user.click(screen.getByRole('button', { name: 'Create secret' }));
@@ -554,7 +554,7 @@ describe('SendPage', () => {
     const user = userEvent.setup();
     render(<SendPage />);
     await user.type(
-      screen.getByPlaceholderText('Enter your secret...'),
+      screen.getByPlaceholderText('Enter your secret or drag a file here...'),
       'text',
     );
     await user.click(screen.getByRole('button', { name: 'Create secret' }));
@@ -572,7 +572,7 @@ describe('SendPage', () => {
     const user = userEvent.setup();
     render(<SendPage />);
     await user.type(
-      screen.getByPlaceholderText('Enter your secret...'),
+      screen.getByPlaceholderText('Enter your secret or drag a file here...'),
       'text',
     );
     await user.click(screen.getByRole('button', { name: 'Create secret' }));
@@ -586,7 +586,7 @@ describe('SendPage', () => {
     const user = userEvent.setup();
     render(<SendPage />);
     await user.type(
-      screen.getByPlaceholderText('Enter your secret...'),
+      screen.getByPlaceholderText('Enter your secret or drag a file here...'),
       'text',
     );
     await user.click(screen.getByRole('button', { name: 'Create secret' }));
@@ -599,7 +599,7 @@ describe('SendPage', () => {
       screen.getByRole('button', { name: 'Send Another Secret' }),
     );
     expect(
-      screen.getByPlaceholderText('Enter your secret...'),
+      screen.getByPlaceholderText('Enter your secret or drag a file here...'),
     ).toBeInTheDocument();
   });
 
@@ -616,7 +616,7 @@ describe('SendPage', () => {
     const user = userEvent.setup();
     render(<SendPage />);
     await user.type(
-      screen.getByPlaceholderText('Enter your secret...'),
+      screen.getByPlaceholderText('Enter your secret or drag a file here...'),
       'text',
     );
     await user.click(screen.getByRole('button', { name: 'Create secret' }));

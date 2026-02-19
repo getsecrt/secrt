@@ -20,6 +20,7 @@ import {
   setSendPasswordGeneratorSettings,
 } from '../../lib/theme';
 import {
+  DocumentIcon,
   EyeIcon,
   EyeSlashIcon,
   GearIcon,
@@ -480,7 +481,7 @@ export function SendPage() {
             <label class="label">
               {mode === 'text' ? (
                 <>
-                  <NoteIcon class="size-4 opacity-60" /> Secret Message
+                  <DocumentIcon class="size-4 opacity-60" /> Secret Message
                 </>
               ) : (
                 <>
@@ -549,9 +550,9 @@ export function SendPage() {
                   class="link"
                   onClick={() => fileInputRef.current?.click()}
                 >
-                  Choose a file
+                  Choose a File
                 </button>{' '}
-                or drag one here to upload
+                {/*or drag one here to upload*/}
                 <input
                   ref={fileInputRef}
                   type="file"

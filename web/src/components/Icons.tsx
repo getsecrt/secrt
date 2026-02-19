@@ -86,6 +86,20 @@ export function NoteIcon(props: IconProps) {
   );
 }
 
+export function DocumentIcon(props: IconProps) {
+  return (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      viewBox="0 0 640 640"
+      fill="currentColor"
+      class="size-5"
+      {...props}
+    >
+      <path d="M192 64c-35 0-64 29-64 64v384c0 35 29 64 64 64h256c35 0 64-29 64-64V235q0-27-19-46L387 83a64 64 0 0 0-45-19zm262 176h-94c-13 0-24-11-24-24v-93z" />
+    </svg>
+  );
+}
+
 export function UploadIcon(props: IconProps) {
   return (
     <svg
