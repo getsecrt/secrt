@@ -326,7 +326,7 @@ pub fn run_list(args: &[String], deps: &mut Deps) -> i32 {
             deps.stderr,
             "{}",
             c(
-                DIM,
+                WARN,
                 "Sync your notes key from another browser/device to view your notes (secrt sync)"
             )
         );
