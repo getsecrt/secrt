@@ -6,6 +6,33 @@ All notable changes to the secrt monorepo are documented here. Individual crate 
 - [secrt-core](crates/secrt-core/CHANGELOG.md)
 - [secrt-server](crates/secrt-server/CHANGELOG.md)
 
+## 0.12.1 — 2026-02-18
+
+### Added
+
+- **CLI `secrt list` command:** view active secrets in a formatted table with prefix-based burn support for partial IDs.
+
+### Fixed
+
+- **Cross-auth secret visibility:** API key auth now resolves the full owner key set when linked to a user account — secrets created via web UI are visible from CLI and vice versa.
+
+### Changed
+
+- **Web UI polish:** nav menu reorganization, PWA safe area insets, footer styling, login/register redirect preservation.
+
+See [CLI](crates/secrt-cli/CHANGELOG.md) and [server](crates/secrt-server/CHANGELOG.md) changelogs for details.
+
+## 0.12.0 — 2026-02-18
+
+### Added
+
+- **Device authorization flow:** end-to-end CLI-to-browser auth via `secrt auth login` with QR codes, device codes, and secure key generation. Server endpoints, web approval page, and CLI polling all wired together.
+- **CLI auth commands:** `auth login`, `auth setup`, `auth status`, `auth logout` for managing API key credentials.
+- **QR codes:** share URLs displayed as terminal QR codes (`send --qr`); web frontend shows QR on share result page.
+- **Privacy policy and security.txt:** `/privacy` SPA route and `/.well-known/security.txt` per RFC 9116.
+
+See [CLI](crates/secrt-cli/CHANGELOG.md) and [server](crates/secrt-server/CHANGELOG.md) changelogs for details.
+
 ## 0.11.0 — 2026-02-17
 
 ### Changed
