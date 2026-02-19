@@ -44,6 +44,8 @@ pub struct ClaimResponse {
 #[derive(Clone, Deserialize)]
 pub struct InfoResponse {
     pub authenticated: bool,
+    #[serde(default)]
+    pub user_id: Option<String>,
     pub ttl: InfoTTL,
     pub limits: InfoLimits,
     pub claim_rate: InfoRate,

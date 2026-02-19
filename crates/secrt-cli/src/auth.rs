@@ -478,22 +478,24 @@ fn handle_amk_transfer(
         }
     };
 
-    // Fetch user_id from the session endpoint (needed for AAD construction)
-    let wire_key = match secrt_core::derive_wire_api_key(api_key) {
-        Ok(wk) => wk,
-        Err(e) => {
-            let _ = writeln!(
-                deps.stderr,
-                "  {} notes key transfer: derive wire key: {}",
-                c(WARN, "warning:"),
-                e
-            );
-            return;
-        }
+    // Fetch user_id from the info endpoint (needed for AAD construction)
+    let auth_client = ApiClient {
+        base_url: base_url.to_string(),
+        api_key: api_key.to_string(),
     };
-
-    let user_id = match fetch_user_id(base_url, &wire_key) {
-        Ok(uid) => uid,
+    use secrt_core::api::SecretApi;
+    let user_id = match auth_client.info() {
+        Ok(info) => match info.user_id {
+            Some(uid) => uid,
+            None => {
+                let _ = writeln!(
+                    deps.stderr,
+                    "  {} notes key transfer: API key is not linked to a user account",
+                    c(WARN, "warning:")
+                );
+                return;
+            }
+        },
         Err(e) => {
             let _ = writeln!(
                 deps.stderr,
@@ -527,12 +529,6 @@ fn handle_amk_transfer(
     // Compute AMK commitment
     let commit = amk::compute_amk_commit(&amk_bytes);
 
-    // Upload wrapper via authenticated client
-    let auth_client = ApiClient {
-        base_url: base_url.to_string(),
-        api_key: api_key.to_string(),
-    };
-    use secrt_core::api::SecretApi;
     match auth_client.upsert_amk_wrapper(
         prefix,
         &URL_SAFE_NO_PAD.encode(&wrapped.ct),
@@ -561,41 +557,6 @@ fn handle_amk_transfer(
             );
         }
     }
-}
-
-/// Fetch user_id from the server by calling the session info endpoint via API key.
-pub(crate) fn fetch_user_id(base_url: &str, wire_key: &str) -> Result<String, String> {
-    let endpoint = format!("{}/api/v1/auth/session", base_url.trim_end_matches('/'));
-    let agent = ureq::Agent::new_with_config(
-        ureq::config::Config::builder()
-            .timeout_global(Some(Duration::from_secs(10)))
-            .http_status_as_error(false)
-            .build(),
-    );
-    let resp = agent
-        .get(&endpoint)
-        .header("X-API-Key", wire_key)
-        .call()
-        .map_err(|e| format!("session request: {}", e))?;
-
-    if resp.status().as_u16() != 200 {
-        return Err(format!("session endpoint returned {}", resp.status()));
-    }
-
-    let body_str = resp
-        .into_body()
-        .read_to_string()
-        .map_err(|e| format!("decode response: {}", e))?;
-
-    #[derive(serde::Deserialize)]
-    struct SessionInfo {
-        user_id: Option<String>,
-    }
-    let info: SessionInfo =
-        serde_json::from_str(&body_str).map_err(|e| format!("decode session: {}", e))?;
-
-    info.user_id
-        .ok_or_else(|| "no user_id in session response".to_string())
 }
 
 /// `secrt auth setup` — Interactively paste an API key.

@@ -12,7 +12,6 @@ use crate::passphrase::write_error;
 pub(crate) fn import_amk(
     amk_bytes: &[u8],
     api_key: &str,
-    base_url: &str,
     client: &dyn secrt_core::api::SecretApi,
 ) -> Result<(), String> {
     use secrt_core::amk;
@@ -31,10 +30,13 @@ pub(crate) fn import_amk(
     let wrap_key = amk::derive_amk_wrap_key(&local_key.root_key)
         .map_err(|e| format!("derive wrap key: {}", e))?;
 
-    // Fetch user_id for AAD construction
-    let wire_key =
-        secrt_core::derive_wire_api_key(api_key).map_err(|e| format!("derive wire key: {}", e))?;
-    let user_id = crate::auth::fetch_user_id(base_url, &wire_key)?;
+    // Fetch user_id from the info endpoint (API key auth)
+    let info = client
+        .info()
+        .map_err(|e| format!("fetch user info: {}", e))?;
+    let user_id = info.user_id.ok_or_else(|| {
+        "server did not return user_id (API key may not be linked to a user)".to_string()
+    })?;
 
     let aad = amk::build_wrap_aad(&user_id, &local_key.prefix, 1);
     let wrapped = amk::wrap_amk(amk_bytes, &wrap_key, &aad, &|buf| {
@@ -127,7 +129,7 @@ pub(crate) fn handle_sync_url(
     };
 
     // Import the AMK
-    match import_amk(&opened.content, api_key, base_url, &*client) {
+    match import_amk(&opened.content, api_key, &*client) {
         Ok(()) => {
             if !silent {
                 let _ = writeln!(

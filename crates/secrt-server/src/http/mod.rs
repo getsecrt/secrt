@@ -137,6 +137,8 @@ struct HealthResponse {
 #[derive(Serialize)]
 struct InfoResponse {
     authenticated: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    user_id: Option<String>,
     ttl: InfoTtl,
     limits: InfoLimits,
     claim_rate: InfoRate,
@@ -2545,16 +2547,20 @@ pub async fn handle_info_entry(State(state): State<Arc<AppState>>, req: Request)
         return rate_limited();
     }
 
-    let authenticated = if let Some(raw) = api_key_from_headers(req.headers()) {
-        state.auth.authenticate(&raw).await.is_ok()
+    let (authenticated, user_id) = if let Some(raw) = api_key_from_headers(req.headers()) {
+        match state.auth.authenticate(&raw).await {
+            Ok(api_key) => (true, api_key.user_id.map(|uid| uid.to_string())),
+            Err(_) => (false, None),
+        }
     } else {
-        false
+        (false, None)
     };
 
     let mut resp = json_response(
         StatusCode::OK,
         InfoResponse {
             authenticated,
+            user_id,
             ttl: InfoTtl {
                 default_seconds: secrt_core::DEFAULT_TTL_SECONDS,
                 max_seconds: secrt_core::ttl::MAX_TTL_SECONDS,
