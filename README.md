@@ -27,7 +27,7 @@ Monorepo for the [secrt.ca](https://secrt.ca) protocol. Share secrets that self-
 
 | Platform | Download |
 |----------|----------|
-| macOS (Universal) | [secrt-macos.zip](https://github.com/getsecrt/secrt/releases/latest/download/secrt-macos.zip) |
+| macOS (Universal) | [secrt-macos.pkg](https://github.com/getsecrt/secrt/releases/latest/download/secrt-macos.pkg) |
 | Windows x64 | [secrt-windows-amd64.zip](https://github.com/getsecrt/secrt/releases/latest/download/secrt-windows-amd64.zip) |
 | Windows ARM64 | [secrt-windows-arm64.zip](https://github.com/getsecrt/secrt/releases/latest/download/secrt-windows-arm64.zip) |
 | Linux x64 | [secrt-linux-amd64.tar.gz](https://github.com/getsecrt/secrt/releases/latest/download/secrt-linux-amd64.tar.gz) |

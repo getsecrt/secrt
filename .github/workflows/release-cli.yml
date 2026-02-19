@@ -198,17 +198,6 @@ jobs:
             --password "$APPLE_APP_PASSWORD" \
             --wait
 
-      - name: Create macOS release archives
-        run: |
-          for pair in "secrt-darwin-universal:secrt-macos" "secrt-darwin-arm64:secrt-macos-arm64" "secrt-darwin-amd64:secrt-macos-amd64"; do
-            src="${pair%%:*}"
-            zip_name="${pair##*:}.zip"
-            cp "$src" secrt
-            chmod +x secrt
-            zip "$zip_name" secrt
-            rm secrt
-          done
-
       - name: Import Installer certificate
         if: env.HAS_INSTALLER_CERT == 'true'
         env:
@@ -267,11 +256,8 @@ jobs:
       - name: Upload macOS release archives
         uses: actions/upload-artifact@v4
         with:
-          name: macos-release-zips
+          name: macos-release-pkgs
           path: |
-            secrt-macos.zip
-            secrt-macos-arm64.zip
-            secrt-macos-amd64.zip
             secrt-macos.pkg
             secrt-macos-arm64.pkg
             secrt-macos-amd64.pkg
@@ -294,7 +280,7 @@ jobs:
       - name: Create archives
         working-directory: artifacts
         run: |
-          # macOS zips arrive pre-built from the universal-macos job
+          # macOS .pkg installers arrive pre-built from the universal-macos job
 
           # Linux archives (tar.gz containing 'secrt')
           for arch in linux-amd64 linux-arm64; do
@@ -313,7 +299,7 @@ jobs:
 
       - name: Generate checksums
         working-directory: artifacts
-        run: sha256sum secrt-macos*.zip secrt-macos*.pkg secrt-linux-*.tar.gz secrt-windows-*.zip > secrt-checksums-sha256.txt
+        run: sha256sum secrt-macos*.pkg secrt-linux-*.tar.gz secrt-windows-*.zip > secrt-checksums-sha256.txt
 
       - name: Show checksums
         run: cat artifacts/secrt-checksums-sha256.txt
@@ -326,9 +312,6 @@ jobs:
             artifacts/secrt-macos.pkg
             artifacts/secrt-macos-arm64.pkg
             artifacts/secrt-macos-amd64.pkg
-            artifacts/secrt-macos.zip
-            artifacts/secrt-macos-arm64.zip
-            artifacts/secrt-macos-amd64.zip
             artifacts/secrt-linux-amd64.tar.gz
             artifacts/secrt-linux-arm64.tar.gz
             artifacts/secrt-windows-amd64.zip

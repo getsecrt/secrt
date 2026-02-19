@@ -188,7 +188,7 @@ const DOWNLOAD_BASE =
 const downloadLinks = [
   {
     label: 'macOS',
-    href: `${DOWNLOAD_BASE}/secrt-macos.zip`,
+    href: `${DOWNLOAD_BASE}/secrt-macos.pkg`,
     icon: AppleIcon,
   },
   {
