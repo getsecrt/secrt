@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.13.1 — 2026-02-19
+
+### Fixed
+
+- **`/sync/{id}` route returns 404:** the SPA route for AMK sync links was defined in the frontend router but missing from the server's Axum router, causing a white screen when scanning sync QR codes on mobile.
+
+### Changed
+
+- **Upgraded web dependencies:** Tailwind CSS 4.2.0, Vitest 4.0, happy-dom 20, Preact 10.28.4.
+
 ## 0.13.0 — 2026-02-19
 
 ### Added

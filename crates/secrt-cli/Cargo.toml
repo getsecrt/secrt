@@ -11,7 +11,7 @@ name = "secrt"
 path = "src/main.rs"
 
 [dependencies]
-secrt-core = { path = "../secrt-core", version = "0.13.0" }
+secrt-core = { path = "../secrt-core", version = "0.13.1" }
 ring.workspace = true
 ureq = { version = "3", default-features = false, features = ["rustls"] }
 serde.workspace = true
