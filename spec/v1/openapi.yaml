@@ -479,6 +479,38 @@ paths:
         "500":
           $ref: "#/components/responses/InternalError"
 
+  /api/v1/auth/device/challenge:
+    get:
+      operationId: deviceChallenge
+      summary: Get device challenge details
+      description: |
+        Returns challenge details for a pending device authorization, including
+        the CLI's ECDH public key if provided. Used by the browser to set up
+        AMK transfer during device approval.
+      tags: [auth]
+      security:
+        - sessionBearer: []
+      parameters:
+        - name: user_code
+          in: query
+          required: true
+          schema:
+            type: string
+          description: User code displayed in the CLI terminal (format XXXX-XXXX)
+      responses:
+        "200":
+          description: Challenge details
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DeviceChallengeResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
   /api/v1/auth/device/start:
     post:
       operationId: deviceStart
@@ -578,6 +610,155 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "429":
           $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /api/v1/amk/wrapper:
+    put:
+      operationId: upsertAmkWrapper
+      summary: Upsert AMK wrapper for authenticated user
+      description: |
+        Stores or updates a wrapped (encrypted) AMK for a specific API key.
+        API key auth operates on the caller's own prefix. Session auth requires
+        `key_prefix` in the request body. Returns 409 if `amk_commit` does not
+        match the existing commit for the user.
+      tags: [amk]
+      security:
+        - sessionBearer: []
+        - apiKey: []
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpsertAmkWrapperRequest"
+      responses:
+        "200":
+          description: Wrapper upserted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BurnResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "409":
+          description: AMK commit mismatch
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "500":
+          $ref: "#/components/responses/InternalError"
+    get:
+      operationId: getAmkWrapper
+      summary: Get AMK wrapper for a key
+      description: |
+        Returns the wrapped AMK for a specific API key. API key auth returns
+        own wrapper. Session auth requires `?key_prefix=X`.
+      tags: [amk]
+      security:
+        - sessionBearer: []
+        - apiKey: []
+        - bearerAuth: []
+      parameters:
+        - name: key_prefix
+          in: query
+          required: false
+          description: API key prefix (required for session auth)
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Wrapped AMK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GetAmkWrapperResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /api/v1/amk/wrappers:
+    get:
+      operationId: listAmkWrappers
+      summary: List all AMK wrappers for user
+      description: |
+        Returns all AMK wrappers for the session-authenticated user.
+        Session auth only.
+      tags: [amk]
+      security:
+        - sessionBearer: []
+      responses:
+        "200":
+          description: AMK wrappers list
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ListAmkWrappersResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /api/v1/amk/exists:
+    get:
+      operationId: checkAmkExists
+      summary: Check if user has any AMK wrapper
+      description: |
+        Returns whether the authenticated user has at least one AMK wrapper stored.
+      tags: [amk]
+      security:
+        - sessionBearer: []
+        - apiKey: []
+        - bearerAuth: []
+      responses:
+        "200":
+          description: AMK existence check
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AmkExistsResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /api/v1/secrets/{id}/meta:
+    put:
+      operationId: attachEncryptedNote
+      summary: Attach encrypted note to a secret
+      description: |
+        Stores client-encrypted note metadata on a secret owned by the caller.
+        The note is encrypted with a key derived from the AMK and stored as
+        opaque ciphertext. Requires authentication and secret ownership.
+      tags: [secrets]
+      security:
+        - sessionBearer: []
+        - apiKey: []
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/secretId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AttachEncMetaRequest"
+      responses:
+        "200":
+          description: Note attached
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BurnResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
         "500":
           $ref: "#/components/responses/InternalError"
 
@@ -786,6 +967,8 @@ components:
           format: int64
         passphrase_protected:
           type: boolean
+        enc_meta:
+          $ref: "#/components/schemas/EncMetaV1"
 
     ListSecretsResponse:
       type: object
@@ -884,6 +1067,136 @@ components:
           type: integer
           format: int64
 
+    EncMetaV1:
+      type: object
+      nullable: true
+      description: Client-encrypted note metadata. Null or absent when no note is attached.
+      required: [v, note]
+      properties:
+        v:
+          type: integer
+          description: Schema version, must be 1
+          enum: [1]
+        note:
+          type: object
+          required: [ct, nonce, salt]
+          properties:
+            ct:
+              type: string
+              description: base64url-encoded AES-256-GCM ciphertext of the note text
+            nonce:
+              type: string
+              description: base64url-encoded 12-byte GCM nonce
+            salt:
+              type: string
+              description: base64url-encoded HKDF salt for per-note key derivation
+
+    AmkTransfer:
+      type: object
+      nullable: true
+      description: Encrypted AMK transfer payload for device authorization. Present only when the approver has an AMK and the CLI advertised an ECDH public key.
+      required: [ct, nonce, ecdh_public_key]
+      properties:
+        ct:
+          type: string
+          description: base64url-encoded ciphertext of the AMK encrypted with the ECDH shared secret
+        nonce:
+          type: string
+          description: base64url-encoded 12-byte nonce
+        ecdh_public_key:
+          type: string
+          description: base64url-encoded P-256 ECDH public key of the approver
+
+    UpsertAmkWrapperRequest:
+      type: object
+      required: [wrapped_amk, nonce, amk_commit, version]
+      additionalProperties: false
+      properties:
+        key_prefix:
+          type: string
+          description: API key prefix (required for session auth, optional for API key auth)
+        wrapped_amk:
+          type: string
+          description: base64url-encoded wrapped AMK ciphertext
+        nonce:
+          type: string
+          description: base64url-encoded 12-byte nonce
+        amk_commit:
+          type: string
+          description: base64url-encoded commitment hash binding the AMK identity
+        version:
+          type: integer
+          description: AMK version number
+
+    GetAmkWrapperResponse:
+      type: object
+      required: [user_id, wrapped_amk, nonce, version]
+      properties:
+        user_id:
+          type: string
+          format: uuid
+        wrapped_amk:
+          type: string
+          description: base64url-encoded wrapped AMK ciphertext
+        nonce:
+          type: string
+          description: base64url-encoded nonce
+        version:
+          type: integer
+
+    ListAmkWrappersResponse:
+      type: object
+      required: [wrappers]
+      properties:
+        wrappers:
+          type: array
+          items:
+            type: object
+            required: [key_prefix, version, created_at]
+            properties:
+              key_prefix:
+                type: string
+              version:
+                type: integer
+              created_at:
+                type: string
+                format: date-time
+
+    AmkExistsResponse:
+      type: object
+      required: [exists]
+      properties:
+        exists:
+          type: boolean
+          description: Whether the user has at least one AMK wrapper
+
+    AttachEncMetaRequest:
+      type: object
+      required: [enc_meta, meta_key_version]
+      additionalProperties: false
+      properties:
+        enc_meta:
+          $ref: "#/components/schemas/EncMetaV1"
+        meta_key_version:
+          type: integer
+          description: AMK version that encrypted this note
+
+    DeviceChallengeResponse:
+      type: object
+      required: [user_code, status]
+      properties:
+        user_code:
+          type: string
+          description: User code for the pending challenge (format XXXX-XXXX)
+        ecdh_public_key:
+          type: string
+          nullable: true
+          description: base64url-encoded P-256 ECDH public key from the CLI (null if not provided)
+        status:
+          type: string
+          description: Challenge status
+          enum: [pending]
+
     PasskeyRegisterStartRequest:
       type: object
       required: [display_name]
@@ -969,6 +1282,9 @@ components:
         auth_token:
           type: string
           description: base64url-encoded 32-byte auth token derived from CLI-generated root key
+        ecdh_public_key:
+          type: string
+          description: Optional base64url-encoded P-256 ECDH public key for AMK transfer
 
     DeviceStartResponse:
       type: object
@@ -1015,6 +1331,8 @@ components:
         prefix:
           type: string
           description: API key prefix (present only when status is `complete`)
+        amk_transfer:
+          $ref: "#/components/schemas/AmkTransfer"
 
     DeviceApproveRequest:
       type: object
@@ -1024,6 +1342,8 @@ components:
         user_code:
           type: string
           description: User code displayed in the CLI terminal (format XXXX-XXXX)
+        amk_transfer:
+          $ref: "#/components/schemas/AmkTransfer"
 
     RegisterApiKeyRequest:
       type: object
@@ -1061,6 +1381,12 @@ components:
         authenticated:
           type: boolean
           description: Whether a valid API key was provided
+        features:
+          type: object
+          properties:
+            encrypted_notes:
+              type: boolean
+              description: Whether the server supports encrypted notes (enc_meta)
         ttl:
           type: object
           properties:
@@ -1211,8 +1537,10 @@ tags:
   - name: info
     description: Server info and operational limits
   - name: secrets
-    description: One-time secret creation, claim, and burn operations
+    description: One-time secret creation, claim, burn, and encrypted note operations
   - name: auth
     description: Passkey registration/login, device authorization, and browser session management
+  - name: amk
+    description: Account Master Key wrapper management
   - name: apikeys
     description: API key registration, listing, and revocation endpoints

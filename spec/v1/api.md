@@ -303,9 +303,12 @@ Request:
 
 ```json
 {
-  "auth_token": "<base64url 32-byte auth token>"
+  "auth_token": "<base64url 32-byte auth token>",
+  "ecdh_public_key": "<base64url P-256 public key>"
 }
 ```
+
+`ecdh_public_key` is optional. When present, the CLI is advertising its ephemeral ECDH public key for AMK transfer during device approval. The key is stored in the challenge JSON and surfaced via `GET /api/v1/auth/device/challenge`.
 
 Response (`200`):
 
@@ -342,10 +345,36 @@ Request:
 Responses:
 
 - Pending: `200` `{ "status": "authorization_pending" }`
-- Approved: `200` `{ "status": "complete", "prefix": "<api_key_prefix>" }` — the challenge is consumed on this response.
+- Approved: `200` `{ "status": "complete", "prefix": "<api_key_prefix>", "amk_transfer": { "ct": "...", "nonce": "...", "ecdh_public_key": "..." } }` — the challenge is consumed on this response.
 - Expired or not found: `400` `{ "error": "expired_token" }`
 
+`amk_transfer` is present only when the approver attached encrypted AMK material during `POST /api/v1/auth/device/approve`. When absent, the device has no AMK and must set one up independently.
+
 The CLI constructs the full local key as `sk2_<prefix>.<base64(root_key)>` using the prefix from the response and the locally-held root key.
+
+#### Get device challenge details
+
+`GET /api/v1/auth/device/challenge`
+
+Session auth required.
+
+Query params:
+
+- `user_code` (required): the user code to look up.
+
+Response (`200`):
+
+```json
+{
+  "user_code": "ABCD-1234",
+  "ecdh_public_key": "<base64url P-256 public key>",
+  "status": "pending"
+}
+```
+
+`ecdh_public_key` is present only if the CLI included one in `/device/start`. The browser uses this to perform ECDH key agreement and encrypt the AMK for transfer.
+
+Returns `404` if the user code is not found or the challenge is not pending.
 
 #### Approve device authorization (session required)
 
@@ -359,9 +388,16 @@ Request:
 
 ```json
 {
-  "user_code": "ABCD-1234"
+  "user_code": "ABCD-1234",
+  "amk_transfer": {
+    "ct": "<base64url encrypted AMK>",
+    "nonce": "<base64url 12-byte nonce>",
+    "ecdh_public_key": "<base64url P-256 public key>"
+  }
 }
 ```
+
+`amk_transfer` is optional. When the approver has an AMK and the CLI advertised an ECDH public key, the browser encrypts the AMK using the ECDH shared secret and attaches the ciphertext here.
 
 Response (`200`):
 
@@ -450,6 +486,179 @@ Other outcomes:
 
 - `400` if key is already revoked (`"key already revoked"`)
 - `404` if key does not exist or is not owned by session user
+
+### Account Master Key (AMK)
+
+The AMK is a client-generated symmetric key used to encrypt per-secret notes. The server stores only wrapped (encrypted) copies of the AMK — one per API key. The wrapping key is derived from the API key's root key. The server never sees the plaintext AMK.
+
+#### Upsert AMK wrapper
+
+`PUT /api/v1/amk/wrapper`
+
+Auth required (session or API key).
+
+Request:
+
+```json
+{
+  "key_prefix": "abcdef",
+  "wrapped_amk": "<base64url>",
+  "nonce": "<base64url 12-byte nonce>",
+  "amk_commit": "<base64url commit hash>",
+  "version": 1
+}
+```
+
+- API key auth: operates on the caller's own prefix. `key_prefix` is optional (inferred from the authenticated key).
+- Session auth: `key_prefix` is required in the body to identify the target API key.
+
+`amk_commit` is a commitment value binding the AMK identity across all wrappers for the same user. The server enforces that all wrappers for a given user share the same `amk_commit`.
+
+Response (`200`):
+
+```json
+{ "ok": true }
+```
+
+Other outcomes:
+
+- `409` if `amk_commit` does not match the existing commit for the user (prevents accidental overwrites with a different AMK).
+- `401` if auth is missing/invalid.
+
+#### Get AMK wrapper
+
+`GET /api/v1/amk/wrapper`
+
+Auth required (session or API key).
+
+- API key auth: returns the wrapper for the authenticated key. No params needed.
+- Session auth: requires `?key_prefix=X` query parameter.
+
+Response (`200`):
+
+```json
+{
+  "user_id": "<uuid>",
+  "wrapped_amk": "<base64url>",
+  "nonce": "<base64url>",
+  "version": 1
+}
+```
+
+Returns `404` if no wrapper exists for the specified key.
+
+#### List AMK wrappers
+
+`GET /api/v1/amk/wrappers`
+
+Session auth only.
+
+Response (`200`):
+
+```json
+{
+  "wrappers": [
+    {
+      "key_prefix": "abcdef",
+      "version": 1,
+      "created_at": "2026-02-13T00:00:00Z"
+    }
+  ]
+}
+```
+
+#### Check AMK existence
+
+`GET /api/v1/amk/exists`
+
+Auth required (session or API key).
+
+Response (`200`):
+
+```json
+{ "exists": true }
+```
+
+Returns `true` if the authenticated user has at least one AMK wrapper stored.
+
+### Encrypted Notes
+
+Encrypted notes allow authenticated users to attach a client-encrypted label to a secret they own. Notes are encrypted with a key derived from the AMK and stored server-side as opaque ciphertext.
+
+#### Attach encrypted note
+
+`PUT /api/v1/secrets/{id}/meta`
+
+Auth required (session or API key). Caller must own the secret.
+
+Request:
+
+```json
+{
+  "enc_meta": {
+    "v": 1,
+    "note": {
+      "ct": "<base64url ciphertext>",
+      "nonce": "<base64url 12-byte nonce>",
+      "salt": "<base64url HKDF salt>"
+    }
+  },
+  "meta_key_version": 1
+}
+```
+
+`EncMetaV1` schema:
+
+- `v`: integer, must be `1`.
+- `note.ct`: base64url-encoded AES-256-GCM ciphertext of the note text.
+- `note.nonce`: base64url-encoded 12-byte GCM nonce.
+- `note.salt`: base64url-encoded HKDF salt used to derive the per-note encryption key from the AMK.
+
+Response (`200`):
+
+```json
+{ "ok": true }
+```
+
+Other outcomes:
+
+- `404` if the secret does not exist or is not owned by the caller.
+- `401` if auth is missing/invalid.
+
+#### Notes in list responses
+
+`ListSecretsResponse` items include an optional `enc_meta` field:
+
+```json
+{
+  "id": "…",
+  "share_url": "https://secrt.ca/s/…",
+  "expires_at": "2026-02-04T00:00:00Z",
+  "created_at": "2026-02-03T00:00:00Z",
+  "ciphertext_size": 1234,
+  "passphrase_protected": true,
+  "enc_meta": {
+    "v": 1,
+    "note": { "ct": "...", "nonce": "...", "salt": "..." }
+  }
+}
+```
+
+`enc_meta` is `null` or absent when no note has been attached.
+
+#### Feature flag
+
+The `GET /api/v1/info` response `features` object includes:
+
+```json
+{
+  "features": {
+    "encrypted_notes": true
+  }
+}
+```
+
+`encrypted_notes` indicates whether the server supports `PUT /api/v1/secrets/{id}/meta` and returns `enc_meta` in list responses.
 
 ### Delete account (session required)
 

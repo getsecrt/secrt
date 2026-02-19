@@ -68,6 +68,13 @@ Primary tables:
 - `sessions(id, sid, user_id, token_hash, expires_at, created_at, revoked_at)`
 - `webauthn_challenges(id, challenge_id, user_id, purpose, challenge_json, expires_at, created_at)`
 - `api_key_registrations(id, user_id, ip_hash, created_at)`
+- `amk_accounts(id, user_id UNIQUE, amk_commit, created_at, updated_at)`
+- `amk_wrappers(id, user_id, key_prefix UNIQUE, wrapped_amk, nonce, version SMALLINT, created_at, updated_at)`
+
+AMK table notes:
+
+- `amk_accounts` enforces one commit value per user. All wrappers for a user must share the same `amk_commit`. This prevents accidental overwrites with a different AMK.
+- `amk_wrappers` stores one wrapped AMK per API key. The `key_prefix` column has a unique constraint. The wrapping key is derived from the API key's root key; the server never sees the plaintext AMK.
 
 User identifier notes:
 
@@ -168,6 +175,12 @@ The header is an internal signal between the reverse proxy and the application a
 - `POST /api/v1/auth/device/start`
 - `POST /api/v1/auth/device/poll`
 - `POST /api/v1/auth/device/approve`
+- `GET /api/v1/auth/device/challenge`
+- `PUT /api/v1/amk/wrapper`
+- `GET /api/v1/amk/wrapper`
+- `GET /api/v1/amk/wrappers`
+- `GET /api/v1/amk/exists`
+- `PUT /api/v1/secrets/{id}/meta`
 - `DELETE /api/v1/auth/account`
 
 ## 6. Auth and Authorization
@@ -181,6 +194,12 @@ Authenticated endpoints:
 - `POST /api/v1/apikeys/register` (session-authenticated)
 - `GET /api/v1/apikeys` (session-authenticated)
 - `POST /api/v1/apikeys/{prefix}/revoke` (session-authenticated)
+- `PUT /api/v1/amk/wrapper` (session or API key)
+- `GET /api/v1/amk/wrapper` (session or API key)
+- `GET /api/v1/amk/wrappers` (session-authenticated)
+- `GET /api/v1/amk/exists` (session or API key)
+- `PUT /api/v1/secrets/{id}/meta` (session or API key, must own secret)
+- `GET /api/v1/auth/device/challenge` (session-authenticated)
 - `DELETE /api/v1/auth/account` (session-authenticated)
 
 Credential sources:
@@ -369,6 +388,25 @@ Burn request (`POST /api/v1/secrets/{id}/burn`):
 - No request body required.
 - API key auth burns only `apikey:<prefix>` owned rows.
 - Session auth attempts `user:<id>` and each unrevoked owned `apikey:<prefix>`.
+
+Encrypted notes (`PUT /api/v1/secrets/{id}/meta`):
+
+- Requires auth (session or API key).
+- Caller must own the secret.
+- `enc_meta` is stored as JSONB in the `secrets` table.
+- `enc_meta` byte size is included in the owner's active total bytes for quota accounting. This prevents quota bypass via large notes.
+- `meta_key_version` is stored alongside and tracks which AMK version encrypted the note.
+
+AMK wrapper endpoints:
+
+- `PUT /api/v1/amk/wrapper`: session or API key auth. API key auth infers `key_prefix` from the authenticated key. Session auth requires `key_prefix` in body. Upserts the wrapper and validates `amk_commit` against existing account commit (409 on mismatch).
+- `GET /api/v1/amk/wrapper`: session or API key auth. API key auth returns own wrapper. Session auth requires `?key_prefix=X`.
+- `GET /api/v1/amk/wrappers`: session auth only. Returns all wrappers for the user.
+- `GET /api/v1/amk/exists`: session or API key auth. Returns `{ exists: bool }`.
+
+Feature flags:
+
+- `ENCRYPTED_NOTES_ENABLED` (env var, default `true`): when `false`, `PUT /api/v1/secrets/{id}/meta` returns `404` and `enc_meta` is omitted from list responses. The `GET /api/v1/info` response includes `features.encrypted_notes` reflecting this flag.
 
 API key listing/revocation/account deletion:
 

@@ -36,6 +36,7 @@ Required commands:
 Optional commands:
 
 - `secrt burn <id-or-share-url>` (API-key authenticated)
+- `secrt list` (API-key authenticated, lists active secrets)
 - `secrt gen` (password generation)
 
 Authentication commands:
@@ -286,6 +287,7 @@ secrt send [--ttl <ttl>] [--api-key <key>] [--base-url <url>] [--json] [--silent
            [-s | --show | --hidden]
            [-n | --no-passphrase]
            [-p | --passphrase-prompt | --passphrase-env <name> | --passphrase-file <path>]
+           [--note <text>]
 ```
 
 Behavior:
@@ -325,6 +327,12 @@ Passphrase handling:
 - Implementations SHOULD NOT support passphrase values directly in command arguments (high leakage risk via shell history/process list).
 - When using `-p`/`--passphrase-prompt` during `send`, implementations SHOULD prompt for confirmation (enter passphrase twice) to prevent typos that would make the secret unrecoverable.
 - `-n`/`--no-passphrase` explicitly skips any configured default passphrase, creating an unprotected secret.
+
+Encrypted notes:
+
+- `--note <text>` attaches an encrypted note to the secret after creation. Requires authentication (`--api-key` or stored key) and an established AMK.
+- The note is encrypted client-side using a key derived from the AMK, then sent via `PUT /api/v1/secrets/{id}/meta`.
+- If no AMK is available, `--note` MUST fail with a clear error directing the user to set up an AMK (e.g., via `secrt auth login`).
 
 ## `get`
 
@@ -383,6 +391,29 @@ Behavior:
 
 - Resolve `<id>` and call `POST /api/v1/secrets/{id}/burn`.
 - Requires API key auth.
+
+## `list` (optional)
+
+Lists active secrets owned by the authenticated user.
+
+Usage:
+
+```bash
+secrt list [--api-key <key>] [--base-url <url>] [--json] [--silent]
+           [--limit <n>] [--offset <n>]
+```
+
+Behavior:
+
+- Calls `GET /api/v1/secrets` with the authenticated key.
+- Requires API key auth.
+
+Output:
+
+- Default: tabular output with columns for ID, expiry, size, and passphrase protection status.
+- When the user has an AMK and secrets have attached `enc_meta`, a **Notes** column is shown. The CLI decrypts notes client-side using the AMK and displays the plaintext note text.
+- Notes are only visible when the CLI can unwrap the AMK from the authenticated API key's wrapper. If no AMK is available, the Notes column is omitted silently.
+- `--json` mode: include `enc_meta` and decrypted `note` fields when available.
 
 ## `gen` (optional)
 
@@ -449,14 +480,20 @@ Behavior:
 
 1. Generate `root_key` (32 random bytes) locally.
 2. Derive `auth_token = HKDF-SHA256(root_key, ROOT_SALT, "secrt-auth", 32)`.
-3. POST `/api/v1/auth/device/start` with `{ "auth_token": "<base64url>" }`.
-4. Display `user_code` prominently on stderr.
-5. If stderr is a TTY, render a QR code of `verification_url` for mobile scanning.
-6. Open `verification_url` in default browser (fallback: print URL to stderr).
-7. Poll `/api/v1/auth/device/poll` with `{ "device_code": "..." }` every 5 seconds.
-8. On `"complete"` response, construct `sk2_<prefix>.<base64(root_key)>`.
-9. Store the key using the shared key storage logic (see below).
-10. Print success with masked key preview.
+3. Generate an ephemeral ECDH P-256 key pair for AMK transfer.
+4. POST `/api/v1/auth/device/start` with `{ "auth_token": "<base64url>", "ecdh_public_key": "<base64url>" }`.
+5. Display `user_code` prominently on stderr.
+6. If stderr is a TTY, render a QR code of `verification_url` for mobile scanning.
+7. Open `verification_url` in default browser (fallback: print URL to stderr).
+8. Poll `/api/v1/auth/device/poll` with `{ "device_code": "..." }` every 5 seconds.
+9. On `"complete"` response, construct `sk2_<prefix>.<base64(root_key)>`.
+10. If `amk_transfer` is present in the poll response, decrypt the AMK using the ECDH shared secret and store the unwrapped AMK wrapper locally via `PUT /api/v1/amk/wrapper`.
+11. Store the key using the shared key storage logic (see below).
+12. Print success with masked key preview.
+
+SAS verification:
+
+When the CLI includes an `ecdh_public_key` in `/device/start` and AMK transfer is available, the browser displays a Short Authentication String (SAS) derived from both ECDH public keys. The CLI SHOULD display the same SAS and prompt the user to confirm it matches what the browser shows before accepting the transferred AMK. This prevents man-in-the-middle attacks on the key transfer channel.
 
 Security invariant: the `root_key` never leaves the CLI process. Only the derived `auth_token` is sent to the server.
 
