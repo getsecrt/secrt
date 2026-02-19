@@ -13,6 +13,7 @@ fn sample_secrets() -> Vec<SecretMetadataItem> {
             created_at: "2026-02-14T10:30:00Z".into(),
             ciphertext_size: 1234,
             passphrase_protected: true,
+            enc_meta: None,
         },
         SecretMetadataItem {
             id: "xyz789ghi012klmn".into(),
@@ -21,6 +22,7 @@ fn sample_secrets() -> Vec<SecretMetadataItem> {
             created_at: "2026-02-14T09:00:00Z".into(),
             ciphertext_size: 256,
             passphrase_protected: false,
+            enc_meta: None,
         },
     ]
 }

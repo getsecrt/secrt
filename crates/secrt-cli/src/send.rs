@@ -1,6 +1,9 @@
 use std::fs;
 use std::io::{Read, Write};
 
+use base64::engine::general_purpose::URL_SAFE_NO_PAD;
+use base64::Engine;
+
 use crate::cli::{parse_flags, print_send_help, resolve_globals, CliError, Deps, ParsedArgs};
 use crate::client::CreateRequest;
 use crate::color::{color_func, DIM, LABEL, SUCCESS, URL, WARN};
@@ -179,6 +182,11 @@ pub fn run_send(args: &[String], deps: &mut Deps) -> i32 {
         }
     };
 
+    // Attach encrypted note if --note was provided
+    if !pa.note.is_empty() {
+        attach_note(&pa, deps, &*client, &resp.id, is_tty);
+    }
+
     // Output
     let share_link = format_share_link(&resp.share_url, &result.url_key);
 
@@ -296,6 +304,119 @@ fn format_expires(iso: &str) -> String {
 
     let remaining = expires - now;
     format!("Expires in {} ({utc_display})", humanize_seconds(remaining))
+}
+
+/// Resolve the AMK from the server by fetching the wrapper and unwrapping with the local root key.
+pub(crate) fn resolve_amk(
+    pa: &ParsedArgs,
+    client: &(dyn crate::client::SecretApi + '_),
+) -> Result<Vec<u8>, String> {
+    use secrt_core::amk::{build_wrap_aad, derive_amk_wrap_key, unwrap_amk, WrappedAmk};
+
+    // Parse the local API key to get root_key and prefix
+    let local_key = secrt_core::parse_local_api_key(&pa.api_key)
+        .map_err(|e| format!("cannot parse API key for AMK: {}", e))?;
+
+    // Fetch the wrapper from the server (includes user_id for AAD reconstruction)
+    let wrapper_resp = client.get_amk_wrapper()?.ok_or_else(|| {
+        "no notes key found; create one via web settings or `secrt auth login`".to_string()
+    })?;
+
+    // Derive the wrap key from root_key
+    let wrap_key =
+        derive_amk_wrap_key(&local_key.root_key).map_err(|e| format!("derive wrap key: {}", e))?;
+
+    // Decode the wrapper fields
+    let ct = URL_SAFE_NO_PAD
+        .decode(&wrapper_resp.wrapped_amk)
+        .map_err(|e| format!("decode wrapped_amk: {}", e))?;
+    let nonce = URL_SAFE_NO_PAD
+        .decode(&wrapper_resp.nonce)
+        .map_err(|e| format!("decode nonce: {}", e))?;
+
+    // Build AAD using user_id from the wrapper response
+    let aad = build_wrap_aad(
+        &wrapper_resp.user_id,
+        &local_key.prefix,
+        wrapper_resp.version as u16,
+    );
+
+    let wrapped = WrappedAmk {
+        ct,
+        nonce,
+        version: wrapper_resp.version as u16,
+    };
+
+    unwrap_amk(&wrapped, &wrap_key, &aad).map_err(|e| format!("unwrap AMK: {}", e))
+}
+
+/// Attach an encrypted note to a secret after creation. Non-fatal on failure.
+fn attach_note(
+    pa: &ParsedArgs,
+    deps: &mut Deps,
+    client: &(dyn crate::client::SecretApi + '_),
+    secret_id: &str,
+    is_tty: bool,
+) {
+    let c = color_func(is_tty);
+
+    // Require authentication
+    if pa.api_key.is_empty() {
+        if !pa.silent {
+            let _ = writeln!(
+                deps.stderr,
+                "{} --note requires authentication (--api-key)",
+                c(WARN, "!")
+            );
+        }
+        return;
+    }
+
+    // Resolve AMK
+    let amk = match resolve_amk(pa, client) {
+        Ok(amk) => amk,
+        Err(e) => {
+            if !pa.silent {
+                let _ = writeln!(deps.stderr, "{} note not attached: {}", c(WARN, "!"), e);
+            }
+            return;
+        }
+    };
+
+    // Encrypt the note
+    let encrypted =
+        match secrt_core::amk::encrypt_note(&amk, secret_id, pa.note.as_bytes(), &*deps.rand_bytes)
+        {
+            Ok(enc) => enc,
+            Err(e) => {
+                if !pa.silent {
+                    let _ = writeln!(
+                        deps.stderr,
+                        "{} note encryption failed: {}",
+                        c(WARN, "!"),
+                        e
+                    );
+                }
+                return;
+            }
+        };
+
+    // Build enc_meta JSON
+    let enc_meta = secrt_core::api::EncMetaV1 {
+        v: 1,
+        note: secrt_core::api::EncMetaNoteV1 {
+            ct: URL_SAFE_NO_PAD.encode(&encrypted.ct),
+            nonce: URL_SAFE_NO_PAD.encode(&encrypted.nonce),
+            salt: URL_SAFE_NO_PAD.encode(&encrypted.salt),
+        },
+    };
+
+    // Upload
+    if let Err(e) = client.update_secret_meta(secret_id, &enc_meta, 1) {
+        if !pa.silent {
+            let _ = writeln!(deps.stderr, "{} note not attached: {}", c(WARN, "!"), e);
+        }
+    }
 }
 
 fn read_plaintext(pa: &ParsedArgs, deps: &mut Deps) -> Result<Vec<u8>, String> {

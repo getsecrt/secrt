@@ -49,6 +49,7 @@ const mockApiInfo: ApiInfo = {
     },
   },
   claim_rate: { requests_per_second: 5, burst: 10 },
+  features: { encrypted_notes: false },
 };
 
 /** Minimal valid envelope for requests. */
@@ -446,7 +447,7 @@ describe('deviceApprove', () => {
     vi.mocked(fetch).mockResolvedValue(jsonResponse({ ok: true }));
     const controller = new AbortController();
 
-    await deviceApprove('uss_tok.secret', 'ABCD-1234', controller.signal);
+    await deviceApprove('uss_tok.secret', 'ABCD-1234', undefined, controller.signal);
     expect(fetch).toHaveBeenCalledWith(
       expect.anything(),
       expect.objectContaining({ signal: controller.signal }),
@@ -464,6 +465,7 @@ const mockChallenge: ChallengeResponse = {
 
 const mockAuthFinish: AuthFinishResponse = {
   session_token: 'uss_abc.secret',
+  user_id: '00000000-0000-0000-0000-000000000001',
   display_name: 'alice',
   expires_at: '2026-12-31T00:00:00Z',
 };
@@ -502,7 +504,7 @@ describe('registerPasskeyFinish', () => {
     });
     expect(result).toEqual(mockAuthFinish);
     expect('user_id' in (result as unknown as Record<string, unknown>)).toBe(
-      false,
+      true,
     );
     expect(fetch).toHaveBeenCalledWith(
       '/api/v1/auth/passkeys/register/finish',
@@ -534,7 +536,7 @@ describe('loginPasskeyFinish', () => {
     });
     expect(result).toEqual(mockAuthFinish);
     expect('user_id' in (result as unknown as Record<string, unknown>)).toBe(
-      false,
+      true,
     );
     expect(fetch).toHaveBeenCalledWith(
       '/api/v1/auth/passkeys/login/finish',
@@ -546,6 +548,7 @@ describe('loginPasskeyFinish', () => {
 describe('fetchSession', () => {
   const mockSession: SessionResponse = {
     authenticated: true,
+    user_id: '00000000-0000-0000-0000-000000000001',
     display_name: 'alice',
     expires_at: '2026-12-31T00:00:00Z',
   };
@@ -556,7 +559,7 @@ describe('fetchSession', () => {
     const result = await fetchSession('uss_tok.secret');
     expect(result).toEqual(mockSession);
     expect('user_id' in (result as unknown as Record<string, unknown>)).toBe(
-      false,
+      true,
     );
     const callArgs = vi.mocked(fetch).mock.calls[0];
     const init = callArgs[1] as RequestInit;

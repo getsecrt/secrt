@@ -259,6 +259,7 @@ fn sample_list_for_prefix() -> ListSecretsResponse {
                 created_at: "2026-01-01T00:00:00Z".into(),
                 ciphertext_size: 100,
                 passphrase_protected: false,
+                enc_meta: None,
             },
             SecretMetadataItem {
                 id: "xyz789other".into(),
@@ -267,6 +268,7 @@ fn sample_list_for_prefix() -> ListSecretsResponse {
                 created_at: "2026-01-01T00:00:00Z".into(),
                 ciphertext_size: 200,
                 passphrase_protected: false,
+                enc_meta: None,
             },
         ],
         total: 2,
@@ -329,6 +331,7 @@ fn burn_prefix_ambiguous_shows_error() {
                 created_at: "2026-01-01T00:00:00Z".into(),
                 ciphertext_size: 100,
                 passphrase_protected: false,
+                enc_meta: None,
             },
             SecretMetadataItem {
                 id: "abc222".into(),
@@ -337,6 +340,7 @@ fn burn_prefix_ambiguous_shows_error() {
                 created_at: "2026-01-01T00:00:00Z".into(),
                 ciphertext_size: 200,
                 passphrase_protected: false,
+                enc_meta: None,
             },
         ],
         total: 2,

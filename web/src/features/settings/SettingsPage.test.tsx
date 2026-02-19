@@ -7,6 +7,7 @@ import userEvent from '@testing-library/user-event';
 const mockAuth = {
   loading: false,
   authenticated: true,
+  userId: 'test-uid',
   displayName: 'alice',
   sessionToken: 'uss_test.secret',
   login: vi.fn(),
@@ -26,11 +27,31 @@ vi.mock('../../lib/api', () => ({
   revokeApiKey: vi.fn(),
   registerApiKey: vi.fn(),
   deleteAccount: vi.fn(),
+  upsertAmkWrapper: vi.fn().mockResolvedValue({ ok: true }),
+  fetchInfo: vi.fn().mockResolvedValue({ features: { encrypted_notes: false } }),
 }));
 
 vi.mock('../../crypto/apikey', () => ({
   generateApiKeyMaterial: vi.fn(),
   formatWireApiKey: vi.fn(),
+}));
+
+vi.mock('../../crypto/amk', () => ({
+  generateAmk: vi.fn(() => new Uint8Array(32)),
+  computeAmkCommit: vi.fn().mockResolvedValue(new Uint8Array(32)),
+  deriveAmkWrapKey: vi.fn().mockResolvedValue(new Uint8Array(32)),
+  buildWrapAad: vi.fn(() => new Uint8Array(0)),
+  wrapAmk: vi.fn().mockResolvedValue({ ct: 'ct', nonce: 'nonce', version: 1 }),
+}));
+
+vi.mock('../../crypto/encoding', () => ({
+  base64urlEncode: vi.fn(() => 'encoded'),
+}));
+
+vi.mock('../../lib/amk-store', () => ({
+  storeAmk: vi.fn().mockResolvedValue(undefined),
+  loadAmk: vi.fn().mockResolvedValue(null),
+  clearAmk: vi.fn().mockResolvedValue(undefined),
 }));
 
 /* ---------- imports (after vi.mock) ---------- */
@@ -60,6 +81,7 @@ describe('SettingsPage', () => {
     // Reset auth to authenticated defaults before each test
     mockAuth.loading = false;
     mockAuth.authenticated = true;
+    mockAuth.userId = 'test-uid';
     mockAuth.displayName = 'alice';
     mockAuth.sessionToken = 'uss_test.secret';
     mockAuth.logout.mockResolvedValue(undefined);

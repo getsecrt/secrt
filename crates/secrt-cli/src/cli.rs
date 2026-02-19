@@ -87,6 +87,9 @@ pub struct ParsedArgs {
     pub gen_grouped: bool,
     pub gen_count: u32,
 
+    // Notes (authenticated only)
+    pub note: String,
+
     // List
     pub list_limit: Option<i64>,
     pub list_offset: Option<i64>,
@@ -315,6 +318,7 @@ pub fn parse_flags(args: &[String]) -> Result<ParsedArgs, CliError> {
             "--hidden" => pa.hidden = true,
             "--silent" => pa.silent = true,
             "--qr" | "-Q" => pa.qr = true,
+            "--note" => pa.note = next_val!("--note"),
             "--output" | "-o" => pa.output = next_val!("--output"),
             "--passphrase-prompt" | "-p" => pa.passphrase_prompt = true,
             "--no-passphrase" | "-n" => pa.no_passphrase = true,
@@ -1131,6 +1135,11 @@ pub fn print_send_help(deps: &mut Deps) {
             ("-n, --no-passphrase", "", "Skip default passphrase"),
             ("--passphrase-env", "<name>", "Read passphrase from env var"),
             ("--passphrase-file", "<path>", "Read passphrase from file"),
+            (
+                "--note",
+                "<text>",
+                "Private note (requires auth, encrypted)",
+            ),
             ("--base-url", "<url>", "Server URL"),
             ("--api-key", "<key>", "API key"),
             ("-Q, --qr", "", "Display share URL as QR code"),

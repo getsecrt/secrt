@@ -7,15 +7,17 @@ import { fetchSession, logout as apiLogout } from './api';
 export interface AuthState {
   loading: boolean;
   authenticated: boolean;
+  userId: string | null;
   displayName: string | null;
   sessionToken: string | null;
-  login: (token: string, displayName: string) => void;
+  login: (token: string, userId: string, displayName: string) => void;
   logout: () => Promise<void>;
 }
 
 const defaultState: AuthState = {
   loading: true,
   authenticated: false,
+  userId: null,
   displayName: null,
   sessionToken: null,
   login: () => {},
@@ -27,6 +29,7 @@ const AuthContext = createContext<AuthState>(defaultState);
 export function AuthProvider({ children }: { children: ComponentChildren }) {
   const [loading, setLoading] = useState(true);
   const [authenticated, setAuthenticated] = useState(false);
+  const [userId, setUserId] = useState<string | null>(null);
   const [displayName, setDisplayName] = useState<string | null>(null);
   const [sessionToken, setToken] = useState<string | null>(null);
 
@@ -45,6 +48,7 @@ export function AuthProvider({ children }: { children: ComponentChildren }) {
         if (res.authenticated) {
           setToken(token);
           setAuthenticated(true);
+          setUserId(res.user_id);
           setDisplayName(res.display_name);
         } else {
           clearSessionToken();
@@ -62,10 +66,11 @@ export function AuthProvider({ children }: { children: ComponentChildren }) {
     };
   }, []);
 
-  const login = useCallback((token: string, name: string) => {
+  const login = useCallback((token: string, uid: string, name: string) => {
     setSessionToken(token);
     setToken(token);
     setAuthenticated(true);
+    setUserId(uid);
     setDisplayName(name);
     setLoading(false);
   }, []);
@@ -82,6 +87,7 @@ export function AuthProvider({ children }: { children: ComponentChildren }) {
     clearSessionToken();
     setToken(null);
     setAuthenticated(false);
+    setUserId(null);
     setDisplayName(null);
   }, []);
 
@@ -90,6 +96,7 @@ export function AuthProvider({ children }: { children: ComponentChildren }) {
       value={{
         loading,
         authenticated,
+        userId,
         displayName,
         sessionToken,
         login,

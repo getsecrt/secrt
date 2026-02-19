@@ -98,6 +98,7 @@ describe('RegisterPage', () => {
     });
     vi.mocked(registerPasskeyFinish).mockResolvedValue({
       session_token: 'uss_new.tok',
+      user_id: '00000000-0000-0000-0000-000000000001',
       display_name: 'alice',
       expires_at: '2026-12-31T00:00:00Z',
     });
@@ -112,7 +113,7 @@ describe('RegisterPage', () => {
     expect(registerPasskeyStart).toHaveBeenCalledWith({
       display_name: 'Alice',
     });
-    expect(mockAuth.login).toHaveBeenCalledWith('uss_new.tok', 'alice');
+    expect(mockAuth.login).toHaveBeenCalledWith('uss_new.tok', '00000000-0000-0000-0000-000000000001', 'alice');
     expect(mockNavigate).toHaveBeenCalledWith('/');
   });
 

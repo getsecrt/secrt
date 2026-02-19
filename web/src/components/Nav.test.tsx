@@ -20,6 +20,7 @@ vi.mock('../router', () => ({
 const mockAuth: AuthState = {
   loading: false,
   authenticated: false,
+  userId: null,
   displayName: null,
   sessionToken: null,
   login: mockLogin,

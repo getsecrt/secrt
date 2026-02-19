@@ -132,6 +132,7 @@ describe('SendPage', () => {
         },
       },
       claim_rate: { requests_per_second: 5, burst: 10 },
+      features: { encrypted_notes: false },
     });
     mockSeal.mockResolvedValue({
       envelope: fakeEnvelope,

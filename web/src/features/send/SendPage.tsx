@@ -4,7 +4,9 @@ import { utf8Encode } from '../../crypto/encoding';
 import { buildFrame } from '../../crypto/frame';
 import { ensureCompressor, compress } from '../../crypto/compress';
 import { CODEC_ZSTD } from '../../crypto/constants';
-import { createSecret, fetchInfo } from '../../lib/api';
+import { encryptNote } from '../../crypto/amk';
+import { createSecret, fetchInfo, updateSecretMeta } from '../../lib/api';
+import { loadAmk } from '../../lib/amk-store';
 import {
   checkEnvelopeSize,
   estimateEnvelopeSize,
@@ -28,7 +30,7 @@ import {
   UploadIcon,
   XMarkIcon,
 } from '../../components/Icons';
-import type { ApiInfo, PayloadMeta } from '../../types';
+import type { ApiInfo, PayloadMeta, EncMetaV1 } from '../../types';
 import { CardHeading } from '../../components/CardHeading';
 import { Modal } from '../../components/Modal';
 import { FileDropZone } from './FileDropZone';
@@ -58,6 +60,7 @@ export function SendPage() {
   const [mode, setMode] = useState<'text' | 'file'>('text');
   const [text, setText] = useState('');
   const [file, setFile] = useState<File | null>(null);
+  const [note, setNote] = useState('');
   const [passphrase, setPassphrase] = useState('');
   const [showPassphrase, setShowPassphrase] = useState(false);
   const [ttlSeconds, setTtlSeconds] = useState(TTL_DEFAULT);
@@ -197,6 +200,7 @@ export function SendPage() {
     setText('');
     setFile(null);
     setCachedFrame(null);
+    setNote('');
     setPassphrase('');
     setShowPassphrase(false);
     setTtlSeconds(TTL_DEFAULT);
@@ -221,6 +225,8 @@ export function SendPage() {
   }, []);
 
   const busy = status.step === 'encrypting' || status.step === 'sending';
+  const notesAvailable =
+    auth.authenticated && !!serverInfo?.features?.encrypted_notes;
   const hasContent = mode === 'text' ? text.trim().length > 0 : file !== null;
   const contentError =
     status.step === 'error' &&
@@ -381,6 +387,23 @@ export function SendPage() {
           controller.signal,
         );
 
+        // Attach encrypted note if provided
+        if (note.trim() && auth.sessionToken && auth.userId) {
+          try {
+            const amk = await loadAmk(auth.userId);
+            if (amk) {
+              const encrypted = await encryptNote(amk, res.id, utf8Encode(note));
+              const encMeta: EncMetaV1 = {
+                v: 1,
+                note: { ct: encrypted.ct, nonce: encrypted.nonce, salt: encrypted.salt },
+              };
+              await updateSecretMeta(auth.sessionToken, res.id, encMeta, 1, controller.signal);
+            }
+          } catch {
+            // Non-fatal: secret was created, but note couldn't be attached
+          }
+        }
+
         // Build share URL
         const shareUrl = formatShareLink(res.id, urlKey);
 
@@ -394,6 +417,7 @@ export function SendPage() {
       mode,
       text,
       file,
+      note,
       passphrase,
       ttlSeconds,
       hasContent,
@@ -402,6 +426,7 @@ export function SendPage() {
       cachedFrame,
       auth.authenticated,
       auth.sessionToken,
+      auth.userId,
     ],
   );
 
@@ -574,6 +599,35 @@ export function SendPage() {
             {passphrase ? 'The recipient must enter this password' : '\u00A0'}
           </p>
         </div>
+
+        {/* Private note (only shown when authenticated + feature enabled) */}
+        {notesAvailable && (
+          <div class="space-y-1">
+            <label class="label" for="note">
+              <NoteIcon class="size-4 opacity-60" />
+              <span class="flex items-baseline gap-2">
+                Note{' '}
+                <span class="text-sm font-normal text-faint">
+                  private &middot; optional
+                </span>
+              </span>
+            </label>
+            <input
+              id="note"
+              type="text"
+              class="input"
+              placeholder="e.g., AWS prod key for Bob"
+              value={note}
+              onInput={(e) => setNote((e.target as HTMLInputElement).value)}
+              disabled={busy}
+              maxLength={500}
+              autocomplete="off"
+            />
+            <p class="text-center text-sm">
+              Only visible to you on your dashboard
+            </p>
+          </div>
+        )}
 
         {/* TTL */}
         <TtlSelector

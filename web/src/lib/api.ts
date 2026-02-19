@@ -15,6 +15,8 @@ import type {
   ListApiKeysResponse,
   DeleteAccountResponse,
   SecretsCheckResponse,
+  AmkWrapper,
+  EncMetaV1,
 } from '../types';
 
 type ApiErrorBody = { error?: string };
@@ -292,8 +294,11 @@ export async function registerApiKey(
 export async function deviceApprove(
   token: string,
   userCode: string,
+  amkTransfer?: { ct: string; nonce: string; ecdh_public_key: string },
   signal?: AbortSignal,
 ): Promise<{ ok: boolean }> {
+  const body: Record<string, unknown> = { user_code: userCode };
+  if (amkTransfer) body.amk_transfer = amkTransfer;
   return requestJson<{ ok: boolean }>(
     '/api/v1/auth/device/approve',
     {
@@ -302,7 +307,7 @@ export async function deviceApprove(
         authorization: `Bearer ${token}`,
         'content-type': 'application/json',
       },
-      body: JSON.stringify({ user_code: userCode }),
+      body: JSON.stringify(body),
     },
     signal,
   );
@@ -316,6 +321,102 @@ export async function deleteAccount(
     '/api/v1/auth/account',
     {
       method: 'DELETE',
+      headers: { authorization: `Bearer ${token}` },
+    },
+    signal,
+  );
+}
+
+/* ── AMK Wrapper API ───────────────────────────────── */
+
+export async function upsertAmkWrapper(
+  token: string,
+  body: {
+    key_prefix: string;
+    wrapped_amk: string;
+    nonce: string;
+    amk_commit: string;
+    version: number;
+  },
+  signal?: AbortSignal,
+): Promise<{ ok: boolean }> {
+  return requestJson<{ ok: boolean }>(
+    '/api/v1/amk/wrapper',
+    {
+      method: 'PUT',
+      headers: {
+        authorization: `Bearer ${token}`,
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify(body),
+    },
+    signal,
+  );
+}
+
+export async function getAmkWrapper(
+  token: string,
+  keyPrefix: string,
+  signal?: AbortSignal,
+): Promise<AmkWrapper> {
+  return requestJson<AmkWrapper>(
+    `/api/v1/amk/wrapper?key_prefix=${encodeURIComponent(keyPrefix)}`,
+    {
+      method: 'GET',
+      headers: { authorization: `Bearer ${token}` },
+    },
+    signal,
+  );
+}
+
+export async function amkExists(
+  token: string,
+  signal?: AbortSignal,
+): Promise<{ exists: boolean }> {
+  return requestJson<{ exists: boolean }>(
+    '/api/v1/amk/exists',
+    {
+      method: 'GET',
+      headers: { authorization: `Bearer ${token}` },
+    },
+    signal,
+  );
+}
+
+/* ── Encrypted Metadata API ──────────────────────── */
+
+export async function updateSecretMeta(
+  token: string,
+  secretId: string,
+  encMeta: EncMetaV1,
+  metaKeyVersion: number,
+  signal?: AbortSignal,
+): Promise<{ ok: boolean }> {
+  return requestJson<{ ok: boolean }>(
+    `/api/v1/secrets/${encodeURIComponent(secretId)}/meta`,
+    {
+      method: 'PUT',
+      headers: {
+        authorization: `Bearer ${token}`,
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({ enc_meta: encMeta, meta_key_version: metaKeyVersion }),
+    },
+    signal,
+  );
+}
+
+/* ── Device Auth Challenge API ───────────────────── */
+
+export async function getDeviceChallenge(
+  token: string,
+  userCode: string,
+  signal?: AbortSignal,
+): Promise<{ user_code: string; ecdh_public_key?: string; status: string }> {
+  return requestJson<{ user_code: string; ecdh_public_key?: string; status: string }>(
+    `/api/v1/auth/device/challenge?user_code=${encodeURIComponent(userCode)}`,
+    {
+      method: 'GET',
       headers: { authorization: `Bearer ${token}` },
     },
     signal,

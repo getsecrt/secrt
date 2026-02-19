@@ -3,10 +3,12 @@ use std::time::Duration;
 
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use base64::Engine;
+use ring::agreement;
+use ring::rand::SystemRandom;
 
 use crate::cli::Deps;
-use crate::client::ApiClient;
-use crate::color::{color_func, CMD, DIM, HEADING, OPT, SUCCESS};
+use crate::client::{AmkTransferPayload, ApiClient};
+use crate::color::{color_func, CMD, DIM, HEADING, OPT, SUCCESS, WARN};
 use crate::qr::render_qr_compact;
 
 const DEFAULT_BASE_URL: &str = "https://secrt.ca";
@@ -174,12 +176,25 @@ fn run_auth_login(args: &[String], deps: &mut Deps) -> i32 {
     };
     let auth_token_b64 = URL_SAFE_NO_PAD.encode(&auth_token);
 
-    // 3. POST /device/start
+    // 3. Generate ECDH ephemeral keypair for AMK transfer
+    let rng = SystemRandom::new();
+    let ecdh_private = match agreement::EphemeralPrivateKey::generate(&agreement::ECDH_P256, &rng) {
+        Ok(k) => k,
+        Err(_) => {
+            let _ = writeln!(deps.stderr, "error: ECDH key generation failed");
+            return 1;
+        }
+    };
+    let ecdh_public = ecdh_private.compute_public_key().unwrap();
+    let cli_pk_bytes = ecdh_public.as_ref().to_vec();
+    let ecdh_pk_b64 = URL_SAFE_NO_PAD.encode(&cli_pk_bytes);
+
+    // 4. POST /device/start with ECDH public key
     let client = ApiClient {
         base_url: base_url.clone(),
         api_key: String::new(),
     };
-    let start = match client.device_start(&auth_token_b64) {
+    let start = match client.device_start(&auth_token_b64, Some(&ecdh_pk_b64)) {
         Ok(r) => r,
         Err(e) => {
             let _ = writeln!(deps.stderr, "error: {}", e);
@@ -187,7 +202,7 @@ fn run_auth_login(args: &[String], deps: &mut Deps) -> i32 {
         }
     };
 
-    // 4. Print user code prominently
+    // 5. Print user code prominently
     let _ = writeln!(deps.stderr);
     let _ = writeln!(
         deps.stderr,
@@ -198,7 +213,7 @@ fn run_auth_login(args: &[String], deps: &mut Deps) -> i32 {
     let _ = writeln!(deps.stderr);
     let _ = writeln!(deps.stderr, "  Your code: {}", c(HEADING, &start.user_code));
 
-    // 5. Render QR code if TTY
+    // 6. Render QR code if TTY
     if (deps.is_tty)() {
         if let Ok(code) = qrcode::QrCode::new(&start.verification_url) {
             let qr_string = render_qr_compact(&code);
@@ -208,7 +223,7 @@ fn run_auth_login(args: &[String], deps: &mut Deps) -> i32 {
         let _ = writeln!(deps.stderr);
     }
 
-    // 6. Open browser (best-effort)
+    // 7. Open browser (best-effort)
     if (deps.open_browser)(&start.verification_url).is_err() {
         let _ = writeln!(
             deps.stderr,
@@ -223,7 +238,7 @@ fn run_auth_login(args: &[String], deps: &mut Deps) -> i32 {
         start.expires_in
     );
 
-    // 7. Poll loop
+    // 8. Poll loop
     let interval = Duration::from_secs(start.interval.max(3));
     let max_polls = (start.expires_in / start.interval.max(3)) + 2;
 
@@ -251,6 +266,21 @@ fn run_auth_login(args: &[String], deps: &mut Deps) -> i32 {
                     let masked = crate::config::mask_secret(&api_key, true);
                     let _ = writeln!(deps.stderr, "  Key: {}", c(DIM, &masked));
 
+                    // 9. Handle AMK transfer if present
+                    if let Some(ref transfer) = resp.amk_transfer {
+                        handle_amk_transfer(
+                            deps,
+                            &c,
+                            transfer,
+                            ecdh_private,
+                            &cli_pk_bytes,
+                            &root_key,
+                            &prefix,
+                            &base_url,
+                            &api_key,
+                        );
+                    }
+
                     return store_api_key(&api_key, deps);
                 }
                 // status == "authorization_pending" → keep polling
@@ -271,6 +301,294 @@ fn run_auth_login(args: &[String], deps: &mut Deps) -> i32 {
 
     let _ = writeln!(deps.stderr, "\nerror: authorization timed out");
     1
+}
+
+/// Handle ECDH-based AMK transfer from the browser.
+/// This is called after auth completes if the poll response contains an `amk_transfer` blob.
+/// The CLI does ECDH with the browser's ephemeral public key, derives the transfer key,
+/// decrypts the AMK, verifies via SAS (if interactive), wraps the AMK, and uploads the wrapper.
+#[allow(clippy::too_many_arguments)]
+fn handle_amk_transfer(
+    deps: &mut Deps,
+    c: &crate::color::ColorFn,
+    transfer: &AmkTransferPayload,
+    ecdh_private: agreement::EphemeralPrivateKey,
+    cli_pk_bytes: &[u8],
+    root_key: &[u8],
+    prefix: &str,
+    base_url: &str,
+    api_key: &str,
+) {
+    use secrt_core::amk;
+
+    // Decode browser's ECDH public key
+    let browser_pk = match URL_SAFE_NO_PAD.decode(&transfer.ecdh_public_key) {
+        Ok(pk) => pk,
+        Err(e) => {
+            let _ = writeln!(
+                deps.stderr,
+                "  {} notes key transfer: decode browser public key: {}",
+                c(WARN, "warning:"),
+                e
+            );
+            return;
+        }
+    };
+
+    // Perform ECDH to get shared secret
+    let peer_pk = agreement::UnparsedPublicKey::new(&agreement::ECDH_P256, &browser_pk);
+
+    // ring::agreement::agree_ephemeral consumes the private key
+    let shared_secret: Vec<u8> =
+        match agreement::agree_ephemeral(ecdh_private, &peer_pk, |shared| shared.to_vec()) {
+            Ok(s) => s,
+            Err(_) => {
+                let _ = writeln!(
+                    deps.stderr,
+                    "  {} notes key transfer: ECDH agreement failed",
+                    c(WARN, "warning:")
+                );
+                return;
+            }
+        };
+
+    // Derive transfer key
+    let transfer_key = match amk::derive_transfer_key(&shared_secret) {
+        Ok(k) => k,
+        Err(e) => {
+            let _ = writeln!(
+                deps.stderr,
+                "  {} notes key transfer: derive key: {}",
+                c(WARN, "warning:"),
+                e
+            );
+            return;
+        }
+    };
+
+    // Compute SAS for verification
+    let sas_code = match amk::compute_sas(&shared_secret, cli_pk_bytes, &browser_pk) {
+        Ok(code) => code,
+        Err(e) => {
+            let _ = writeln!(
+                deps.stderr,
+                "  {} notes key transfer: SAS computation: {}",
+                c(WARN, "warning:"),
+                e
+            );
+            return;
+        }
+    };
+
+    // Interactive SAS verification
+    if (deps.is_tty)() {
+        let _ = writeln!(deps.stderr);
+        let _ = writeln!(
+            deps.stderr,
+            "  {} Notes key transfer available",
+            c(HEADING, "\u{1f511}")
+        );
+        let _ = writeln!(
+            deps.stderr,
+            "  Security code: {}",
+            c(HEADING, &format!("{:06}", sas_code))
+        );
+        let _ = write!(deps.stderr, "  Does this match your browser? [y/N]: ");
+        let _ = deps.stderr.flush();
+
+        let answer = read_stdin_line(&mut *deps.stdin).to_ascii_lowercase();
+        if answer != "y" && answer != "yes" {
+            let _ = writeln!(
+                deps.stderr,
+                "  {} Transfer rejected. You can sync notes key later via web settings.",
+                c(WARN, "warning:")
+            );
+            return;
+        }
+    }
+
+    // Decrypt AMK from transfer blob
+    let ct = match URL_SAFE_NO_PAD.decode(&transfer.ct) {
+        Ok(v) => v,
+        Err(e) => {
+            let _ = writeln!(
+                deps.stderr,
+                "  {} notes key transfer: decode ciphertext: {}",
+                c(WARN, "warning:"),
+                e
+            );
+            return;
+        }
+    };
+    let nonce = match URL_SAFE_NO_PAD.decode(&transfer.nonce) {
+        Ok(v) => v,
+        Err(e) => {
+            let _ = writeln!(
+                deps.stderr,
+                "  {} notes key transfer: decode nonce: {}",
+                c(WARN, "warning:"),
+                e
+            );
+            return;
+        }
+    };
+
+    let amk_bytes =
+        match amk::aes256gcm_decrypt(&transfer_key, &nonce, b"secrt-amk-transfer-v1", &ct) {
+            Ok(v) => v,
+            Err(e) => {
+                let _ = writeln!(
+                    deps.stderr,
+                    "  {} notes key transfer: decrypt AMK: {}",
+                    c(WARN, "warning:"),
+                    e
+                );
+                return;
+            }
+        };
+
+    if amk_bytes.len() != amk::AMK_LEN {
+        let _ = writeln!(
+            deps.stderr,
+            "  {} notes key transfer: invalid AMK length ({})",
+            c(WARN, "warning:"),
+            amk_bytes.len()
+        );
+        return;
+    }
+
+    // Wrap AMK for this device and upload wrapper
+    let wrap_key = match amk::derive_amk_wrap_key(root_key) {
+        Ok(k) => k,
+        Err(e) => {
+            let _ = writeln!(
+                deps.stderr,
+                "  {} notes key transfer: derive wrap key: {}",
+                c(WARN, "warning:"),
+                e
+            );
+            return;
+        }
+    };
+
+    // Fetch user_id from the session endpoint (needed for AAD construction)
+    let wire_key = match secrt_core::derive_wire_api_key(api_key) {
+        Ok(wk) => wk,
+        Err(e) => {
+            let _ = writeln!(
+                deps.stderr,
+                "  {} notes key transfer: derive wire key: {}",
+                c(WARN, "warning:"),
+                e
+            );
+            return;
+        }
+    };
+
+    let user_id = match fetch_user_id(base_url, &wire_key) {
+        Ok(uid) => uid,
+        Err(e) => {
+            let _ = writeln!(
+                deps.stderr,
+                "  {} notes key transfer: could not get user ID: {}",
+                c(WARN, "warning:"),
+                e
+            );
+            return;
+        }
+    };
+
+    let aad = amk::build_wrap_aad(&user_id, prefix, 1);
+    let wrapped = match amk::wrap_amk(&amk_bytes, &wrap_key, &aad, &|buf| {
+        use ring::rand::SecureRandom;
+        SystemRandom::new()
+            .fill(buf)
+            .map_err(|_| secrt_core::types::EnvelopeError::RngError("rng failed".into()))
+    }) {
+        Ok(w) => w,
+        Err(e) => {
+            let _ = writeln!(
+                deps.stderr,
+                "  {} notes key transfer: wrap AMK: {}",
+                c(WARN, "warning:"),
+                e
+            );
+            return;
+        }
+    };
+
+    // Compute AMK commitment
+    let commit = amk::compute_amk_commit(&amk_bytes);
+
+    // Upload wrapper via authenticated client
+    let auth_client = ApiClient {
+        base_url: base_url.to_string(),
+        api_key: api_key.to_string(),
+    };
+    use secrt_core::api::SecretApi;
+    match auth_client.upsert_amk_wrapper(
+        prefix,
+        &URL_SAFE_NO_PAD.encode(&wrapped.ct),
+        &URL_SAFE_NO_PAD.encode(&wrapped.nonce),
+        &URL_SAFE_NO_PAD.encode(commit),
+        1,
+    ) {
+        Ok(()) => {
+            let _ = writeln!(
+                deps.stderr,
+                "  {} Notes key synced from browser",
+                c(SUCCESS, "\u{2713}")
+            );
+        }
+        Err(e) => {
+            let _ = writeln!(
+                deps.stderr,
+                "  {} notes key transfer: upload wrapper: {}",
+                c(WARN, "warning:"),
+                e
+            );
+            let _ = writeln!(
+                deps.stderr,
+                "  {} You can sync the notes key later via web settings",
+                c(DIM, "hint:")
+            );
+        }
+    }
+}
+
+/// Fetch user_id from the server by calling the session info endpoint via API key.
+fn fetch_user_id(base_url: &str, wire_key: &str) -> Result<String, String> {
+    let endpoint = format!("{}/api/v1/auth/session", base_url.trim_end_matches('/'));
+    let agent = ureq::Agent::new_with_config(
+        ureq::config::Config::builder()
+            .timeout_global(Some(Duration::from_secs(10)))
+            .http_status_as_error(false)
+            .build(),
+    );
+    let resp = agent
+        .get(&endpoint)
+        .header("X-API-Key", wire_key)
+        .call()
+        .map_err(|e| format!("session request: {}", e))?;
+
+    if resp.status().as_u16() != 200 {
+        return Err(format!("session endpoint returned {}", resp.status()));
+    }
+
+    let body_str = resp
+        .into_body()
+        .read_to_string()
+        .map_err(|e| format!("decode response: {}", e))?;
+
+    #[derive(serde::Deserialize)]
+    struct SessionInfo {
+        user_id: Option<String>,
+    }
+    let info: SessionInfo =
+        serde_json::from_str(&body_str).map_err(|e| format!("decode session: {}", e))?;
+
+    info.user_id
+        .ok_or_else(|| "no user_id in session response".to_string())
 }
 
 /// `secrt auth setup` — Interactively paste an API key.

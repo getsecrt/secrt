@@ -21,7 +21,7 @@ function AuthConsumer() {
       <span data-testid="sessionToken">{String(auth.sessionToken)}</span>
       <button
         data-testid="login-btn"
-        onClick={() => auth.login('tok_new', 'alice')}
+        onClick={() => auth.login('tok_new', 'uid_alice', 'alice')}
       >
         Login
       </button>
@@ -60,6 +60,7 @@ describe('AuthProvider', () => {
     localStorage.setItem('session_token', 'uss_stored.secret');
     vi.mocked(fetchSession).mockResolvedValue({
       authenticated: true,
+      user_id: 'test-uid',
       display_name: 'bob',
       expires_at: '2026-12-31T00:00:00Z',
     });
@@ -84,6 +85,7 @@ describe('AuthProvider', () => {
     localStorage.setItem('session_token', 'uss_expired.tok');
     vi.mocked(fetchSession).mockResolvedValue({
       authenticated: false,
+      user_id: null,
       display_name: null,
       expires_at: null,
     });
@@ -193,7 +195,7 @@ describe('AuthProvider', () => {
         <button
           data-testid="bare-auth-btn"
           onClick={async () => {
-            auth.login('tok_any', 'anon');
+            auth.login('tok_any', 'uid_anon', 'anon');
             await auth.logout();
             completed = true;
           }}

@@ -23,7 +23,7 @@ use crate::http::{build_router, parse_socket_addr, AppState};
 use crate::reaper::start_expiry_reaper;
 use crate::storage::migrations::migrate;
 use crate::storage::postgres::PgStore;
-use crate::storage::{ApiKeysStore, SecretsStore, StorageError};
+use crate::storage::{AmkStore, ApiKeysStore, SecretsStore, StorageError};
 
 #[derive(Debug, thiserror::Error)]
 pub enum RuntimeError {
@@ -88,11 +88,13 @@ where
     let secrets: Arc<dyn SecretsStore> = pg_store.clone();
     let api_keys: Arc<dyn ApiKeysStore> = pg_store.clone();
     let auth_store = pg_store.clone();
+    let amk_store: Arc<dyn AmkStore> = pg_store.clone();
     let state = Arc::new(AppState::new(
         cfg.clone(),
         secrets.clone(),
         api_keys,
         auth_store,
+        amk_store,
     ));
     state.start_limiter_gc();
 

@@ -9,9 +9,13 @@ import {
 import { AuthGuard } from '../../components/AuthGuard';
 import { useAuth } from '../../lib/auth-context';
 import { listSecrets, checkSecrets, burnSecretAuthed } from '../../lib/api';
+import { decryptNote } from '../../crypto/amk';
+import { utf8Decode } from '../../crypto/encoding';
+import { loadAmk } from '../../lib/amk-store';
 import {
   FireIcon,
   LockIcon,
+  NoteIcon,
   ChevronLeftIcon,
   ChevronRightIcon,
   ChevronDownIcon,
@@ -177,6 +181,41 @@ function DashboardContent() {
   const [sortBy, setSortBy] = useState<SortColumn>('created_at');
   const [sortOrder, setSortOrder] = useState<SortOrder>('desc');
   const [page, setPage] = useState(0);
+  const [decryptedNotes, setDecryptedNotes] = useState<Record<string, string>>({});
+  const amkRef = useRef<Uint8Array | null>(null);
+
+  // Load AMK from IndexedDB on mount
+  useEffect(() => {
+    if (!auth.userId) return;
+    loadAmk(auth.userId).then((amk) => {
+      amkRef.current = amk;
+    }).catch(() => { /* AMK unavailable */ });
+  }, [auth.userId]);
+
+  // Decrypt notes when secrets change
+  useEffect(() => {
+    const amk = amkRef.current;
+    if (!amk) return;
+
+    const secretsWithNotes = allSecrets.filter((s) => s.enc_meta?.note);
+    if (secretsWithNotes.length === 0) return;
+
+    let cancelled = false;
+    (async () => {
+      const notes: Record<string, string> = {};
+      for (const s of secretsWithNotes) {
+        if (cancelled) return;
+        try {
+          const pt = await decryptNote(amk, s.id, s.enc_meta!.note);
+          notes[s.id] = utf8Decode(pt);
+        } catch {
+          notes[s.id] = '\u26A0 Unable to decrypt note';
+        }
+      }
+      if (!cancelled) setDecryptedNotes(notes);
+    })();
+    return () => { cancelled = true; };
+  }, [allSecrets]);
 
   useEffect(() => {
     const id = setInterval(() => setNow(Date.now()), 1000);
@@ -324,6 +363,9 @@ function DashboardContent() {
                       sortOrder={sortOrder}
                     />
                   </th>
+                  <th class="hidden pr-3 pb-2 font-medium md:table-cell">
+                    <NoteIcon class="size-3.5" />
+                  </th>
                   <th class="pr-3 pb-2 font-medium">
                     <LockIcon class="size-3.5" />
                   </th>
@@ -352,6 +394,9 @@ function DashboardContent() {
                     </td>
                     <td class="hidden py-2 pr-3 whitespace-nowrap sm:table-cell">
                       {formatSize(s.ciphertext_size)}
+                    </td>
+                    <td class="hidden max-w-[12rem] truncate py-2 pr-3 text-xs text-muted md:table-cell" title={decryptedNotes[s.id] ?? ''}>
+                      {decryptedNotes[s.id] ?? ''}
                     </td>
                     <td class="py-2 pr-3">
                       {s.passphrase_protected && (

@@ -65,6 +65,10 @@ export interface ApiInfoTier {
   rate: ApiInfoRate;
 }
 
+export interface ApiInfoFeatures {
+  encrypted_notes: boolean;
+}
+
 export interface ApiInfo {
   authenticated: boolean;
   ttl: {
@@ -76,6 +80,7 @@ export interface ApiInfo {
     authed: ApiInfoTier;
   };
   claim_rate: ApiInfoRate;
+  features: ApiInfoFeatures;
 }
 
 export interface CreateRequest {
@@ -125,14 +130,44 @@ export interface PasskeyLoginFinishRequest {
 
 export interface AuthFinishResponse {
   session_token: string;
+  user_id: string;
   display_name: string;
   expires_at: string;
 }
 
 export interface SessionResponse {
   authenticated: boolean;
+  user_id: string | null;
   display_name: string | null;
   expires_at: string | null;
+}
+
+/** Encrypted metadata v1 — note blob. */
+export interface EncMetaNoteV1 {
+  ct: string; // base64url, max 8 KiB decoded
+  nonce: string; // base64url, exactly 12 bytes decoded
+  salt: string; // base64url, exactly 32 bytes decoded
+}
+
+/** Encrypted metadata v1 envelope. */
+export interface EncMetaV1 {
+  v: 1;
+  note: EncMetaNoteV1;
+}
+
+/** AMK wrapper record. */
+export interface AmkWrapper {
+  user_id: string;
+  wrapped_amk: string; // base64url
+  nonce: string; // base64url
+  version: number;
+}
+
+/** AMK transfer blob (ECDH-encrypted AMK). */
+export interface AmkTransfer {
+  ct: string; // base64url
+  nonce: string; // base64url
+  ecdh_public_key: string; // base64url (browser's public key)
 }
 
 /** Dashboard API types. */
@@ -144,6 +179,7 @@ export interface SecretMetadata {
   state: string;
   ciphertext_size: number;
   passphrase_protected: boolean;
+  enc_meta?: EncMetaV1;
 }
 
 export interface ListSecretsResponse {

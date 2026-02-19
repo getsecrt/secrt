@@ -12,8 +12,8 @@ use chrono::{DateTime, Utc};
 use helpers::{create_api_key, test_app_with_store, test_config, with_proxy_ip, MemStore};
 use secrt_server::http::{build_router, AppState};
 use secrt_server::storage::{
-    ApiKeysStore, AuthStore, SecretQuotaLimits, SecretRecord, SecretSummary, SecretsStore,
-    StorageError, StorageUsage,
+    AmkStore, ApiKeysStore, AuthStore, SecretQuotaLimits, SecretRecord, SecretSummary,
+    SecretsStore, StorageError, StorageUsage,
 };
 use serde_json::Value;
 use tokio::sync::Barrier;
@@ -191,8 +191,9 @@ fn test_app_with_custom_secrets(
     cfg: secrt_server::config::Config,
 ) -> axum::Router {
     let api_keys: Arc<dyn ApiKeysStore> = aux_store.clone();
-    let auth_store: Arc<dyn AuthStore> = aux_store;
-    let state = Arc::new(AppState::new(cfg, secrets, api_keys, auth_store));
+    let auth_store: Arc<dyn AuthStore> = aux_store.clone();
+    let amk_store: Arc<dyn AmkStore> = aux_store;
+    let state = Arc::new(AppState::new(cfg, secrets, api_keys, auth_store, amk_store));
     build_router(state)
 }
 

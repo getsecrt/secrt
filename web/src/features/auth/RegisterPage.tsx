@@ -191,7 +191,7 @@ export function RegisterPage() {
         });
 
         // 4. Log in with the returned session
-        auth.login(finishRes.session_token, finishRes.display_name);
+        auth.login(finishRes.session_token, finishRes.user_id, finishRes.display_name);
         setState({ step: 'done' });
         navigate(redirectTo);
       } catch (err) {

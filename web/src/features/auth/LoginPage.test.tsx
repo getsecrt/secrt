@@ -80,6 +80,7 @@ describe('LoginPage', () => {
     });
     vi.mocked(loginPasskeyFinish).mockResolvedValue({
       session_token: 'uss_login.tok',
+      user_id: '00000000-0000-0000-0000-000000000001',
       display_name: 'dave',
       expires_at: '2026-12-31T00:00:00Z',
     });
@@ -94,7 +95,7 @@ describe('LoginPage', () => {
       challenge_id: 'ch_login',
       credential_id: 'cred_login',
     });
-    expect(mockAuth.login).toHaveBeenCalledWith('uss_login.tok', 'dave');
+    expect(mockAuth.login).toHaveBeenCalledWith('uss_login.tok', '00000000-0000-0000-0000-000000000001', 'dave');
     expect(mockNavigate).toHaveBeenCalledWith('/');
   });
 

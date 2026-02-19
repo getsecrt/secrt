@@ -1,0 +1,56 @@
+{
+  "_description": "Interoperability vectors for secrt AMK (Account Master Key) crypto operations",
+  "_spec": "spec/v1/amk.md (pending)",
+  "constants": {
+    "hkdf_info_amk_wrap": "secrt-amk-wrap-v1",
+    "hkdf_info_note": "secrt-note-v1",
+    "hkdf_info_amk_transfer": "secrt-amk-transfer-v1",
+    "hkdf_info_sas": "secrt-amk-sas-v1",
+    "amk_commit_domain_tag": "secrt-amk-commit-v1",
+    "root_salt_label": "secrt-apikey-v2-root-salt"
+  },
+  "vectors": {
+    "amk_commit": {
+      "description": "SHA-256(domain_tag || amk) — blinded commitment hash",
+      "amk_hex": "1111111111111111111111111111111111111111111111111111111111111111",
+      "commit_hex": "686d63a5d81b6d2c6fc0754e8b77af1eef58e92658d971cfcfb18d4c73e8312a"
+    },
+    "wrap_unwrap": {
+      "description": "AMK wrap via AES-256-GCM with derived wrap key and domain-tagged AAD",
+      "amk_hex": "1111111111111111111111111111111111111111111111111111111111111111",
+      "root_key_hex": "2222222222222222222222222222222222222222222222222222222222222222",
+      "user_id": "user-test",
+      "key_prefix": "abcdef",
+      "version": 1,
+      "nonce_fill_byte": "0x33",
+      "wrap_key_hex": "ac194b4338dbb1ab846f98050de808b0c0dddbf25fcae527db28c628f3a6fefd",
+      "aad_hex": "73656372742d616d6b2d777261702d7631757365722d746573746162636465660001",
+      "ct_b64url": "P4eQZMY_ZR1vJB5GWHKF64fqMmzxP2cfJZ6FjjYGiQ9Atj-msm6kVHNSBNVNTsT0",
+      "nonce_b64url": "MzMzMzMzMzMzMzMz"
+    },
+    "note_encrypt_decrypt": {
+      "description": "Per-secret note encryption: HKDF(AMK, salt) -> note_key, AES-256-GCM with AAD bound to secret_id",
+      "amk_hex": "1111111111111111111111111111111111111111111111111111111111111111",
+      "secret_id": "test-secret-id",
+      "plaintext_utf8": "deterministic test note",
+      "salt_fill_byte": "0xAA",
+      "nonce_fill_byte": "0xAB",
+      "ct_b64url": "11BQ-Nx9u_0EByot0EqcMBWK0DBGToIfSu7xF8jKizHo-FlF4Nov",
+      "nonce_b64url": "q6urq6urq6urq6ur",
+      "salt_b64url": "qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqo"
+    },
+    "transfer_key": {
+      "description": "HKDF(shared_secret, empty_salt, 'secrt-amk-transfer-v1', 32)",
+      "shared_secret_hex": "4242424242424242424242424242424242424242424242424242424242424242",
+      "transfer_key_hex": "54b9a3c6c96ec7190241863ea9fbf2e6536a41b75d714f1bf0189adf99be2ebe"
+    },
+    "sas": {
+      "description": "6-digit SAS code from HKDF(shared_secret, min(pk_a,pk_b)||max(pk_a,pk_b), 'secrt-amk-sas-v1', 3)",
+      "shared_secret_hex": "4242424242424242424242424242424242424242424242424242424242424242",
+      "pk_a_hex": "0101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101",
+      "pk_b_hex": "0202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202",
+      "sas_code": 244149,
+      "sas_is_commutative": true
+    }
+  }
+}

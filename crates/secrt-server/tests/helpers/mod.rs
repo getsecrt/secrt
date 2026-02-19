@@ -14,9 +14,9 @@ use secrt_server::config::Config;
 use secrt_server::domain::auth::{generate_api_key_prefix, hash_api_key_auth_token};
 use secrt_server::http::{build_router, AppState};
 use secrt_server::storage::{
-    ApiKeyRecord, ApiKeyRegistrationLimits, ApiKeysStore, AuthStore, ChallengeRecord,
-    PasskeyRecord, SecretQuotaLimits, SecretRecord, SecretSummary, SecretsStore, SessionRecord,
-    StorageError, StorageUsage, UserId, UserRecord,
+    AmkStore, AmkUpsertResult, AmkWrapperRecord, ApiKeyRecord, ApiKeyRegistrationLimits,
+    ApiKeysStore, AuthStore, ChallengeRecord, PasskeyRecord, SecretQuotaLimits, SecretRecord,
+    SecretSummary, SecretsStore, SessionRecord, StorageError, StorageUsage, UserId, UserRecord,
 };
 use uuid::Uuid;
 
@@ -29,6 +29,7 @@ pub struct MemStore {
     pub sessions: Mutex<HashMap<String, SessionRecord>>,
     pub challenges: Mutex<HashMap<String, ChallengeRecord>>,
     pub apikey_regs: Mutex<Vec<(UserId, String, DateTime<Utc>)>>,
+    pub amk_wrappers: Mutex<HashMap<String, AmkWrapperRecord>>,
     pub ids: Mutex<i64>,
 }
 
@@ -167,6 +168,7 @@ impl SecretsStore for MemStore {
                     created_at: s.created_at,
                     ciphertext_size: s.envelope.len() as i64,
                     passphrase_protected,
+                    enc_meta: None,
                 }
             })
             .collect())
@@ -592,6 +594,86 @@ impl AuthStore for MemStore {
     }
 }
 
+#[async_trait]
+impl AmkStore for MemStore {
+    async fn upsert_wrapper(
+        &self,
+        w: AmkWrapperRecord,
+        _amk_commit: &[u8],
+    ) -> Result<AmkUpsertResult, StorageError> {
+        let key = format!("{}:{}", w.user_id, w.key_prefix);
+        self.amk_wrappers
+            .lock()
+            .expect("amk_wrappers mutex poisoned")
+            .insert(key, w);
+        Ok(AmkUpsertResult::Ok)
+    }
+
+    async fn get_wrapper(
+        &self,
+        user_id: Uuid,
+        key_prefix: &str,
+    ) -> Result<Option<AmkWrapperRecord>, StorageError> {
+        let key = format!("{user_id}:{key_prefix}");
+        Ok(self
+            .amk_wrappers
+            .lock()
+            .expect("amk_wrappers mutex poisoned")
+            .get(&key)
+            .cloned())
+    }
+
+    async fn list_wrappers(&self, user_id: Uuid) -> Result<Vec<AmkWrapperRecord>, StorageError> {
+        let m = self
+            .amk_wrappers
+            .lock()
+            .expect("amk_wrappers mutex poisoned");
+        Ok(m.values()
+            .filter(|w| w.user_id == user_id)
+            .cloned()
+            .collect())
+    }
+
+    async fn delete_wrapper(&self, user_id: Uuid, key_prefix: &str) -> Result<bool, StorageError> {
+        let key = format!("{user_id}:{key_prefix}");
+        Ok(self
+            .amk_wrappers
+            .lock()
+            .expect("amk_wrappers mutex poisoned")
+            .remove(&key)
+            .is_some())
+    }
+
+    async fn has_any_wrapper(&self, user_id: Uuid) -> Result<bool, StorageError> {
+        let m = self
+            .amk_wrappers
+            .lock()
+            .expect("amk_wrappers mutex poisoned");
+        Ok(m.values().any(|w| w.user_id == user_id))
+    }
+
+    async fn get_amk_commit(&self, _user_id: Uuid) -> Result<Option<Vec<u8>>, StorageError> {
+        Ok(None)
+    }
+
+    async fn update_enc_meta(
+        &self,
+        secret_id: &str,
+        owner_keys: &[String],
+        _enc_meta: &secrt_core::api::EncMetaV1,
+        _meta_key_version: i16,
+    ) -> Result<(), StorageError> {
+        let m = self.secrets.lock().expect("secrets mutex poisoned");
+        let Some(s) = m.get(secret_id) else {
+            return Err(StorageError::NotFound);
+        };
+        if !owner_keys.contains(&s.owner_key) {
+            return Err(StorageError::NotFound);
+        }
+        Ok(())
+    }
+}
+
 pub fn test_config() -> Config {
     Config {
         env: "test".into(),
@@ -630,22 +712,25 @@ pub fn test_config() -> Config {
         apikey_register_account_max_per_day: 20,
         apikey_register_ip_max_per_hour: 5,
         apikey_register_ip_max_per_day: 20,
+        encrypted_notes_enabled: false,
     }
 }
 
 pub fn test_app_with_store(store: Arc<MemStore>, cfg: Config) -> axum::Router {
     let secrets: Arc<dyn SecretsStore> = store.clone();
     let api_keys: Arc<dyn ApiKeysStore> = store.clone();
-    let auth_store: Arc<dyn AuthStore> = store;
-    let state = Arc::new(AppState::new(cfg, secrets, api_keys, auth_store));
+    let auth_store: Arc<dyn AuthStore> = store.clone();
+    let amk_store: Arc<dyn AmkStore> = store;
+    let state = Arc::new(AppState::new(cfg, secrets, api_keys, auth_store, amk_store));
     build_router(state)
 }
 
 pub fn test_state_and_app(store: Arc<MemStore>, cfg: Config) -> (Arc<AppState>, axum::Router) {
     let secrets: Arc<dyn SecretsStore> = store.clone();
     let api_keys: Arc<dyn ApiKeysStore> = store.clone();
-    let auth_store: Arc<dyn AuthStore> = store;
-    let state = Arc::new(AppState::new(cfg, secrets, api_keys, auth_store));
+    let auth_store: Arc<dyn AuthStore> = store.clone();
+    let amk_store: Arc<dyn AmkStore> = store;
+    let state = Arc::new(AppState::new(cfg, secrets, api_keys, auth_store, amk_store));
     let app = build_router(state.clone());
     (state, app)
 }

@@ -227,6 +227,7 @@ mod tests {
             created_at: "2026-01-01T00:00:00Z".into(),
             ciphertext_size: 100,
             passphrase_protected: false,
+            enc_meta: None,
         }
     }
 
