@@ -23,26 +23,26 @@
   },
   "dependencies": {
     "@bokuweb/zstd-wasm": "^0.0.27",
-    "@tailwindcss/vite": "^4.1.18",
+    "@tailwindcss/vite": "^4.2.0",
     "fzstd": "^0.1.1",
     "hash-wasm": "^4.12.0",
-    "preact": "^10.27.2",
-    "tailwindcss": "^4.1.18",
+    "preact": "^10.28.4",
+    "tailwindcss": "^4.2.0",
     "uqr": "^0.1.2"
   },
   "devDependencies": {
     "@playwright/test": "^1.58.2",
-    "@preact/preset-vite": "^2.10.2",
+    "@preact/preset-vite": "^2.10.3",
     "@testing-library/jest-dom": "^6.9.1",
     "@testing-library/preact": "^3.2.4",
     "@testing-library/user-event": "^14.6.1",
-    "@vitest/coverage-v8": "^3.0.0",
-    "happy-dom": "^17.0.0",
+    "@vitest/coverage-v8": "^4.0.18",
+    "happy-dom": "^20.6.3",
     "prettier": "^3.8.1",
     "prettier-plugin-tailwindcss": "^0.7.2",
-    "typescript": "^5.8.2",
+    "typescript": "^5.9.3",
     "vite": "^7.3.1",
-    "vitest": "^3.0.0"
+    "vitest": "^4.0.18"
   },
   "pnpm": {
     "onlyBuiltDependencies": [

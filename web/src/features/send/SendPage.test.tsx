@@ -442,6 +442,9 @@ describe('SendPage', () => {
     await user.click(
       screen.getByRole('button', { name: 'Password generator settings' }),
     );
+    // Clear any calls that happened during modal open
+    mockGeneratePassword.mockClear();
+
     await user.click(
       screen.getByRole('button', { name: 'Close password generator' }),
     );
