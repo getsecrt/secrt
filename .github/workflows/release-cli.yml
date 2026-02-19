@@ -142,6 +142,7 @@ jobs:
     env:
       HAS_APPLE_CERT: ${{ secrets.APPLE_CERTIFICATE_P12 != '' }}
       HAS_APPLE_ID: ${{ secrets.APPLE_ID != '' }}
+      HAS_INSTALLER_CERT: ${{ secrets.APPLE_INSTALLER_P12 != '' }}
     steps:
       - name: Download macOS ARM binary
         uses: actions/download-artifact@v4
@@ -208,11 +209,59 @@ jobs:
             rm secrt
           done
 
-      - name: Staple notarization tickets
-        if: env.HAS_APPLE_ID == 'true'
+      - name: Import Installer certificate
+        if: env.HAS_INSTALLER_CERT == 'true'
+        env:
+          APPLE_INSTALLER_P12: ${{ secrets.APPLE_INSTALLER_P12 }}
+          APPLE_INSTALLER_P12_PASSWORD: ${{ secrets.APPLE_INSTALLER_P12_PASSWORD }}
         run: |
-          for zip in secrt-macos.zip secrt-macos-arm64.zip secrt-macos-amd64.zip; do
-            xcrun stapler staple "$zip" || echo "Stapling $zip failed (online check still works)"
+          KEYCHAIN_PATH=$RUNNER_TEMP/app-signing.keychain-db
+          echo "$APPLE_INSTALLER_P12" | base64 --decode > $RUNNER_TEMP/installer-cert.p12
+          security import $RUNNER_TEMP/installer-cert.p12 -P "$APPLE_INSTALLER_P12_PASSWORD" -A -t cert -f pkcs12 -k $KEYCHAIN_PATH
+          security set-key-partition-list -S apple-tool:,apple: -k "" $KEYCHAIN_PATH
+
+      - name: Build and sign installer packages
+        if: env.HAS_INSTALLER_CERT == 'true'
+        run: |
+          VERSION="${GITHUB_REF_NAME#cli/v}"
+          if [[ ! "$VERSION" =~ ^[0-9] ]]; then VERSION="0.0.0"; fi
+          for pair in "secrt-darwin-universal:secrt-macos" "secrt-darwin-arm64:secrt-macos-arm64" "secrt-darwin-amd64:secrt-macos-amd64"; do
+            src="${pair%%:*}"
+            pkg_name="${pair##*:}"
+            mkdir -p pkg-root/usr/local/bin
+            cp "$src" pkg-root/usr/local/bin/secrt
+            chmod +x pkg-root/usr/local/bin/secrt
+            pkgbuild --root pkg-root \
+              --identifier ca.secrt.cli \
+              --version "$VERSION" \
+              --install-location / \
+              "${pkg_name}-unsigned.pkg"
+            productsign --sign "Developer ID Installer: Joseph Lien (A93Q7MKECL)" \
+              "${pkg_name}-unsigned.pkg" "${pkg_name}.pkg"
+            rm -rf pkg-root "${pkg_name}-unsigned.pkg"
+          done
+
+      - name: Notarize installer packages
+        if: env.HAS_APPLE_ID == 'true' && env.HAS_INSTALLER_CERT == 'true'
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
+        run: |
+          for pkg in secrt-macos.pkg secrt-macos-arm64.pkg secrt-macos-amd64.pkg; do
+            xcrun notarytool submit "$pkg" \
+              --apple-id "$APPLE_ID" \
+              --team-id "$APPLE_TEAM_ID" \
+              --password "$APPLE_APP_PASSWORD" \
+              --wait &
+          done
+          wait
+
+      - name: Staple installer packages
+        if: env.HAS_APPLE_ID == 'true' && env.HAS_INSTALLER_CERT == 'true'
+        run: |
+          for pkg in secrt-macos.pkg secrt-macos-arm64.pkg secrt-macos-amd64.pkg; do
+            xcrun stapler staple "$pkg"
           done
 
       - name: Upload macOS release archives
@@ -223,6 +272,9 @@ jobs:
             secrt-macos.zip
             secrt-macos-arm64.zip
             secrt-macos-amd64.zip
+            secrt-macos.pkg
+            secrt-macos-arm64.pkg
+            secrt-macos-amd64.pkg
 
   release:
     name: Publish release
@@ -261,7 +313,7 @@ jobs:
 
       - name: Generate checksums
         working-directory: artifacts
-        run: sha256sum secrt-macos*.zip secrt-linux-*.tar.gz secrt-windows-*.zip > secrt-checksums-sha256.txt
+        run: sha256sum secrt-macos*.zip secrt-macos*.pkg secrt-linux-*.tar.gz secrt-windows-*.zip > secrt-checksums-sha256.txt
 
       - name: Show checksums
         run: cat artifacts/secrt-checksums-sha256.txt
@@ -271,6 +323,9 @@ jobs:
         with:
           generate_release_notes: true
           files: |
+            artifacts/secrt-macos.pkg
+            artifacts/secrt-macos-arm64.pkg
+            artifacts/secrt-macos-amd64.pkg
             artifacts/secrt-macos.zip
             artifacts/secrt-macos-arm64.zip
             artifacts/secrt-macos-amd64.zip
