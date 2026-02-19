@@ -65,7 +65,7 @@ export function Layout({ children }: LayoutProps) {
           >
             Privacy Policy
           </a>
-          <span class="text-faint/40">·</span>
+          <span class="text-faint/40">&bull;</span>
           <a
             href="/how-it-works"
             onClick={(e: MouseEvent) => {
