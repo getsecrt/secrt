@@ -1,5 +1,29 @@
 # Changelog
 
+## 0.13.0 — 2026-02-19
+
+### Added
+
+- **Zero-knowledge encrypted notes:** new `enc_meta` JSONB column on secrets table for client-encrypted note blobs. Server validates structure (version, base64url fields, size limits) but never sees plaintext.
+- **AMK wrapper endpoints:** `PUT /api/v1/amk/wrapper` (upsert), `GET /api/v1/amk/wrapper` (retrieve by key prefix), `GET /api/v1/amk/wrappers` (list all for user), `GET /api/v1/amk/exists` (existence check).
+- **AMK commitment protocol:** `amk_accounts` table with first-writer-wins semantics (`INSERT ... ON CONFLICT DO NOTHING`) and blinded commitment hash. Returns 409 on commitment mismatch.
+- **Per-secret metadata endpoint:** `GET /api/v1/secrets/:id` returns metadata for a single owned secret.
+- **Secret metadata update:** `PUT /api/v1/secrets/:id/meta` attaches encrypted metadata to an owned, unexpired secret. Validates `enc_meta.v == 1`, base64url encoding, field lengths (nonce: 12 bytes, salt: 32 bytes, ciphertext: max 8 KiB).
+- **Database migration 002:** `amk_accounts` and `amk_wrappers` tables with cascading foreign keys.
+- **Feature flag:** `ENCRYPTED_NOTES_ENABLED` env var (default: `true`) gates all AMK/enc_meta endpoints via `require_encrypted_notes()` middleware.
+- **Server info features:** `/api/v1/info` response now includes `features.encrypted_notes` boolean.
+- **`AmkStore` trait:** storage abstraction for AMK operations with `PgStore` and `MemStore` implementations.
+
+### Changed
+
+- **Quota calculations:** `enc_meta` size now counted alongside envelope size in per-owner byte quota enforcement.
+- **`SecretSummary`:** now includes optional `enc_meta` field in list and single-secret responses.
+- **`/sync/:id` route:** new SPA route served by the frontend for AMK sync links.
+
+### Fixed
+
+- **Device auth approval flow:** browser approval now shows a confirmation screen before sending the device approval, preventing accidental approvals.
+
 ## 0.12.2 — 2026-02-19
 
 ### Changed

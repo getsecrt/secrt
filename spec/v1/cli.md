@@ -433,7 +433,7 @@ secrt info <id-or-share-url> [--api-key <key>] [--base-url <url>] [--json] [--si
 Behavior:
 
 - Resolve `<id>` from a full ID, share URL, or ID prefix.
-- Call `GET /api/v1/secrets/{id}/metadata` (authenticated).
+- Call `GET /api/v1/secrets/{id}` (authenticated).
 - Requires API key auth.
 
 Prefix resolution: if the exact ID returns 404, the CLI SHOULD attempt prefix resolution by listing secrets and finding a unique match. If the prefix is ambiguous (matches multiple secrets), an error listing the matches SHOULD be returned.
@@ -548,11 +548,7 @@ Behavior:
 11. Store the key using the shared key storage logic (see below).
 12. Print success with masked key preview.
 
-SAS verification:
-
-When the CLI includes an `ecdh_public_key` in `/device/start` and AMK transfer is available, the browser displays a Short Authentication String (SAS) derived from both ECDH public keys. The CLI SHOULD display the same SAS and prompt the user to confirm it matches what the browser shows before accepting the transferred AMK. This prevents man-in-the-middle attacks on the key transfer channel.
-
-Non-TTY behavior: when stderr is not a TTY (non-interactive session), the CLI MUST skip the AMK transfer entirely and print a warning. SAS verification requires interactive confirmation, so accepting an AMK transfer without it would silently bypass MITM protection. The device auth itself still succeeds — only the AMK import is skipped. Users can import the AMK later via `secrt sync`.
+When the poll response includes an `amk_transfer` blob, the CLI performs ECDH key agreement with the browser's ephemeral public key, derives a transfer key, decrypts the AMK, wraps it for the local API key, and uploads the wrapper via `PUT /api/v1/amk/wrapper`. This process is fully automatic and requires no user interaction. If any step fails, the transfer is skipped with a warning and the user can sync the AMK later via `secrt sync`. AMK transfer works in both interactive and non-interactive sessions.
 
 Security invariant: the `root_key` never leaves the CLI process. Only the derived `auth_token` is sent to the server.
 

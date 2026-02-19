@@ -206,6 +206,22 @@ async fn info_endpoint_authenticated_and_cache_header() {
         .oneshot(with_remote(req2, [198, 51, 100, 2], 1234))
         .await
         .expect("response");
+    assert_eq!(
+        resp2
+            .headers()
+            .get("cache-control")
+            .and_then(|v| v.to_str().ok()),
+        Some("private, no-store"),
+        "authenticated /info must not be publicly cacheable"
+    );
+    assert_eq!(
+        resp2
+            .headers()
+            .get("vary")
+            .and_then(|v| v.to_str().ok()),
+        Some("Authorization, X-API-Key"),
+        "authenticated /info must include Vary header"
+    );
     let body2: Value = serde_json::from_str(&response_body_text(resp2).await).expect("json");
     assert_eq!(body2["authenticated"], Value::Bool(true));
 }

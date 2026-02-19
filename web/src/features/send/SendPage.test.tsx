@@ -36,6 +36,17 @@ vi.mock('../../crypto/constants', () => ({
 vi.mock('../../lib/api', () => ({
   createSecret: vi.fn(),
   fetchInfo: vi.fn(),
+  updateSecretMeta: vi.fn(),
+}));
+
+vi.mock('../../crypto/amk', () => ({
+  encryptNote: vi.fn(),
+  generateAmk: vi.fn(),
+}));
+
+vi.mock('../../lib/amk-store', () => ({
+  loadAmk: vi.fn(),
+  storeAmk: vi.fn(),
 }));
 
 vi.mock('../../lib/envelope-size', () => ({
@@ -63,19 +74,23 @@ vi.mock('./password-generator', () => ({
   generatePassword: vi.fn(),
 }));
 
+const mockAuth = {
+  loading: false,
+  authenticated: false,
+  displayName: null as string | null,
+  userId: null as string | null,
+  sessionToken: null as string | null,
+  login: vi.fn(),
+  logout: vi.fn(),
+};
 vi.mock('../../lib/auth-context', () => ({
-  useAuth: () => ({
-    loading: false,
-    authenticated: false,
-    displayName: null,
-    sessionToken: null,
-    login: vi.fn(),
-    logout: vi.fn(),
-  }),
+  useAuth: () => mockAuth,
 }));
 
 import { seal, preloadPassphraseKdf } from '../../crypto/envelope';
-import { createSecret, fetchInfo } from '../../lib/api';
+import { createSecret, fetchInfo, updateSecretMeta } from '../../lib/api';
+import { encryptNote, generateAmk } from '../../crypto/amk';
+import { loadAmk, storeAmk } from '../../lib/amk-store';
 import { checkEnvelopeSize } from '../../lib/envelope-size';
 import { formatShareLink } from '../../lib/url';
 import { buildFrame } from '../../crypto/frame';
@@ -96,6 +111,11 @@ const mockBuildFrame = vi.mocked(buildFrame);
 const mockEnsureCompressor = vi.mocked(ensureCompressor);
 const mockCopyToClipboard = vi.mocked(copyToClipboard);
 const mockGeneratePassword = vi.mocked(generatePassword);
+const mockUpdateSecretMeta = vi.mocked(updateSecretMeta);
+const mockEncryptNote = vi.mocked(encryptNote);
+const mockGenerateAmk = vi.mocked(generateAmk);
+const mockLoadAmk = vi.mocked(loadAmk);
+const mockStoreAmk = vi.mocked(storeAmk);
 
 const fakeEnvelope = {
   v: 1 as const,
@@ -114,6 +134,12 @@ const fakeEnvelope = {
 describe('SendPage', () => {
   beforeEach(() => {
     localStorage.clear();
+    // Reset auth to unauthenticated default
+    mockAuth.loading = false;
+    mockAuth.authenticated = false;
+    mockAuth.displayName = null;
+    mockAuth.userId = null;
+    mockAuth.sessionToken = null;
     mockFetchInfo.mockResolvedValue({
       authenticated: false,
       ttl: { default_seconds: 86400, max_seconds: 2592000 },
@@ -661,6 +687,138 @@ describe('SendPage', () => {
 
     await waitFor(() => {
       expect(mockBuildFrame).toHaveBeenCalled();
+    });
+  });
+
+  describe('note field', () => {
+    beforeEach(() => {
+      sessionStorage.clear();
+      // Authenticated user with encrypted_notes enabled
+      mockAuth.authenticated = true;
+      mockAuth.userId = 'user-abc';
+      mockAuth.sessionToken = 'uss_test.tok';
+      mockFetchInfo.mockResolvedValue({
+        authenticated: true,
+        ttl: { default_seconds: 86400, max_seconds: 2592000 },
+        limits: {
+          public: {
+            max_envelope_bytes: 262144,
+            max_secrets: 100,
+            max_total_bytes: 10485760,
+            rate: { requests_per_second: 2, burst: 5 },
+          },
+          authed: {
+            max_envelope_bytes: 1048576,
+            max_secrets: 1000,
+            max_total_bytes: 104857600,
+            rate: { requests_per_second: 10, burst: 20 },
+          },
+        },
+        claim_rate: { requests_per_second: 5, burst: 10 },
+        features: { encrypted_notes: true },
+      });
+      mockLoadAmk.mockResolvedValue(new Uint8Array(32).fill(0xaa));
+      mockEncryptNote.mockResolvedValue({
+        ct: 'ct-b64',
+        nonce: 'nonce-b64',
+        salt: 'salt-b64',
+      });
+      mockUpdateSecretMeta.mockResolvedValue({ ok: true });
+      mockStoreAmk.mockResolvedValue(undefined);
+      mockGenerateAmk.mockReturnValue(new Uint8Array(32).fill(0xbb));
+    });
+
+    it('shows note input when authenticated and encrypted_notes is enabled', async () => {
+      render(<SendPage />);
+      await waitFor(() => {
+        expect(screen.getByLabelText(/Private Note/)).toBeInTheDocument();
+      });
+    });
+
+    it('hides note input when encrypted_notes is disabled', async () => {
+      mockFetchInfo.mockResolvedValue({
+        authenticated: true,
+        ttl: { default_seconds: 86400, max_seconds: 2592000 },
+        limits: {
+          public: {
+            max_envelope_bytes: 262144,
+            max_secrets: 100,
+            max_total_bytes: 10485760,
+            rate: { requests_per_second: 2, burst: 5 },
+          },
+          authed: {
+            max_envelope_bytes: 1048576,
+            max_secrets: 1000,
+            max_total_bytes: 104857600,
+            rate: { requests_per_second: 10, burst: 20 },
+          },
+        },
+        claim_rate: { requests_per_second: 5, burst: 10 },
+        features: { encrypted_notes: false },
+      });
+      render(<SendPage />);
+      await waitFor(() => {
+        expect(mockFetchInfo).toHaveBeenCalled();
+      });
+      expect(
+        screen.queryByLabelText(/Private Note/),
+      ).not.toBeInTheDocument();
+    });
+
+    it('hides note input when not authenticated', async () => {
+      mockAuth.authenticated = false;
+      mockAuth.sessionToken = null;
+      render(<SendPage />);
+      await waitFor(() => {
+        expect(mockFetchInfo).toHaveBeenCalled();
+      });
+      expect(
+        screen.queryByLabelText(/Private Note/),
+      ).not.toBeInTheDocument();
+    });
+
+    it('attaches note on successful submission', async () => {
+      const user = userEvent.setup();
+      render(<SendPage />);
+
+      // Wait for note field to appear
+      await waitFor(() => {
+        expect(screen.getByLabelText(/Private Note/)).toBeInTheDocument();
+      });
+
+      await user.type(
+        screen.getByPlaceholderText(
+          'Enter your secret or drag a file here...',
+        ),
+        'my secret',
+      );
+      await user.type(screen.getByLabelText(/Private Note/), 'test note');
+      await user.click(
+        screen.getByRole('button', { name: 'Create secret' }),
+      );
+
+      await waitFor(() => {
+        expect(screen.getByText('Secret Created')).toBeInTheDocument();
+      });
+      expect(mockEncryptNote).toHaveBeenCalledWith(
+        expect.any(Uint8Array),
+        'sec_abc',
+        expect.any(Uint8Array),
+      );
+      expect(mockUpdateSecretMeta).toHaveBeenCalledWith(
+        'uss_test.tok',
+        'sec_abc',
+        expect.objectContaining({
+          v: 1,
+          note: expect.objectContaining({
+            ct: 'ct-b64',
+            nonce: 'nonce-b64',
+            salt: 'salt-b64',
+          }),
+        }),
+        1,
+        expect.any(AbortSignal),
+      );
     });
   });
 });

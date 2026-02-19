@@ -6,8 +6,8 @@ use std::sync::{Arc, Mutex};
 
 use secrt_cli::cli::Deps;
 use secrt_cli::client::{
-    AmkWrapperResponse, ApiClient, ClaimResponse, CreateRequest, CreateResponse, InfoResponse,
-    ListSecretsResponse, SecretApi, SecretMetadataItem,
+    AmkWrapperResponse, ApiClient, ClaimResponse, CreateRequest, CreateResponse, EncMetaV1,
+    InfoResponse, ListSecretsResponse, SecretApi, SecretMetadataItem,
 };
 use secrt_cli::envelope::EnvelopeError;
 
@@ -48,6 +48,7 @@ pub struct MockApiResponses {
     pub get_secret_metadata: Option<Result<SecretMetadataItem, String>>,
     pub get_amk_wrapper: Option<Result<Option<AmkWrapperResponse>, String>>,
     pub upsert_amk_wrapper: Option<Result<(), String>>,
+    pub update_secret_meta: Option<Result<(), String>>,
 }
 
 impl Default for MockApiResponses {
@@ -61,6 +62,7 @@ impl Default for MockApiResponses {
             get_secret_metadata: None,
             get_amk_wrapper: None,
             upsert_amk_wrapper: None,
+            update_secret_meta: None,
         }
     }
 }
@@ -158,6 +160,19 @@ impl SecretApi for MockApi {
             None => Err("mock: upsert_amk_wrapper not configured".into()),
         }
     }
+
+    fn update_secret_meta(
+        &self,
+        _secret_id: &str,
+        _enc_meta: &EncMetaV1,
+        _meta_key_version: i16,
+    ) -> Result<(), String> {
+        match &self.responses.update_secret_meta {
+            Some(Ok(())) => Ok(()),
+            Some(Err(e)) => Err(e.clone()),
+            None => Err("mock: update_secret_meta not configured".into()),
+        }
+    }
 }
 
 /// Build test Deps with configurable options.
@@ -175,11 +190,24 @@ pub struct TestDepsBuilder {
 
 impl TestDepsBuilder {
     pub fn new() -> Self {
+        // Default XDG_CONFIG_HOME to a unique temp dir so tests never pick up the
+        // real user config. Tests that need a specific config call `.env("XDG_CONFIG_HOME", ...)`
+        // which will override this default.
+        let iso_dir = std::env::temp_dir().join(format!(
+            "secrt_test_iso_{}_{:?}",
+            std::process::id(),
+            std::thread::current().id()
+        ));
+        let mut env = HashMap::new();
+        env.insert(
+            "XDG_CONFIG_HOME".to_string(),
+            iso_dir.to_string_lossy().to_string(),
+        );
         TestDepsBuilder {
             stdin_data: Vec::new(),
             is_tty: false,
             is_stdout_tty: false,
-            env: HashMap::new(),
+            env,
             read_pass_responses: Vec::new(),
             read_pass_error: None,
             mock_responses: None,
@@ -275,6 +303,13 @@ impl TestDepsBuilder {
         self.mock_responses
             .get_or_insert_with(MockApiResponses::default)
             .upsert_amk_wrapper = Some(resp);
+        self
+    }
+
+    pub fn mock_update_secret_meta(mut self, resp: Result<(), String>) -> Self {
+        self.mock_responses
+            .get_or_insert_with(MockApiResponses::default)
+            .update_secret_meta = Some(resp);
         self
     }
 

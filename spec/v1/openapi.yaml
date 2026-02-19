@@ -261,6 +261,34 @@ paths:
         "500":
           $ref: "#/components/responses/InternalError"
 
+  /api/v1/secrets/{id}:
+    get:
+      operationId: getSecretMetadata
+      summary: Get metadata for a single owned secret
+      description: |
+        Returns metadata for a secret owned by the caller.
+        Same schema as items in the list endpoint (`SecretMetadataItem`).
+        Accepts session or API key auth.
+      tags: [secrets]
+      security:
+        - sessionAuth: []
+        - apiKeyAuth: []
+      parameters:
+        - $ref: "#/components/parameters/secretId"
+      responses:
+        "200":
+          description: Secret metadata
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SecretMetadataItem"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          description: Secret not found, expired, or not owned by caller
+        "429":
+          $ref: "#/components/responses/RateLimited"
+
   /api/v1/secrets/{id}/claim:
     post:
       operationId: claimSecret
@@ -1381,6 +1409,10 @@ components:
         authenticated:
           type: boolean
           description: Whether a valid API key was provided
+        user_id:
+          type: string
+          format: uuid
+          description: User ID when authenticated; omitted for unauthenticated requests
         features:
           type: object
           properties:

@@ -525,14 +525,7 @@ The flow works as follows:
    transfer_key  = HKDF-SHA-256(shared_secret, empty_salt, "secrt-amk-transfer-v1", 32)
    ```
 3. **Browser encrypts the AMK** with the transfer key using AES-256-GCM (AAD: `"secrt-amk-transfer-v1"`), and sends the ciphertext + its public key alongside the approval response.
-4. **Both sides compute a 6-digit SAS code** (Short Authentication String) from the shared secret and both public keys, sorted deterministically:
-   ```
-   sas_salt = min(pkA, pkB) || max(pkA, pkB)
-   sas_bytes = HKDF-SHA-256(shared_secret, sas_salt, "secrt-amk-sas-v1", 3)
-   sas_code  = ((sas_bytes[0] << 16) | (sas_bytes[1] << 8) | sas_bytes[2]) % 1,000,000
-   ```
-   The user verifies the SAS code matches on both the browser and the terminal, confirming no MITM attack occurred.
-5. **CLI decrypts the AMK** using the same derived transfer key and stores it locally.
+4. **CLI automatically decrypts the AMK** using the derived transfer key, wraps it for the local API key, and uploads the wrapper. No user interaction is required — the device code already binds the ECDH session to the authenticated challenge.
 
 The ECDH transfer is non-fatal — if it fails (no AMK in the browser, key generation error, etc.), device authorization still succeeds without AMK transfer. The CLI can still retrieve a wrapped AMK later via the API key wrapper endpoint.
 

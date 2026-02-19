@@ -194,6 +194,14 @@ function DashboardContent() {
   );
   const amkRef = useRef<Uint8Array | null>(null);
   const [hasAmk, setHasAmk] = useState(false);
+  const [visible, setVisible] = useState(true);
+
+  // Pause polling when tab is backgrounded
+  useEffect(() => {
+    const onChange = () => setVisible(document.visibilityState === 'visible');
+    document.addEventListener('visibilitychange', onChange);
+    return () => document.removeEventListener('visibilitychange', onChange);
+  }, []);
 
   // Load AMK from IndexedDB on mount
   useEffect(() => {
@@ -208,7 +216,12 @@ function DashboardContent() {
       });
   }, [auth.userId]);
 
-  // Decrypt notes when secrets change
+  // Clear stale decrypted notes on user change
+  useEffect(() => {
+    setDecryptedNotes({});
+  }, [auth.userId]);
+
+  // Decrypt notes when secrets or AMK availability change
   useEffect(() => {
     const amk = amkRef.current;
     if (!amk) return;
@@ -233,12 +246,14 @@ function DashboardContent() {
     return () => {
       cancelled = true;
     };
-  }, [allSecrets]);
+  }, [allSecrets, hasAmk]);
 
   useEffect(() => {
+    if (!visible) return;
+    setNow(Date.now());
     const id = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(id);
-  }, []);
+  }, [visible]);
 
   const fetchSecrets = useCallback(async () => {
     if (!auth.sessionToken) return;
@@ -262,9 +277,10 @@ function DashboardContent() {
   // Poll for changes via lightweight checksum endpoint
   const lastChecksum = useRef<string>('');
   useEffect(() => {
-    if (!auth.sessionToken) return;
+    if (!auth.sessionToken || !visible) return;
     const controller = new AbortController();
-    const id = setInterval(async () => {
+    // Immediate check when tab becomes visible (or on first mount)
+    const doCheck = async () => {
       if (loading) return;
       try {
         const res = await checkSecrets(auth.sessionToken!, controller.signal);
@@ -275,12 +291,14 @@ function DashboardContent() {
       } catch {
         // Silently ignore poll errors (network blips, unmount abort)
       }
-    }, 4000);
+    };
+    doCheck();
+    const id = setInterval(doCheck, 4000);
     return () => {
       clearInterval(id);
       controller.abort();
     };
-  }, [auth.sessionToken, loading, fetchSecrets]);
+  }, [auth.sessionToken, loading, fetchSecrets, visible]);
 
   const sorted = useMemo(() => {
     const copy = [...allSecrets];

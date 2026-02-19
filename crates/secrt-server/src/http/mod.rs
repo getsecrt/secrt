@@ -2595,7 +2595,12 @@ pub async fn handle_info_entry(State(state): State<Arc<AppState>>, req: Request)
         },
     );
 
-    insert_header(resp.headers_mut(), "cache-control", "public, max-age=300");
+    if authenticated {
+        insert_header(resp.headers_mut(), "cache-control", "private, no-store");
+        insert_header(resp.headers_mut(), "vary", "Authorization, X-API-Key");
+    } else {
+        insert_header(resp.headers_mut(), "cache-control", "public, max-age=300");
+    }
     resp
 }
 

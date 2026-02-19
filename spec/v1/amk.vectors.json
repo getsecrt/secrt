@@ -1,6 +1,6 @@
 {
   "_description": "Interoperability vectors for secrt AMK (Account Master Key) crypto operations",
-  "_spec": "spec/v1/amk.md (pending)",
+  "_spec": "docs/whitepaper.md § Encrypted Notes (Account Master Key)",
   "constants": {
     "hkdf_info_amk_wrap": "secrt-amk-wrap-v1",
     "hkdf_info_note": "secrt-note-v1",

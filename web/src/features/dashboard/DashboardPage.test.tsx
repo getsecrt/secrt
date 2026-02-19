@@ -3,9 +3,18 @@ import { render, screen, cleanup, waitFor } from '@testing-library/preact';
 import userEvent from '@testing-library/user-event';
 
 // Mock auth context
-const mockAuth = {
+const mockAuth: {
+  loading: boolean;
+  authenticated: boolean;
+  userId: string | null;
+  displayName: string | null;
+  sessionToken: string | null;
+  login: ReturnType<typeof vi.fn>;
+  logout: ReturnType<typeof vi.fn>;
+} = {
   loading: false,
   authenticated: true,
+  userId: 'user-1',
   displayName: 'alice',
   sessionToken: 'uss_test.secret',
   login: vi.fn(),
@@ -26,8 +35,18 @@ vi.mock('../../lib/api', () => ({
   burnSecretAuthed: vi.fn(),
 }));
 
+vi.mock('../../lib/amk-store', () => ({
+  loadAmk: vi.fn(),
+}));
+
+vi.mock('../../crypto/amk', () => ({
+  decryptNote: vi.fn(),
+}));
+
 import { DashboardPage } from './DashboardPage';
 import { listSecrets, checkSecrets, burnSecretAuthed } from '../../lib/api';
+import { loadAmk } from '../../lib/amk-store';
+import { decryptNote } from '../../crypto/amk';
 
 const futureDate = new Date(Date.now() + 3600000).toISOString();
 
@@ -40,6 +59,7 @@ function makeSecret(
     state: string;
     ciphertext_size: number;
     passphrase_protected: boolean;
+    enc_meta: { v: 1; note: { ct: string; nonce: string; salt: string } };
   }> = {},
 ) {
   return {
@@ -58,6 +78,7 @@ describe('DashboardPage', () => {
   beforeEach(() => {
     mockAuth.loading = false;
     mockAuth.authenticated = true;
+    mockAuth.userId = 'user-1';
     mockAuth.displayName = 'alice';
     mockAuth.sessionToken = 'uss_test.secret';
     mockAuth.login.mockClear();
@@ -66,6 +87,9 @@ describe('DashboardPage', () => {
     vi.mocked(listSecrets).mockReset();
     vi.mocked(checkSecrets).mockResolvedValue({ count: 0, checksum: 'steady' });
     vi.mocked(burnSecretAuthed).mockReset();
+    vi.mocked(loadAmk).mockReset();
+    vi.mocked(loadAmk).mockResolvedValue(null);
+    vi.mocked(decryptNote).mockReset();
   });
 
   afterEach(() => {
@@ -222,5 +246,85 @@ describe('DashboardPage', () => {
 
     const alert = await screen.findByRole('alert');
     expect(alert).toHaveTextContent('Burn denied');
+  });
+
+  it('decrypts notes when AMK loads after secrets (race condition)', async () => {
+    // Prevent polling from causing incidental refetches.
+    vi.mocked(checkSecrets).mockReturnValue(new Promise(() => {}));
+
+    // Simulate AMK loading slower than secrets (IndexedDB vs API race)
+    let resolveAmk!: (amk: Uint8Array | null) => void;
+    vi.mocked(loadAmk).mockReturnValue(
+      new Promise((r) => {
+        resolveAmk = r;
+      }),
+    );
+
+    vi.mocked(decryptNote).mockResolvedValue(
+      new TextEncoder().encode('my secret note'),
+    );
+
+    const secret = makeSecret({
+      id: 'aaaa1111bbbb2222',
+      enc_meta: {
+        v: 1,
+        note: { ct: 'fakect', nonce: 'fakenonce', salt: 'fakesalt' },
+      },
+    });
+
+    // listSecrets resolves immediately — secrets arrive before AMK
+    vi.mocked(listSecrets).mockResolvedValue({
+      secrets: [secret],
+      total: 1,
+      limit: 50,
+      offset: 0,
+    });
+
+    render(<DashboardPage />);
+
+    // Secrets load first — note should show as "Encrypted" (AMK not ready)
+    await screen.findByText('aaaa1111bbbb2222');
+    expect(screen.getByText('Encrypted')).toBeInTheDocument();
+    expect(decryptNote).not.toHaveBeenCalled();
+
+    // Now AMK arrives from IndexedDB
+    resolveAmk(new Uint8Array(32));
+
+    // hasAmk in the decrypt effect deps ensures it reruns when AMK appears
+    await waitFor(() => {
+      expect(screen.getByText('my secret note')).toBeInTheDocument();
+    });
+    expect(decryptNote).toHaveBeenCalled();
+  });
+
+  it('decrypts notes immediately when AMK is already loaded', async () => {
+    // AMK resolves instantly (already cached)
+    vi.mocked(loadAmk).mockResolvedValue(new Uint8Array(32));
+    vi.mocked(decryptNote).mockResolvedValue(
+      new TextEncoder().encode('instant note'),
+    );
+
+    const secret = makeSecret({
+      id: 'aaaa1111bbbb2222',
+      enc_meta: {
+        v: 1,
+        note: { ct: 'fakect', nonce: 'fakenonce', salt: 'fakesalt' },
+      },
+    });
+
+    vi.mocked(listSecrets).mockResolvedValue({
+      secrets: [secret],
+      total: 1,
+      limit: 50,
+      offset: 0,
+    });
+
+    render(<DashboardPage />);
+
+    // Should eventually show decrypted note
+    await waitFor(() => {
+      expect(screen.getByText('instant note')).toBeInTheDocument();
+    });
+    expect(decryptNote).toHaveBeenCalled();
   });
 });

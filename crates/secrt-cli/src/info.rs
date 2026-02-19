@@ -247,8 +247,8 @@ pub fn run_info(args: &[String], deps: &mut Deps) -> i32 {
     let note = decrypt_note(&amk, &meta.id, meta.enc_meta.as_ref());
 
     // Display
-    let _ = writeln!(deps.stdout, "  {}  {}", c(OPT, "ID:"), meta.id);
-    let _ = writeln!(deps.stdout, "  {}  {}", c(OPT, "URL:"), meta.share_url);
+    let _ = writeln!(deps.stdout, "  {}      {}", c(OPT, "ID:"), meta.id);
+    let _ = writeln!(deps.stdout, "  {}     {}", c(OPT, "URL:"), meta.share_url);
     let _ = writeln!(
         deps.stdout,
         "  {} {}",
@@ -267,7 +267,7 @@ pub fn run_info(args: &[String], deps: &mut Deps) -> i32 {
     );
     let _ = writeln!(
         deps.stdout,
-        "  {}  {}",
+        "  {}    {}",
         c(OPT, "Size:"),
         format_size(meta.ciphertext_size)
     );
@@ -285,7 +285,7 @@ pub fn run_info(args: &[String], deps: &mut Deps) -> i32 {
     } else if meta.enc_meta.is_some() {
         let _ = writeln!(
             deps.stdout,
-            "  {}  {}",
+            "  {}    {}",
             c(OPT, "Note:"),
             c(WARN, "(encrypted)")
         );

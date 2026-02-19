@@ -692,13 +692,20 @@ Common responses:
 - `429` request rate limited or secret-count quota exceeded
 - `500` internal server/storage errors
 
-## Future Metadata Endpoint (v1.1 Draft)
+### Get secret metadata (authenticated)
 
-Not part of current runtime contract yet:
+`GET /api/v1/secrets/{id}`
 
-- `GET /api/v1/secrets/{id}` (owned single-secret metadata lookup)
+Returns metadata for a single secret owned by the caller. Accepts session or API key auth (session first, API key fallback).
+
+Response (`200`): `SecretMetadataItem` — same schema as items in `ListSecretsResponse`, including optional `enc_meta`.
+
+Errors:
+
+- `401` — missing or invalid credentials.
+- `404` — secret not found, expired, or not owned by the caller.
 
 Constraints:
 
 - Must not return plaintext, passphrase material, URL fragment keys, or claim tokens.
-- Should not return raw `claim_hash` to clients unless there is a strong operational need.
+- Must not return raw `claim_hash` to clients.

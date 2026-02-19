@@ -216,11 +216,25 @@ impl SecretsStore for MemStore {
     }
     async fn get_summary_by_id(
         &self,
-        _id: &str,
-        _owner_keys: &[String],
-        _now: DateTime<Utc>,
+        id: &str,
+        owner_keys: &[String],
+        now: DateTime<Utc>,
     ) -> Result<Option<SecretSummary>, StorageError> {
-        Ok(None)
+        let m = self.secrets.lock().expect("secrets mutex poisoned");
+        match m.get(id) {
+            Some(s) if owner_keys.contains(&s.owner_key) && s.expires_at > now => {
+                Ok(Some(SecretSummary {
+                    id: s.id.clone(),
+                    expires_at: s.expires_at,
+                    created_at: s.created_at,
+                    ciphertext_size: s.envelope.len() as i64,
+                    passphrase_protected: s.envelope.contains("argon2"),
+                    enc_meta: None,
+                }))
+            }
+            Some(_) => Ok(None), // wrong owner or expired
+            None => Ok(None),
+        }
     }
 }
 

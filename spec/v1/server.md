@@ -68,8 +68,8 @@ Primary tables:
 - `sessions(id, sid, user_id, token_hash, expires_at, created_at, revoked_at)`
 - `webauthn_challenges(id, challenge_id, user_id, purpose, challenge_json, expires_at, created_at)`
 - `api_key_registrations(id, user_id, ip_hash, created_at)`
-- `amk_accounts(id, user_id UNIQUE, amk_commit, created_at, updated_at)`
-- `amk_wrappers(id, user_id, key_prefix UNIQUE, wrapped_amk, nonce, version SMALLINT, created_at, updated_at)`
+- `amk_accounts(user_id UUID PRIMARY KEY, amk_commit, created_at)`
+- `amk_wrappers(id, user_id, key_prefix, wrapped_amk, nonce, version SMALLINT, created_at, UNIQUE(user_id, key_prefix))`
 
 AMK table notes:
 
@@ -151,14 +151,17 @@ The header is an internal signal between the reverse proxy and the application a
 - `GET /login`
 - `GET /register`
 - `GET /how-it-works`
+- `GET /privacy`
 - `GET /dashboard`
 - `GET /settings`
 - `GET /robots.txt`
+- `GET /.well-known/security.txt`
 - `GET /static/*` (embedded or filesystem assets)
 - `GET /api/v1/info`
 - `POST /api/v1/public/secrets`
 - `GET /api/v1/secrets/check`
 - `GET /api/v1/secrets`
+- `GET /api/v1/secrets/{id}`
 - `POST /api/v1/secrets`
 - `POST /api/v1/secrets/{id}/claim`
 - `POST /api/v1/secrets/{id}/burn`
@@ -188,6 +191,7 @@ The header is an internal signal between the reverse proxy and the application a
 Authenticated endpoints:
 
 - `GET /api/v1/secrets`
+- `GET /api/v1/secrets/{id}` (session or API key)
 - `GET /api/v1/secrets/check`
 - `POST /api/v1/secrets`
 - `POST /api/v1/secrets/{id}/burn`
