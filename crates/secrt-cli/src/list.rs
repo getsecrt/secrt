@@ -106,6 +106,51 @@ fn humanize_compact(secs: u64, c: &ColorFn) -> (String, usize) {
     }
 }
 
+/// Get terminal width, defaulting to 80 if unavailable.
+fn terminal_width() -> usize {
+    // Try $COLUMNS first (set by most shells on resize)
+    if let Ok(val) = std::env::var("COLUMNS") {
+        if let Ok(cols) = val.parse::<usize>() {
+            if cols > 0 {
+                return cols;
+            }
+        }
+    }
+    // Fall back to stty size (works on macOS and Linux)
+    #[cfg(unix)]
+    if let Ok(output) = std::process::Command::new("stty")
+        .arg("size")
+        .stdin(std::process::Stdio::inherit())
+        .stderr(std::process::Stdio::null())
+        .output()
+    {
+        if let Ok(s) = std::str::from_utf8(&output.stdout) {
+            // Format: "rows cols"
+            if let Some(cols_str) = s.split_whitespace().nth(1) {
+                if let Ok(cols) = cols_str.parse::<usize>() {
+                    if cols > 0 {
+                        return cols;
+                    }
+                }
+            }
+        }
+    }
+    80
+}
+
+/// Truncate a string to at most `max` visible characters, appending `…` if truncated.
+fn truncate_str(s: &str, max: usize) -> String {
+    if max <= 1 {
+        return String::new();
+    }
+    if s.chars().count() <= max {
+        s.to_string()
+    } else {
+        let truncated: String = s.chars().take(max - 1).collect();
+        format!("{}\u{2026}", truncated)
+    }
+}
+
 /// Truncate an ID to at most `max` chars, appending `…` if truncated.
 fn truncate_id(id: &str, max: usize) -> String {
     if id.len() <= max {
@@ -288,6 +333,10 @@ pub fn run_list(args: &[String], deps: &mut Deps) -> i32 {
         )
     );
 
+    // Compute max note width from terminal width
+    let fixed_cols = w_id + 2 + w_created + 2 + w_expires + 2 + w_size + 2 + 1 + 2;
+    let max_note = terminal_width().saturating_sub(fixed_cols);
+
     // Print rows
     for row in &rows {
         let pp_display = if row.passphrase {
@@ -297,7 +346,10 @@ pub fn run_list(args: &[String], deps: &mut Deps) -> i32 {
         };
         let note_display = if show_notes {
             match &row.note {
-                Some(n) => format!("  {}", c(DIM, n)),
+                Some(n) => {
+                    let truncated = truncate_str(n, max_note);
+                    format!("  {}", c(DIM, &truncated))
+                }
                 None if row.has_enc_meta => format!("  {}", c(WARN, "(encrypted)")),
                 None => String::new(),
             }
