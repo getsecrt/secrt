@@ -4,9 +4,9 @@ import { utf8Encode } from '../../crypto/encoding';
 import { buildFrame } from '../../crypto/frame';
 import { ensureCompressor, compress } from '../../crypto/compress';
 import { CODEC_ZSTD } from '../../crypto/constants';
-import { encryptNote } from '../../crypto/amk';
+import { encryptNote, generateAmk } from '../../crypto/amk';
 import { createSecret, fetchInfo, updateSecretMeta } from '../../lib/api';
-import { loadAmk } from '../../lib/amk-store';
+import { loadAmk, storeAmk } from '../../lib/amk-store';
 import {
   checkEnvelopeSize,
   estimateEnvelopeSize,
@@ -391,29 +391,33 @@ export function SendPage() {
         // Attach encrypted note if provided
         if (note.trim() && auth.sessionToken && auth.userId) {
           try {
-            const amk = await loadAmk(auth.userId);
-            if (amk) {
-              const encrypted = await encryptNote(
-                amk,
-                res.id,
-                utf8Encode(note),
-              );
-              const encMeta: EncMetaV1 = {
-                v: 1,
-                note: {
-                  ct: encrypted.ct,
-                  nonce: encrypted.nonce,
-                  salt: encrypted.salt,
-                },
-              };
-              await updateSecretMeta(
-                auth.sessionToken,
-                res.id,
-                encMeta,
-                1,
-                controller.signal,
-              );
+            let amk = await loadAmk(auth.userId);
+            if (!amk) {
+              // First note: generate AMK and store locally.
+              // Wrapper upload happens on next API key creation or device sync.
+              amk = generateAmk();
+              await storeAmk(auth.userId, amk);
             }
+            const encrypted = await encryptNote(
+              amk,
+              res.id,
+              utf8Encode(note),
+            );
+            const encMeta: EncMetaV1 = {
+              v: 1,
+              note: {
+                ct: encrypted.ct,
+                nonce: encrypted.nonce,
+                salt: encrypted.salt,
+              },
+            };
+            await updateSecretMeta(
+              auth.sessionToken,
+              res.id,
+              encMeta,
+              1,
+              controller.signal,
+            );
           } catch {
             // Non-fatal: secret was created, but note couldn't be attached
           }
