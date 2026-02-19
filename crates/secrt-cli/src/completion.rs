@@ -3,7 +3,7 @@ pub const BASH_COMPLETION: &str = r#"_secrt() {
     COMPREPLY=()
     cur="${COMP_WORDS[COMP_CWORD]}"
     prev="${COMP_WORDS[COMP_CWORD-1]}"
-    commands="send get burn gen generate auth config version help completion"
+    commands="send get burn gen generate list info sync auth config version help completion"
 
     if [[ ${COMP_CWORD} -eq 1 ]]; then
         COMPREPLY=($(compgen -W "${commands}" -- "${cur}"))
@@ -22,6 +22,12 @@ pub const BASH_COMPLETION: &str = r#"_secrt() {
             ;;
         gen|generate)
             COMPREPLY=($(compgen -W "send --length --no-symbols --no-numbers --no-caps --grouped --count --json --help" -- "${cur}"))
+            ;;
+        info)
+            COMPREPLY=($(compgen -W "--api-key --base-url --json --silent --help" -- "${cur}"))
+            ;;
+        sync)
+            COMPREPLY=($(compgen -W "--api-key --base-url --silent --help" -- "${cur}"))
             ;;
         auth)
             COMPREPLY=($(compgen -W "login setup status logout --base-url --help" -- "${cur}"))
@@ -48,6 +54,8 @@ _secrt() {
         'burn:Destroy a secret (requires API key)'
         'gen:Generate a random password'
         'generate:Generate a random password'
+        'info:Show metadata for a secret'
+        'sync:Import notes encryption key from a sync link'
         'auth:Manage authentication'
         'config:Show config / init / path'
         'version:Show version'
@@ -116,6 +124,21 @@ _secrt() {
                         '--json[Output as JSON]' \
                         '--help[Show help]'
                     ;;
+                info)
+                    _arguments \
+                        '--api-key[API key]:key:' \
+                        '--base-url[Server URL]:url:' \
+                        '--json[Output as JSON]' \
+                        '--silent[Suppress output]' \
+                        '--help[Show help]'
+                    ;;
+                sync)
+                    _arguments \
+                        '--api-key[API key]:key:' \
+                        '--base-url[Server URL]:url:' \
+                        '--silent[Suppress output]' \
+                        '--help[Show help]'
+                    ;;
                 auth)
                     _arguments \
                         '1:subcommand:(login setup status logout)' \
@@ -143,6 +166,8 @@ complete -c secrt -n '__fish_use_subcommand' -a get -d 'Retrieve and decrypt a s
 complete -c secrt -n '__fish_use_subcommand' -a burn -d 'Destroy a secret (requires API key)'
 complete -c secrt -n '__fish_use_subcommand' -a gen -d 'Generate a random password'
 complete -c secrt -n '__fish_use_subcommand' -a generate -d 'Generate a random password'
+complete -c secrt -n '__fish_use_subcommand' -a info -d 'Show metadata for a secret'
+complete -c secrt -n '__fish_use_subcommand' -a sync -d 'Import notes encryption key from a sync link'
 complete -c secrt -n '__fish_use_subcommand' -a auth -d 'Manage authentication'
 complete -c secrt -n '__fish_use_subcommand' -a config -d 'Show config / init / path'
 complete -c secrt -n '__fish_use_subcommand' -a version -d 'Show version'
@@ -187,6 +212,15 @@ complete -c secrt -n '__fish_seen_subcommand_from gen generate' -s G -l grouped 
 complete -c secrt -n '__fish_seen_subcommand_from gen generate' -l count -d 'Generate multiple passwords'
 complete -c secrt -n '__fish_seen_subcommand_from gen generate' -l json -d 'Output as JSON'
 complete -c secrt -n '__fish_seen_subcommand_from gen generate' -a 'send' -d 'Generate and share a password'
+
+complete -c secrt -n '__fish_seen_subcommand_from info' -l api-key -d 'API key'
+complete -c secrt -n '__fish_seen_subcommand_from info' -l base-url -d 'Server URL'
+complete -c secrt -n '__fish_seen_subcommand_from info' -l json -d 'Output as JSON'
+complete -c secrt -n '__fish_seen_subcommand_from info' -l silent -d 'Suppress output'
+
+complete -c secrt -n '__fish_seen_subcommand_from sync' -l api-key -d 'API key'
+complete -c secrt -n '__fish_seen_subcommand_from sync' -l base-url -d 'Server URL'
+complete -c secrt -n '__fish_seen_subcommand_from sync' -l silent -d 'Suppress output'
 
 complete -c secrt -n '__fish_seen_subcommand_from auth' -a 'login setup status logout' -d 'Auth subcommand'
 complete -c secrt -n '__fish_seen_subcommand_from auth' -l base-url -d 'Server URL'

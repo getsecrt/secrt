@@ -123,6 +123,7 @@ struct ListRow {
     size: String,
     passphrase: bool,
     note: Option<String>,
+    has_enc_meta: bool,
 }
 
 /// Try to decrypt a note from enc_meta. Returns `None` if AMK is missing or decryption fails.
@@ -214,12 +215,13 @@ pub fn run_list(args: &[String], deps: &mut Deps) -> i32 {
     let c = color_func(is_tty);
 
     // Check if any secrets have enc_meta — if so, try to resolve the AMK for note decryption
-    let has_notes = resp.secrets.iter().any(|s| s.enc_meta.is_some());
-    let amk = if has_notes {
-        resolve_amk(&pa, &*client).ok()
+    let any_enc_meta = resp.secrets.iter().any(|s| s.enc_meta.is_some());
+    let amk_result = if any_enc_meta {
+        Some(resolve_amk(&pa, &*client))
     } else {
         None
     };
+    let amk = amk_result.as_ref().and_then(|r| r.as_ref().ok().cloned());
 
     // Build table rows
     let id_max = 16;
@@ -237,11 +239,13 @@ pub fn run_list(args: &[String], deps: &mut Deps) -> i32 {
                 size: format_size(s.ciphertext_size),
                 passphrase: s.passphrase_protected,
                 note,
+                has_enc_meta: s.enc_meta.is_some(),
             }
         })
         .collect();
 
-    let show_notes = rows.iter().any(|r| r.note.is_some());
+    // Show Note column when any secret has encrypted metadata (even if we couldn't decrypt)
+    let show_notes = rows.iter().any(|r| r.has_enc_meta);
 
     // Measure column widths
     let hdr = ("ID", "Created", "Expires In", "Size", "\u{26b7}");
@@ -294,6 +298,7 @@ pub fn run_list(args: &[String], deps: &mut Deps) -> i32 {
         let note_display = if show_notes {
             match &row.note {
                 Some(n) => format!("  {}", c(DIM, n)),
+                None if row.has_enc_meta => format!("  {}", c(WARN, "(encrypted)")),
                 None => String::new(),
             }
         } else {
@@ -311,6 +316,19 @@ pub fn run_list(args: &[String], deps: &mut Deps) -> i32 {
             row.size,
             pp_display,
             note_display
+        );
+    }
+
+    // Hint when notes exist but AMK is unavailable
+    let has_encrypted_notes = rows.iter().any(|r| r.has_enc_meta && r.note.is_none());
+    if has_encrypted_notes && !pa.silent {
+        let _ = writeln!(
+            deps.stderr,
+            "{}",
+            c(
+                DIM,
+                "Sync your notes key from another browser/device to view your notes (secrt sync)"
+            )
         );
     }
 

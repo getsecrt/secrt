@@ -380,31 +380,38 @@ fn handle_amk_transfer(
         }
     };
 
-    // Interactive SAS verification
-    if (deps.is_tty)() {
-        let _ = writeln!(deps.stderr);
+    // SAS verification — require interactive confirmation, skip in non-TTY
+    if !(deps.is_tty)() {
         let _ = writeln!(
             deps.stderr,
-            "  {} Notes key transfer available",
-            c(HEADING, "\u{1f511}")
+            "  {} notes key transfer skipped (non-interactive session, cannot verify security code)",
+            c(WARN, "warning:")
         );
-        let _ = writeln!(
-            deps.stderr,
-            "  Security code: {}",
-            c(HEADING, &format!("{:06}", sas_code))
-        );
-        let _ = write!(deps.stderr, "  Does this match your browser? [y/N]: ");
-        let _ = deps.stderr.flush();
+        return;
+    }
 
-        let answer = read_stdin_line(&mut *deps.stdin).to_ascii_lowercase();
-        if answer != "y" && answer != "yes" {
-            let _ = writeln!(
-                deps.stderr,
-                "  {} Transfer rejected. You can sync notes key later via web settings.",
-                c(WARN, "warning:")
-            );
-            return;
-        }
+    let _ = writeln!(deps.stderr);
+    let _ = writeln!(
+        deps.stderr,
+        "  {} Notes key transfer available",
+        c(HEADING, "\u{1f511}")
+    );
+    let _ = writeln!(
+        deps.stderr,
+        "  Security code: {}",
+        c(HEADING, &format!("{:06}", sas_code))
+    );
+    let _ = write!(deps.stderr, "  Does this match your browser? [y/N]: ");
+    let _ = deps.stderr.flush();
+
+    let answer = read_stdin_line(&mut *deps.stdin).to_ascii_lowercase();
+    if answer != "y" && answer != "yes" {
+        let _ = writeln!(
+            deps.stderr,
+            "  {} Transfer rejected. You can sync notes key later via web settings.",
+            c(WARN, "warning:")
+        );
+        return;
     }
 
     // Decrypt AMK from transfer blob
@@ -557,7 +564,7 @@ fn handle_amk_transfer(
 }
 
 /// Fetch user_id from the server by calling the session info endpoint via API key.
-fn fetch_user_id(base_url: &str, wire_key: &str) -> Result<String, String> {
+pub(crate) fn fetch_user_id(base_url: &str, wire_key: &str) -> Result<String, String> {
     let endpoint = format!("{}/api/v1/auth/session", base_url.trim_end_matches('/'));
     let agent = ureq::Agent::new_with_config(
         ureq::config::Config::builder()
@@ -698,7 +705,7 @@ fn run_auth_status(args: &[String], deps: &mut Deps) -> i32 {
     // Check server connectivity
     let wire_key = secrt_core::derive_wire_api_key(&api_key).unwrap_or_default();
     let api = (deps.make_api)(&base_url, &wire_key);
-    match api.info() {
+    let server_reachable = match api.info() {
         Ok(info) => {
             let status = if info.authenticated {
                 "connected, authenticated"
@@ -712,6 +719,7 @@ fn run_auth_status(args: &[String], deps: &mut Deps) -> i32 {
                 c(DIM, &base_url),
                 c(SUCCESS, &format!("({})", status))
             );
+            true
         }
         Err(_) => {
             let _ = writeln!(
@@ -721,6 +729,38 @@ fn run_auth_status(args: &[String], deps: &mut Deps) -> i32 {
                 c(DIM, &base_url),
                 c(DIM, "(unreachable)")
             );
+            false
+        }
+    };
+
+    // Check AMK (notes key) status
+    if server_reachable {
+        match api.get_amk_wrapper() {
+            Ok(Some(_)) => {
+                let _ = writeln!(
+                    deps.stderr,
+                    "  {}: {}",
+                    c(OPT, "Notes key"),
+                    c(SUCCESS, "synced")
+                );
+            }
+            Ok(None) => {
+                let _ = writeln!(
+                    deps.stderr,
+                    "  {}: {}",
+                    c(OPT, "Notes key"),
+                    c(WARN, "not synced")
+                );
+                let _ = writeln!(
+                    deps.stderr,
+                    "  {} sync from web settings or use {}",
+                    c(DIM, "hint:"),
+                    c(CMD, "secrt sync <url>")
+                );
+            }
+            Err(_) => {
+                // Silently skip — server may not support AMK endpoints yet
+            }
         }
     }
 

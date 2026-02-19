@@ -6,8 +6,8 @@ use std::sync::{Arc, Mutex};
 
 use secrt_cli::cli::Deps;
 use secrt_cli::client::{
-    ApiClient, ClaimResponse, CreateRequest, CreateResponse, InfoResponse, ListSecretsResponse,
-    SecretApi,
+    AmkWrapperResponse, ApiClient, ClaimResponse, CreateRequest, CreateResponse, InfoResponse,
+    ListSecretsResponse, SecretApi, SecretMetadataItem,
 };
 use secrt_cli::envelope::EnvelopeError;
 
@@ -45,6 +45,9 @@ pub struct MockApiResponses {
     pub burn: Option<Result<(), String>>,
     pub info: Option<Result<InfoResponse, String>>,
     pub list: Option<Result<ListSecretsResponse, String>>,
+    pub get_secret_metadata: Option<Result<SecretMetadataItem, String>>,
+    pub get_amk_wrapper: Option<Result<Option<AmkWrapperResponse>, String>>,
+    pub upsert_amk_wrapper: Option<Result<(), String>>,
 }
 
 impl Default for MockApiResponses {
@@ -55,6 +58,9 @@ impl Default for MockApiResponses {
             burn: None,
             info: None,
             list: None,
+            get_secret_metadata: None,
+            get_amk_wrapper: None,
+            upsert_amk_wrapper: None,
         }
     }
 }
@@ -119,6 +125,37 @@ impl SecretApi for MockApi {
             Some(Ok(r)) => Ok(r.clone()),
             Some(Err(e)) => Err(e.clone()),
             None => Err("mock: list not configured".into()),
+        }
+    }
+
+    fn get_secret_metadata(&self, _id: &str) -> Result<SecretMetadataItem, String> {
+        match &self.responses.get_secret_metadata {
+            Some(Ok(r)) => Ok(r.clone()),
+            Some(Err(e)) => Err(e.clone()),
+            None => Err("mock: get_secret_metadata not configured".into()),
+        }
+    }
+
+    fn get_amk_wrapper(&self) -> Result<Option<AmkWrapperResponse>, String> {
+        match &self.responses.get_amk_wrapper {
+            Some(Ok(r)) => Ok(r.clone()),
+            Some(Err(e)) => Err(e.clone()),
+            None => Err("mock: get_amk_wrapper not configured".into()),
+        }
+    }
+
+    fn upsert_amk_wrapper(
+        &self,
+        _key_prefix: &str,
+        _wrapped_amk: &str,
+        _nonce: &str,
+        _amk_commit: &str,
+        _version: i16,
+    ) -> Result<(), String> {
+        match &self.responses.upsert_amk_wrapper {
+            Some(Ok(())) => Ok(()),
+            Some(Err(e)) => Err(e.clone()),
+            None => Err("mock: upsert_amk_wrapper not configured".into()),
         }
     }
 }
@@ -214,6 +251,30 @@ impl TestDepsBuilder {
         self.mock_responses
             .get_or_insert_with(MockApiResponses::default)
             .list = Some(resp);
+        self
+    }
+
+    pub fn mock_get_secret_metadata(mut self, resp: Result<SecretMetadataItem, String>) -> Self {
+        self.mock_responses
+            .get_or_insert_with(MockApiResponses::default)
+            .get_secret_metadata = Some(resp);
+        self
+    }
+
+    pub fn mock_get_amk_wrapper(
+        mut self,
+        resp: Result<Option<AmkWrapperResponse>, String>,
+    ) -> Self {
+        self.mock_responses
+            .get_or_insert_with(MockApiResponses::default)
+            .get_amk_wrapper = Some(resp);
+        self
+    }
+
+    pub fn mock_upsert_amk_wrapper(mut self, resp: Result<(), String>) -> Self {
+        self.mock_responses
+            .get_or_insert_with(MockApiResponses::default)
+            .upsert_amk_wrapper = Some(resp);
         self
     }
 
