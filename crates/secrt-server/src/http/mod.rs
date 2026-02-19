@@ -820,8 +820,15 @@ async fn handle_create_authed(state: Arc<AppState>, req: Request) -> Response {
                 Ok(k) => k,
                 Err(resp) => return resp,
             };
-            let prefix = &api_key.prefix;
-            (format!("apikey:{prefix}"), format!("apikey:{prefix}"))
+            // When the API key is linked to a user, own the secret under the
+            // user identity so it's visible from both web UI and CLI.
+            if let Some(uid) = api_key.user_id {
+                let uid = uid.to_string();
+                (format!("user:{uid}"), format!("apikey:{}", api_key.prefix))
+            } else {
+                let prefix = &api_key.prefix;
+                (format!("apikey:{prefix}"), format!("apikey:{prefix}"))
+            }
         };
 
     if !state.api_limiter.allow(&rate_key) {
@@ -852,6 +859,20 @@ async fn owner_keys_for_user(
     Ok(owner_keys)
 }
 
+/// Resolve owner_keys for an API key: if the key is linked to a user, delegate
+/// to `owner_keys_for_user` so it can see secrets created via both session and
+/// API key auth. Otherwise fall back to just `["apikey:{prefix}"]`.
+async fn owner_keys_for_api_key(
+    state: &Arc<AppState>,
+    api_key: &ApiKeyRecord,
+) -> Result<Vec<String>, Response> {
+    if let Some(user_id) = api_key.user_id {
+        owner_keys_for_user(state, user_id).await
+    } else {
+        Ok(vec![format!("apikey:{}", api_key.prefix)])
+    }
+}
+
 async fn handle_list_secrets(
     state: Arc<AppState>,
     Query(query): Query<ListSecretsQuery>,
@@ -873,7 +894,10 @@ async fn handle_list_secrets(
             Ok(k) => k,
             Err(resp) => return resp,
         };
-        vec![format!("apikey:{}", api_key.prefix)]
+        match owner_keys_for_api_key(&state, &api_key).await {
+            Ok(keys) => keys,
+            Err(resp) => return resp,
+        }
     };
 
     let now = Utc::now();
@@ -935,7 +959,10 @@ pub async fn handle_secrets_check_entry(
             Ok(k) => k,
             Err(resp) => return resp,
         };
-        vec![format!("apikey:{}", api_key.prefix)]
+        match owner_keys_for_api_key(&state, &api_key).await {
+            Ok(keys) => keys,
+            Err(resp) => return resp,
+        }
     };
 
     let now = Utc::now();
@@ -1010,27 +1037,21 @@ pub async fn handle_burn_entry(
 
     // Try API key auth first (original path), then fall back to session auth
     let raw_key = api_key_from_headers(req.headers());
-    if let Ok(api_key) = require_api_key(&state, raw_key).await {
-        let owner_key = format!("apikey:{}", api_key.prefix);
-        let deleted = match state.secrets.burn(&id, &owner_key).await {
-            Ok(v) => v,
-            Err(_) => return internal_server_error(),
-        };
-        if !deleted {
-            return not_found();
+    let keys = if let Ok(api_key) = require_api_key(&state, raw_key).await {
+        match owner_keys_for_api_key(&state, &api_key).await {
+            Ok(k) => k,
+            Err(resp) => return resp,
         }
-        return json_response(StatusCode::OK, serde_json::json!({ "ok": true }));
-    }
-
-    // Session auth fallback: try burn against each of the user's owner_keys
-    let (user_id, _, _) = match require_session_user(&state, req.headers()).await {
-        Ok(v) => v,
-        Err(resp) => return resp,
-    };
-
-    let keys = match owner_keys_for_user(&state, user_id).await {
-        Ok(k) => k,
-        Err(resp) => return resp,
+    } else {
+        // Session auth fallback
+        let (user_id, _, _) = match require_session_user(&state, req.headers()).await {
+            Ok(v) => v,
+            Err(resp) => return resp,
+        };
+        match owner_keys_for_user(&state, user_id).await {
+            Ok(k) => k,
+            Err(resp) => return resp,
+        }
     };
 
     for owner_key in &keys {
@@ -4610,6 +4631,173 @@ mod tests {
         assert!(
             body.contains("invalid or expired code"),
             "wrong user_code should return 'invalid or expired code'"
+        );
+    }
+
+    // ── API-key-with-user_id cross-auth tests ─────────────
+
+    /// Build a valid wire API key string and an `ApiKeyRecord` for the given
+    /// user, register them in the state, and return `(wire_key, prefix)`.
+    async fn register_api_key_for_user(
+        state: &Arc<AppState>,
+        user_id: UserId,
+        prefix: &str,
+    ) -> String {
+        let auth_token = [42u8; 32];
+        let auth_hash = crate::domain::auth::hash_api_key_auth_token(
+            &state.cfg.api_key_pepper,
+            prefix,
+            &auth_token,
+        )
+        .expect("hash");
+
+        let key = ApiKeyRecord {
+            id: 0,
+            prefix: prefix.to_string(),
+            auth_hash,
+            scopes: String::new(),
+            user_id: Some(user_id),
+            created_at: Utc::now(),
+            revoked_at: None,
+        };
+        state.api_keys.insert(key).await.expect("insert api key");
+
+        secrt_core::apikey::format_wire_api_key(prefix, &auth_token).expect("format wire key")
+    }
+
+    fn apikey_get(uri: &str, wire_key: &str) -> Request<Body> {
+        Request::builder()
+            .method("GET")
+            .uri(uri)
+            .header("x-api-key", wire_key)
+            .body(Body::empty())
+            .expect("request")
+    }
+
+    fn apikey_post(uri: &str, wire_key: &str) -> Request<Body> {
+        Request::builder()
+            .method("POST")
+            .uri(uri)
+            .header("x-api-key", wire_key)
+            .body(Body::empty())
+            .expect("request")
+    }
+
+    #[tokio::test]
+    async fn apikey_list_sees_user_owned_secrets() {
+        let state = test_state();
+        let user = state.auth_store.create_user("alice").await.expect("user");
+        let wire_key = register_api_key_for_user(&state, user.id, "alicekey").await;
+
+        // Create secrets under user:{id} (simulating web UI creation)
+        let user_owner = format!("user:{}", user.id);
+        create_test_secret(&state, &user_owner, "web1").await;
+        create_test_secret(&state, &user_owner, "web2").await;
+
+        // Also create one under the apikey prefix
+        create_test_secret(&state, "apikey:alicekey", "cli1").await;
+
+        // API key auth should see all 3
+        let resp = handle_secrets_entry(
+            State(state),
+            Query(ListSecretsQuery {
+                limit: None,
+                offset: None,
+            }),
+            apikey_get("/api/v1/secrets", &wire_key),
+        )
+        .await;
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body: serde_json::Value =
+            serde_json::from_str(&response_text(resp).await).expect("json");
+        assert_eq!(body["total"], 3);
+    }
+
+    #[tokio::test]
+    async fn apikey_checksum_includes_user_owned_secrets() {
+        let state = test_state();
+        let user = state.auth_store.create_user("alice").await.expect("user");
+        let wire_key = register_api_key_for_user(&state, user.id, "aliceck").await;
+
+        // One via web UI (user-owned), one via CLI (apikey-owned)
+        create_test_secret(&state, &format!("user:{}", user.id), "webx").await;
+        create_test_secret(&state, "apikey:aliceck", "clix").await;
+
+        let resp = handle_secrets_check_entry(
+            State(state),
+            apikey_get("/api/v1/secrets/check", &wire_key),
+        )
+        .await;
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body: serde_json::Value =
+            serde_json::from_str(&response_text(resp).await).expect("json");
+        assert_eq!(body["count"], 2);
+    }
+
+    #[tokio::test]
+    async fn apikey_burn_user_owned_secret() {
+        let state = test_state();
+        let user = state.auth_store.create_user("alice").await.expect("user");
+        let wire_key = register_api_key_for_user(&state, user.id, "alicebn").await;
+
+        // Create a secret under user:{id} (web UI)
+        let user_owner = format!("user:{}", user.id);
+        create_test_secret(&state, &user_owner, "webburn").await;
+
+        // Burn it via API key
+        let resp = handle_burn_entry(
+            State(state),
+            Path("webburn".into()),
+            apikey_post("/api/v1/secrets/webburn/burn", &wire_key),
+        )
+        .await;
+        assert_eq!(resp.status(), StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn apikey_create_uses_user_owner_key() {
+        let state = test_state();
+        let user = state.auth_store.create_user("alice").await.expect("user");
+        let wire_key = register_api_key_for_user(&state, user.id, "alicecr").await;
+
+        let payload = valid_create_payload();
+        let req = Request::builder()
+            .method("POST")
+            .uri("/api/v1/secrets")
+            .header("x-api-key", &wire_key)
+            .header("content-type", "application/json")
+            .body(Body::from(payload))
+            .expect("request");
+
+        let resp = handle_secrets_entry(
+            State(state.clone()),
+            Query(ListSecretsQuery {
+                limit: None,
+                offset: None,
+            }),
+            req,
+        )
+        .await;
+        assert_eq!(resp.status(), StatusCode::CREATED);
+
+        // Verify the secret was created with user:{id} owner_key by listing via
+        // session auth (which only searches user:{id} and apikey:* keys)
+        let (token, _) = issue_session_token(&state, user.id).await.expect("session");
+        let list_resp = handle_secrets_entry(
+            State(state),
+            Query(ListSecretsQuery {
+                limit: None,
+                offset: None,
+            }),
+            authed_get("/api/v1/secrets", &token),
+        )
+        .await;
+        assert_eq!(list_resp.status(), StatusCode::OK);
+        let body: serde_json::Value =
+            serde_json::from_str(&response_text(list_resp).await).expect("json");
+        assert_eq!(
+            body["total"], 1,
+            "secret created via API key should be visible via session"
         );
     }
 }

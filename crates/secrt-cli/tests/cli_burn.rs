@@ -2,6 +2,7 @@ mod helpers;
 
 use helpers::{args, TestDepsBuilder};
 use secrt_cli::cli;
+use secrt_cli::client::{ListSecretsResponse, SecretMetadataItem};
 use secrt_cli::envelope::crypto::b64_encode;
 
 /// Non-routable address to ensure API calls fail
@@ -220,4 +221,137 @@ fn burn_success_tty_shows_checkmark() {
         "TTY burn should show checkmark or message: {}",
         err
     );
+}
+
+// --- Ellipsis stripping ---
+
+#[test]
+fn burn_strips_ellipsis_from_id() {
+    // "test-id-123…" should become "test-id-123" and succeed on exact match
+    let (mut deps, _stdout, stderr) = TestDepsBuilder::new().mock_burn(Ok(())).build();
+    let code = cli::run(
+        &args(&[
+            "secrt",
+            "burn",
+            "test-id-123\u{2026}",
+            "--api-key",
+            "sk_test",
+        ]),
+        &mut deps,
+    );
+    assert_eq!(code, 0, "stderr: {}", stderr.to_string());
+    assert!(
+        stderr.to_string().contains("Secret burned"),
+        "stderr: {}",
+        stderr.to_string()
+    );
+}
+
+// --- Prefix resolution ---
+
+fn sample_list_for_prefix() -> ListSecretsResponse {
+    ListSecretsResponse {
+        secrets: vec![
+            SecretMetadataItem {
+                id: "abcdef123456full".into(),
+                share_url: "https://x/s/abcdef123456full".into(),
+                expires_at: "2099-12-31T23:59:59Z".into(),
+                created_at: "2026-01-01T00:00:00Z".into(),
+                ciphertext_size: 100,
+                passphrase_protected: false,
+            },
+            SecretMetadataItem {
+                id: "xyz789other".into(),
+                share_url: "https://x/s/xyz789other".into(),
+                expires_at: "2099-12-31T23:59:59Z".into(),
+                created_at: "2026-01-01T00:00:00Z".into(),
+                ciphertext_size: 200,
+                passphrase_protected: false,
+            },
+        ],
+        total: 2,
+        limit: 50,
+        offset: 0,
+    }
+}
+
+#[test]
+fn burn_prefix_resolves_via_list() {
+    // Mock: burn returns 404 (triggering prefix resolution), list returns secrets.
+    // The second burn (with full ID) also returns 404 from the same mock — but
+    // resolve_prefix finds a unique match so we verify the error message format.
+    let (mut deps, _stdout, stderr) = TestDepsBuilder::new()
+        .mock_burn(Err("server error (404): not found".into()))
+        .mock_list(Ok(sample_list_for_prefix()))
+        .build();
+    let code = cli::run(
+        &args(&["secrt", "burn", "abcdef", "--api-key", "sk_test"]),
+        &mut deps,
+    );
+    // The mock burn always returns 404, so even the resolved full ID fails.
+    // But the error should show it tried the full ID (not "no secret matching").
+    assert_eq!(code, 1);
+    let err = stderr.to_string();
+    assert!(
+        err.contains("burn failed"),
+        "should show burn failed: {}",
+        err
+    );
+}
+
+#[test]
+fn burn_prefix_no_match_shows_error() {
+    let (mut deps, _stdout, stderr) = TestDepsBuilder::new()
+        .mock_burn(Err("server error (404): not found".into()))
+        .mock_list(Ok(sample_list_for_prefix()))
+        .build();
+    let code = cli::run(
+        &args(&["secrt", "burn", "zzznomatch", "--api-key", "sk_test"]),
+        &mut deps,
+    );
+    assert_eq!(code, 1);
+    let err = stderr.to_string();
+    assert!(
+        err.contains("no secret matching prefix"),
+        "should show no match: {}",
+        err
+    );
+}
+
+#[test]
+fn burn_prefix_ambiguous_shows_error() {
+    let resp = ListSecretsResponse {
+        secrets: vec![
+            SecretMetadataItem {
+                id: "abc111".into(),
+                share_url: "https://x/s/abc111".into(),
+                expires_at: "2099-12-31T23:59:59Z".into(),
+                created_at: "2026-01-01T00:00:00Z".into(),
+                ciphertext_size: 100,
+                passphrase_protected: false,
+            },
+            SecretMetadataItem {
+                id: "abc222".into(),
+                share_url: "https://x/s/abc222".into(),
+                expires_at: "2099-12-31T23:59:59Z".into(),
+                created_at: "2026-01-01T00:00:00Z".into(),
+                ciphertext_size: 200,
+                passphrase_protected: false,
+            },
+        ],
+        total: 2,
+        limit: 50,
+        offset: 0,
+    };
+    let (mut deps, _stdout, stderr) = TestDepsBuilder::new()
+        .mock_burn(Err("server error (404): not found".into()))
+        .mock_list(Ok(resp))
+        .build();
+    let code = cli::run(
+        &args(&["secrt", "burn", "abc", "--api-key", "sk_test"]),
+        &mut deps,
+    );
+    assert_eq!(code, 1);
+    let err = stderr.to_string();
+    assert!(err.contains("ambiguous"), "should show ambiguous: {}", err);
 }

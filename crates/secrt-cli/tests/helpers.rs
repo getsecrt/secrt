@@ -6,7 +6,8 @@ use std::sync::{Arc, Mutex};
 
 use secrt_cli::cli::Deps;
 use secrt_cli::client::{
-    ApiClient, ClaimResponse, CreateRequest, CreateResponse, InfoResponse, SecretApi,
+    ApiClient, ClaimResponse, CreateRequest, CreateResponse, InfoResponse, ListSecretsResponse,
+    SecretApi,
 };
 use secrt_cli::envelope::EnvelopeError;
 
@@ -43,6 +44,7 @@ pub struct MockApiResponses {
     pub claim: Option<Result<ClaimResponse, String>>,
     pub burn: Option<Result<(), String>>,
     pub info: Option<Result<InfoResponse, String>>,
+    pub list: Option<Result<ListSecretsResponse, String>>,
 }
 
 impl Default for MockApiResponses {
@@ -52,6 +54,7 @@ impl Default for MockApiResponses {
             claim: None,
             burn: None,
             info: None,
+            list: None,
         }
     }
 }
@@ -104,6 +107,18 @@ impl SecretApi for MockApi {
             Some(Ok(r)) => Ok(r.clone()),
             Some(Err(e)) => Err(e.clone()),
             None => Err("mock: info not configured".into()),
+        }
+    }
+
+    fn list(
+        &self,
+        _limit: Option<i64>,
+        _offset: Option<i64>,
+    ) -> Result<ListSecretsResponse, String> {
+        match &self.responses.list {
+            Some(Ok(r)) => Ok(r.clone()),
+            Some(Err(e)) => Err(e.clone()),
+            None => Err("mock: list not configured".into()),
         }
     }
 }
@@ -192,6 +207,13 @@ impl TestDepsBuilder {
         self.mock_responses
             .get_or_insert_with(MockApiResponses::default)
             .info = Some(resp);
+        self
+    }
+
+    pub fn mock_list(mut self, resp: Result<ListSecretsResponse, String>) -> Self {
+        self.mock_responses
+            .get_or_insert_with(MockApiResponses::default)
+            .list = Some(resp);
         self
     }
 

@@ -46,7 +46,10 @@ export function Layout({ children }: LayoutProps) {
 
         <div class="flex flex-col items-center gap-2">
           <div>&copy; {new Date().getFullYear()} JD Lien</div>
-          <a href="mailto:security@secrt.ca" class="link">
+          <a
+            href="mailto:security@secrt.ca"
+            class="link-subtle transition-colors"
+          >
             security@secrt.ca
           </a>
         </div>
@@ -58,7 +61,7 @@ export function Layout({ children }: LayoutProps) {
               e.preventDefault();
               navigate('/privacy');
             }}
-            class="w-20 text-faint transition-colors hover:text-muted"
+            class="link-subtle w-20 text-faint hover:text-muted"
           >
             Privacy Policy
           </a>
@@ -69,7 +72,7 @@ export function Layout({ children }: LayoutProps) {
               e.preventDefault();
               navigate('/how-it-works');
             }}
-            class="w-20 text-faint transition-colors hover:text-muted"
+            class="link-subtle w-20 text-faint hover:text-muted"
           >
             How it Works
           </a>

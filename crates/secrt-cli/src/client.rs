@@ -270,6 +270,38 @@ impl SecretApi for ApiClient {
         Ok(())
     }
 
+    fn list(&self, limit: Option<i64>, offset: Option<i64>) -> Result<ListSecretsResponse, String> {
+        let mut endpoint = format!("{}/api/v1/secrets", self.url());
+        let mut params = Vec::new();
+        if let Some(l) = limit {
+            params.push(format!("limit={}", l));
+        }
+        if let Some(o) = offset {
+            params.push(format!("offset={}", o));
+        }
+        if !params.is_empty() {
+            endpoint = format!("{}?{}", endpoint, params.join("&"));
+        }
+
+        let wire_api_key = self.api_key_for_wire()?;
+        let mut request = self.agent().get(&endpoint);
+        if let Some(key) = wire_api_key.as_ref() {
+            request = request.header("X-API-Key", key);
+        }
+
+        let resp = request.call().map_err(|e| self.handle_ureq_error(e))?;
+
+        if resp.status().as_u16() != 200 {
+            return Err(self.read_api_error_from_response(resp));
+        }
+
+        let body_str = resp
+            .into_body()
+            .read_to_string()
+            .map_err(|e| format!("decode response: {}", e))?;
+        serde_json::from_str(&body_str).map_err(|e| format!("decode response: {}", e))
+    }
+
     fn info(&self) -> Result<InfoResponse, String> {
         let endpoint = format!("{}/api/v1/info", self.url());
         let wire_api_key = self.api_key_for_wire()?;

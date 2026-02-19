@@ -11,6 +11,7 @@ pub mod fileutil;
 pub mod gen;
 pub mod get;
 pub mod keychain;
+pub mod list;
 pub mod mime;
 pub mod passphrase;
 pub mod qr;

@@ -7,6 +7,7 @@ import {
 } from '../../lib/webauthn';
 import { registerPasskeyStart, registerPasskeyFinish } from '../../lib/api';
 import { navigate } from '../../router';
+import { getRedirectParam } from '../../lib/redirect';
 import {
   PasskeyIcon,
   ShuffleIcon,
@@ -136,6 +137,7 @@ type RegisterState =
 
 export function RegisterPage() {
   const auth = useAuth();
+  const redirectTo = getRedirectParam();
   const [displayName, setDisplayName] = useState(randomName);
   const [state, setState] = useState<RegisterState>(() =>
     supportsWebAuthn() ? { step: 'input' } : { step: 'unsupported' },
@@ -143,7 +145,7 @@ export function RegisterPage() {
 
   // Redirect if already authenticated
   if (auth.authenticated) {
-    navigate('/');
+    navigate(redirectTo);
     return null;
   }
 
@@ -191,7 +193,7 @@ export function RegisterPage() {
         // 4. Log in with the returned session
         auth.login(finishRes.session_token, finishRes.display_name);
         setState({ step: 'done' });
-        navigate('/');
+        navigate(redirectTo);
       } catch (err) {
         if (err instanceof DOMException && err.name === 'NotAllowedError') {
           setState({
@@ -288,11 +290,11 @@ export function RegisterPage() {
         Already have an account?
         <br />
         <a
-          href="/login"
+          href={redirectTo === '/' ? '/login' : `/login?redirect=${encodeURIComponent(redirectTo)}`}
           class="link"
           onClick={(e: MouseEvent) => {
             e.preventDefault();
-            navigate('/login');
+            navigate(redirectTo === '/' ? '/login' : `/login?redirect=${encodeURIComponent(redirectTo)}`);
           }}
         >
           Log In

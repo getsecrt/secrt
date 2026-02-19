@@ -4,6 +4,7 @@ import { supportsWebAuthn, getPasskeyCredential } from '../../lib/webauthn';
 import { loginPasskeyStart, loginPasskeyFinish } from '../../lib/api';
 import { base64urlEncode } from '../../crypto/encoding';
 import { navigate } from '../../router';
+import { getRedirectParam } from '../../lib/redirect';
 import { PasskeyIcon, TriangleExclamationIcon } from '../../components/Icons';
 import { CardHeading } from '../../components/CardHeading';
 
@@ -24,13 +25,14 @@ function friendlyLoginError(raw: string): string {
 
 export function LoginPage() {
   const auth = useAuth();
+  const redirectTo = getRedirectParam();
   const [state, setState] = useState<LoginState>(() =>
     supportsWebAuthn() ? { step: 'ready' } : { step: 'unsupported' },
   );
 
   // Redirect if already authenticated
   if (auth.authenticated) {
-    navigate('/');
+    navigate(redirectTo);
     return null;
   }
 
@@ -75,7 +77,7 @@ export function LoginPage() {
       // Step 4: Store session
       auth.login(finishRes.session_token, finishRes.display_name);
       setState({ step: 'done' });
-      navigate('/');
+      navigate(redirectTo);
     } catch (err) {
       if (err instanceof DOMException && err.name === 'NotAllowedError') {
         setState({ step: 'error', message: 'Login was cancelled.' });
@@ -133,11 +135,11 @@ export function LoginPage() {
 
       <p class="text-center text-muted">
         <a
-          href="/register"
+          href={redirectTo === '/' ? '/register' : `/register?redirect=${encodeURIComponent(redirectTo)}`}
           class="link"
           onClick={(e: MouseEvent) => {
             e.preventDefault();
-            navigate('/register');
+            navigate(redirectTo === '/' ? '/register' : `/register?redirect=${encodeURIComponent(redirectTo)}`);
           }}
         >
           Register a New Account

@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.12.1 — 2026-02-18
+
+### Added
+
+- **`secrt list` command:** list active secrets with a formatted table showing ID, creation date, expiry countdown (`dd HH:MM:SS` with dimmed seconds), size, and passphrase indicator (⚷). Supports `--limit`, `--offset`, `--json`, and `--silent` flags.
+- **Prefix-based burn:** `secrt burn` now accepts partial secret IDs — on 404, it resolves the prefix against your secret list. Ambiguous prefixes produce a clear error. Trailing ellipsis characters (`…`) from copy-pasting truncated list output are automatically stripped.
+
+### Fixed
+
+- **CLI `list` returns empty for web-created secrets:** API key auth now resolves the full owner key set (`user:{id}` + all `apikey:{prefix}`) when the key is linked to a user account. Secrets created via the web UI are now visible from the CLI, and vice versa. Same fix applied to `checksum` and `burn` endpoints.
+- **CLI-created secrets invisible in web UI:** when creating via an API key linked to a user, the secret is now owned under `user:{id}` for consistency with session-created secrets.
+
 ## 0.12.0 — 2026-02-18
 
 ### Added

@@ -68,7 +68,7 @@ export function DevicePage() {
         />
 
         <p class="text-muted">
-          The CLI should complete authentication momentarily.
+          Authentication should complete momentarily.
         </p>
       </div>
     );

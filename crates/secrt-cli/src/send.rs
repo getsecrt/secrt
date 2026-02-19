@@ -212,7 +212,7 @@ pub fn run_send(args: &[String], deps: &mut Deps) -> i32 {
 }
 
 /// Parse a subset of ISO 8601 UTC timestamps ("2026-02-09T00:00:00Z") to unix epoch seconds.
-fn parse_iso_to_epoch(iso: &str) -> Option<u64> {
+pub(crate) fn parse_iso_to_epoch(iso: &str) -> Option<u64> {
     let b = iso.as_bytes();
     if b.len() < 16 {
         return None;
@@ -238,7 +238,7 @@ fn parse_iso_to_epoch(iso: &str) -> Option<u64> {
 }
 
 /// Format seconds into a human-readable relative duration, e.g. "3 days, 2 hours".
-fn humanize_seconds(secs: u64) -> String {
+pub(crate) fn humanize_seconds(secs: u64) -> String {
     const MINUTE: u64 = 60;
     const HOUR: u64 = 3600;
     const DAY: u64 = 86400;

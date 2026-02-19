@@ -6,6 +6,7 @@ use crate::color::{color_func, ARG, CMD, DIM, HEADING, OPT, SUCCESS};
 use crate::completion::{BASH_COMPLETION, FISH_COMPLETION, ZSH_COMPLETION};
 use crate::gen::run_gen;
 use crate::get::run_get;
+use crate::list::run_list;
 use crate::send::run_send;
 
 const DEFAULT_BASE_URL: &str = "https://secrt.ca";
@@ -86,6 +87,10 @@ pub struct ParsedArgs {
     pub gen_grouped: bool,
     pub gen_count: u32,
 
+    // List
+    pub list_limit: Option<i64>,
+    pub list_offset: Option<i64>,
+
     // Populated from config file (not from CLI flags)
     pub passphrase_default: String,
     pub show_default: bool,
@@ -134,6 +139,7 @@ pub fn run(args: &[String], deps: &mut Deps) -> i32 {
         "get" => run_get(remaining, deps),
         "burn" => run_burn(remaining, deps),
         "gen" | "generate" => run_gen(remaining, deps),
+        "list" => run_list(remaining, deps),
         "auth" => crate::auth::run_auth(remaining, deps),
         _ if looks_like_share_url(command) => {
             // Implicit get: treat share URLs/bare IDs as `secrt get <url>`
@@ -186,6 +192,7 @@ fn run_help(args: &[String], deps: &mut Deps) -> i32 {
         "get" => print_get_help(deps),
         "burn" => print_burn_help(deps),
         "gen" | "generate" => print_gen_help(deps),
+        "list" => print_list_help(deps),
         "config" => print_config_help(deps),
         "auth" => print_auth_help(deps),
         _ => {
@@ -335,6 +342,27 @@ pub fn parse_flags(args: &[String]) -> Result<ParsedArgs, CliError> {
                         val
                     ))
                 })?;
+            }
+            // List flags
+            "--limit" => {
+                let val = next_val!("--limit");
+                pa.list_limit =
+                    Some(val.parse::<i64>().ok().filter(|&n| n >= 1).ok_or_else(|| {
+                        CliError::Error(format!(
+                            "--limit requires a positive integer, got {:?}",
+                            val
+                        ))
+                    })?);
+            }
+            "--offset" => {
+                let val = next_val!("--offset");
+                pa.list_offset =
+                    Some(val.parse::<i64>().ok().filter(|&n| n >= 0).ok_or_else(|| {
+                        CliError::Error(format!(
+                            "--offset requires a non-negative integer, got {:?}",
+                            val
+                        ))
+                    })?);
             }
             _ => return Err(CliError::Error(format!("unknown flag: {}", arg))),
         }
@@ -1011,6 +1039,7 @@ pub fn print_help(deps: &mut Deps) {
             ("send", "Encrypt and upload a secret"),
             ("get", "Retrieve and decrypt a secret"),
             ("burn", "Destroy a secret (requires API key)"),
+            ("list", "List your active secrets (requires API key)"),
             ("gen", "Generate a random password"),
             ("auth", "Login, setup, or manage authentication"),
             ("config", "Show or initialize configuration"),
@@ -1257,6 +1286,55 @@ pub fn print_burn_help(deps: &mut Deps) {
         c(CMD, "secrt"),
         c(CMD, "burn"),
         c(OPT, "--api-key")
+    );
+}
+
+pub fn print_list_help(deps: &mut Deps) {
+    let c = color_func((deps.is_stdout_tty)());
+    let w = &mut deps.stderr;
+    let _ = writeln!(
+        w,
+        "{} {} — List your active secrets\n",
+        c(CMD, "secrt"),
+        c(CMD, "list")
+    );
+    let _ = writeln!(
+        w,
+        "{}\n  {} {} {}\n",
+        c(HEADING, "USAGE"),
+        c(CMD, "secrt"),
+        c(CMD, "list"),
+        c(ARG, "[options]")
+    );
+    let _ = writeln!(w, "{}", c(HEADING, "OPTIONS"));
+    write_option_rows(
+        w,
+        &c,
+        &[
+            ("--limit", "<n>", "Max secrets to return (default: server)"),
+            ("--offset", "<n>", "Skip first N secrets (default: 0)"),
+            ("--api-key", "<key>", "API key (required)"),
+            ("--base-url", "<url>", "Server URL"),
+            ("--json", "", "Output as JSON"),
+            ("--silent", "", "Suppress status output"),
+            ("-h, --help", "", "Show help"),
+        ],
+    );
+    let _ = writeln!(w, "\n{}", c(HEADING, "EXAMPLES"));
+    let _ = writeln!(w, "  {} {}", c(CMD, "secrt"), c(CMD, "list"));
+    let _ = writeln!(
+        w,
+        "  {} {} {} 5",
+        c(CMD, "secrt"),
+        c(CMD, "list"),
+        c(OPT, "--limit")
+    );
+    let _ = writeln!(
+        w,
+        "  {} {} {}",
+        c(CMD, "secrt"),
+        c(CMD, "list"),
+        c(OPT, "--json")
     );
 }
 
@@ -1860,12 +1938,12 @@ mod tests {
     ///   "burn" = print_burn_help
     const FLAG_REGISTRY: &[(&str, bool, &[&str])] = &[
         // Global flags — should appear in main help
-        ("--base-url", true, &["main", "send", "get", "burn"]),
-        ("--api-key", true, &["main", "send", "burn"]),
-        ("--json", false, &["main", "send", "get", "burn"]),
-        ("--silent", false, &["main", "send", "get", "burn"]),
-        ("-h", false, &["main", "send", "get", "burn"]),
-        ("--help", false, &["main", "send", "get", "burn"]),
+        ("--base-url", true, &["main", "send", "get", "burn", "list"]),
+        ("--api-key", true, &["main", "send", "burn", "list"]),
+        ("--json", false, &["main", "send", "get", "burn", "list"]),
+        ("--silent", false, &["main", "send", "get", "burn", "list"]),
+        ("-h", false, &["main", "send", "get", "burn", "list"]),
+        ("--help", false, &["main", "send", "get", "burn", "list"]),
         // Send flags
         ("--ttl", true, &["send"]),
         ("--text", true, &["send"]),
@@ -1901,6 +1979,9 @@ mod tests {
         ("-G", false, &["gen"]),
         ("--grouped", false, &["gen"]),
         ("--count", true, &["gen"]),
+        // List flags
+        ("--limit", true, &["list"]),
+        ("--offset", true, &["list"]),
     ];
 
     /// parse_flags must accept every flag in the registry without error.
@@ -1908,7 +1989,7 @@ mod tests {
     fn registry_flags_accepted_by_parser() {
         for &(flag, needs_value, _) in FLAG_REGISTRY {
             let test_val = match flag {
-                "--length" | "-L" | "--count" => "10",
+                "--length" | "-L" | "--count" | "--limit" | "--offset" => "10",
                 _ => "test_val",
             };
             let args = if needs_value {
@@ -1977,6 +2058,7 @@ mod tests {
             ("send", capture_help(print_send_help)),
             ("get", capture_help(print_get_help)),
             ("burn", capture_help(print_burn_help)),
+            ("list", capture_help(print_list_help)),
             ("gen", capture_help(print_gen_help)),
             ("auth", capture_help(print_auth_help)),
         ]

@@ -130,12 +130,29 @@
   }
 
   .link:hover {
-    @apply underline;
+    @apply underline transition-colors;
     color: var(--color-accent-hover);
     text-underline-offset: 3px;
     text-decoration-color: color-mix(
       in oklch,
       var(--color-accent) 40%,
+      transparent
+    );
+  }
+
+  .link-subtle {
+    @apply underline transition-colors;
+    text-underline-offset: 3px;
+    text-decoration-color: color-mix(in oklch, currentColor 0%, transparent);
+  }
+
+  .link-subtle:hover {
+    @apply underline;
+    color: var(--color-text-muted);
+    text-underline-offset: 3px;
+    text-decoration-color: color-mix(
+      in oklch,
+      var(--color-text-muted) 40%,
       transparent
     );
   }

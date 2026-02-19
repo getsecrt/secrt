@@ -6,13 +6,16 @@
 
 - **Nav bar "More Information" menu:** grouped How it Works, Privacy Policy, Security Policy, and GitHub Repo into a dropdown; reorganized mobile menu with grouped sections and moved login link to the top.
 - **iPhone PWA safe area insets:** added `viewport-fit=cover`, nav top padding, and footer bottom padding so content clears the Dynamic Island and home indicator in standalone mode.
-- **Footer layout:** reordered to show navigation links first, then GitHub icon and copyright.
+- **Footer layout:** reordered to show navigation links first, then GitHub icon and copyright. Footer links use new `link-subtle` style.
 - **Privacy page polish:** title-cased headings, punctuated list items, simplified "Home" back-link.
 - **How it Works subtitle:** simplified to "An overview of our zero-knowledge architecture."
 - **SECURITY.md:** formatting cleanup; removed redundant "Supported Versions" table.
+- **Login/register redirect:** login and register pages now preserve a `?redirect=` query parameter, returning the user to their original destination (e.g., `/device`) after authentication.
 
 ### Fixed
 
+- **API key owner key resolution:** list, checksum, and burn endpoints now resolve the full owner key set (`user:{id}` + all `apikey:{prefix}`) when an API key is linked to a user account, matching session auth behavior. Secrets created via web UI are now visible from CLI and vice versa.
+- **CLI-created secret ownership:** secrets created via API key linked to a user are now owned under `user:{id}` for consistency with session-created secrets.
 - **QR code spacing:** added top margin to the QR code on the share result page.
 - **PWA meta tag:** corrected `apple-mobile-web-app-capable` to the standard `mobile-web-app-capable`.
 - **PWA e2e test:** updated selector to match the corrected meta tag name.

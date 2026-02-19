@@ -75,10 +75,31 @@ pub struct InfoRate {
     pub burst: i64,
 }
 
+/// Metadata for a single secret in a list response.
+#[derive(Clone, Deserialize, Serialize)]
+pub struct SecretMetadataItem {
+    pub id: String,
+    pub share_url: String,
+    pub expires_at: String,
+    pub created_at: String,
+    pub ciphertext_size: i64,
+    pub passphrase_protected: bool,
+}
+
+/// API response from listing secrets.
+#[derive(Clone, Deserialize, Serialize)]
+pub struct ListSecretsResponse {
+    pub secrets: Vec<SecretMetadataItem>,
+    pub total: i64,
+    pub limit: i64,
+    pub offset: i64,
+}
+
 /// Trait abstracting the API for testing.
 pub trait SecretApi {
     fn create(&self, req: CreateRequest) -> Result<CreateResponse, String>;
     fn claim(&self, secret_id: &str, claim_token: &[u8]) -> Result<ClaimResponse, String>;
     fn burn(&self, secret_id: &str) -> Result<(), String>;
     fn info(&self) -> Result<InfoResponse, String>;
+    fn list(&self, limit: Option<i64>, offset: Option<i64>) -> Result<ListSecretsResponse, String>;
 }
