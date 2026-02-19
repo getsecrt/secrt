@@ -42,10 +42,17 @@ export function SyncPage({ id }: SyncPageProps) {
   useEffect(() => {
     if (auth.loading) return;
 
-    // If not authenticated, redirect to login with full path + hash preserved
+    // If not authenticated, redirect to login with full path + hash preserved.
+    // Defer via setTimeout so the parent route listener (useRoute in App)
+    // has time to attach its popstate handler — child effects fire before
+    // parent effects in Preact, so a synchronous navigate() here would be
+    // lost on initial page load.
     if (!auth.authenticated) {
       const currentPath = window.location.pathname + window.location.hash;
-      navigate(`/login?redirect=${encodeURIComponent(currentPath)}`);
+      setTimeout(
+        () => navigate(`/login?redirect=${encodeURIComponent(currentPath)}`),
+        0,
+      );
       return;
     }
 

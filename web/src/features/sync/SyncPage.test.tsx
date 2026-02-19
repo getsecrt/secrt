@@ -90,15 +90,18 @@ describe('SyncPage', () => {
     setLocation({ hash: '' });
   });
 
-  it('redirects to login when not authenticated', () => {
+  it('redirects to login when not authenticated', async () => {
     mockAuth.authenticated = false;
     setLocation({ hash: '#' + 'A'.repeat(43) });
 
     render(<SyncPage id="test-id" />);
 
-    expect(mockNavigate).toHaveBeenCalledWith(
-      expect.stringContaining('/login?redirect='),
-    );
+    // navigate is deferred via setTimeout to let parent route listeners attach
+    await waitFor(() => {
+      expect(mockNavigate).toHaveBeenCalledWith(
+        expect.stringContaining('/login?redirect='),
+      );
+    });
   });
 
   it('shows error when fragment is missing', async () => {

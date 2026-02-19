@@ -103,13 +103,16 @@ describe('DevicePage', () => {
     expect(screen.getByText('Missing Device Code')).toBeInTheDocument();
   });
 
-  it('redirects to login when not authenticated', () => {
+  it('redirects to login when not authenticated', async () => {
     mockAuth.authenticated = false;
     mockAuth.loading = false;
     render(<DevicePage />);
-    expect(mockNavigate).toHaveBeenCalledWith(
-      expect.stringContaining('/login?redirect='),
-    );
+    // navigate is deferred via setTimeout to let parent route listeners attach
+    await waitFor(() => {
+      expect(mockNavigate).toHaveBeenCalledWith(
+        expect.stringContaining('/login?redirect='),
+      );
+    });
   });
 
   it('shows loading state while auth is loading', () => {

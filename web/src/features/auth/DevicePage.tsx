@@ -38,11 +38,16 @@ export function DevicePage() {
     userCode ? { step: 'confirm' } : { step: 'no-code' },
   );
 
-  // Redirect to login if not authenticated (preserve redirect back)
+  // Redirect to login if not authenticated (preserve redirect back).
+  // Deferred via setTimeout: on initial page load, child effects fire before
+  // the parent route listener (useRoute in App) attaches its popstate handler.
   useEffect(() => {
     if (!auth.loading && !auth.authenticated) {
       const returnUrl = `/device${window.location.search}`;
-      navigate(`/login?redirect=${encodeURIComponent(returnUrl)}`);
+      setTimeout(
+        () => navigate(`/login?redirect=${encodeURIComponent(returnUrl)}`),
+        0,
+      );
     }
   }, [auth.loading, auth.authenticated]);
 
