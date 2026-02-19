@@ -1,0 +1,136 @@
+{
+  "archived": [
+    {
+      "id": 1,
+      "title": "Add TOML config file support",
+      "status": "done",
+      "priority": "high"
+    },
+    {
+      "id": 2,
+      "title": "Add optional OS keychain support",
+      "status": "done",
+      "priority": "medium"
+    },
+    {
+      "id": 3,
+      "title": "Measure binary size impact",
+      "status": "done",
+      "priority": "high"
+    },
+    {
+      "id": 4,
+      "title": "macOS code signing and notarization",
+      "status": "done",
+      "priority": "high"
+    },
+    {
+      "id": 5,
+      "title": "Windows code signing with Azure Trusted Signing",
+      "status": "done",
+      "priority": "high"
+    },
+    {
+      "id": 7,
+      "title": "GitHub Actions release workflow",
+      "status": "done",
+      "priority": "high"
+    },
+    {
+      "id": 9,
+      "title": "Redesign interactive secret input: single-line default, --multi-line, --trim",
+      "status": "done",
+      "priority": "medium"
+    },
+    {
+      "id": 10,
+      "title": "Hash owner_key (IP address) for privacy",
+      "status": "done",
+      "priority": "high"
+    },
+    {
+      "id": 11,
+      "title": "Investigate release binary size optimization",
+      "status": "cancelled",
+      "priority": "low"
+    },
+    {
+      "id": 12,
+      "title": "Ensure Settings page buttons follow design system",
+      "status": "done",
+      "priority": "medium"
+    },
+    {
+      "id": 13,
+      "title": "Ensure all page headings use the header class",
+      "status": "done",
+      "priority": "medium"
+    },
+    {
+      "id": 14,
+      "title": "Ensure all links use the link class",
+      "status": "done",
+      "priority": "medium"
+    },
+    {
+      "id": 16,
+      "title": "Dashboard page: bring in line with design system",
+      "status": "done",
+      "priority": "medium"
+    },
+    {
+      "id": 17,
+      "title": "Define .label heading class or migrate to .heading",
+      "status": "done",
+      "priority": "high"
+    },
+    {
+      "id": 18,
+      "title": "Extract reusable Alert component",
+      "status": "done",
+      "priority": "medium"
+    },
+    {
+      "id": 19,
+      "title": "Fix iOS auto-zoom on input focus (font-size < 16px)",
+      "status": "done",
+      "priority": "high"
+    },
+    {
+      "id": 20,
+      "title": "Increase base font size for mobile readability",
+      "status": "done",
+      "priority": "high"
+    },
+    {
+      "id": 21,
+      "title": "Add safe-area-inset padding for notched iPhones",
+      "status": "done",
+      "priority": "medium"
+    },
+    {
+      "id": 22,
+      "title": "Verify touch-friendly file selection in FileDropZone",
+      "status": "done",
+      "priority": "medium"
+    },
+    {
+      "id": 23,
+      "title": "Enable server-side compression (gzip/brotli)",
+      "status": "done",
+      "priority": "high"
+    },
+    {
+      "id": 24,
+      "title": "Exclude test pages from Tailwind content scanning",
+      "status": "cancelled",
+      "priority": "low"
+    },
+    {
+      "id": 25,
+      "title": "Investigate dropdown menu wider than username button",
+      "status": "done",
+      "priority": "medium"
+    }
+  ]
+}
