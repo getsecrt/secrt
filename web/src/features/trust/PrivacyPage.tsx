@@ -114,9 +114,8 @@ export function PrivacyPage() {
           <p class="leading-relaxed text-muted">
             Our reverse proxy masks IP addresses in all access logs — the last
             octet of IPv4 addresses and the last 80 bits of IPv6 addresses are
-            zeroed before writing to disk. User-Agent, Referer, and query
-            strings are also stripped from logs. Log files are rotated and
-            deleted after 7 days.
+            zeroed before writing to disk. User-Agent, Referer are also stripped
+            from logs. Log files are rotated and deleted after 7 days.
           </p>
         </section>
 
