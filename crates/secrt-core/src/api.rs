@@ -122,6 +122,11 @@ pub trait SecretApi {
     fn info(&self) -> Result<InfoResponse, String>;
     fn list(&self, limit: Option<i64>, offset: Option<i64>) -> Result<ListSecretsResponse, String>;
 
+    /// Get metadata for a single secret by ID.
+    fn get_secret_metadata(&self, _id: &str) -> Result<SecretMetadataItem, String> {
+        Err("get_secret_metadata not implemented".into())
+    }
+
     /// Attach or update encrypted metadata on a secret.
     fn update_secret_meta(
         &self,
