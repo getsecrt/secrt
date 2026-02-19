@@ -699,21 +699,6 @@ export function SendPage() {
           Generate &amp; copy
         </button>
       </Modal>
-
-      <div class="mt-10">
-        <p class="px-1 text-center">
-          <a
-            href="/how-it-works"
-            class="link"
-            onClick={(e: MouseEvent) => {
-              e.preventDefault();
-              navigate('/how-it-works');
-            }}
-          >
-            How secrt Works →
-          </a>
-        </p>
-      </div>
     </div>
   );
 }

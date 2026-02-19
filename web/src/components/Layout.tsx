@@ -31,7 +31,26 @@ export function Layout({ children }: LayoutProps) {
         {children}
       </main>
 
-      <footer class="mt-auto flex flex-col items-center gap-2 py-4 text-xs text-faint">
+      <footer class="mt-auto flex flex-col items-center gap-2 pt-4 pb-[max(1rem,env(safe-area-inset-bottom))] text-xs text-faint">
+        <div>
+          <a
+            href="https://github.com/getsecrt/secrt"
+            target="_blank"
+            rel="noopener noreferrer"
+            class="text-faint transition-colors hover:text-muted"
+            aria-label="GitHub"
+          >
+            <GitHubIcon class="size-5" />
+          </a>
+        </div>
+
+        <div class="flex flex-col items-center gap-2">
+          <div>&copy; {new Date().getFullYear()} JD Lien</div>
+          <a href="mailto:security@secrt.ca" class="link">
+            security@secrt.ca
+          </a>
+        </div>
+
         <div class="flex items-center gap-3">
           <a
             href="/privacy"
@@ -53,25 +72,6 @@ export function Layout({ children }: LayoutProps) {
             class="w-20 text-faint transition-colors hover:text-muted"
           >
             How it Works
-          </a>
-        </div>
-
-        <div>
-          <a
-            href="https://github.com/getsecrt/secrt"
-            target="_blank"
-            rel="noopener noreferrer"
-            class="text-faint transition-colors hover:text-muted"
-            aria-label="GitHub"
-          >
-            <GitHubIcon class="size-5" />
-          </a>
-        </div>
-
-        <div class="flex flex-col items-center gap-2">
-          <div>&copy; {new Date().getFullYear()} JD Lien</div>
-          <a href="mailto:security@secrt.ca" class="link">
-            security@secrt.ca
           </a>
         </div>
       </footer>

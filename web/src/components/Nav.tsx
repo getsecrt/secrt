@@ -12,9 +12,11 @@ import {
   UserIcon,
   LogoutIcon,
   PasskeyIcon,
-  GitHubIcon,
   DownloadIcon,
   CircleQuestionIcon,
+  EyeSlashIcon,
+  LockIcon,
+  GitHubIcon,
   SquarePlusIcon,
   TableIcon,
   GearIcon,
@@ -209,11 +211,6 @@ const downloadLinks = [
     href: `${DOWNLOAD_BASE}/secrt-linux-arm64`,
     icon: LinuxIcon,
   },
-  {
-    label: 'GitHub',
-    href: 'https://github.com/getsecrt/secrt',
-    icon: GitHubIcon,
-  },
 ];
 
 function DownloadsMenu() {
@@ -294,6 +291,114 @@ function DownloadsMenu() {
   );
 }
 
+function MoreInfoMenu({ active }: { active?: boolean }) {
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+  const [open, setOpen] = useState(false);
+
+  useLayoutEffect(() => {
+    const menu = menuRef.current;
+    const trigger = triggerRef.current;
+    if (!open || !menu || !trigger) return;
+
+    menu.setAttribute('popover', 'auto');
+
+    const rect = trigger.getBoundingClientRect();
+    menu.style.position = 'fixed';
+    menu.style.top = `${rect.bottom}px`;
+    menu.style.right = `${window.innerWidth - rect.right}px`;
+    menu.style.left = 'auto';
+    menu.style.margin = '0';
+    menu.style.minWidth = `${rect.width}px`;
+
+    menu.showPopover();
+
+    const onToggle = () => {
+      if (!menu.matches(':popover-open')) setOpen(false);
+    };
+    menu.addEventListener('toggle', onToggle);
+    return () => menu.removeEventListener('toggle', onToggle);
+  }, [open]);
+
+  const itemClass =
+    'flex w-full items-center gap-2 whitespace-nowrap rounded-md px-3 py-1.5 text-sm text-muted transition-colors hover:bg-text/10 hover:text-text';
+
+  const moreInfoMenuClass =
+    'flex justify-around items-center gap-1 whitespace-nowrap px-2 py-1 text-sm border';
+  const triggerClass = open
+    ? moreInfoMenuClass +
+      ' rounded-t-lg text-text bg-neutral-200/70 backdrop-blur dark:bg-neutral-700/70 border-border/50 border-b-transparent'
+    : moreInfoMenuClass +
+      ` rounded-md transition-colors hover:text-text border-transparent ${active ? 'text-text bg-text/10' : 'text-muted'}`;
+
+  return (
+    <>
+      <button
+        ref={triggerRef}
+        type="button"
+        class={triggerClass}
+        onClick={() => setOpen(true)}
+      >
+        <div class="flex items-center gap-1">
+          <CircleQuestionIcon class="size-4" />
+          More Information
+        </div>
+        <ChevronDownIcon class="size-3" />
+      </button>
+      {open && (
+        <div
+          ref={menuRef}
+          id="more-info-menu"
+          class="rounded-b-lg bg-neutral-200/70 p-1 shadow-lg inset-shadow-border-3 backdrop-blur dark:bg-neutral-700/70"
+        >
+          <a
+            href="/how-it-works"
+            class={itemClass}
+            onClick={(e: MouseEvent) => {
+              e.preventDefault();
+              setOpen(false);
+              navigate('/how-it-works');
+            }}
+          >
+            <GearIcon class="size-4" />
+            How it Works
+          </a>
+          <a
+            href="/privacy"
+            class={itemClass}
+            onClick={(e: MouseEvent) => {
+              e.preventDefault();
+              setOpen(false);
+              navigate('/privacy');
+            }}
+          >
+            <EyeSlashIcon class="size-4" />
+            Privacy Policy
+          </a>
+          <a
+            href="https://github.com/getsecrt/secrt/blob/main/SECURITY.md"
+            class={itemClass}
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            <LockIcon class="size-4" />
+            Security Policy
+          </a>
+          <a
+            href="https://github.com/getsecrt/secrt"
+            class={itemClass}
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            <GitHubIcon class="size-4" />
+            GitHub Repo
+          </a>
+        </div>
+      )}
+    </>
+  );
+}
+
 export function Nav() {
   const [menuOpen, setMenuOpen] = useState(false);
   const route = useRoute();
@@ -317,7 +422,7 @@ export function Nav() {
 
   return (
     <nav class="sticky top-0 z-10">
-      <div class="border-b border-border bg-neutral-200/50 shadow-sm backdrop-blur dark:bg-neutral-700/50">
+      <div class="border-b border-border bg-neutral-200/50 pt-[env(safe-area-inset-top)] shadow-sm backdrop-blur dark:bg-neutral-700/50">
         <div class="mx-auto flex max-w-lg items-center justify-center gap-4 px-4 py-1.5">
           {/* Desktop links (hidden below sm) */}
           <div class="hidden items-center gap-6 sm:flex">
@@ -328,12 +433,9 @@ export function Nav() {
               </span>
             </NavLink>
 
-            <NavLink href="/how-it-works" active={isActive('how-it-works')}>
-              <span class={navItemClass}>
-                <CircleQuestionIcon class="size-4" />
-                How it Works
-              </span>
-            </NavLink>
+            <MoreInfoMenu
+              active={isActive('how-it-works') || isActive('privacy')}
+            />
 
             <DownloadsMenu />
 
@@ -402,6 +504,15 @@ export function Nav() {
                 </div>
               )}
 
+              {!auth.loading && !auth.authenticated && (
+                <NavLink href="/login" active={isActive('login')}>
+                  <span class={navItemClass}>
+                    <PasskeyIcon class="size-4" />
+                    Log In / Register
+                  </span>
+                </NavLink>
+              )}
+
               <NavLink href="/" active={isActive('send')}>
                 <span class={navItemClass}>
                   <SquarePlusIcon class="size-4" />
@@ -426,12 +537,52 @@ export function Nav() {
                 </>
               )}
 
-              <NavLink href="/how-it-works" active={isActive('how-it-works')}>
-                <span class={navItemClass}>
+              <div class="flex flex-col gap-1">
+                <span class="flex items-center gap-1 px-2 text-sm text-muted">
                   <CircleQuestionIcon class="size-4" />
-                  How it Works
+                  More Information
                 </span>
-              </NavLink>
+                <NavLink
+                  href="/how-it-works"
+                  active={isActive('how-it-works')}
+                  class="pl-6"
+                >
+                  <span class={navItemClass}>
+                    <GearIcon class="size-4" />
+                    How it Works
+                  </span>
+                </NavLink>
+                <NavLink
+                  href="/privacy"
+                  active={isActive('privacy')}
+                  class="pl-6"
+                >
+                  <span class={navItemClass}>
+                    <EyeSlashIcon class="size-4" />
+                    Privacy Policy
+                  </span>
+                </NavLink>
+                <NavLink
+                  href="https://github.com/getsecrt/secrt/blob/main/SECURITY.md"
+                  external
+                  class="pl-6"
+                >
+                  <span class={navItemClass}>
+                    <LockIcon class="size-4" />
+                    Security Policy
+                  </span>
+                </NavLink>
+                <NavLink
+                  href="https://github.com/getsecrt/secrt"
+                  external
+                  class="pl-6"
+                >
+                  <span class={navItemClass}>
+                    <GitHubIcon class="size-4" />
+                    GitHub Repository
+                  </span>
+                </NavLink>
+              </div>
 
               <div class="flex flex-col gap-1">
                 <span class="flex items-center gap-1 px-2 text-sm text-muted">
@@ -447,15 +598,6 @@ export function Nav() {
                   </NavLink>
                 ))}
               </div>
-
-              {!auth.loading && !auth.authenticated && (
-                <NavLink href="/login" active={isActive('login')}>
-                  <span class={navItemClass}>
-                    <PasskeyIcon class="size-4" />
-                    Log In
-                  </span>
-                </NavLink>
-              )}
             </div>
           </div>
         </>

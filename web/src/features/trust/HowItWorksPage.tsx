@@ -18,7 +18,7 @@ export function HowItWorksPage() {
       <div class="card space-y-8 bg-white/20 dark:bg-black/20">
         <CardHeading
           title="How secrt Works"
-          subtitle="A technical overview of our zero-knowledge architecture"
+          subtitle="An overview of our zero-knowledge architecture"
           underline
         />
 

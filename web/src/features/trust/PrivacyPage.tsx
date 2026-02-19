@@ -23,15 +23,14 @@ export function PrivacyPage() {
 
         {/* TL;DR */}
         <section class="space-y-1">
-          <h2 class="text-xl font-semibold">The short version:</h2>
+          <h2 class="text-xl font-semibold">The Short Version</h2>
           <p class="text-lg">
             We can't see your secrets. That's the whole point.
           </p>
         </section>
 
-        {/* Zero-knowledge */}
         <section class="space-y-2">
-          <h2 class="text-xl font-semibold">Zero-knowledge architecture</h2>
+          <h2 class="text-xl font-semibold">Zero-Knowledge Architecture</h2>
           <p class="leading-relaxed text-muted">
             Secrets are encrypted in your browser before they reach our server.
             The decryption key lives in the URL fragment (the part after{' '}
@@ -63,14 +62,13 @@ export function PrivacyPage() {
           </p>
         </section>
 
-        {/* What we store */}
         <section class="space-y-2">
-          <h2 class="text-xl font-semibold">What we store</h2>
+          <h2 class="text-xl font-semibold">What We Store</h2>
           <ul class="list-inside list-disc space-y-1.5 text-muted">
             <li>
-              <strong class="text-default">Encrypted secret payloads:</strong>
-              deleted immediately after first read, or automatically on expiry
-              (max 1 year)
+              <strong class="text-default">Encrypted secret payloads:</strong>{' '}
+              Deleted immediately after first read, or automatically on expiry
+              (max 1 year).
             </li>
             <li>
               <strong class="text-default">Rate limiting data:</strong> IP
@@ -88,18 +86,18 @@ export function PrivacyPage() {
 
         {/* What we don't store */}
         <section class="space-y-2">
-          <h2 class="text-xl font-semibold">What we don't store</h2>
+          <h2 class="text-xl font-semibold">What We Don't Store</h2>
           <ul class="list-inside list-disc space-y-1.5 text-muted">
-            <li>Your plaintext secrets — ever</li>
-            <li>Decryption keys or URL fragments</li>
-            <li>Analytics or tracking data</li>
-            <li>Cookies beyond what's needed for authentication</li>
+            <li>Your plaintext secrets — ever.</li>
+            <li>Decryption keys or URL fragments.</li>
+            <li>Analytics or tracking data.</li>
+            <li>Cookies beyond what's needed for authentication.</li>
           </ul>
         </section>
 
         {/* IP privacy */}
         <section class="space-y-2">
-          <h2 class="text-xl font-semibold">IP address privacy</h2>
+          <h2 class="text-xl font-semibold">IP Address Privacy</h2>
           <p class="leading-relaxed text-muted">
             Our reverse proxy masks IP addresses in all access logs — the last
             octet of IPv4 addresses and the last 80 bits of IPv6 addresses are
@@ -111,7 +109,7 @@ export function PrivacyPage() {
 
         {/* No tracking */}
         <section class="space-y-2">
-          <h2 class="text-xl font-semibold">No tracking</h2>
+          <h2 class="text-xl font-semibold">No Tracking</h2>
           <p class="leading-relaxed text-muted">
             We don't use Google Analytics, tracking pixels, or any third-party
             analytics. No ads. No data brokers. No fingerprinting.
@@ -129,10 +127,9 @@ export function PrivacyPage() {
 
         {/* Open source */}
         <section class="space-y-2">
-          <h2 class="text-xl font-semibold">Open source</h2>
+          <h2 class="text-xl font-semibold">Open Source</h2>
           <p class="leading-relaxed text-muted">
-            The entire codebase — client, server, CLI, and protocol
-            specification — is{' '}
+            The entire codebase — client, server, CLI, and specification — is{' '}
             <a
               href="https://github.com/getsecrt/secrt"
               target="_blank"
@@ -147,7 +144,7 @@ export function PrivacyPage() {
 
         {/* Contact */}
         <section class="space-y-2">
-          <h2 class="text-xl font-semibold">Contact</h2>
+          <h2 class="text-xl font-semibold">Contact Us</h2>
           <p class="leading-relaxed text-muted">
             Questions or concerns:{' '}
             <a href="mailto:security@secrt.ca" class="link">
@@ -169,12 +166,8 @@ export function PrivacyPage() {
       </div>
 
       <div class="text-center">
-        <a
-          href="/"
-          onClick={handleHome}
-          class="hover:text-default text-muted transition-colors"
-        >
-          ← Back to <Secrt />
+        <a href="/" onClick={handleHome} class="link">
+          Home
         </a>
       </div>
     </div>

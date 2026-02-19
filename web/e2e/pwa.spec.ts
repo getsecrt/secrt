@@ -53,7 +53,7 @@ test.describe('PWA metadata', () => {
     await expect(darkTheme).toHaveAttribute('content', '#0f1117');
 
     const capable = page.locator(
-      'meta[name="apple-mobile-web-app-capable"]',
+      'meta[name="mobile-web-app-capable"]',
     );
     await expect(capable).toHaveAttribute('content', 'yes');
   });

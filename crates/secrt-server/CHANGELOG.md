@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.12.1 — 2026-02-18
+
+### Changed
+
+- **Nav bar "More Information" menu:** grouped How it Works, Privacy Policy, Security Policy, and GitHub Repo into a dropdown; reorganized mobile menu with grouped sections and moved login link to the top.
+- **iPhone PWA safe area insets:** added `viewport-fit=cover`, nav top padding, and footer bottom padding so content clears the Dynamic Island and home indicator in standalone mode.
+- **Footer layout:** reordered to show navigation links first, then GitHub icon and copyright.
+- **Privacy page polish:** title-cased headings, punctuated list items, simplified "Home" back-link.
+- **How it Works subtitle:** simplified to "An overview of our zero-knowledge architecture."
+- **SECURITY.md:** formatting cleanup; removed redundant "Supported Versions" table.
+
+### Fixed
+
+- **QR code spacing:** added top margin to the QR code on the share result page.
+- **PWA meta tag:** corrected `apple-mobile-web-app-capable` to the standard `mobile-web-app-capable`.
+- **PWA e2e test:** updated selector to match the corrected meta tag name.
+
 ## 0.12.0 — 2026-02-18
 
 ### Added

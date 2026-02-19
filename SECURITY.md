@@ -19,12 +19,12 @@ You should receive an acknowledgment within 48 hours. We will work with you to u
 
 The following are in scope for security reports:
 
-- **Cryptographic issues** — weaknesses in the AES-256-GCM, HKDF-SHA256, or Argon2id implementation
-- **Server-side data leaks** — any path where the server could access or log plaintext, decryption keys, or passphrases
-- **Claim atomicity failures** — scenarios where a secret could be read more than once
-- **Authentication bypass** — unauthorized access to API-key-protected endpoints
-- **Rate limiter bypass** — circumventing per-IP or per-key rate limits
-- **Injection attacks** — SQL injection, command injection, or header injection
+- **Cryptographic issues:** weaknesses in the AES-256-GCM, HKDF-SHA256, or Argon2id implementation
+- **Server-side data leaks:** any path where the server could access or log plaintext, decryption keys, or passphrases
+- **Claim atomicity failures:** scenarios where a secret could be read more than once
+- **Authentication bypass:** unauthorized access to API-key-protected endpoints
+- **Rate limiter bypass:** circumventing per-IP or per-key rate limits
+- **Injection attacks:** SQL injection, command injection, or header injection
 
 ## Design Principles
 
@@ -35,12 +35,3 @@ secrt is built on a zero-knowledge architecture:
 - Decryption keys are never sent to the server (they live in the URL fragment)
 - Secrets are atomically claimed and deleted — read-once by design
 - No plaintext, passphrases, PINs, or URL fragments are ever logged
-
-## Supported Versions
-
-Security fixes are applied to the latest release only. We recommend always running the most recent version.
-
-| Component | Supported |
-|-----------|-----------|
-| secrt-cli (latest) | Yes |
-| secrt-server (latest) | Yes |

@@ -92,7 +92,7 @@ export function ShareResult({
         label="Copy Link"
       />
 
-      <div class="flex justify-center">
+      <div class="mt-7 flex justify-center">
         <QrCanvas url={shareUrl} />
       </div>
 
