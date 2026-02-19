@@ -197,11 +197,32 @@ jobs:
             --password "$APPLE_APP_PASSWORD" \
             --wait
 
-      - name: Upload universal binary
+      - name: Create macOS release archives
+        run: |
+          for pair in "secrt-darwin-universal:secrt-macos" "secrt-darwin-arm64:secrt-macos-arm64" "secrt-darwin-amd64:secrt-macos-amd64"; do
+            src="${pair%%:*}"
+            zip_name="${pair##*:}.zip"
+            cp "$src" secrt
+            chmod +x secrt
+            zip "$zip_name" secrt
+            rm secrt
+          done
+
+      - name: Staple notarization tickets
+        if: env.HAS_APPLE_ID == 'true'
+        run: |
+          for zip in secrt-macos.zip secrt-macos-arm64.zip secrt-macos-amd64.zip; do
+            xcrun stapler staple "$zip" || echo "Stapling $zip failed (online check still works)"
+          done
+
+      - name: Upload macOS release archives
         uses: actions/upload-artifact@v4
         with:
-          name: secrt-darwin-universal
-          path: secrt-darwin-universal
+          name: macos-release-zips
+          path: |
+            secrt-macos.zip
+            secrt-macos-arm64.zip
+            secrt-macos-amd64.zip
 
   release:
     name: Publish release
@@ -221,14 +242,7 @@ jobs:
       - name: Create archives
         working-directory: artifacts
         run: |
-          # macOS archives (zip containing 'secrt')
-          for arch in darwin-universal darwin-arm64 darwin-amd64; do
-            cp "secrt-${arch}" secrt
-            chmod +x secrt
-            zip "secrt-macos-${arch#darwin-}.zip" secrt
-            rm secrt
-          done
-          mv secrt-macos-universal.zip secrt-macos.zip
+          # macOS zips arrive pre-built from the universal-macos job
 
           # Linux archives (tar.gz containing 'secrt')
           for arch in linux-amd64 linux-arm64; do
