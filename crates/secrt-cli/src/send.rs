@@ -125,6 +125,30 @@ pub fn run_send(args: &[String], deps: &mut Deps) -> i32 {
 
     // Upload to server
     let is_tty = (deps.is_tty)();
+    let client = (deps.make_api)(&pa.base_url, &pa.api_key);
+
+    // Pre-validate --note prerequisites before creating the secret so we
+    // don't waste a one-time secret when the note can't be attached.
+    let resolved_amk: Option<Vec<u8>> = if !pa.note.is_empty() {
+        if pa.api_key.is_empty() {
+            write_error(
+                &mut deps.stderr,
+                pa.json,
+                is_tty,
+                "--note requires authentication (--api-key)",
+            );
+            return 1;
+        }
+        match resolve_amk(&pa, &*client) {
+            Ok(amk) => Some(amk),
+            Err(e) => {
+                write_error(&mut deps.stderr, pa.json, is_tty, &format!("--note: {}", e));
+                return 1;
+            }
+        }
+    } else {
+        None
+    };
 
     // Show generated password before upload
     if let Some(ref pw) = generated_password {
@@ -147,7 +171,6 @@ pub fn run_send(args: &[String], deps: &mut Deps) -> i32 {
         );
         let _ = deps.stderr.flush();
     }
-    let client = (deps.make_api)(&pa.base_url, &pa.api_key);
 
     let resp = match client.create(CreateRequest {
         envelope: result.envelope,
@@ -182,9 +205,15 @@ pub fn run_send(args: &[String], deps: &mut Deps) -> i32 {
         }
     };
 
-    // Attach encrypted note if --note was provided
-    if !pa.note.is_empty() {
-        attach_note(&pa, deps, &*client, &resp.id, is_tty);
+    // Attach encrypted note if --note was provided (AMK already validated)
+    let mut note_failed = false;
+    if let Some(ref amk) = resolved_amk {
+        if let Err(e) = attach_note(&pa, deps, &*client, &resp.id, is_tty, amk) {
+            write_error(&mut deps.stderr, pa.json, is_tty, &e);
+            // Still output the share link below — the secret exists.
+            // But signal failure via exit code so callers know the note was lost.
+            note_failed = true;
+        }
     }
 
     // Output
@@ -216,7 +245,7 @@ pub fn run_send(args: &[String], deps: &mut Deps) -> i32 {
         }
     }
 
-    0
+    if note_failed { 1 } else { 0 }
 }
 
 /// Parse a subset of ISO 8601 UTC timestamps ("2026-02-09T00:00:00Z") to unix epoch seconds.
@@ -350,56 +379,20 @@ pub(crate) fn resolve_amk(
     unwrap_amk(&wrapped, &wrap_key, &aad).map_err(|e| format!("unwrap AMK: {}", e))
 }
 
-/// Attach an encrypted note to a secret after creation. Non-fatal on failure.
+/// Encrypt and upload a note for an already-created secret.
+/// Called only after AMK has been pre-validated, so `amk` is always valid.
 fn attach_note(
     pa: &ParsedArgs,
     deps: &mut Deps,
     client: &(dyn crate::client::SecretApi + '_),
     secret_id: &str,
-    is_tty: bool,
-) {
-    let c = color_func(is_tty);
-
-    // Require authentication
-    if pa.api_key.is_empty() {
-        if !pa.silent {
-            let _ = writeln!(
-                deps.stderr,
-                "{} --note requires authentication (--api-key)",
-                c(WARN, "!")
-            );
-        }
-        return;
-    }
-
-    // Resolve AMK
-    let amk = match resolve_amk(pa, client) {
-        Ok(amk) => amk,
-        Err(e) => {
-            if !pa.silent {
-                let _ = writeln!(deps.stderr, "{} note not attached: {}", c(WARN, "!"), e);
-            }
-            return;
-        }
-    };
-
+    _is_tty: bool,
+    amk: &[u8],
+) -> Result<(), String> {
     // Encrypt the note
     let encrypted =
-        match secrt_core::amk::encrypt_note(&amk, secret_id, pa.note.as_bytes(), &*deps.rand_bytes)
-        {
-            Ok(enc) => enc,
-            Err(e) => {
-                if !pa.silent {
-                    let _ = writeln!(
-                        deps.stderr,
-                        "{} note encryption failed: {}",
-                        c(WARN, "!"),
-                        e
-                    );
-                }
-                return;
-            }
-        };
+        secrt_core::amk::encrypt_note(amk, secret_id, pa.note.as_bytes(), &*deps.rand_bytes)
+            .map_err(|e| format!("note encryption failed: {}", e))?;
 
     // Build enc_meta JSON
     let enc_meta = secrt_core::api::EncMetaV1 {
@@ -412,11 +405,9 @@ fn attach_note(
     };
 
     // Upload
-    if let Err(e) = client.update_secret_meta(secret_id, &enc_meta, 1) {
-        if !pa.silent {
-            let _ = writeln!(deps.stderr, "{} note not attached: {}", c(WARN, "!"), e);
-        }
-    }
+    client
+        .update_secret_meta(secret_id, &enc_meta, 1)
+        .map_err(|e| format!("note not attached: {}", e))
 }
 
 fn read_plaintext(pa: &ParsedArgs, deps: &mut Deps) -> Result<Vec<u8>, String> {
