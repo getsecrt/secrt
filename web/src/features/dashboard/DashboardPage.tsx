@@ -30,7 +30,7 @@ import { SyncNotesKeyButton } from '../../components/SyncNotesKeyButton';
 import { navigate } from '../../router';
 import type { SecretMetadata } from '../../types';
 
-const PAGE_SIZE = 10;
+const PAGE_SIZE = 100;
 const FETCH_LIMIT = 20_000;
 
 type SortColumn = 'created_at' | 'expires_at' | 'ciphertext_size';
@@ -449,13 +449,12 @@ function DashboardContent() {
                         setSelectedSecret(s)
                       }
                     >
-                      {decryptedNotes[s.id] ?? (
-                        s.enc_meta?.note ? (
+                      {decryptedNotes[s.id] ??
+                        (s.enc_meta?.note ? (
                           <span class="italic opacity-60">Encrypted</span>
                         ) : (
                           ''
-                        )
-                      )}
+                        ))}
                     </td>
                     <td class="py-2 pr-3">
                       {s.passphrase_protected && (
@@ -598,7 +597,7 @@ function DashboardContent() {
                 selectedSecret.enc_meta?.note && (
                   <div>
                     <dt class="font-medium text-muted">Note</dt>
-                    <dd class="mt-0.5 italic text-muted">
+                    <dd class="mt-0.5 text-muted italic">
                       {hasAmk
                         ? 'Unable to decrypt note'
                         : 'Sync your notes key from another browser to view this note.'}
