@@ -67,21 +67,34 @@ export function PrivacyPage() {
           <ul class="list-inside list-disc space-y-1.5 text-muted">
             <li>
               <strong class="text-default">Encrypted secret payloads:</strong>{' '}
-              Deleted immediately after first read, or automatically on expiry
-              (max 1 year).
+              Stored only until the first successful read, or until they expire
+              (maximum retention: 1 year), whichever comes first.
             </li>
             <li>
-              <strong class="text-default">Rate limiting data:</strong> IP
-              addresses are HMAC-hashed with a per-process random key and held
-              in memory only. Raw IPs are never written to the database. Stale
-              entries are evicted every 2 minutes.
+              <strong class="text-default">Rate-limiting data:</strong> To
+              prevent abuse, we keep short-lived, in-memory rate-limit entries
+              derived from IP addresses using an HMAC with a randomly generated
+              key. We do not store raw IP addresses in our database. Entries are
+              periodically evicted (about every 2 minutes).
             </li>
             <li>
-              <strong class="text-default">Account credentials:</strong> if you
-              register (optional), we store your email and a passkey credential.
-              No passwords — authentication is passkey-only.
+              <strong class="text-default">
+                Account credentials (optional):
+              </strong>{' '}
+              If you register, we store a passkey credential and an account
+              nickname to help you identify your account. We generate a random
+              nickname by default, and you can change when you register.
             </li>
           </ul>
+        </section>
+
+        <section class="space-y-2">
+          <h2 class="text-xl font-semibold">Passkeys Only — No Passwords</h2>
+          <p class="text-muted">
+            We support passkeys for sign-in and do not offer password-based
+            logins. Passkeys are designed to reduce phishing risk and eliminate
+            password reuse, while providing a simpler login experience.
+          </p>
         </section>
 
         {/* What we don't store */}
