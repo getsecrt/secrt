@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.13.2 — 2026-02-19
+
+### Fixed
+
+- **Infinite spinner on auth-gated pages:** direct navigation to `/sync/{id}` or `/device` showed a spinner forever when unauthenticated. A Preact effect ordering race condition caused the login redirect's `PopStateEvent` to fire before the parent route listener was attached. Fixed by deferring the navigation.
+
 ## 0.13.1 — 2026-02-19
 
 ### Fixed
