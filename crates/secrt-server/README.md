@@ -128,6 +128,12 @@ Hard caps on API key creation, enforced atomically in the database.
 | `APIKEY_REGISTER_IP_MAX_PER_HOUR` | `5` | Per client IP, rolling 1-hour window. |
 | `APIKEY_REGISTER_IP_MAX_PER_DAY` | `20` | Per client IP, rolling 24-hour window. |
 
+### Feature flags
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `ENCRYPTED_NOTES_ENABLED` | `true` | Enable encrypted notes (AMK-based private notes on secrets). Set to `false` to disable. |
+
 ## Database setup
 
 **Requirements:** PostgreSQL (tested with 18; likely compatible with 14+).
@@ -139,8 +145,10 @@ Key tables:
 - `users` / `passkeys` / `sessions` — WebAuthn passkey authentication
 - `api_keys` — HMAC-verified API key credentials
 - `api_key_registrations` — rate limiting accounting for key creation
+- `amk_accounts` — per-user AMK commitment anchor (first-writer-wins)
+- `amk_wrappers` — per-API-key wrapped AMK blobs
 
-See [`migrations/001_initial.sql`](migrations/001_initial.sql) for the full schema.
+See [`migrations/`](migrations/) for the full schema.
 
 ## API overview
 
@@ -163,6 +171,16 @@ All API endpoints live under `/api/v1/`. The server treats envelope contents as 
 | `GET` | `/api/v1/secrets` | List your secrets |
 | `GET` | `/api/v1/secrets/check` | Lightweight count + checksum for polling |
 | `POST` | `/api/v1/secrets/{id}/burn` | Destroy a secret you own |
+| `PUT` | `/api/v1/secrets/{id}/meta` | Attach encrypted note to a secret |
+
+### Account Master Key (AMK)
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `PUT` | `/api/v1/amk/wrapper` | Upsert wrapped AMK for an API key |
+| `GET` | `/api/v1/amk/wrapper` | Get wrapped AMK for an API key |
+| `GET` | `/api/v1/amk/wrappers` | List all AMK wrappers (session only) |
+| `GET` | `/api/v1/amk/exists` | Check if user has an AMK |
 
 ### Auth (passkeys + sessions)
 

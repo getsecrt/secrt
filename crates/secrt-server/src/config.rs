@@ -155,7 +155,7 @@ impl Config {
                 20,
             ),
 
-            encrypted_notes_enabled: getenv_bool_default("ENCRYPTED_NOTES_ENABLED", false),
+            encrypted_notes_enabled: getenv_bool_default("ENCRYPTED_NOTES_ENABLED", true),
         })
     }
 

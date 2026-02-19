@@ -392,12 +392,26 @@ export function SendPage() {
           try {
             const amk = await loadAmk(auth.userId);
             if (amk) {
-              const encrypted = await encryptNote(amk, res.id, utf8Encode(note));
+              const encrypted = await encryptNote(
+                amk,
+                res.id,
+                utf8Encode(note),
+              );
               const encMeta: EncMetaV1 = {
                 v: 1,
-                note: { ct: encrypted.ct, nonce: encrypted.nonce, salt: encrypted.salt },
+                note: {
+                  ct: encrypted.ct,
+                  nonce: encrypted.nonce,
+                  salt: encrypted.salt,
+                },
               };
-              await updateSecretMeta(auth.sessionToken, res.id, encMeta, 1, controller.signal);
+              await updateSecretMeta(
+                auth.sessionToken,
+                res.id,
+                encMeta,
+                1,
+                controller.signal,
+              );
             }
           } catch {
             // Non-fatal: secret was created, but note couldn't be attached
@@ -508,7 +522,7 @@ export function SendPage() {
             <textarea
               class={`textarea mb-0 [grid-area:1/1] ${mode === 'file' ? 'invisible' : ''} ${contentError && mode === 'text' ? 'input-error' : ''}`}
               rows={5}
-              placeholder="Enter your secret..."
+              placeholder="Enter your secret or drag a file here..."
               value={text}
               onInput={(e) => {
                 setText((e.target as HTMLTextAreaElement).value);
@@ -595,7 +609,7 @@ export function SendPage() {
               )}
             </button>
           </div>
-          <p class="text-center text-sm">
+          <p class="text-center text-sm text-muted">
             {passphrase ? 'The recipient must enter this password' : '\u00A0'}
           </p>
         </div>
@@ -606,24 +620,22 @@ export function SendPage() {
             <label class="label" for="note">
               <NoteIcon class="size-4 opacity-60" />
               <span class="flex items-baseline gap-2">
-                Note{' '}
-                <span class="text-sm font-normal text-faint">
-                  private &middot; optional
-                </span>
+                Private Note{' '}
+                <span class="text-sm font-normal text-faint">optional</span>
               </span>
             </label>
             <input
               id="note"
               type="text"
               class="input"
-              placeholder="e.g., AWS prod key for Bob"
+              placeholder="Description"
               value={note}
               onInput={(e) => setNote((e.target as HTMLInputElement).value)}
               disabled={busy}
               maxLength={500}
               autocomplete="off"
             />
-            <p class="text-center text-sm">
+            <p class="text-center text-sm text-muted">
               Only visible to you on your dashboard
             </p>
           </div>
