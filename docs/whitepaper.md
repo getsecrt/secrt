@@ -29,16 +29,25 @@ This white paper describes the threat model, cryptographic architecture, server 
 7. [Server Architecture](#server-architecture)
 8. [Abuse Prevention](#abuse-prevention)
 9. [Account System & Authentication](#account-system--authentication)
-10. [Clients](#clients)
+10. [Encrypted Notes (Account Master Key)](#encrypted-notes-account-master-key)
+    - [Why This Exists](#why-this-exists)
+    - [Account Master Key (AMK)](#account-master-key-amk)
+    - [Note Encryption](#note-encryption)
+    - [AMK Wrapping & Recovery](#amk-wrapping--recovery)
+    - [Cross-Device Sync](#cross-device-sync)
+    - [CLI Device Authorization & ECDH Transfer](#cli-device-authorization--ecdh-transfer)
+    - [Commitment Protocol](#commitment-protocol)
+    - [Threat Analysis](#threat-analysis)
+11. [Clients](#clients)
     - [CLI Application](#cli-application)
     - [Signed Binary Releases](#signed-binary-releases)
     - [Web Application](#web-application)
-11. [Specification & Test Vectors](#specification--test-vectors)
-12. [Self-Hosting](#self-hosting)
-13. [Data Residency](#data-residency)
-14. [FAQ](#faq)
-15. [Contact & Responsible Disclosure](#contact--responsible-disclosure)
-16. [Appendices](#appendices)
+12. [Specification & Test Vectors](#specification--test-vectors)
+13. [Self-Hosting](#self-hosting)
+14. [Data Residency](#data-residency)
+15. [FAQ](#faq)
+16. [Contact & Responsible Disclosure](#contact--responsible-disclosure)
+17. [Appendices](#appendices)
 
 ---
 
@@ -402,6 +411,166 @@ All limits are configurable per deployment.
 
 ---
 
+## Encrypted Notes (Account Master Key)
+
+Secrets are ephemeral by design — once claimed, the ciphertext is gone. But users with accounts often want to remember *what* they shared: "AWS prod key for Bob", "database password for staging migration", "Wi-Fi credentials for the Toronto office". These private annotations are visible only to the sender on their dashboard.
+
+The obvious implementation would be to store notes in plaintext on the server, scoped to the user's account. That would be easy, and for most applications it would be fine. But secrt's zero-knowledge property is absolute — the server must never see any user content, not even metadata *about* secrets. A plaintext note reading "root password for prod-db-07.internal" is a targeting guide if the database is ever compromised.
+
+So secrt does what any reasonable project would do: it introduces a new symmetric key hierarchy, a commitment protocol, per-API-key key wrapping, IndexedDB persistence, a cross-device sync mechanism that tunnels through the existing one-time secret infrastructure, ECDH key agreement scaffolding for future real-time sync, and five new API endpoints — all to protect "AWS prod key for Bob."
+
+### Why This Exists
+
+The encrypted notes feature solves a genuine UX problem: after sharing dozens of secrets, the dashboard becomes a wall of opaque IDs and expiry timestamps with no way to tell them apart. Notes like "sent DB creds to Alice" or "deploy token for CI" make the dashboard actually useful.
+
+The engineering constraint is that these notes must be encrypted client-side with a key the server never sees, while remaining accessible across the user's devices and browser sessions. This rules out both plaintext storage (violates zero-knowledge) and per-session encryption (notes would be unreadable on a second device).
+
+### Account Master Key (AMK)
+
+The solution is a single 32-byte symmetric key per user account — the **Account Master Key** (AMK). The AMK is generated once, stored locally in the browser's IndexedDB, and used to derive per-note encryption keys. The server never receives the AMK in plaintext.
+
+```
+AMK = random(32 bytes)    # generated in browser, never sent to server
+```
+
+The AMK is generated lazily — not at account creation, but the first time the user writes a note or creates an API key. This avoids generating key material for users who never use the feature.
+
+The AMK is stored client-side in IndexedDB (database `secrt-amk`, object store `amk`, keyed by user ID). IndexedDB was chosen over localStorage because it handles binary data natively without base64 encoding overhead and is available in all modern browsers.
+
+### Note Encryption
+
+Each note is encrypted with a fresh key derived from the AMK, bound to the specific secret it annotates:
+
+```
+note_salt = random(32 bytes)
+note_key  = HKDF-SHA-256(
+    ikm  = AMK,
+    salt = note_salt,
+    info = "secrt-note-v1",
+    len  = 32
+)
+note_aad  = "secrt-note-v1" || secret_id
+ciphertext = AES-256-GCM(note_key, random_nonce, note_aad, plaintext)
+```
+
+The `secret_id` in the AAD (Additional Authenticated Data) cryptographically binds each note to its secret. If an attacker with database access tried to copy a note's ciphertext to a different secret, GCM authentication would fail on decryption. This is defense in depth — the server can't decrypt notes regardless — but it prevents a compromised server from silently shuffling encrypted metadata between records.
+
+The encrypted note is stored on the server as an opaque JSON blob in the `enc_meta` column:
+
+```json
+{
+  "v": 1,
+  "note": {
+    "ct": "<base64url ciphertext + GCM tag>",
+    "nonce": "<base64url, 12 bytes>",
+    "salt": "<base64url, 32 bytes>"
+  }
+}
+```
+
+The version field (`v: 1`) allows future schema evolution without breaking existing notes. The server validates structural constraints (field lengths, base64url encoding) but never interprets the ciphertext. Notes are capped at 8 KiB of decoded ciphertext, which is generous for annotations but prevents abuse.
+
+### AMK Wrapping & Recovery
+
+The AMK lives in IndexedDB, which is local to a single browser on a single device. If the user clears browser data, switches browsers, or logs in on a new machine, the AMK is gone — and with it, the ability to read any encrypted notes.
+
+To solve this, the AMK is **wrapped** (encrypted) per API key and stored on the server. When a user creates an API key, the client:
+
+1. **Derives a wrap key** from the API key's root secret (which is already stored locally):
+   ```
+   root_salt = SHA-256("secrt-apikey-v2-root-salt")
+   wrap_key  = HKDF-SHA-256(root_key, root_salt, "secrt-amk-wrap-v1", 32)
+   ```
+
+2. **Builds domain-tagged AAD** to prevent cross-key and cross-user substitution:
+   ```
+   AAD = "secrt-amk-wrap-v1" || user_id || key_prefix || version_be16
+   ```
+
+3. **Wraps the AMK** with AES-256-GCM:
+   ```
+   wrapped_amk = AES-256-GCM(wrap_key, random_nonce, AAD, AMK)
+   ```
+
+4. **Uploads** the wrapped blob and nonce via `PUT /api/v1/amk/wrapper`.
+
+The server stores only the wrapped ciphertext — it cannot unwrap the AMK without the API key's root secret, which it also never has (see [API Key v2 Architecture](#api-key-v2-architecture)).
+
+On a new device, the client retrieves the wrapped blob, derives the same wrap key from the locally-stored API key root secret, and unwraps the AMK. This is automatic and transparent — if you have your API key, you have your notes.
+
+### Cross-Device Sync
+
+For users who want to sync the AMK to another browser without configuring an API key on that device, secrt provides a manual sync mechanism that tunnels through the existing one-time secret infrastructure:
+
+1. **Source browser:** The `SyncNotesKeyButton` component seals the raw AMK bytes as a standard one-time secret (using the existing envelope encryption) with a short 10-minute TTL.
+
+2. **Sync link:** A `/sync/{id}#<urlKey>` URL is generated and displayed to the user (via QR code or copy/paste).
+
+3. **Target browser:** Opening the sync link routes to a dedicated `SyncPage` that claims the one-time secret, decrypts the envelope to recover the raw AMK, validates it is exactly 32 bytes, and stores it in IndexedDB.
+
+4. **Self-destruct:** The secret is consumed by the one-time claim, so the link cannot be reused. The short TTL limits the exposure window.
+
+This reuses the existing zero-knowledge secret sharing pipeline — no new crypto, no new server endpoints — just a specialized UI flow for transferring the AMK between browsers.
+
+### CLI Device Authorization & ECDH Transfer
+
+When the CLI authenticates via the browser device flow (`secrt login`), the AMK can be transferred directly from browser to CLI using ephemeral ECDH key agreement — no intermediate secret sharing step required.
+
+The flow works as follows:
+
+1. **CLI generates an ephemeral P-256 ECDH key pair** and includes the public key in the device challenge.
+2. **Browser approves the device** and, if it has an AMK, generates its own ephemeral P-256 key pair, performs ECDH with the CLI's public key, and derives a transfer key:
+   ```
+   shared_secret = ECDH(browser_private, cli_public)
+   transfer_key  = HKDF-SHA-256(shared_secret, empty_salt, "secrt-amk-transfer-v1", 32)
+   ```
+3. **Browser encrypts the AMK** with the transfer key using AES-256-GCM (AAD: `"secrt-amk-transfer-v1"`), and sends the ciphertext + its public key alongside the approval response.
+4. **Both sides compute a 6-digit SAS code** (Short Authentication String) from the shared secret and both public keys, sorted deterministically:
+   ```
+   sas_salt = min(pkA, pkB) || max(pkA, pkB)
+   sas_bytes = HKDF-SHA-256(shared_secret, sas_salt, "secrt-amk-sas-v1", 3)
+   sas_code  = ((sas_bytes[0] << 16) | (sas_bytes[1] << 8) | sas_bytes[2]) % 1,000,000
+   ```
+   The user verifies the SAS code matches on both the browser and the terminal, confirming no MITM attack occurred.
+5. **CLI decrypts the AMK** using the same derived transfer key and stores it locally.
+
+The ECDH transfer is non-fatal — if it fails (no AMK in the browser, key generation error, etc.), device authorization still succeeds without AMK transfer. The CLI can still retrieve a wrapped AMK later via the API key wrapper endpoint.
+
+### Commitment Protocol
+
+A subtle problem arises with multi-device AMK recovery: what prevents a second device from generating a *different* AMK and uploading it, effectively forking the user's note encryption into two incompatible key lineages?
+
+The answer is a **commitment protocol**. When the first device generates an AMK, it computes a blinded commitment hash and uploads it:
+
+```
+amk_commit = SHA-256("secrt-amk-commit-v1" || AMK)
+```
+
+This commitment is stored in a dedicated `amk_accounts` table with first-writer-wins semantics (PostgreSQL `INSERT ... ON CONFLICT DO NOTHING`). Subsequent devices must submit the same commitment hash when uploading their wrapped AMK. If the commitments don't match — meaning the device generated a different AMK — the server returns `409 Conflict` and the client clears its local AMK.
+
+The commitment is blinded (the domain tag prevents rainbow table attacks) and reveals nothing about the AMK itself. Even with database access, an attacker cannot derive the AMK from the commitment — it serves purely as a consistency check.
+
+### Threat Analysis
+
+**Server compromise:** The server stores wrapped AMKs (encrypted with keys it doesn't have), commitment hashes (one-way), and encrypted note blobs. None of these are useful without the API key root secret, which the server also never stores. An attacker with full database access obtains only ciphertext.
+
+**IndexedDB exposure:** If an attacker gains access to the browser's IndexedDB on a logged-in device, they can extract the raw AMK and decrypt all notes. This is equivalent to the existing threat model non-goal of compromised client devices — if the attacker owns the browser, they can read anything the user can read.
+
+**Sync link interception:** A sync link is a standard one-time secret with a 10-minute TTL. The same protections apply: HTTPS transport, URL fragment key separation, one-time atomic claim. An attacker would need to both intercept the link and claim it before the user does.
+
+**AMK commitment mismatch:** A compromised server could accept a second, attacker-controlled AMK commitment. However, this only affects future notes encrypted with the forked AMK — existing notes remain bound to the original AMK and cannot be re-encrypted without it. Additionally, the attacker would still need a valid API key root secret to wrap and upload the forged AMK, which the server doesn't have.
+
+### Database Schema
+
+The feature adds two tables (see [Appendix F](#appendix-f-amk-database-schema)) and two nullable columns on the existing `secrets` table:
+
+- **`enc_meta`** (JSONB) — The encrypted note blob. Included in quota calculations alongside the envelope.
+- **`meta_key_version`** (SMALLINT) — Reserved for future AMK key rotation. Currently always `1`.
+
+The entire feature is gated behind an `ENCRYPTED_NOTES_ENABLED` environment variable (default: `true`), allowing self-hosters to disable it if they prefer a simpler deployment.
+
+---
+
 ## Clients
 
 ### CLI Application
@@ -508,6 +677,10 @@ Yes. For maximum privacy, use the CLI rather than the web application (Tor Brows
 ### What is a passkey?
 
 A [passkey](https://passkeys.dev/) is a modern, phishing-resistant credential based on [WebAuthn/FIDO2](https://fidoalliance.org/fido2/). You authenticate using biometrics, a PIN, or a hardware security key instead of a password. Most modern devices support passkeys natively.
+
+### Can the server read my notes?
+
+No. Notes are encrypted client-side with a key (the AMK) that the server never receives. The server stores only ciphertext, a blinded commitment hash, and wrapped key blobs that it cannot unwrap. Even with full database access, an attacker obtains nothing useful without the API key root secret, which is also never stored on the server.
 
 ### Are there desktop GUI apps or mobile apps?
 
@@ -663,3 +836,29 @@ auth_hash = hex(HMAC-SHA256(API_KEY_PEPPER, message))
 ```
 
 Compared using constant-time comparison. The `API_KEY_PEPPER` is an environment-only secret never persisted to disk.
+
+### Appendix F: AMK Database Schema
+
+See: [`crates/secrt-server/migrations/002_amk_wrappers.sql`](https://github.com/getsecrt/secrt/blob/main/crates/secrt-server/migrations/002_amk_wrappers.sql)
+
+**`amk_accounts`** — AMK commitment anchor (one per user, first-writer-wins)
+
+| Column | Type | Purpose |
+|--------|------|---------|
+| `user_id` | UUID (PK, FK → users) | One commitment per user |
+| `amk_commit` | BYTEA (32 bytes) | `SHA-256("secrt-amk-commit-v1" \|\| AMK)` — blinded commitment |
+| `created_at` | TIMESTAMPTZ | When the commitment was first established |
+
+**`amk_wrappers`** — Per-API-key wrapped AMK blobs
+
+| Column | Type | Purpose |
+|--------|------|---------|
+| `id` | BIGSERIAL (PK) | Auto-increment ID |
+| `user_id` | UUID (FK → users, amk_accounts) | Owner |
+| `key_prefix` | TEXT (UNIQUE with user_id) | API key prefix this wrapper is encrypted for |
+| `wrapped_amk` | BYTEA (48 bytes) | AES-256-GCM ciphertext + 16-byte tag |
+| `nonce` | BYTEA (12 bytes) | GCM nonce |
+| `version` | SMALLINT | Wrapper format version (currently 1) |
+| `created_at` | TIMESTAMPTZ | When this wrapper was created or last updated |
+
+The `amk_wrappers.user_id` foreign key references `amk_accounts(user_id)` (not `users` directly), ensuring a wrapper cannot exist without a corresponding commitment. Both tables cascade on user deletion.
