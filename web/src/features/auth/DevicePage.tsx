@@ -17,10 +17,14 @@ import {
 } from '../../components/Icons';
 import { CardHeading } from '../../components/CardHeading';
 
+type AmkTransferData = { ct: string; nonce: string; ecdh_public_key: string };
+
 type DeviceState =
   | { step: 'confirm'; code: string }
+  | { step: 'computing' }
+  | { step: 'verify-sas'; code: string; sasCode: string; amkTransfer: AmkTransferData }
   | { step: 'approving' }
-  | { step: 'done' }
+  | { step: 'done'; sasCode?: string }
   | { step: 'error'; message: string }
   | { step: 'no-code' };
 
@@ -35,7 +39,10 @@ export function DevicePage() {
     const code = parseUserCode();
     return code ? { step: 'confirm', code } : { step: 'no-code' };
   });
-  const [sasCode, setSasCode] = useState<string | null>(null);
+
+  const userCode = state.step === 'confirm' ? state.code
+    : state.step === 'verify-sas' ? state.code
+    : '';
 
   // Redirect to login if not authenticated (preserve redirect back)
   useEffect(() => {
@@ -80,47 +87,51 @@ export function DevicePage() {
         <p class="text-muted">
           Authentication should complete momentarily.
         </p>
+
+        {state.sasCode && (
+          <div class="mt-2">
+            <p class="text-muted text-sm">
+              If your terminal shows a security code, verify it matches:
+            </p>
+            <div class="font-mono text-xl font-bold tracking-[0.2em]">
+              {state.sasCode}
+            </div>
+          </div>
+        )}
       </div>
     );
   }
 
-  const busy = state.step === 'approving';
-  const userCode = state.step === 'confirm' ? state.code : '';
-
+  // Step 1: User clicks "Approve" — compute ECDH, then either show SAS or approve directly
   const handleApprove = async () => {
-    if (busy || !auth.sessionToken) return;
-    setState({ step: 'approving' });
+    if (!auth.sessionToken) return;
+    const code = userCode;
+    setState({ step: 'computing' });
 
     try {
-      // Try to set up ECDH AMK transfer
-      let amkTransfer: { ct: string; nonce: string; ecdh_public_key: string } | undefined;
+      let amkTransfer: AmkTransferData | undefined;
       let computedSas: string | null = null;
 
       try {
-        const challenge = await getDeviceChallenge(auth.sessionToken, userCode);
+        const challenge = await getDeviceChallenge(auth.sessionToken, code);
 
         if (challenge.ecdh_public_key && auth.userId) {
           const amk = await loadAmk(auth.userId);
 
           if (amk && challenge.ecdh_public_key) {
-            // Generate browser ECDH keypair
             const browserKp = await generateEcdhKeyPair();
             const browserPkBytes = await exportPublicKey(browserKp.publicKey);
 
-            // Import CLI's public key and perform ECDH
             const cliPkBytes = base64urlDecode(challenge.ecdh_public_key);
             const sharedSecret = await performEcdh(browserKp.privateKey, cliPkBytes);
 
-            // Derive transfer key and compute SAS
             const transferKey = await deriveTransferKey(sharedSecret);
             const sas = await computeSas(sharedSecret, cliPkBytes, browserPkBytes);
             computedSas = String(sas).padStart(6, '0');
 
-            // Encrypt AMK with transfer key
             const nonce = new Uint8Array(12);
             crypto.getRandomValues(nonce);
             const aad = new TextEncoder().encode('secrt-amk-transfer-v1');
-            // Copy to fresh ArrayBuffer for strict TS BufferSource typing
             const tkBuf = new ArrayBuffer(transferKey.byteLength);
             new Uint8Array(tkBuf).set(transferKey);
             const nonceBuf = new ArrayBuffer(nonce.byteLength);
@@ -149,12 +160,46 @@ export function DevicePage() {
         // ECDH setup failure is non-fatal — approve without AMK transfer
       }
 
-      // Show SAS before sending approve (set state, but don't block)
-      if (computedSas) {
-        setSasCode(computedSas);
+      // If we have a SAS code, pause for user verification before sending approval
+      if (computedSas && amkTransfer) {
+        setState({ step: 'verify-sas', code, sasCode: computedSas, amkTransfer });
+        return;
       }
 
-      await deviceApprove(auth.sessionToken, userCode, amkTransfer);
+      // No AMK transfer — approve immediately
+      setState({ step: 'approving' });
+      await deviceApprove(auth.sessionToken, code);
+      setState({ step: 'done' });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Approval failed.';
+      setState({ step: 'error', message });
+    }
+  };
+
+  // Step 2a: User confirms SAS — send approval with AMK transfer
+  const handleConfirmSas = async () => {
+    if (state.step !== 'verify-sas' || !auth.sessionToken) return;
+    const { sasCode, amkTransfer } = state;
+    const code = state.code;
+    setState({ step: 'approving' });
+
+    try {
+      await deviceApprove(auth.sessionToken, code, amkTransfer);
+      setState({ step: 'done', sasCode });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Approval failed.';
+      setState({ step: 'error', message });
+    }
+  };
+
+  // Step 2b: User rejects SAS — approve without AMK transfer
+  const handleSkipTransfer = async () => {
+    if (state.step !== 'verify-sas' || !auth.sessionToken) return;
+    const code = state.code;
+    setState({ step: 'approving' });
+
+    try {
+      await deviceApprove(auth.sessionToken, code);
       setState({ step: 'done' });
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Approval failed.';
@@ -165,6 +210,48 @@ export function DevicePage() {
   const handleCancel = () => {
     navigate('/');
   };
+
+  // SAS verification screen
+  if (state.step === 'verify-sas') {
+    return (
+      <div class="card text-center">
+        <CardHeading
+          title="Verify Security Code"
+          subtitle="A notes encryption key will be transferred to the CLI."
+          class="mb-4"
+        />
+
+        <div class="my-6 space-y-4">
+          <p class="text-muted text-sm">
+            After confirming, verify this code matches the one shown in your terminal.
+          </p>
+
+          <div class="bg-surface-alt mx-auto rounded-lg px-6 py-4 font-mono text-3xl font-bold tracking-[0.3em]">
+            {state.sasCode}
+          </div>
+        </div>
+
+        <div class="flex gap-3">
+          <button
+            type="button"
+            class="btn flex-1 tracking-wider uppercase"
+            onClick={handleSkipTransfer}
+          >
+            Skip Transfer
+          </button>
+          <button
+            type="button"
+            class="btn btn-primary flex-1 tracking-wider uppercase"
+            onClick={handleConfirmSas}
+          >
+            Confirm &amp; Approve
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  const busy = state.step === 'approving' || state.step === 'computing';
 
   return (
     <div class="card text-center">
@@ -180,15 +267,6 @@ export function DevicePage() {
         <div class="bg-surface-alt mx-auto rounded-lg px-6 py-4 font-mono text-3xl font-bold tracking-[0.3em]">
           {userCode}
         </div>
-
-        {sasCode && (
-          <div class="mt-4">
-            <p class="text-muted text-sm">Security code (verify in terminal):</p>
-            <div class="font-mono text-xl font-bold tracking-[0.2em]">
-              {sasCode}
-            </div>
-          </div>
-        )}
 
         {state.step === 'error' && (
           <div

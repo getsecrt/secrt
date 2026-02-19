@@ -1,7 +1,13 @@
 import { createContext } from 'preact';
 import { useState, useEffect, useCallback, useContext } from 'preact/hooks';
 import type { ComponentChildren } from 'preact';
-import { getSessionToken, setSessionToken, clearSessionToken } from './session';
+import {
+  getSessionToken,
+  setSessionToken,
+  clearSessionToken,
+  getCachedProfile,
+  setCachedProfile,
+} from './session';
 import { fetchSession, logout as apiLogout } from './api';
 
 export interface AuthState {
@@ -27,13 +33,29 @@ const defaultState: AuthState = {
 const AuthContext = createContext<AuthState>(defaultState);
 
 export function AuthProvider({ children }: { children: ComponentChildren }) {
-  const [loading, setLoading] = useState(true);
-  const [authenticated, setAuthenticated] = useState(false);
-  const [userId, setUserId] = useState<string | null>(null);
-  const [displayName, setDisplayName] = useState<string | null>(null);
-  const [sessionToken, setToken] = useState<string | null>(null);
+  // Read cached auth state synchronously to avoid a flash of wrong UI.
+  // - No token → loading: false immediately (we know user is unauthenticated)
+  // - Token + cached profile → loading: false, render authenticated UI instantly
+  // - Token but no cache → loading: true, wait for fetchSession
+  const [cached] = useState(() => {
+    const token = getSessionToken();
+    const profile = token ? getCachedProfile() : null;
+    return { token, profile };
+  });
 
-  // On mount, try to restore session from localStorage
+  const [loading, setLoading] = useState(!!cached.token && !cached.profile);
+  const [authenticated, setAuthenticated] = useState(!!cached.profile);
+  const [userId, setUserId] = useState<string | null>(
+    cached.profile?.userId ?? null,
+  );
+  const [displayName, setDisplayName] = useState<string | null>(
+    cached.profile?.displayName ?? null,
+  );
+  const [sessionToken, setToken] = useState<string | null>(
+    cached.profile ? cached.token : null,
+  );
+
+  // Validate the session in the background
   useEffect(() => {
     const token = getSessionToken();
     if (!token) {
@@ -50,12 +72,21 @@ export function AuthProvider({ children }: { children: ComponentChildren }) {
           setAuthenticated(true);
           setUserId(res.user_id);
           setDisplayName(res.display_name);
+          setCachedProfile({
+            userId: res.user_id,
+            displayName: res.display_name,
+          });
         } else {
           clearSessionToken();
+          setAuthenticated(false);
+          setToken(null);
+          setUserId(null);
+          setDisplayName(null);
         }
       })
       .catch(() => {
-        if (!cancelled) clearSessionToken();
+        // Network error or aborted request — don't clear the token.
+        // Only the .then() path clears it when the server says invalid.
       })
       .finally(() => {
         if (!cancelled) setLoading(false);
@@ -68,6 +99,7 @@ export function AuthProvider({ children }: { children: ComponentChildren }) {
 
   const login = useCallback((token: string, uid: string, name: string) => {
     setSessionToken(token);
+    setCachedProfile({ userId: uid, displayName: name });
     setToken(token);
     setAuthenticated(true);
     setUserId(uid);

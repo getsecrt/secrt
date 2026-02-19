@@ -16,6 +16,19 @@ export function formatShareLink(
 }
 
 /**
+ * Format a sync link for AMK transfer between browsers.
+ * Uses /sync/ prefix instead of /s/ to trigger the auto-import flow.
+ */
+export function formatSyncLink(
+  id: string,
+  urlKey: Uint8Array,
+  baseUrl?: string,
+): string {
+  const origin = baseUrl ?? window.location.origin;
+  return `${origin}/sync/${id}#${base64urlEncode(urlKey)}`;
+}
+
+/**
  * Parse a share URL, extracting the secret ID and url_key.
  * Returns null if the URL doesn't match the expected format.
  */

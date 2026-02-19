@@ -49,7 +49,7 @@ describe('Nav', () => {
   it('renders nav links', () => {
     render(<Nav />);
     expect(screen.getAllByText('Create').length).toBeGreaterThan(0);
-    expect(screen.getAllByText('How it Works').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('More Information').length).toBeGreaterThan(0);
     expect(screen.getAllByText(/CLI Downloads/).length).toBeGreaterThan(0);
   });
 

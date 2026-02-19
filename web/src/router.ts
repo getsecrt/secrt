@@ -3,6 +3,7 @@ import { useState, useEffect } from 'preact/hooks';
 export type Route =
   | { page: 'send' }
   | { page: 'claim'; id: string }
+  | { page: 'sync'; id: string }
   | { page: 'how-it-works' }
   | { page: 'privacy' }
   | { page: 'login' }
@@ -18,9 +19,14 @@ export function matchRoute(path: string): Route {
     return { page: 'send' };
   }
 
-  const match = path.match(/^\/s\/([a-zA-Z0-9_-]+)\/?$/);
-  if (match) {
-    return { page: 'claim', id: match[1] };
+  const claimMatch = path.match(/^\/s\/([a-zA-Z0-9_-]+)\/?$/);
+  if (claimMatch) {
+    return { page: 'claim', id: claimMatch[1] };
+  }
+
+  const syncMatch = path.match(/^\/sync\/([a-zA-Z0-9_-]+)\/?$/);
+  if (syncMatch) {
+    return { page: 'sync', id: syncMatch[1] };
   }
 
   if (path === '/how-it-works') {

@@ -103,9 +103,9 @@ describe('AuthProvider', () => {
     expect(localStorage.getItem('session_token')).toBeNull();
   });
 
-  it('clears stored token when session validation fails with error', async () => {
+  it('keeps stored token when session validation fails with network error', async () => {
     localStorage.setItem('session_token', 'uss_bad.tok');
-    vi.mocked(fetchSession).mockRejectedValue(new Error('401'));
+    vi.mocked(fetchSession).mockRejectedValue(new Error('network'));
 
     render(
       <AuthProvider>
@@ -117,7 +117,7 @@ describe('AuthProvider', () => {
       expect(screen.getByTestId('loading').textContent).toBe('false');
     });
     expect(screen.getByTestId('authenticated').textContent).toBe('false');
-    expect(localStorage.getItem('session_token')).toBeNull();
+    expect(localStorage.getItem('session_token')).toBe('uss_bad.tok');
   });
 
   it('login() stores token and updates state', async () => {

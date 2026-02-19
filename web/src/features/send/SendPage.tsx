@@ -84,12 +84,26 @@ export function SendPage() {
   const abortRef = useRef<AbortController | null>(null);
   const passwordCopiedTimerRef = useRef<number | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const [serverInfo, setServerInfo] = useState<ApiInfo | null>(null);
+  const [serverInfo, setServerInfo] = useState<ApiInfo | null>(() => {
+    try {
+      const cached = sessionStorage.getItem('server_info');
+      return cached ? (JSON.parse(cached) as ApiInfo) : null;
+    } catch {
+      return null;
+    }
+  });
 
   useEffect(() => {
     const controller = new AbortController();
     fetchInfo(controller.signal)
-      .then(setServerInfo)
+      .then((info) => {
+        setServerInfo(info);
+        try {
+          sessionStorage.setItem('server_info', JSON.stringify(info));
+        } catch {
+          /* best-effort */
+        }
+      })
       .catch(() => {
         /* best-effort; server will still enforce limits */
       });
@@ -418,8 +432,9 @@ export function SendPage() {
               1,
               controller.signal,
             );
-          } catch {
+          } catch (noteErr) {
             // Non-fatal: secret was created, but note couldn't be attached
+            console.error('[secrt] failed to attach note:', noteErr);
           }
         }
 

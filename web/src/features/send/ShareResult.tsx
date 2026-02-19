@@ -13,7 +13,6 @@ interface QrCanvasProps {
 
 function QrCanvas({ url, size = 192 }: QrCanvasProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
-
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -31,7 +30,7 @@ function QrCanvas({ url, size = 192 }: QrCanvasProps) {
 
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
-    const dark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+    const dark = document.documentElement.classList.contains('dark');
 
     ctx.fillStyle = dark ? '#000' : '#fff';
     ctx.fillRect(0, 0, dim, dim);
@@ -59,18 +58,28 @@ function QrCanvas({ url, size = 192 }: QrCanvasProps) {
 interface ShareResultProps {
   shareUrl: string;
   expiresAt: string;
-  onReset: () => void;
+  onReset?: () => void;
+  title?: string;
+  subtitle?: string;
+  resetLabel?: string;
+  /** Skip the outer card wrapper (e.g. when rendered inside a modal). */
+  bare?: boolean;
 }
 
 export function ShareResult({
   shareUrl,
   expiresAt,
   onReset,
+  title = 'Secret Created',
+  subtitle,
+  resetLabel = 'Send Another Secret',
+  bare = false,
 }: ShareResultProps) {
   return (
-    <div class="card space-y-5">
+    <div class={bare ? 'space-y-5' : 'card space-y-5'}>
       <CardHeading
-        title="Secret Created"
+        title={title}
+        subtitle={subtitle}
         icon={<CheckCircleIcon class="size-10 text-success" />}
       />
 
@@ -104,9 +113,11 @@ export function ShareResult({
         <p class="text-center text-sm text-muted">This link only works once.</p>
       </div>
 
-      <button type="button" class="link mx-auto block" onClick={onReset}>
-        Send Another Secret
-      </button>
+      {onReset && (
+        <button type="button" class="link mx-auto block" onClick={onReset}>
+          {resetLabel}
+        </button>
+      )}
     </div>
   );
 }

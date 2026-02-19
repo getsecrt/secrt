@@ -29,17 +29,23 @@ vi.mock('../../lib/api', () => ({
 }));
 
 // Mock amk-store (no AMK available in tests by default)
+const mockLoadAmk = vi.fn().mockResolvedValue(null);
 vi.mock('../../lib/amk-store', () => ({
-  loadAmk: vi.fn().mockResolvedValue(null),
+  loadAmk: (...args: unknown[]) => mockLoadAmk(...args),
 }));
 
 // Mock crypto/amk (not exercised when no AMK is loaded)
+const mockGenerateEcdhKeyPair = vi.fn();
+const mockExportPublicKey = vi.fn();
+const mockPerformEcdh = vi.fn();
+const mockDeriveTransferKey = vi.fn();
+const mockComputeSas = vi.fn();
 vi.mock('../../crypto/amk', () => ({
-  generateEcdhKeyPair: vi.fn(),
-  exportPublicKey: vi.fn(),
-  performEcdh: vi.fn(),
-  deriveTransferKey: vi.fn(),
-  computeSas: vi.fn(),
+  generateEcdhKeyPair: (...args: unknown[]) => mockGenerateEcdhKeyPair(...args),
+  exportPublicKey: (...args: unknown[]) => mockExportPublicKey(...args),
+  performEcdh: (...args: unknown[]) => mockPerformEcdh(...args),
+  deriveTransferKey: (...args: unknown[]) => mockDeriveTransferKey(...args),
+  computeSas: (...args: unknown[]) => mockComputeSas(...args),
 }));
 
 // Mock crypto/encoding
@@ -67,6 +73,12 @@ describe('DevicePage', () => {
     mockNavigate.mockClear();
     mockDeviceApprove.mockClear();
     mockGetDeviceChallenge.mockClear();
+    mockLoadAmk.mockReset().mockResolvedValue(null);
+    mockGenerateEcdhKeyPair.mockReset();
+    mockExportPublicKey.mockReset();
+    mockPerformEcdh.mockReset();
+    mockDeriveTransferKey.mockReset();
+    mockComputeSas.mockReset();
     // Default: challenge returns no ECDH key (no AMK transfer)
     mockGetDeviceChallenge.mockResolvedValue({
       user_code: 'ABCD-1234',
@@ -110,18 +122,17 @@ describe('DevicePage', () => {
     expect(screen.getByText('Loading...')).toBeInTheDocument();
   });
 
-  it('calls deviceApprove and shows success on approve click', async () => {
+  it('calls deviceApprove and shows success on approve click (no AMK)', async () => {
     const user = userEvent.setup();
     mockDeviceApprove.mockResolvedValue({ ok: true });
 
     render(<DevicePage />);
     await user.click(screen.getByText('Approve'));
 
-    // deviceApprove is called with token, code, and optional amkTransfer (undefined when no ECDH)
+    // deviceApprove is called with token and code only (no amkTransfer)
     expect(mockDeviceApprove).toHaveBeenCalledWith(
       'uss_test.tok',
       'ABCD-1234',
-      undefined,
     );
 
     await waitFor(() => {
@@ -157,6 +168,169 @@ describe('DevicePage', () => {
 
     await waitFor(() => {
       expect(screen.getByRole('alert')).toHaveTextContent('Approval failed');
+    });
+  });
+
+  describe('SAS verification flow', () => {
+    const fakeAmk = new Uint8Array(32).fill(0xaa);
+    const fakeBrowserPk = new Uint8Array(65).fill(0xbb);
+    const fakeSharedSecret = new Uint8Array(32).fill(0xcc);
+    const fakeTransferKey = new Uint8Array(32).fill(0xdd);
+
+    beforeEach(() => {
+      // Challenge includes CLI's ECDH public key
+      mockGetDeviceChallenge.mockResolvedValue({
+        user_code: 'ABCD-1234',
+        status: 'pending',
+        ecdh_public_key: btoa(String.fromCharCode(...new Uint8Array(65).fill(0x11))),
+      });
+      // AMK is available
+      mockLoadAmk.mockResolvedValue(fakeAmk);
+      // ECDH mocks
+      mockGenerateEcdhKeyPair.mockResolvedValue({
+        publicKey: 'mock-public',
+        privateKey: 'mock-private',
+      });
+      mockExportPublicKey.mockResolvedValue(fakeBrowserPk);
+      mockPerformEcdh.mockResolvedValue(fakeSharedSecret);
+      mockDeriveTransferKey.mockResolvedValue(fakeTransferKey);
+      mockComputeSas.mockResolvedValue(123456);
+
+      // Mock WebCrypto for AMK encryption
+      const mockCryptoKey = {};
+      vi.spyOn(crypto.subtle, 'importKey').mockResolvedValue(mockCryptoKey as CryptoKey);
+      vi.spyOn(crypto.subtle, 'encrypt').mockResolvedValue(new Uint8Array(48).buffer);
+    });
+
+    it('shows SAS verification screen before approving when AMK transfer is available', async () => {
+      const user = userEvent.setup();
+      render(<DevicePage />);
+      await user.click(screen.getByText('Approve'));
+
+      await waitFor(() => {
+        expect(screen.getByText('Verify Security Code')).toBeInTheDocument();
+      });
+      expect(screen.getByText('123456')).toBeInTheDocument();
+      expect(screen.getByText('Confirm & Approve')).toBeInTheDocument();
+      expect(screen.getByText('Skip Transfer')).toBeInTheDocument();
+
+      // deviceApprove should NOT have been called yet
+      expect(mockDeviceApprove).not.toHaveBeenCalled();
+    });
+
+    it('sends approval with AMK transfer after SAS confirmation', async () => {
+      const user = userEvent.setup();
+      mockDeviceApprove.mockResolvedValue({ ok: true });
+
+      render(<DevicePage />);
+      await user.click(screen.getByText('Approve'));
+
+      await waitFor(() => {
+        expect(screen.getByText('Verify Security Code')).toBeInTheDocument();
+      });
+
+      await user.click(screen.getByText('Confirm & Approve'));
+
+      await waitFor(() => {
+        expect(screen.getByText('Device Authorized')).toBeInTheDocument();
+      });
+
+      // deviceApprove called with amkTransfer
+      expect(mockDeviceApprove).toHaveBeenCalledWith(
+        'uss_test.tok',
+        'ABCD-1234',
+        expect.objectContaining({
+          ct: expect.any(String),
+          nonce: expect.any(String),
+          ecdh_public_key: expect.any(String),
+        }),
+      );
+    });
+
+    it('keeps SAS visible on done screen after confirmation', async () => {
+      const user = userEvent.setup();
+      mockDeviceApprove.mockResolvedValue({ ok: true });
+
+      render(<DevicePage />);
+      await user.click(screen.getByText('Approve'));
+
+      await waitFor(() => {
+        expect(screen.getByText('Verify Security Code')).toBeInTheDocument();
+      });
+
+      await user.click(screen.getByText('Confirm & Approve'));
+
+      await waitFor(() => {
+        expect(screen.getByText('Device Authorized')).toBeInTheDocument();
+      });
+
+      // SAS code should still be visible
+      expect(screen.getByText('123456')).toBeInTheDocument();
+    });
+
+    it('approves without AMK transfer when user clicks Skip Transfer', async () => {
+      const user = userEvent.setup();
+      mockDeviceApprove.mockResolvedValue({ ok: true });
+
+      render(<DevicePage />);
+      await user.click(screen.getByText('Approve'));
+
+      await waitFor(() => {
+        expect(screen.getByText('Verify Security Code')).toBeInTheDocument();
+      });
+
+      await user.click(screen.getByText('Skip Transfer'));
+
+      await waitFor(() => {
+        expect(screen.getByText('Device Authorized')).toBeInTheDocument();
+      });
+
+      // deviceApprove called WITHOUT amkTransfer
+      expect(mockDeviceApprove).toHaveBeenCalledWith(
+        'uss_test.tok',
+        'ABCD-1234',
+      );
+    });
+
+    it('does not show SAS on done screen when transfer was skipped', async () => {
+      const user = userEvent.setup();
+      mockDeviceApprove.mockResolvedValue({ ok: true });
+
+      render(<DevicePage />);
+      await user.click(screen.getByText('Approve'));
+
+      await waitFor(() => {
+        expect(screen.getByText('Verify Security Code')).toBeInTheDocument();
+      });
+
+      await user.click(screen.getByText('Skip Transfer'));
+
+      await waitFor(() => {
+        expect(screen.getByText('Device Authorized')).toBeInTheDocument();
+      });
+
+      expect(screen.queryByText('123456')).not.toBeInTheDocument();
+    });
+
+    it('falls through to direct approval when ECDH fails', async () => {
+      const user = userEvent.setup();
+      mockDeviceApprove.mockResolvedValue({ ok: true });
+      // Make ECDH fail
+      mockPerformEcdh.mockRejectedValue(new Error('ECDH failed'));
+
+      render(<DevicePage />);
+      await user.click(screen.getByText('Approve'));
+
+      // Should skip SAS screen and go directly to done
+      await waitFor(() => {
+        expect(screen.getByText('Device Authorized')).toBeInTheDocument();
+      });
+
+      // deviceApprove called without amkTransfer
+      expect(mockDeviceApprove).toHaveBeenCalledWith(
+        'uss_test.tok',
+        'ABCD-1234',
+      );
     });
   });
 });

@@ -8,6 +8,8 @@ import {
 import { registerPasskeyStart, registerPasskeyFinish } from '../../lib/api';
 import { navigate } from '../../router';
 import { getRedirectParam } from '../../lib/redirect';
+import { generateAmk } from '../../crypto/amk';
+import { storeAmk } from '../../lib/amk-store';
 import {
   PasskeyIcon,
   ShuffleIcon,
@@ -192,6 +194,15 @@ export function RegisterPage() {
 
         // 4. Log in with the returned session
         auth.login(finishRes.session_token, finishRes.user_id, finishRes.display_name);
+
+        // 5. Generate AMK for encrypted notes (non-fatal if it fails)
+        try {
+          const amk = generateAmk();
+          await storeAmk(finishRes.user_id, amk);
+        } catch {
+          // AMK will be generated on first note creation as fallback
+        }
+
         setState({ step: 'done' });
         navigate(redirectTo);
       } catch (err) {

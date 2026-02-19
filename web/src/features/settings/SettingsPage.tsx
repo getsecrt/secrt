@@ -18,7 +18,7 @@ import {
   wrapAmk,
 } from '../../crypto/amk';
 import { base64urlEncode } from '../../crypto/encoding';
-import { storeAmk, loadAmk } from '../../lib/amk-store';
+import { storeAmk, loadAmk, clearAmk } from '../../lib/amk-store';
 import {
   KeyIcon,
   TrashIcon,
@@ -27,6 +27,7 @@ import {
   SquarePlusIcon,
   CircleXmarkIcon,
 } from '../../components/Icons';
+import { SyncNotesKeyButton } from '../../components/SyncNotesKeyButton';
 import { CardHeading } from '../../components/CardHeading';
 import { navigate } from '../../router';
 import type { ApiKeyItem } from '../../types';
@@ -106,7 +107,7 @@ function ApiKeysCard() {
             // 409 = commit mismatch, another device committed a different AMK
             const msg = wrapErr instanceof Error ? wrapErr.message : '';
             if (msg.includes('409') || msg.includes('mismatch')) {
-              await (await import('../../lib/amk-store')).clearAmk(auth.userId);
+              await clearAmk(auth.userId);
             }
             // Non-fatal: key was created, wrapper upload failed
           }
@@ -203,7 +204,7 @@ function ApiKeysCard() {
       {loading && keys.length === 0 ? (
         <p class="text-muted">Loading...</p>
       ) : keys.length === 0 ? (
-        <p class="text-muted text-center">No API keys yet.</p>
+        <p class="text-center text-muted">No API keys yet.</p>
       ) : (
         <div class="overflow-x-auto">
           <table class="w-full">
@@ -355,8 +356,18 @@ function AccountCard() {
 
 function SettingsContent() {
   return (
-    <div>
+    <div class="space-y-4">
       <ApiKeysCard />
+      <div class="card">
+        <CardHeading
+          title="Notes Key"
+          subtitle="Allow your encrypted notes to be viewed on another browser or device."
+          class="mb-3"
+        />
+        <div class="text-center">
+          <SyncNotesKeyButton />
+        </div>
+      </div>
       <AccountCard />
     </div>
   );
