@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.13.3 — 2026-02-19
+
+### Fixed
+
+- **Web accessibility (WCAG 2.1 AA):** added ARIA menu attributes to Nav dropdowns, `aria-modal` and `aria-label` to modals, `aria-label` to FileDropZone, `aria-checked` to ThemeToggle switch, `aria-live` to CopyButton, `aria-busy` and `aria-describedby` to form submit buttons, `role=radiogroup`/`role=radio` to TTL selector, `aria-hidden` to decorative icons, `role=status` to loading spinners. Added skip-to-content link, semantic `<header>` landmark, and `id` on `<main>`. Restored keyboard access to passphrase visibility toggles.
+
 ## 0.13.2 — 2026-02-19
 
 ### Fixed
