@@ -368,7 +368,7 @@ secrt allows creating and sharing secrets without any account. The account syste
 
 1. **API key management.** Accounts allow users to generate API keys for automated workflows, CI/CD pipelines, and CLI usage with higher limits.
 2. **Higher quotas.** Authenticated users get significantly higher storage limits (1,000 secrets / 20 MiB vs. 10 secrets / 2 MiB).
-3. **Secret management.** API keys enable burning (destroying) secrets before they are claimed.
+3. **Secret management.** Authenticated users can burn (destroy) their own secrets before they are claimed, and view a dashboard of active secrets.
 
 Accounts do not unlock any decryption capability — the zero-knowledge property holds regardless of authentication status.
 
@@ -433,7 +433,7 @@ The solution is a single 32-byte symmetric key per user account — the **Accoun
 AMK = random(32 bytes)    # generated in browser, never sent to server
 ```
 
-The AMK is generated lazily — not at account creation, but the first time the user writes a note or creates an API key. This avoids generating key material for users who never use the feature.
+The AMK is generated at account creation during the passkey registration flow. If registration completes without generating one (e.g., a browser error), a lazy fallback generates it on first use — when the user writes a note, creates an API key, or visits account settings.
 
 The AMK is stored client-side in IndexedDB (database `secrt-amk`, object store `amk`, keyed by user ID). IndexedDB was chosen over localStorage because it handles binary data natively without base64 encoding overhead and is available in all modern browsers.
 
