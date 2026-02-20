@@ -372,6 +372,12 @@ secrt allows creating and sharing secrets without any account. The account syste
 
 Accounts do not unlock any decryption capability — the zero-knowledge property holds regardless of authentication status.
 
+### Account Activity & Data Minimization
+
+To support stale-account cleanup, the server records the month a user last logged in — stored as a plain `DATE` field rounded to the 1st of the month. This is intentionally coarse: it tells us "this user was active sometime in March 2026," not when or what they did. The `DATE` column type makes sub-day precision structurally impossible at the database level, not just a policy choice.
+
+This enables a privacy-positive operation: accounts that have been inactive for an extended period (e.g., two years) with no active secrets can be purged, reducing the data the server holds. The coarse granularity ensures the activity date cannot be correlated with specific secret creation or retrieval events.
+
 ### Passkey Authentication (No Passwords)
 
 secrt uses [WebAuthn passkeys](https://passkeys.dev/) exclusively for authentication. There are no passwords. This is more secure than password-based authentication:
@@ -804,7 +810,7 @@ See: [`crates/secrt-server/migrations/001_initial.sql`](https://github.com/getse
 | `meta_key_version` | SMALLINT | Reserved for future encrypted metadata key versioning (nullable) |
 | `enc_meta` | JSONB | Reserved for future encrypted metadata (nullable) |
 
-**`users`** — Minimal account records (id, display_name, created_at). No PII collected.
+**`users`** — Minimal account records (id, display_name, created_at, last_active_at). No PII collected. The `last_active_at` column is a plain `DATE` (not a timestamp) rounded to the first of the month, used solely for identifying long-inactive accounts for cleanup. The `DATE` type makes sub-day precision structurally impossible, preventing correlation with individual secret operations.
 
 **`passkeys`** — WebAuthn credentials (credential_id, public_key, user_id, sign_count, revoked_at).
 

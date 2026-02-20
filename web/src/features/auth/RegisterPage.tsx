@@ -5,10 +5,11 @@ import {
   createPasskeyCredential,
   generateUserId,
 } from '../../lib/webauthn';
-import { registerPasskeyStart, registerPasskeyFinish } from '../../lib/api';
+import { registerPasskeyStart, registerPasskeyFinish, commitAmk } from '../../lib/api';
 import { navigate } from '../../router';
 import { getRedirectParam } from '../../lib/redirect';
-import { generateAmk } from '../../crypto/amk';
+import { generateAmk, computeAmkCommit } from '../../crypto/amk';
+import { base64urlEncode } from '../../crypto/encoding';
 import { storeAmk } from '../../lib/amk-store';
 import {
   PasskeyIcon,
@@ -199,6 +200,11 @@ export function RegisterPage() {
         try {
           const amk = generateAmk();
           await storeAmk(finishRes.user_id, amk);
+          // Eagerly commit so other devices can detect it
+          if (finishRes.session_token) {
+            const commit = await computeAmkCommit(amk);
+            await commitAmk(finishRes.session_token, base64urlEncode(commit));
+          }
         } catch {
           // AMK will be generated on first note creation as fallback
         }

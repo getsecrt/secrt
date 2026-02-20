@@ -90,6 +90,10 @@ export function HowItWorksPage() {
             <li>Encrypted ciphertext (opaque bytes it cannot decrypt)</li>
             <li>A claim verifier hash (to authenticate retrieval)</li>
             <li>Expiry time and creation timestamp</li>
+            <li>
+              For accounts: a coarse activity date (month only) for
+              stale-account cleanup
+            </li>
           </ul>
           <p class="mt-2">
             The server never sees: your plaintext, encryption keys, passphrases,

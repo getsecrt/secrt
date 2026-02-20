@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.13.4 — 2026-02-20
+
+### Added
+
+- **`POST /api/v1/amk/commit` endpoint:** eagerly commits an AMK hash at registration time so other devices can detect that a Notes Key already exists. Uses first-writer-wins semantics — returns 409 if a different AMK hash is already committed, preventing accidental key divergence across browsers.
+- **Second-browser AMK conflict detection (web):** the Send page now checks whether the server already has a committed AMK before showing the private-note field. If another device registered the key but this browser hasn't synced it yet, a "Sync your Notes Key" message appears instead of silently generating a conflicting key.
+- **Coarse last-active tracking:** new `last_active_at DATE` column on users table (migration 003) records the month of each user's most recent login, rounded to the 1st of the month. Enables stale-account cleanup without compromising privacy.
+
+### Changed
+
+- **Privacy page, How It Works page, and whitepaper** updated to disclose coarse activity-date tracking.
+
 ## 0.13.3 — 2026-02-19
 
 ### Added

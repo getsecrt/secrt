@@ -1,5 +1,5 @@
 use async_trait::async_trait;
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, NaiveDate, Utc};
 use secrt_core::api::EncMetaV1;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
@@ -77,6 +77,7 @@ pub struct UserRecord {
     pub id: UserId,
     pub display_name: String,
     pub created_at: DateTime<Utc>,
+    pub last_active_at: NaiveDate,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -303,6 +304,14 @@ pub trait AuthStore: Send + Sync {
     ) -> Result<(), StorageError>;
     async fn delete_user(&self, user_id: UserId) -> Result<bool, StorageError>;
 
+    /// Bump the user's last_active_at to the month-start of `now`.
+    /// Skips the write when the stored value already matches.
+    async fn touch_user_last_active(
+        &self,
+        user_id: UserId,
+        now: DateTime<Utc>,
+    ) -> Result<(), StorageError>;
+
     /// Read a challenge without consuming it (for device-auth polling).
     async fn get_challenge(
         &self,
@@ -351,6 +360,13 @@ pub trait AmkStore: Send + Sync {
     async fn has_any_wrapper(&self, user_id: Uuid) -> Result<bool, StorageError>;
 
     async fn get_amk_commit(&self, user_id: Uuid) -> Result<Option<Vec<u8>>, StorageError>;
+
+    /// Commit an AMK hash for a user (first-writer-wins, no wrapper needed).
+    async fn commit_amk(
+        &self,
+        user_id: Uuid,
+        amk_commit: &[u8],
+    ) -> Result<AmkUpsertResult, StorageError>;
 
     /// Update enc_meta on an existing secret owned by one of the given owner_keys.
     async fn update_enc_meta(
@@ -598,6 +614,14 @@ where
         (**self).delete_user(user_id).await
     }
 
+    async fn touch_user_last_active(
+        &self,
+        user_id: UserId,
+        now: DateTime<Utc>,
+    ) -> Result<(), StorageError> {
+        (**self).touch_user_last_active(user_id, now).await
+    }
+
     async fn get_challenge(
         &self,
         challenge_id: &str,
@@ -665,6 +689,14 @@ where
 
     async fn get_amk_commit(&self, user_id: Uuid) -> Result<Option<Vec<u8>>, StorageError> {
         (**self).get_amk_commit(user_id).await
+    }
+
+    async fn commit_amk(
+        &self,
+        user_id: Uuid,
+        amk_commit: &[u8],
+    ) -> Result<AmkUpsertResult, StorageError> {
+        (**self).commit_amk(user_id, amk_commit).await
     }
 
     async fn update_enc_meta(

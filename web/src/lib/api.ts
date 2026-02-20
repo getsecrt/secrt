@@ -383,6 +383,25 @@ export async function amkExists(
   );
 }
 
+export async function commitAmk(
+  token: string,
+  amkCommit: string,
+  signal?: AbortSignal,
+): Promise<{ ok: boolean }> {
+  return requestJson<{ ok: boolean }>(
+    '/api/v1/amk/commit',
+    {
+      method: 'POST',
+      headers: {
+        authorization: `Bearer ${token}`,
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({ amk_commit: amkCommit }),
+    },
+    signal,
+  );
+}
+
 /* ── Encrypted Metadata API ──────────────────────── */
 
 export async function updateSecretMeta(

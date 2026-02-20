@@ -53,7 +53,7 @@ function QrCanvas({ url, size = 192 }: QrCanvasProps) {
       ref={canvasRef}
       aria-label="QR code for share URL"
       role="img"
-      class="rounded-lg"
+      class=""
     />
   );
 }

@@ -518,6 +518,7 @@ pub fn build_router(state: Arc<AppState>) -> Router {
         )
         .route("/api/v1/amk/wrapper", any(handle_amk_wrapper_entry))
         .route("/api/v1/amk/wrappers", any(handle_amk_wrappers_list_entry))
+        .route("/api/v1/amk/commit", any(handle_amk_commit_entry))
         .route("/api/v1/amk/exists", any(handle_amk_exists_entry))
         .route("/api/v1/secrets/{id}/meta", any(handle_secret_meta_entry))
         .layer(CatchPanicLayer::custom(handle_panic))
@@ -1339,12 +1340,15 @@ async fn issue_session_token(
     let token = format!("{SESSION_TOKEN_PREFIX}{sid}.{secret}");
     let token_hash = hash_session_token(&state.cfg.session_token_pepper, &sid, &secret)
         .map_err(|_| internal_server_error())?;
-    let expires_at = Utc::now() + chrono::Duration::hours(24);
+    let now = Utc::now();
+    let expires_at = now + chrono::Duration::hours(24);
     state
         .auth_store
         .insert_session(&sid, user_id, &token_hash, expires_at)
         .await
         .map_err(|_| internal_server_error())?;
+    // Best-effort: bump coarse (month-start) activity date for stale-account cleanup.
+    let _ = state.auth_store.touch_user_last_active(user_id, now).await;
     Ok((token, expires_at))
 }
 
@@ -2362,7 +2366,58 @@ pub async fn handle_amk_wrappers_list_entry(
     }
 }
 
-/// `GET /api/v1/amk/exists` — check if user has any AMK wrapper.
+/// `POST /api/v1/amk/commit` — eagerly commit an AMK hash (session auth only).
+pub async fn handle_amk_commit_entry(State(state): State<Arc<AppState>>, req: Request) -> Response {
+    if let Err(resp) = require_encrypted_notes(&state) {
+        return resp;
+    }
+    if req.method() != Method::POST {
+        return method_not_allowed();
+    }
+
+    let (user_id, _, _) = match require_session_user(&state, req.headers()).await {
+        Ok(v) => v,
+        Err(resp) => return resp,
+    };
+
+    if !is_json_content_type(req.headers()) {
+        return bad_request("content-type must be application/json");
+    }
+
+    let body = match to_bytes(req.into_body(), 1024).await {
+        Ok(b) => b,
+        Err(_) => return bad_request("invalid body"),
+    };
+
+    #[derive(Deserialize)]
+    struct CommitAmkRequest {
+        amk_commit: String,
+    }
+
+    let payload: CommitAmkRequest = match serde_json::from_slice(&body) {
+        Ok(p) => p,
+        Err(_) => return bad_request("invalid JSON"),
+    };
+
+    let amk_commit = match URL_SAFE_NO_PAD.decode(&payload.amk_commit) {
+        Ok(v) if v.len() == 32 => v,
+        _ => return bad_request("amk_commit must be base64url-encoded 32 bytes"),
+    };
+
+    match state.amk_store.commit_amk(user_id, &amk_commit).await {
+        Ok(AmkUpsertResult::Ok) => json_response(StatusCode::OK, serde_json::json!({ "ok": true })),
+        Ok(AmkUpsertResult::CommitMismatch) => error_response(
+            StatusCode::CONFLICT,
+            "a different AMK is already committed for this account",
+        ),
+        Err(e) => {
+            error!(error = %e, "failed to commit AMK");
+            internal_server_error()
+        }
+    }
+}
+
+/// `GET /api/v1/amk/exists` — check if user has an AMK committed.
 pub async fn handle_amk_exists_entry(State(state): State<Arc<AppState>>, req: Request) -> Response {
     if let Err(resp) = require_encrypted_notes(&state) {
         return resp;
@@ -2386,8 +2441,13 @@ pub async fn handle_amk_exists_entry(State(state): State<Arc<AppState>>, req: Re
         return unauthorized();
     };
 
-    match state.amk_store.has_any_wrapper(user_id).await {
-        Ok(exists) => json_response(StatusCode::OK, AmkExistsResponse { exists }),
+    match state.amk_store.get_amk_commit(user_id).await {
+        Ok(commit) => json_response(
+            StatusCode::OK,
+            AmkExistsResponse {
+                exists: commit.is_some(),
+            },
+        ),
         Err(e) => {
             error!(error = %e, "failed to check AMK existence");
             internal_server_error()
@@ -2768,6 +2828,7 @@ mod tests {
     use async_trait::async_trait;
     use axum::body::Body;
     use axum::http::Request;
+    use chrono::Datelike;
     use std::collections::HashMap;
     use std::sync::Arc;
     use std::sync::Mutex;
@@ -2806,6 +2867,7 @@ mod tests {
         sessions: Mutex<HashMap<String, SessionRecord>>,
         challenges: Mutex<HashMap<String, ChallengeRecord>>,
         amk_wrappers: Mutex<HashMap<String, AmkWrapperRecord>>,
+        amk_commits: Mutex<HashMap<Uuid, Vec<u8>>>,
     }
 
     #[async_trait]
@@ -3034,10 +3096,12 @@ mod tests {
     #[async_trait]
     impl AuthStore for MemStore {
         async fn create_user(&self, display_name: &str) -> Result<UserRecord, StorageError> {
+            let now = Utc::now();
             let user = UserRecord {
                 id: Uuid::now_v7(),
                 display_name: display_name.to_string(),
-                created_at: Utc::now(),
+                created_at: now,
+                last_active_at: now.date_naive().with_day(1).expect("day 1 always valid"),
             };
             self.users.lock().unwrap().insert(user.id, user.clone());
             Ok(user)
@@ -3257,6 +3321,21 @@ mod tests {
             }
             Ok(removed)
         }
+
+        async fn touch_user_last_active(
+            &self,
+            user_id: UserId,
+            now: DateTime<Utc>,
+        ) -> Result<(), StorageError> {
+            let month_start = now.date_naive().with_day(1).expect("day 1 always valid");
+            let mut m = self.users.lock().unwrap();
+            if let Some(u) = m.get_mut(&user_id) {
+                if u.last_active_at < month_start {
+                    u.last_active_at = month_start;
+                }
+            }
+            Ok(())
+        }
     }
 
     #[async_trait]
@@ -3264,9 +3343,17 @@ mod tests {
         async fn upsert_wrapper(
             &self,
             w: AmkWrapperRecord,
-            _amk_commit: &[u8],
+            amk_commit: &[u8],
         ) -> Result<AmkUpsertResult, StorageError> {
-            // Simplified: always accept (no commit check in test mock)
+            {
+                let mut commits = self.amk_commits.lock().unwrap();
+                let stored = commits
+                    .entry(w.user_id)
+                    .or_insert_with(|| amk_commit.to_vec());
+                if stored.as_slice() != amk_commit {
+                    return Ok(AmkUpsertResult::CommitMismatch);
+                }
+            }
             let key = format!("{}:{}", w.user_id, w.key_prefix);
             self.amk_wrappers.lock().unwrap().insert(key, w);
             Ok(AmkUpsertResult::Ok)
@@ -3306,8 +3393,24 @@ mod tests {
             Ok(m.values().any(|w| w.user_id == user_id))
         }
 
-        async fn get_amk_commit(&self, _user_id: Uuid) -> Result<Option<Vec<u8>>, StorageError> {
-            Ok(None)
+        async fn get_amk_commit(&self, user_id: Uuid) -> Result<Option<Vec<u8>>, StorageError> {
+            Ok(self.amk_commits.lock().unwrap().get(&user_id).cloned())
+        }
+
+        async fn commit_amk(
+            &self,
+            user_id: Uuid,
+            amk_commit: &[u8],
+        ) -> Result<AmkUpsertResult, StorageError> {
+            let mut commits = self.amk_commits.lock().unwrap();
+            let stored = commits
+                .entry(user_id)
+                .or_insert_with(|| amk_commit.to_vec());
+            if stored.as_slice() != amk_commit {
+                Ok(AmkUpsertResult::CommitMismatch)
+            } else {
+                Ok(AmkUpsertResult::Ok)
+            }
         }
 
         async fn update_enc_meta(

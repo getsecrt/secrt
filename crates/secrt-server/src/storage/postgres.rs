@@ -1,5 +1,5 @@
 use async_trait::async_trait;
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, Datelike, NaiveDate, Utc};
 use deadpool_postgres::{
     Config as PgPoolConfig, Hook, HookError, Manager, ManagerConfig, Pool, RecyclingMethod, Runtime,
 };
@@ -550,7 +550,7 @@ impl AuthStore for PgStore {
         let row = client
             .query_one(
                 "INSERT INTO users (id, display_name) VALUES ($1, $2) \
-                 RETURNING id, display_name, created_at",
+                 RETURNING id, display_name, created_at, last_active_at",
                 &[&user_id, &display_name],
             )
             .await?;
@@ -558,6 +558,7 @@ impl AuthStore for PgStore {
             id: row.try_get(0)?,
             display_name: row.try_get(1)?,
             created_at: row.try_get(2)?,
+            last_active_at: row.try_get(3)?,
         })
     }
 
@@ -565,7 +566,7 @@ impl AuthStore for PgStore {
         let client = self.pool.get().await?;
         let row = client
             .query_opt(
-                "SELECT id, display_name, created_at FROM users WHERE id=$1",
+                "SELECT id, display_name, created_at, last_active_at FROM users WHERE id=$1",
                 &[&user_id],
             )
             .await?;
@@ -576,6 +577,7 @@ impl AuthStore for PgStore {
             id: row.try_get(0)?,
             display_name: row.try_get(1)?,
             created_at: row.try_get(2)?,
+            last_active_at: row.try_get(3)?,
         })
     }
 
@@ -907,6 +909,23 @@ impl AuthStore for PgStore {
         Ok(n > 0)
     }
 
+    async fn touch_user_last_active(
+        &self,
+        user_id: UserId,
+        now: DateTime<Utc>,
+    ) -> Result<(), StorageError> {
+        let month_start: NaiveDate = now.date_naive().with_day(1).expect("day 1 always valid");
+        let client = self.pool.get().await?;
+        client
+            .execute(
+                "UPDATE users SET last_active_at = $2 \
+                 WHERE id = $1 AND last_active_at < $2",
+                &[&user_id, &month_start],
+            )
+            .await?;
+        Ok(())
+    }
+
     async fn get_challenge(
         &self,
         challenge_id: &str,
@@ -1119,6 +1138,35 @@ impl AmkStore for PgStore {
             )
             .await?;
         Ok(row.map(|r| r.try_get(0)).transpose()?)
+    }
+
+    async fn commit_amk(
+        &self,
+        user_id: Uuid,
+        amk_commit: &[u8],
+    ) -> Result<AmkUpsertResult, StorageError> {
+        let client = self.pool.get().await?;
+        // First-writer-wins insert
+        client
+            .execute(
+                "INSERT INTO amk_accounts (user_id, amk_commit) \
+                 VALUES ($1, $2) ON CONFLICT (user_id) DO NOTHING",
+                &[&user_id, &amk_commit],
+            )
+            .await?;
+        // Verify stored commit matches
+        let row = client
+            .query_one(
+                "SELECT amk_commit FROM amk_accounts WHERE user_id = $1",
+                &[&user_id],
+            )
+            .await?;
+        let stored: Vec<u8> = row.try_get(0)?;
+        if stored != amk_commit {
+            Ok(AmkUpsertResult::CommitMismatch)
+        } else {
+            Ok(AmkUpsertResult::Ok)
+        }
     }
 
     async fn update_enc_meta(

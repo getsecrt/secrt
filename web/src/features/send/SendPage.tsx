@@ -4,8 +4,9 @@ import { utf8Encode } from '../../crypto/encoding';
 import { buildFrame } from '../../crypto/frame';
 import { ensureCompressor, compress } from '../../crypto/compress';
 import { CODEC_ZSTD } from '../../crypto/constants';
-import { encryptNote, generateAmk } from '../../crypto/amk';
-import { createSecret, fetchInfo, updateSecretMeta } from '../../lib/api';
+import { encryptNote, generateAmk, computeAmkCommit } from '../../crypto/amk';
+import { base64urlEncode } from '../../crypto/encoding';
+import { createSecret, fetchInfo, updateSecretMeta, amkExists, commitAmk } from '../../lib/api';
 import { loadAmk, storeAmk } from '../../lib/amk-store';
 import {
   checkEnvelopeSize,
@@ -84,6 +85,7 @@ export function SendPage() {
   const abortRef = useRef<AbortController | null>(null);
   const passwordCopiedTimerRef = useRef<number | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const [noteStatus, setNoteStatus] = useState<'checking' | 'available' | 'needs-sync'>('checking');
   const [serverInfo, setServerInfo] = useState<ApiInfo | null>(() => {
     try {
       const cached = sessionStorage.getItem('server_info');
@@ -115,6 +117,30 @@ export function SendPage() {
       }
     };
   }, []);
+
+  // Check AMK status for note availability on second-browser scenario
+  useEffect(() => {
+    if (!auth.authenticated || !auth.userId || !serverInfo?.features?.encrypted_notes) {
+      setNoteStatus('available');
+      return;
+    }
+    let cancelled = false;
+    loadAmk(auth.userId).then(async (amk) => {
+      if (cancelled) return;
+      if (amk) {
+        setNoteStatus('available');
+        return;
+      }
+      // No local AMK — check if one is committed on the server
+      try {
+        const { exists } = await amkExists(auth.sessionToken!);
+        if (!cancelled) setNoteStatus(exists ? 'needs-sync' : 'available');
+      } catch {
+        if (!cancelled) setNoteStatus('available');
+      }
+    });
+    return () => { cancelled = true; };
+  }, [auth.authenticated, auth.userId, auth.sessionToken, serverInfo]);
 
   // Page-level drag listener to switch to file mode
   const handlePageDragOver = useCallback((e: DragEvent) => {
@@ -408,9 +434,11 @@ export function SendPage() {
             let amk = await loadAmk(auth.userId);
             if (!amk) {
               // First note: generate AMK and store locally.
-              // Wrapper upload happens on next API key creation or device sync.
               amk = generateAmk();
               await storeAmk(auth.userId, amk);
+              // Commit to server (first-writer-wins; throws on 409 mismatch)
+              const commit = await computeAmkCommit(amk);
+              await commitAmk(auth.sessionToken, base64urlEncode(commit));
             }
             const encrypted = await encryptNote(
               amk,
@@ -634,7 +662,7 @@ export function SendPage() {
         </div>
 
         {/* Private note (only shown when authenticated + feature enabled) */}
-        {notesAvailable && (
+        {notesAvailable && noteStatus === 'available' && (
           <div class="space-y-1">
             <label class="label" for="note">
               <NoteIcon class="size-4 opacity-60" aria-hidden="true" />
@@ -657,6 +685,12 @@ export function SendPage() {
             <p class="text-center text-sm text-muted">
               Only visible to you on your dashboard
             </p>
+          </div>
+        )}
+        {notesAvailable && noteStatus === 'needs-sync' && (
+          <div class="rounded-lg border border-dashed border-yellow-500/30 bg-yellow-500/5 p-3 text-center text-sm text-muted">
+            <NoteIcon class="mr-1 inline size-4 opacity-60" />
+            Sync your Notes Key from an authenticated device to add notes.
           </div>
         )}
 

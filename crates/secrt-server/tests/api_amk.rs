@@ -608,6 +608,141 @@ async fn amk_exists_has_wrapper_true() {
 }
 
 // ==========================================
+// POST /api/v1/amk/commit
+// ==========================================
+
+#[tokio::test]
+async fn amk_commit_success() {
+    let store = Arc::new(MemStore::default());
+    let app = test_app_with_store(store.clone(), amk_config());
+
+    let session_token = passkey_register_flow(&app, "Commit1", "cred-commit-1").await;
+
+    let req = Request::builder()
+        .method("POST")
+        .uri("/api/v1/amk/commit")
+        .header("authorization", format!("Bearer {session_token}"))
+        .header("content-type", "application/json")
+        .body(Body::from(
+            json!({ "amk_commit": valid_amk_commit() }).to_string(),
+        ))
+        .expect("request");
+
+    let resp = app.clone().oneshot(req).await.expect("response");
+    assert_eq!(resp.status(), StatusCode::OK);
+    let body = response_json(resp).await;
+    assert_eq!(body["ok"], true);
+}
+
+#[tokio::test]
+async fn amk_commit_first_writer_wins() {
+    let store = Arc::new(MemStore::default());
+    let app = test_app_with_store(store.clone(), amk_config());
+
+    let session_token = passkey_register_flow(&app, "Commit2", "cred-commit-2").await;
+
+    // First commit
+    let req1 = Request::builder()
+        .method("POST")
+        .uri("/api/v1/amk/commit")
+        .header("authorization", format!("Bearer {session_token}"))
+        .header("content-type", "application/json")
+        .body(Body::from(
+            json!({ "amk_commit": valid_amk_commit() }).to_string(),
+        ))
+        .expect("request");
+    let resp1 = app.clone().oneshot(req1).await.expect("response");
+    assert_eq!(resp1.status(), StatusCode::OK);
+
+    // Second commit with different hash => 409
+    let different_commit = URL_SAFE_NO_PAD.encode([0xAAu8; 32]);
+    let req2 = Request::builder()
+        .method("POST")
+        .uri("/api/v1/amk/commit")
+        .header("authorization", format!("Bearer {session_token}"))
+        .header("content-type", "application/json")
+        .body(Body::from(
+            json!({ "amk_commit": different_commit }).to_string(),
+        ))
+        .expect("request");
+    let resp2 = app.clone().oneshot(req2).await.expect("response");
+    assert_eq!(resp2.status(), StatusCode::CONFLICT);
+}
+
+#[tokio::test]
+async fn amk_commit_idempotent() {
+    let store = Arc::new(MemStore::default());
+    let app = test_app_with_store(store.clone(), amk_config());
+
+    let session_token = passkey_register_flow(&app, "Commit3", "cred-commit-3").await;
+
+    for _ in 0..2 {
+        let req = Request::builder()
+            .method("POST")
+            .uri("/api/v1/amk/commit")
+            .header("authorization", format!("Bearer {session_token}"))
+            .header("content-type", "application/json")
+            .body(Body::from(
+                json!({ "amk_commit": valid_amk_commit() }).to_string(),
+            ))
+            .expect("request");
+        let resp = app.clone().oneshot(req).await.expect("response");
+        assert_eq!(resp.status(), StatusCode::OK);
+    }
+}
+
+#[tokio::test]
+async fn amk_commit_unauthenticated_401() {
+    let store = Arc::new(MemStore::default());
+    let app = test_app_with_store(store, amk_config());
+
+    let req = Request::builder()
+        .method("POST")
+        .uri("/api/v1/amk/commit")
+        .header("content-type", "application/json")
+        .body(Body::from(
+            json!({ "amk_commit": valid_amk_commit() }).to_string(),
+        ))
+        .expect("request");
+
+    let resp = app.oneshot(req).await.expect("response");
+    assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
+}
+
+#[tokio::test]
+async fn amk_exists_committed_no_wrapper_true() {
+    let store = Arc::new(MemStore::default());
+    let app = test_app_with_store(store.clone(), amk_config());
+
+    let session_token = passkey_register_flow(&app, "CommitOnly", "cred-commit-4").await;
+
+    // Commit without any wrapper
+    let commit_req = Request::builder()
+        .method("POST")
+        .uri("/api/v1/amk/commit")
+        .header("authorization", format!("Bearer {session_token}"))
+        .header("content-type", "application/json")
+        .body(Body::from(
+            json!({ "amk_commit": valid_amk_commit() }).to_string(),
+        ))
+        .expect("request");
+    let commit_resp = app.clone().oneshot(commit_req).await.expect("response");
+    assert_eq!(commit_resp.status(), StatusCode::OK);
+
+    // Check exists — should be true even without a wrapper
+    let req = Request::builder()
+        .method("GET")
+        .uri("/api/v1/amk/exists")
+        .header("authorization", format!("Bearer {session_token}"))
+        .body(Body::empty())
+        .expect("request");
+    let resp = app.clone().oneshot(req).await.expect("response");
+    assert_eq!(resp.status(), StatusCode::OK);
+    let body = response_json(resp).await;
+    assert_eq!(body["exists"], true);
+}
+
+// ==========================================
 // PUT /api/v1/secrets/{id}/meta
 // ==========================================
 
@@ -977,6 +1112,23 @@ async fn amk_endpoints_404_when_feature_disabled() {
         resp.status(),
         StatusCode::NOT_FOUND,
         "GET /amk/wrappers should 404 when disabled"
+    );
+
+    // POST /amk/commit
+    let req = Request::builder()
+        .method("POST")
+        .uri("/api/v1/amk/commit")
+        .header("authorization", format!("Bearer {_session}"))
+        .header("content-type", "application/json")
+        .body(Body::from(
+            json!({ "amk_commit": valid_amk_commit() }).to_string(),
+        ))
+        .expect("request");
+    let resp = app.clone().oneshot(req).await.expect("response");
+    assert_eq!(
+        resp.status(),
+        StatusCode::NOT_FOUND,
+        "POST /amk/commit should 404 when disabled"
     );
 
     // GET /amk/exists

@@ -8,7 +8,7 @@ use async_trait::async_trait;
 use axum::extract::ConnectInfo;
 use axum::http::{HeaderValue, Request};
 use base64::Engine;
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, Datelike, Utc};
 use secrt_core::{derive_auth_token, format_wire_api_key};
 use secrt_server::config::Config;
 use secrt_server::domain::auth::{generate_api_key_prefix, hash_api_key_auth_token};
@@ -30,6 +30,7 @@ pub struct MemStore {
     pub challenges: Mutex<HashMap<String, ChallengeRecord>>,
     pub apikey_regs: Mutex<Vec<(UserId, String, DateTime<Utc>)>>,
     pub amk_wrappers: Mutex<HashMap<String, AmkWrapperRecord>>,
+    pub amk_commits: Mutex<HashMap<Uuid, Vec<u8>>>,
     pub ids: Mutex<i64>,
 }
 
@@ -296,10 +297,12 @@ impl ApiKeysStore for MemStore {
 #[async_trait]
 impl AuthStore for MemStore {
     async fn create_user(&self, display_name: &str) -> Result<UserRecord, StorageError> {
+        let now = Utc::now();
         let u = UserRecord {
             id: Uuid::now_v7(),
             display_name: display_name.to_string(),
-            created_at: Utc::now(),
+            created_at: now,
+            last_active_at: now.date_naive().with_day(1).expect("day 1 always valid"),
         };
         self.users
             .lock()
@@ -614,6 +617,21 @@ impl AuthStore for MemStore {
         }
         Ok(removed)
     }
+
+    async fn touch_user_last_active(
+        &self,
+        user_id: UserId,
+        now: DateTime<Utc>,
+    ) -> Result<(), StorageError> {
+        let month_start = now.date_naive().with_day(1).expect("day 1 always valid");
+        let mut m = self.users.lock().expect("users mutex poisoned");
+        if let Some(u) = m.get_mut(&user_id) {
+            if u.last_active_at < month_start {
+                u.last_active_at = month_start;
+            }
+        }
+        Ok(())
+    }
 }
 
 #[async_trait]
@@ -621,8 +639,18 @@ impl AmkStore for MemStore {
     async fn upsert_wrapper(
         &self,
         w: AmkWrapperRecord,
-        _amk_commit: &[u8],
+        amk_commit: &[u8],
     ) -> Result<AmkUpsertResult, StorageError> {
+        // Commit check (mirrors PgStore behavior)
+        {
+            let mut commits = self.amk_commits.lock().expect("amk_commits mutex poisoned");
+            let stored = commits
+                .entry(w.user_id)
+                .or_insert_with(|| amk_commit.to_vec());
+            if stored.as_slice() != amk_commit {
+                return Ok(AmkUpsertResult::CommitMismatch);
+            }
+        }
         let key = format!("{}:{}", w.user_id, w.key_prefix);
         self.amk_wrappers
             .lock()
@@ -674,8 +702,29 @@ impl AmkStore for MemStore {
         Ok(m.values().any(|w| w.user_id == user_id))
     }
 
-    async fn get_amk_commit(&self, _user_id: Uuid) -> Result<Option<Vec<u8>>, StorageError> {
-        Ok(None)
+    async fn get_amk_commit(&self, user_id: Uuid) -> Result<Option<Vec<u8>>, StorageError> {
+        Ok(self
+            .amk_commits
+            .lock()
+            .expect("amk_commits mutex poisoned")
+            .get(&user_id)
+            .cloned())
+    }
+
+    async fn commit_amk(
+        &self,
+        user_id: Uuid,
+        amk_commit: &[u8],
+    ) -> Result<AmkUpsertResult, StorageError> {
+        let mut commits = self.amk_commits.lock().expect("amk_commits mutex poisoned");
+        let stored = commits
+            .entry(user_id)
+            .or_insert_with(|| amk_commit.to_vec());
+        if stored.as_slice() != amk_commit {
+            Ok(AmkUpsertResult::CommitMismatch)
+        } else {
+            Ok(AmkUpsertResult::Ok)
+        }
     }
 
     async fn update_enc_meta(

@@ -1,12 +1,12 @@
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration as StdDuration, SystemTime, UNIX_EPOCH};
 
-use chrono::{Duration, Utc};
+use chrono::{Datelike, Duration, NaiveDate, Utc};
 use secrt_server::storage::migrations::migrate;
 use secrt_server::storage::postgres::PgStore;
 use secrt_server::storage::{
     ApiKeyRecord, ApiKeyRegistrationLimits, ApiKeysStore, AuthStore, SecretRecord, SecretsStore,
-    StorageError,
+    StorageError, UserRecord,
 };
 use uuid::Uuid;
 
@@ -826,4 +826,245 @@ async fn postgres_auth_schema_user_columns_use_uuid() {
     assert_column_udt_name(&store, "webauthn_challenges", "user_id", "uuid").await;
     assert_column_udt_name(&store, "api_keys", "user_id", "uuid").await;
     assert_column_udt_name(&store, "api_key_registrations", "user_id", "uuid").await;
+}
+
+/// Helper: read a user directly from the DB so we can inspect `last_active_at`.
+async fn get_user(store: &PgStore, user: &UserRecord) -> UserRecord {
+    store.get_user_by_id(user.id).await.expect("get user")
+}
+
+/// Helper: assert a NaiveDate is the first of its month.
+fn assert_month_start(date: NaiveDate, msg: &str) {
+    assert_eq!(
+        date.day(),
+        1,
+        "{msg}: expected day=1, got day={}",
+        date.day()
+    );
+}
+
+#[tokio::test]
+async fn postgres_last_active_at_schema_is_date_type() {
+    let Some(base_url) = test_database_url() else {
+        eprintln!("skipping: TEST_DATABASE_URL not set");
+        return;
+    };
+
+    let schema = test_schema_name();
+    create_schema(&base_url, &schema).await;
+
+    let db_url = with_search_path(&base_url, &schema);
+    let store = PgStore::from_database_url(&db_url)
+        .await
+        .expect("connect schema database");
+    migrate(store.pool()).await.expect("migrate");
+
+    // The column must be DATE, not TIMESTAMPTZ — this is a privacy guarantee.
+    assert_column_udt_name(&store, "users", "last_active_at", "date").await;
+}
+
+#[tokio::test]
+async fn postgres_create_user_sets_last_active_at_to_month_start() {
+    let Some(base_url) = test_database_url() else {
+        eprintln!("skipping: TEST_DATABASE_URL not set");
+        return;
+    };
+
+    let schema = test_schema_name();
+    create_schema(&base_url, &schema).await;
+
+    let db_url = with_search_path(&base_url, &schema);
+    let store = PgStore::from_database_url(&db_url)
+        .await
+        .expect("connect schema database");
+    migrate(store.pool()).await.expect("migrate");
+
+    let user = store.create_user("New User").await.expect("create user");
+
+    // last_active_at must be set and must be the first of the current month.
+    assert_month_start(user.last_active_at, "create_user");
+
+    let today = Utc::now().date_naive();
+    let expected_month_start = today.with_day(1).unwrap();
+    assert_eq!(user.last_active_at, expected_month_start);
+}
+
+#[tokio::test]
+async fn postgres_touch_user_last_active_updates_to_month_start() {
+    let Some(base_url) = test_database_url() else {
+        eprintln!("skipping: TEST_DATABASE_URL not set");
+        return;
+    };
+
+    let schema = test_schema_name();
+    create_schema(&base_url, &schema).await;
+
+    let db_url = with_search_path(&base_url, &schema);
+    let store = PgStore::from_database_url(&db_url)
+        .await
+        .expect("connect schema database");
+    migrate(store.pool()).await.expect("migrate");
+
+    let user = store.create_user("Touch User").await.expect("create user");
+
+    // Force last_active_at to 6 months ago so we can verify the bump.
+    let six_months_ago = NaiveDate::from_ymd_opt(2025, 6, 1).unwrap();
+    let client = store.pool().get().await.expect("get client");
+    client
+        .execute(
+            "UPDATE users SET last_active_at = $1 WHERE id = $2",
+            &[&six_months_ago, &user.id],
+        )
+        .await
+        .expect("backdate last_active_at");
+
+    let before = get_user(&store, &user).await;
+    assert_eq!(before.last_active_at, six_months_ago);
+
+    // Touch should bump to current month start.
+    let now = Utc::now();
+    store
+        .touch_user_last_active(user.id, now)
+        .await
+        .expect("touch user");
+
+    let after = get_user(&store, &user).await;
+    let expected = now.date_naive().with_day(1).unwrap();
+    assert_eq!(after.last_active_at, expected);
+    assert_month_start(after.last_active_at, "after touch");
+}
+
+#[tokio::test]
+async fn postgres_touch_user_last_active_is_idempotent_within_month() {
+    let Some(base_url) = test_database_url() else {
+        eprintln!("skipping: TEST_DATABASE_URL not set");
+        return;
+    };
+
+    let schema = test_schema_name();
+    create_schema(&base_url, &schema).await;
+
+    let db_url = with_search_path(&base_url, &schema);
+    let store = PgStore::from_database_url(&db_url)
+        .await
+        .expect("connect schema database");
+    migrate(store.pool()).await.expect("migrate");
+
+    let user = store.create_user("Idempotent").await.expect("create user");
+    let now = Utc::now();
+    let expected = now.date_naive().with_day(1).unwrap();
+
+    // Touch twice in the same month — value should not change.
+    store
+        .touch_user_last_active(user.id, now)
+        .await
+        .expect("first touch");
+    let after_first = get_user(&store, &user).await;
+    assert_eq!(after_first.last_active_at, expected);
+
+    store
+        .touch_user_last_active(user.id, now)
+        .await
+        .expect("second touch");
+    let after_second = get_user(&store, &user).await;
+    assert_eq!(after_second.last_active_at, expected);
+}
+
+#[tokio::test]
+async fn postgres_touch_user_last_active_never_stores_sub_month_precision() {
+    let Some(base_url) = test_database_url() else {
+        eprintln!("skipping: TEST_DATABASE_URL not set");
+        return;
+    };
+
+    let schema = test_schema_name();
+    create_schema(&base_url, &schema).await;
+
+    let db_url = with_search_path(&base_url, &schema);
+    let store = PgStore::from_database_url(&db_url)
+        .await
+        .expect("connect schema database");
+    migrate(store.pool()).await.expect("migrate");
+
+    let user = store.create_user("Precision").await.expect("create user");
+
+    // Call touch with various timestamps throughout a month — the stored date
+    // must always be the 1st.
+    let test_dates = [
+        "2025-03-01T00:00:00Z",
+        "2025-03-15T12:30:45Z",
+        "2025-03-31T23:59:59Z",
+        "2025-07-04T08:00:00Z",
+        "2025-12-25T18:30:00Z",
+    ];
+
+    for ts_str in &test_dates {
+        let ts: chrono::DateTime<Utc> = ts_str.parse().expect("parse timestamp");
+
+        // Reset to an old date first so the touch actually writes.
+        let old = NaiveDate::from_ymd_opt(2020, 1, 1).unwrap();
+        let client = store.pool().get().await.expect("get client");
+        client
+            .execute(
+                "UPDATE users SET last_active_at = $1 WHERE id = $2",
+                &[&old, &user.id],
+            )
+            .await
+            .expect("reset last_active_at");
+
+        store
+            .touch_user_last_active(user.id, ts)
+            .await
+            .expect("touch");
+        let u = get_user(&store, &user).await;
+        assert_month_start(u.last_active_at, &format!("touch with {ts_str}"));
+        assert_eq!(
+            u.last_active_at,
+            ts.date_naive().with_day(1).unwrap(),
+            "expected month-start for {ts_str}"
+        );
+    }
+}
+
+#[tokio::test]
+async fn postgres_touch_user_last_active_does_not_go_backwards() {
+    let Some(base_url) = test_database_url() else {
+        eprintln!("skipping: TEST_DATABASE_URL not set");
+        return;
+    };
+
+    let schema = test_schema_name();
+    create_schema(&base_url, &schema).await;
+
+    let db_url = with_search_path(&base_url, &schema);
+    let store = PgStore::from_database_url(&db_url)
+        .await
+        .expect("connect schema database");
+    migrate(store.pool()).await.expect("migrate");
+
+    let user = store.create_user("NoBackwards").await.expect("create user");
+
+    // Set to a future month.
+    let future_month = NaiveDate::from_ymd_opt(2030, 1, 1).unwrap();
+    let client = store.pool().get().await.expect("get client");
+    client
+        .execute(
+            "UPDATE users SET last_active_at = $1 WHERE id = $2",
+            &[&future_month, &user.id],
+        )
+        .await
+        .expect("set future date");
+
+    // Touch with current time — should NOT go backwards.
+    let now = Utc::now();
+    store
+        .touch_user_last_active(user.id, now)
+        .await
+        .expect("touch");
+
+    let u = get_user(&store, &user).await;
+    assert_eq!(
+        u.last_active_at, future_month,
+        "touch should never move last_active_at backwards"
+    );
 }

@@ -353,7 +353,7 @@ function DashboardContent() {
       <CardHeading title="Your Secrets" class="mb-4" />
 
       {error && (
-        <div role="alert" class="alert-error mb-4">
+        <div role="alert" class="alert-error mb-4 text-center">
           {error}
         </div>
       )}

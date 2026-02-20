@@ -353,6 +353,14 @@ impl AuthStore for ErrStore {
     async fn delete_user(&self, _user_id: UserId) -> Result<bool, StorageError> {
         Err(StorageError::Other("error".into()))
     }
+
+    async fn touch_user_last_active(
+        &self,
+        _user_id: UserId,
+        _now: DateTime<Utc>,
+    ) -> Result<(), StorageError> {
+        Err(StorageError::Other("error".into()))
+    }
 }
 
 #[async_trait]
@@ -386,6 +394,13 @@ impl AmkStore for ErrStore {
     }
     async fn get_amk_commit(&self, _user_id: Uuid) -> Result<Option<Vec<u8>>, StorageError> {
         Ok(None)
+    }
+    async fn commit_amk(
+        &self,
+        _user_id: Uuid,
+        _amk_commit: &[u8],
+    ) -> Result<AmkUpsertResult, StorageError> {
+        Err(StorageError::Other("error".into()))
     }
     async fn update_enc_meta(
         &self,

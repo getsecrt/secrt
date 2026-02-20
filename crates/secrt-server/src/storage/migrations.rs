@@ -13,6 +13,10 @@ const MIGRATIONS: &[(&str, &str)] = &[
         "002_amk_wrappers.sql",
         include_str!("../../migrations/002_amk_wrappers.sql"),
     ),
+    (
+        "003_last_active_at.sql",
+        include_str!("../../migrations/003_last_active_at.sql"),
+    ),
 ];
 
 pub async fn migrate(pool: &Pool) -> Result<Vec<String>, StorageError> {

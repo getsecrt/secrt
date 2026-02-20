@@ -18,7 +18,7 @@ export function PrivacyPage() {
       <div class="card space-y-8 bg-white/20 dark:bg-black/20">
         <CardHeading
           title="Privacy Policy"
-          subtitle="Last updated: February 17, 2026"
+          subtitle="Last updated: February 20, 2026"
           underline
         />
 
@@ -85,6 +85,17 @@ export function PrivacyPage() {
               If you register, we store a passkey credential and an account
               nickname to help you identify your account. We generate a random
               nickname by default, and you can change when you register.
+            </li>
+            <li>
+              <strong class="text-default">
+                Coarse activity date (accounts only):
+              </strong>{' '}
+              We record the month you last logged in — not the day, hour, or
+              second. This is stored as a plain date rounded to the first of
+              the month, so it cannot be correlated with individual actions.
+              Its sole purpose is identifying accounts that have been inactive
+              for years so we can clean up unused data — itself a privacy
+              benefit.
             </li>
           </ul>
         </section>
