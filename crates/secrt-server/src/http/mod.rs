@@ -284,6 +284,50 @@ struct DeleteAccountResponse {
     keys_revoked: i64,
 }
 
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct UpdateDisplayNameRequest {
+    display_name: String,
+}
+
+#[derive(Serialize)]
+struct UpdateDisplayNameResponse {
+    ok: bool,
+    display_name: String,
+}
+
+#[derive(Serialize)]
+struct PasskeyListItem {
+    id: i64,
+    label: String,
+    created_at: DateTime<Utc>,
+}
+
+#[derive(Serialize)]
+struct ListPasskeysResponse {
+    passkeys: Vec<PasskeyListItem>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct UpdatePasskeyLabelRequest {
+    label: String,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct PasskeyAddFinishRequest {
+    challenge_id: String,
+    credential_id: String,
+    public_key: String,
+}
+
+#[derive(Serialize)]
+struct PasskeyAddFinishResponse {
+    ok: bool,
+    passkey: PasskeyListItem,
+}
+
 // --- Device authorization flow types ---
 
 #[derive(Deserialize)]
@@ -505,7 +549,21 @@ pub fn build_router(state: Arc<AppState>) -> Router {
             "/api/v1/apikeys/{prefix}/revoke",
             any(handle_revoke_apikey_entry),
         )
-        .route("/api/v1/auth/account", any(handle_delete_account_entry))
+        .route("/api/v1/auth/account", any(handle_account_entry))
+        .route(
+            "/api/v1/auth/passkeys/add/start",
+            any(handle_passkey_add_start_entry),
+        )
+        .route(
+            "/api/v1/auth/passkeys/add/finish",
+            any(handle_passkey_add_finish_entry),
+        )
+        .route(
+            "/api/v1/auth/passkeys/{id}/revoke",
+            any(handle_revoke_passkey_entry),
+        )
+        .route("/api/v1/auth/passkeys/{id}", any(handle_passkey_entry))
+        .route("/api/v1/auth/passkeys", any(handle_passkeys_list_entry))
         .route("/api/v1/auth/device/start", any(handle_device_start_entry))
         .route("/api/v1/auth/device/poll", any(handle_device_poll_entry))
         .route(
@@ -1248,6 +1306,11 @@ struct LoginChallengePayload {
     credential_id: String,
 }
 
+#[derive(Serialize, Deserialize)]
+struct AddPasskeyChallengePayload {
+    user_id: String,
+}
+
 struct ParsedSessionToken {
     sid: String,
     secret: String,
@@ -1810,13 +1873,15 @@ pub async fn handle_revoke_apikey_entry(
     }
 }
 
-pub async fn handle_delete_account_entry(
-    State(state): State<Arc<AppState>>,
-    req: Request,
-) -> Response {
-    if req.method() != Method::DELETE {
-        return method_not_allowed();
+pub async fn handle_account_entry(State(state): State<Arc<AppState>>, req: Request) -> Response {
+    match req.method().clone() {
+        Method::DELETE => handle_delete_account(state, req).await,
+        Method::PATCH => handle_update_display_name(state, req).await,
+        _ => method_not_allowed(),
     }
+}
+
+async fn handle_delete_account(state: Arc<AppState>, req: Request) -> Response {
     let (user_id, _, _) = match require_session_user(&state, req.headers()).await {
         Ok(v) => v,
         Err(resp) => return resp,
@@ -1855,6 +1920,227 @@ pub async fn handle_delete_account_entry(
             ok: true,
             secrets_burned,
             keys_revoked,
+        },
+    )
+}
+
+async fn handle_update_display_name(state: Arc<AppState>, req: Request) -> Response {
+    let (user_id, _, _) = match require_session_user(&state, req.headers()).await {
+        Ok(v) => v,
+        Err(resp) => return resp,
+    };
+    let payload: UpdateDisplayNameRequest = match read_json_body(req, 4 * 1024, None).await {
+        Ok(v) => v,
+        Err(resp) => return resp,
+    };
+    let trimmed = payload.display_name.trim();
+    if trimmed.is_empty() {
+        return bad_request("display_name is required");
+    }
+    if trimmed.len() > 100 {
+        return bad_request("display_name must be 100 characters or fewer");
+    }
+    match state.auth_store.update_display_name(user_id, trimmed).await {
+        Ok(()) => json_response(
+            StatusCode::OK,
+            UpdateDisplayNameResponse {
+                ok: true,
+                display_name: trimmed.to_string(),
+            },
+        ),
+        Err(_) => internal_server_error(),
+    }
+}
+
+// --- Passkey management endpoints ---
+
+pub async fn handle_passkeys_list_entry(
+    State(state): State<Arc<AppState>>,
+    req: Request,
+) -> Response {
+    if req.method() != Method::GET {
+        return method_not_allowed();
+    }
+    let (user_id, _, _) = match require_session_user(&state, req.headers()).await {
+        Ok(v) => v,
+        Err(resp) => return resp,
+    };
+    let passkeys = match state.auth_store.list_passkeys_by_user(user_id).await {
+        Ok(v) => v,
+        Err(_) => return internal_server_error(),
+    };
+    json_response(
+        StatusCode::OK,
+        ListPasskeysResponse {
+            passkeys: passkeys
+                .into_iter()
+                .map(|p| PasskeyListItem {
+                    id: p.id,
+                    label: p.label,
+                    created_at: p.created_at,
+                })
+                .collect(),
+        },
+    )
+}
+
+pub async fn handle_revoke_passkey_entry(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<i64>,
+    req: Request,
+) -> Response {
+    if req.method() != Method::POST {
+        return method_not_allowed();
+    }
+    let (user_id, _, _) = match require_session_user(&state, req.headers()).await {
+        Ok(v) => v,
+        Err(resp) => return resp,
+    };
+    match state.auth_store.revoke_passkey(id, user_id).await {
+        Ok(true) => json_response(StatusCode::OK, serde_json::json!({ "ok": true })),
+        Ok(false) => bad_request("cannot revoke last active passkey"),
+        Err(StorageError::NotFound) => not_found(),
+        Err(_) => internal_server_error(),
+    }
+}
+
+pub async fn handle_passkey_entry(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<i64>,
+    req: Request,
+) -> Response {
+    if req.method() != Method::PATCH {
+        return method_not_allowed();
+    }
+    let (user_id, _, _) = match require_session_user(&state, req.headers()).await {
+        Ok(v) => v,
+        Err(resp) => return resp,
+    };
+    let payload: UpdatePasskeyLabelRequest = match read_json_body(req, 4 * 1024, None).await {
+        Ok(v) => v,
+        Err(resp) => return resp,
+    };
+    let trimmed = payload.label.trim();
+    if trimmed.len() > 100 {
+        return bad_request("label must be 100 characters or fewer");
+    }
+    match state
+        .auth_store
+        .update_passkey_label(id, user_id, trimmed)
+        .await
+    {
+        Ok(()) => json_response(StatusCode::OK, serde_json::json!({ "ok": true })),
+        Err(StorageError::NotFound) => not_found(),
+        Err(_) => internal_server_error(),
+    }
+}
+
+pub async fn handle_passkey_add_start_entry(
+    State(state): State<Arc<AppState>>,
+    req: Request,
+) -> Response {
+    if req.method() != Method::POST {
+        return method_not_allowed();
+    }
+    let (user_id, _, _) = match require_session_user(&state, req.headers()).await {
+        Ok(v) => v,
+        Err(resp) => return resp,
+    };
+    let challenge_id = match random_b64(CHALLENGE_LEN) {
+        Ok(v) => v,
+        Err(_) => return internal_server_error(),
+    };
+    let challenge = match random_b64(CHALLENGE_LEN) {
+        Ok(v) => v,
+        Err(_) => return internal_server_error(),
+    };
+    let challenge_json = match serde_json::to_string(&AddPasskeyChallengePayload {
+        user_id: user_id.to_string(),
+    }) {
+        Ok(v) => v,
+        Err(_) => return internal_server_error(),
+    };
+    let expires_at = Utc::now() + chrono::Duration::minutes(10);
+    if state
+        .auth_store
+        .insert_challenge(
+            &challenge_id,
+            Some(user_id),
+            "passkey-add",
+            &challenge_json,
+            expires_at,
+        )
+        .await
+        .is_err()
+    {
+        return internal_server_error();
+    }
+    json_response(
+        StatusCode::OK,
+        PasskeyStartResponse {
+            challenge_id,
+            challenge,
+            expires_at,
+        },
+    )
+}
+
+pub async fn handle_passkey_add_finish_entry(
+    State(state): State<Arc<AppState>>,
+    req: Request,
+) -> Response {
+    if req.method() != Method::POST {
+        return method_not_allowed();
+    }
+    let (user_id, _, _) = match require_session_user(&state, req.headers()).await {
+        Ok(v) => v,
+        Err(resp) => return resp,
+    };
+    let payload: PasskeyAddFinishRequest = match read_json_body(req, 16 * 1024, None).await {
+        Ok(v) => v,
+        Err(resp) => return resp,
+    };
+    if payload.credential_id.trim().is_empty() || payload.public_key.trim().is_empty() {
+        return bad_request("credential_id and public_key are required");
+    }
+    let challenge = match state
+        .auth_store
+        .consume_challenge(&payload.challenge_id, "passkey-add", Utc::now())
+        .await
+    {
+        Ok(v) => v,
+        Err(_) => return bad_request("invalid or expired challenge"),
+    };
+    // Verify the challenge belongs to this user
+    let parsed: AddPasskeyChallengePayload = match serde_json::from_str(&challenge.challenge_json) {
+        Ok(v) => v,
+        Err(_) => return internal_server_error(),
+    };
+    if parsed.user_id != user_id.to_string() {
+        return unauthorized();
+    }
+    let passkey = match state
+        .auth_store
+        .insert_passkey(
+            user_id,
+            payload.credential_id.trim(),
+            payload.public_key.trim(),
+            0,
+        )
+        .await
+    {
+        Ok(v) => v,
+        Err(_) => return internal_server_error(),
+    };
+    json_response(
+        StatusCode::OK,
+        PasskeyAddFinishResponse {
+            ok: true,
+            passkey: PasskeyListItem {
+                id: passkey.id,
+                label: passkey.label,
+                created_at: passkey.created_at,
+            },
         },
     )
 }
@@ -3336,6 +3622,37 @@ mod tests {
             }
             Ok(())
         }
+
+        async fn update_display_name(
+            &self,
+            user_id: UserId,
+            display_name: &str,
+        ) -> Result<(), StorageError> {
+            let mut m = self.users.lock().unwrap();
+            let u = m.get_mut(&user_id).ok_or(StorageError::NotFound)?;
+            u.display_name = display_name.to_string();
+            Ok(())
+        }
+
+        async fn list_passkeys_by_user(
+            &self,
+            _user_id: UserId,
+        ) -> Result<Vec<PasskeyRecord>, StorageError> {
+            Ok(vec![])
+        }
+
+        async fn revoke_passkey(&self, _id: i64, _user_id: UserId) -> Result<bool, StorageError> {
+            Ok(false)
+        }
+
+        async fn update_passkey_label(
+            &self,
+            _id: i64,
+            _user_id: UserId,
+            _label: &str,
+        ) -> Result<(), StorageError> {
+            Err(StorageError::NotFound)
+        }
     }
 
     #[async_trait]
@@ -4493,7 +4810,7 @@ mod tests {
     #[tokio::test]
     async fn delete_account_requires_auth() {
         let state = test_state();
-        let resp = handle_delete_account_entry(
+        let resp = handle_account_entry(
             State(state),
             Request::builder()
                 .method("DELETE")
@@ -4535,7 +4852,7 @@ mod tests {
         assert_eq!(resp.status(), StatusCode::METHOD_NOT_ALLOWED);
 
         // delete_account: POST -> 405
-        let resp = handle_delete_account_entry(
+        let resp = handle_account_entry(
             State(state),
             Request::builder()
                 .method("POST")
@@ -4667,7 +4984,7 @@ mod tests {
         create_test_secret(&state, &owner_key, "owned1").await;
         create_test_secret(&state, &owner_key, "owned2").await;
 
-        let resp = handle_delete_account_entry(
+        let resp = handle_account_entry(
             State(state.clone()),
             authed_delete("/api/v1/auth/account", &token),
         )
@@ -4851,7 +5168,7 @@ mod tests {
         let (token_a_fresh, _) = issue_session_token(&state, user_a)
             .await
             .expect("fresh session");
-        let resp = handle_delete_account_entry(
+        let resp = handle_account_entry(
             State(state.clone()),
             authed_delete("/api/v1/auth/account", &token_a_fresh),
         )
@@ -4983,7 +5300,7 @@ mod tests {
         create_test_secret(&state, &format!("user:{user_id}"), "sess_owned").await;
         create_test_secret(&state, &format!("apikey:{prefix}"), "key_owned").await;
 
-        let resp = handle_delete_account_entry(
+        let resp = handle_account_entry(
             State(state.clone()),
             authed_delete("/api/v1/auth/account", &token),
         )

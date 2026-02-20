@@ -17,6 +17,10 @@ const MIGRATIONS: &[(&str, &str)] = &[
         "003_last_active_at.sql",
         include_str!("../../migrations/003_last_active_at.sql"),
     ),
+    (
+        "004_passkey_label.sql",
+        include_str!("../../migrations/004_passkey_label.sql"),
+    ),
 ];
 
 pub async fn migrate(pool: &Pool) -> Result<Vec<String>, StorageError> {

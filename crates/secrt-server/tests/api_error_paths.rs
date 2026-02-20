@@ -361,6 +361,34 @@ impl AuthStore for ErrStore {
     ) -> Result<(), StorageError> {
         Err(StorageError::Other("error".into()))
     }
+
+    async fn update_display_name(
+        &self,
+        _user_id: UserId,
+        _display_name: &str,
+    ) -> Result<(), StorageError> {
+        Err(StorageError::Other("error".into()))
+    }
+
+    async fn list_passkeys_by_user(
+        &self,
+        _user_id: UserId,
+    ) -> Result<Vec<PasskeyRecord>, StorageError> {
+        Err(StorageError::Other("error".into()))
+    }
+
+    async fn revoke_passkey(&self, _id: i64, _user_id: UserId) -> Result<bool, StorageError> {
+        Err(StorageError::Other("error".into()))
+    }
+
+    async fn update_passkey_label(
+        &self,
+        _id: i64,
+        _user_id: UserId,
+        _label: &str,
+    ) -> Result<(), StorageError> {
+        Err(StorageError::Other("error".into()))
+    }
 }
 
 #[async_trait]

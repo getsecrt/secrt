@@ -91,7 +91,9 @@ export function App() {
 
   return (
     <AuthProvider>
-      <Layout>{page}</Layout>
+      <Layout maxWidth={route.page === 'dashboard' ? 'max-w-5xl' : undefined}>
+        {page}
+      </Layout>
     </AuthProvider>
   );
 }

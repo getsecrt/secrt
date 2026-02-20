@@ -210,3 +210,18 @@ export interface SecretsCheckResponse {
   count: number;
   checksum: string;
 }
+
+export interface PasskeyItem {
+  id: number;
+  label: string;
+  created_at: string;
+}
+
+export interface ListPasskeysResponse {
+  passkeys: PasskeyItem[];
+}
+
+export interface UpdateDisplayNameResponse {
+  ok: boolean;
+  display_name: string;
+}

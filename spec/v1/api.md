@@ -487,6 +487,119 @@ Other outcomes:
 - `400` if key is already revoked (`"key already revoked"`)
 - `404` if key does not exist or is not owned by session user
 
+### Passkey management (session required)
+
+These endpoints manage the passkey credentials linked to a user's account. All require session auth.
+
+#### List passkeys
+
+`GET /api/v1/auth/passkeys`
+
+Response (`200`):
+
+```json
+{
+  "passkeys": [
+    {
+      "id": 1,
+      "label": "MacBook Pro",
+      "created_at": "2026-02-13T00:00:00Z"
+    }
+  ]
+}
+```
+
+#### Add passkey — start
+
+`POST /api/v1/auth/passkeys/add/start`
+
+No request body required. Returns a challenge for the WebAuthn ceremony.
+
+Response (`200`):
+
+```json
+{
+  "challenge_id": "<base64url>",
+  "challenge": "<base64url 32-byte challenge>",
+  "expires_at": "2026-02-13T00:10:00Z"
+}
+```
+
+Challenge expires after 10 minutes.
+
+#### Add passkey — finish
+
+`POST /api/v1/auth/passkeys/add/finish`
+
+Request:
+
+```json
+{
+  "challenge_id": "<base64url>",
+  "credential_id": "<non-empty string>",
+  "public_key": "<non-empty string>"
+}
+```
+
+Response (`200`):
+
+```json
+{
+  "ok": true,
+  "passkey": {
+    "id": 2,
+    "label": "",
+    "created_at": "2026-02-13T00:00:00Z"
+  }
+}
+```
+
+Other outcomes:
+
+- `400` if `challenge_id` is invalid/expired, or `credential_id`/`public_key` is empty.
+
+#### Rename passkey
+
+`PATCH /api/v1/auth/passkeys/{id}`
+
+Request:
+
+```json
+{
+  "label": "Work laptop"
+}
+```
+
+`label` is trimmed and must be 100 characters or fewer. Empty labels are allowed.
+
+Response (`200`):
+
+```json
+{ "ok": true }
+```
+
+Other outcomes:
+
+- `400` if `label` exceeds 100 characters.
+- `404` if passkey ID does not exist or is not owned by the session user.
+
+#### Revoke passkey
+
+`POST /api/v1/auth/passkeys/{id}/revoke`
+
+No request body.
+
+Response (`200`):
+
+```json
+{ "ok": true }
+```
+
+Other outcomes:
+
+- `400` if the passkey is the user's only active passkey (`"cannot revoke last active passkey"`).
+- `404` if passkey ID does not exist or is not owned by the session user.
+
 ### Account Master Key (AMK)
 
 The AMK is a client-generated symmetric key used to encrypt per-secret notes. The server stores only wrapped (encrypted) copies of the AMK — one per API key. The wrapping key is derived from the API key's root key. The server never sees the plaintext AMK.
@@ -581,6 +694,35 @@ Response (`200`):
 
 Returns `true` if the authenticated user has at least one AMK wrapper stored.
 
+#### Commit AMK hash
+
+`POST /api/v1/amk/commit`
+
+Session auth only.
+
+Eagerly commits an AMK hash so that other devices can detect an existing key before syncing. Uses first-writer-wins semantics — once a commit is established, subsequent calls with a different hash return `409`.
+
+Request:
+
+```json
+{
+  "amk_commit": "<base64url 32-byte commitment hash>"
+}
+```
+
+`amk_commit` must decode to exactly 32 bytes.
+
+Response (`200`):
+
+```json
+{ "ok": true }
+```
+
+Other outcomes:
+
+- `400` if `amk_commit` is not valid base64url or does not decode to 32 bytes.
+- `409` if a different AMK hash is already committed for this account.
+
 ### Encrypted Notes
 
 Encrypted notes allow authenticated users to attach a client-encrypted label to a secret they own. Notes are encrypted with a key derived from the AMK and stored server-side as opaque ciphertext.
@@ -660,7 +802,36 @@ The `GET /api/v1/info` response `features` object includes:
 
 `encrypted_notes` indicates whether the server supports `PUT /api/v1/secrets/{id}/meta` and returns `enc_meta` in list responses.
 
-### Delete account (session required)
+### Account management (session required)
+
+#### Update display name
+
+`PATCH /api/v1/auth/account`
+
+Request:
+
+```json
+{
+  "display_name": "New Name"
+}
+```
+
+`display_name` is trimmed and must be 1–100 characters.
+
+Response (`200`):
+
+```json
+{
+  "ok": true,
+  "display_name": "New Name"
+}
+```
+
+Other outcomes:
+
+- `400` if `display_name` is empty after trimming or exceeds 100 characters.
+
+#### Delete account
 
 `DELETE /api/v1/auth/account`
 

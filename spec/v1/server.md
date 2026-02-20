@@ -63,8 +63,8 @@ Primary tables:
 
 - `secrets(id, claim_hash, envelope, expires_at, created_at, owner_key, meta_key_version SMALLINT, enc_meta JSONB)`
 - `api_keys(id, key_prefix, auth_hash, scopes, user_id, created_at, revoked_at)`
-- `users(id UUIDv7, display_name, created_at)`
-- `passkeys(id, user_id, credential_id, public_key, sign_count, created_at, revoked_at)`
+- `users(id UUIDv7, display_name, last_active_at DATE, created_at)`
+- `passkeys(id, user_id, credential_id, public_key, sign_count, label TEXT DEFAULT '', created_at, revoked_at)`
 - `sessions(id, sid, user_id, token_hash, expires_at, created_at, revoked_at)`
 - `webauthn_challenges(id, challenge_id, user_id, purpose, challenge_json, expires_at, created_at)`
 - `api_key_registrations(id, user_id, ip_hash, created_at)`
@@ -184,6 +184,13 @@ The header is an internal signal between the reverse proxy and the application a
 - `GET /api/v1/amk/wrappers`
 - `GET /api/v1/amk/exists`
 - `PUT /api/v1/secrets/{id}/meta`
+- `GET /api/v1/auth/passkeys`
+- `POST /api/v1/auth/passkeys/add/start`
+- `POST /api/v1/auth/passkeys/add/finish`
+- `PATCH /api/v1/auth/passkeys/{id}`
+- `POST /api/v1/auth/passkeys/{id}/revoke`
+- `POST /api/v1/amk/commit`
+- `PATCH /api/v1/auth/account`
 - `DELETE /api/v1/auth/account`
 
 ## 6. Auth and Authorization
@@ -204,6 +211,13 @@ Authenticated endpoints:
 - `GET /api/v1/amk/exists` (session or API key)
 - `PUT /api/v1/secrets/{id}/meta` (session or API key, must own secret)
 - `GET /api/v1/auth/device/challenge` (session-authenticated)
+- `GET /api/v1/auth/passkeys` (session-authenticated)
+- `POST /api/v1/auth/passkeys/add/start` (session-authenticated)
+- `POST /api/v1/auth/passkeys/add/finish` (session-authenticated)
+- `PATCH /api/v1/auth/passkeys/{id}` (session-authenticated)
+- `POST /api/v1/auth/passkeys/{id}/revoke` (session-authenticated)
+- `POST /api/v1/amk/commit` (session-authenticated)
+- `PATCH /api/v1/auth/account` (session-authenticated)
 - `DELETE /api/v1/auth/account` (session-authenticated)
 
 Credential sources:
@@ -407,15 +421,22 @@ AMK wrapper endpoints:
 - `GET /api/v1/amk/wrapper`: session or API key auth. API key auth returns own wrapper. Session auth requires `?key_prefix=X`.
 - `GET /api/v1/amk/wrappers`: session auth only. Returns all wrappers for the user.
 - `GET /api/v1/amk/exists`: session or API key auth. Returns `{ exists: bool }`.
+- `POST /api/v1/amk/commit`: session auth only. Eagerly commits an AMK hash (first-writer-wins). Returns 409 if a different hash is already committed.
 
 Feature flags:
 
 - `ENCRYPTED_NOTES_ENABLED` (env var, default `true`): when `false`, `PUT /api/v1/secrets/{id}/meta` returns `404` and `enc_meta` is omitted from list responses. The `GET /api/v1/info` response includes `features.encrypted_notes` reflecting this flag.
 
-API key listing/revocation/account deletion:
+API key listing/revocation/account management:
 
-- `GET /api/v1/apikeys`, `POST /api/v1/apikeys/{prefix}/revoke`, and `DELETE /api/v1/auth/account` require session auth.
+- `GET /api/v1/apikeys`, `POST /api/v1/apikeys/{prefix}/revoke`, `PATCH /api/v1/auth/account`, and `DELETE /api/v1/auth/account` require session auth.
 - Revoke returns `400` when key is already revoked.
+
+Passkey management:
+
+- `GET /api/v1/auth/passkeys`, `POST .../add/start`, `POST .../add/finish`, `PATCH .../passkeys/{id}`, and `POST .../passkeys/{id}/revoke` require session auth.
+- Cannot revoke the last active passkey (returns `400`).
+- Labels are trimmed and capped at 100 characters.
 
 ## 10. TTL and Expiry Semantics
 

@@ -17,6 +17,8 @@ import type {
   SecretsCheckResponse,
   AmkWrapper,
   EncMetaV1,
+  ListPasskeysResponse,
+  UpdateDisplayNameResponse,
 } from '../types';
 
 type ApiErrorBody = { error?: string };
@@ -420,6 +422,109 @@ export async function updateSecretMeta(
         'content-type': 'application/json',
       },
       body: JSON.stringify({ enc_meta: encMeta, meta_key_version: metaKeyVersion }),
+    },
+    signal,
+  );
+}
+
+/* ── Account & Passkey Management API ─────────────── */
+
+export async function updateDisplayName(
+  token: string,
+  displayName: string,
+  signal?: AbortSignal,
+): Promise<UpdateDisplayNameResponse> {
+  return requestJson<UpdateDisplayNameResponse>(
+    '/api/v1/auth/account',
+    {
+      method: 'PATCH',
+      headers: {
+        authorization: `Bearer ${token}`,
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({ display_name: displayName }),
+    },
+    signal,
+  );
+}
+
+export async function listPasskeys(
+  token: string,
+  signal?: AbortSignal,
+): Promise<ListPasskeysResponse> {
+  return requestJson<ListPasskeysResponse>(
+    '/api/v1/auth/passkeys',
+    {
+      method: 'GET',
+      headers: { authorization: `Bearer ${token}` },
+    },
+    signal,
+  );
+}
+
+export async function revokePasskey(
+  token: string,
+  id: number,
+  signal?: AbortSignal,
+): Promise<void> {
+  await requestJson<{ ok: boolean }>(
+    `/api/v1/auth/passkeys/${id}/revoke`,
+    {
+      method: 'POST',
+      headers: { authorization: `Bearer ${token}` },
+    },
+    signal,
+  );
+}
+
+export async function renamePasskey(
+  token: string,
+  id: number,
+  label: string,
+  signal?: AbortSignal,
+): Promise<void> {
+  await requestJson<{ ok: boolean }>(
+    `/api/v1/auth/passkeys/${id}`,
+    {
+      method: 'PATCH',
+      headers: {
+        authorization: `Bearer ${token}`,
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({ label }),
+    },
+    signal,
+  );
+}
+
+export async function addPasskeyStart(
+  token: string,
+  signal?: AbortSignal,
+): Promise<ChallengeResponse> {
+  return requestJson<ChallengeResponse>(
+    '/api/v1/auth/passkeys/add/start',
+    {
+      method: 'POST',
+      headers: { authorization: `Bearer ${token}` },
+    },
+    signal,
+  );
+}
+
+export async function addPasskeyFinish(
+  token: string,
+  req: { challenge_id: string; credential_id: string; public_key: string },
+  signal?: AbortSignal,
+): Promise<{ ok: boolean; passkey: { id: number; label: string; created_at: string } }> {
+  return requestJson(
+    '/api/v1/auth/passkeys/add/finish',
+    {
+      method: 'POST',
+      headers: {
+        authorization: `Bearer ${token}`,
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify(req),
     },
     signal,
   );

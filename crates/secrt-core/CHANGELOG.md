@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.14.0 — 2026-02-20
+
+_No secrt-core changes — version bump only to stay in sync with workspace._
+
 ## 0.13.0 — 2026-02-19
 
 ### Added

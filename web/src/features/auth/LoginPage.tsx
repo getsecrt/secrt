@@ -75,7 +75,11 @@ export function LoginPage() {
       });
 
       // Step 4: Store session
-      auth.login(finishRes.session_token, finishRes.user_id, finishRes.display_name);
+      auth.login(
+        finishRes.session_token,
+        finishRes.user_id,
+        finishRes.display_name,
+      );
       setState({ step: 'done' });
       navigate(redirectTo);
     } catch (err) {
@@ -116,7 +120,7 @@ export function LoginPage() {
         {state.step === 'error' && (
           <div
             role="alert"
-            class="alert-error flex items-center gap-2 text-left"
+            class="alert-error flex items-center justify-center gap-2"
           >
             <TriangleExclamationIcon class="size-5 shrink-0" />
             {state.message}
@@ -135,11 +139,19 @@ export function LoginPage() {
 
       <p class="text-center text-muted">
         <a
-          href={redirectTo === '/' ? '/register' : `/register?redirect=${encodeURIComponent(redirectTo)}`}
+          href={
+            redirectTo === '/'
+              ? '/register'
+              : `/register?redirect=${encodeURIComponent(redirectTo)}`
+          }
           class="link"
           onClick={(e: MouseEvent) => {
             e.preventDefault();
-            navigate(redirectTo === '/' ? '/register' : `/register?redirect=${encodeURIComponent(redirectTo)}`);
+            navigate(
+              redirectTo === '/'
+                ? '/register'
+                : `/register?redirect=${encodeURIComponent(redirectTo)}`,
+            );
           }}
         >
           Register a New Account

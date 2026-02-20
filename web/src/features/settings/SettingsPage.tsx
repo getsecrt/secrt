@@ -8,6 +8,12 @@ import {
   deleteAccount,
   upsertAmkWrapper,
   fetchInfo,
+  updateDisplayName,
+  listPasskeys,
+  revokePasskey,
+  renamePasskey,
+  addPasskeyStart,
+  addPasskeyFinish,
 } from '../../lib/api';
 import { generateApiKeyMaterial, formatWireApiKey } from '../../crypto/apikey';
 import {
@@ -20,17 +26,24 @@ import {
 import { base64urlEncode } from '../../crypto/encoding';
 import { storeAmk, loadAmk, clearAmk } from '../../lib/amk-store';
 import {
-  KeyIcon,
   TrashIcon,
-  UserIcon,
   ClipboardIcon,
   SquarePlusIcon,
   CircleXmarkIcon,
+  PasskeyIcon,
+  UserIcon,
+  XMarkIcon,
 } from '../../components/Icons';
 import { SyncNotesKeyButton } from '../../components/SyncNotesKeyButton';
 import { CardHeading } from '../../components/CardHeading';
+import { Modal } from '../../components/Modal';
 import { navigate } from '../../router';
-import type { ApiKeyItem } from '../../types';
+import type { ApiKeyItem, PasskeyItem } from '../../types';
+import {
+  createPasskeyCredential,
+  supportsWebAuthn,
+  generateUserId,
+} from '../../lib/webauthn';
 
 function formatDate(iso: string): string {
   return new Date(iso).toLocaleDateString(undefined, {
@@ -257,12 +270,300 @@ function ApiKeysCard() {
   );
 }
 
+function passkeyLabel(pk: PasskeyItem): string {
+  return pk.label || 'Default';
+}
+
+function PasskeysCard() {
+  const auth = useAuth();
+  const [passkeys, setPasskeys] = useState<PasskeyItem[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [adding, setAdding] = useState(false);
+  const [revokingId, setRevokingId] = useState<number | null>(null);
+  const [modalOpen, setModalOpen] = useState(false);
+  const [modalPasskey, setModalPasskey] = useState<PasskeyItem | null>(null);
+  const [modalLabel, setModalLabel] = useState('');
+  const [savingLabel, setSavingLabel] = useState(false);
+
+  const fetchPasskeys = useCallback(async (): Promise<PasskeyItem[]> => {
+    if (!auth.sessionToken) return [];
+    setLoading(true);
+    setError(null);
+    try {
+      const res = await listPasskeys(auth.sessionToken);
+      setPasskeys(res.passkeys);
+      return res.passkeys;
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to load passkeys');
+      return [];
+    } finally {
+      setLoading(false);
+    }
+  }, [auth.sessionToken]);
+
+  useEffect(() => {
+    fetchPasskeys();
+  }, [fetchPasskeys]);
+
+  const openRenameModal = useCallback((pk: PasskeyItem) => {
+    setModalPasskey(pk);
+    setModalLabel(pk.label);
+    setModalOpen(true);
+  }, []);
+
+  const closeModal = useCallback(() => {
+    setModalOpen(false);
+    setSavingLabel(false);
+  }, []);
+
+  const handleSaveLabel = useCallback(
+    async (e: Event) => {
+      e.preventDefault();
+      if (!auth.sessionToken || !modalPasskey) return;
+      const trimmed = modalLabel.trim();
+      setSavingLabel(true);
+      setError(null);
+      try {
+        await renamePasskey(auth.sessionToken, modalPasskey.id, trimmed);
+        setPasskeys((prev) =>
+          prev.map((p) =>
+            p.id === modalPasskey.id ? { ...p, label: trimmed } : p,
+          ),
+        );
+        closeModal();
+      } catch (err) {
+        setError(
+          err instanceof Error ? err.message : 'Failed to rename passkey',
+        );
+        setSavingLabel(false);
+      }
+    },
+    [auth.sessionToken, modalPasskey, modalLabel, closeModal],
+  );
+
+  const handleAdd = useCallback(async () => {
+    if (!auth.sessionToken || !supportsWebAuthn()) return;
+    setAdding(true);
+    setError(null);
+    try {
+      const { challenge_id, challenge } = await addPasskeyStart(
+        auth.sessionToken,
+      );
+      const userId = generateUserId();
+      const reg = await createPasskeyCredential(
+        challenge,
+        userId,
+        auth.displayName ?? 'User',
+        auth.displayName ?? 'User',
+      );
+      await addPasskeyFinish(auth.sessionToken, {
+        challenge_id,
+        credential_id: reg.credentialId,
+        public_key: reg.publicKey,
+      });
+      const updated = await fetchPasskeys();
+      // Open rename modal for the newly added passkey (highest id)
+      if (updated.length > 0) {
+        const newest = updated.reduce((a, b) => (a.id > b.id ? a : b));
+        openRenameModal(newest);
+      }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Failed to add passkey';
+      if (!msg.includes('cancelled') && !msg.includes('AbortError')) {
+        setError(msg);
+      }
+    } finally {
+      setAdding(false);
+    }
+  }, [auth.sessionToken, auth.displayName, fetchPasskeys, openRenameModal]);
+
+  const handleRevoke = useCallback(
+    async (id: number) => {
+      if (!auth.sessionToken) return;
+      setRevokingId(id);
+      setError(null);
+      try {
+        await revokePasskey(auth.sessionToken, id);
+        await fetchPasskeys();
+      } catch (err) {
+        setError(
+          err instanceof Error ? err.message : 'Failed to revoke passkey',
+        );
+      } finally {
+        setRevokingId(null);
+      }
+    },
+    [auth.sessionToken, fetchPasskeys],
+  );
+
+  return (
+    <div class="card mb-4">
+      <div class="mb-4">
+        <CardHeading
+          title="Passkeys"
+          subtitle="Manage the passkeys used to sign in to your account."
+        />
+
+        {supportsWebAuthn() && (
+          <div class="flex justify-center">
+            <button
+              type="button"
+              class="btn btn-primary btn-sm tracking-wider uppercase"
+              disabled={adding}
+              onClick={handleAdd}
+            >
+              <SquarePlusIcon class="size-4" />
+              {adding ? 'Adding...' : 'Add Passkey'}
+            </button>
+          </div>
+        )}
+      </div>
+
+      {error && (
+        <div role="alert" class="alert-error mb-4">
+          {error}
+        </div>
+      )}
+
+      {loading && passkeys.length === 0 ? (
+        <p class="text-muted">Loading...</p>
+      ) : passkeys.length === 0 ? (
+        <p class="text-center text-muted">No passkeys.</p>
+      ) : (
+        <div class="overflow-x-auto">
+          <table class="w-full">
+            <thead>
+              <tr class="border-b border-border text-left text-muted">
+                <th class="pr-3 pb-2 font-medium">Label</th>
+                <th class="pr-3 pb-2 font-medium">Created</th>
+                <th class="pb-2 font-medium"></th>
+              </tr>
+            </thead>
+            <tbody>
+              {passkeys.map((pk) => (
+                <tr key={pk.id} class="border-b border-border/50">
+                  <td class="py-2 pr-3">
+                    <button
+                      type="button"
+                      class="hover:text-primary ml-1 inline-flex items-center gap-1.5 text-left transition-colors"
+                      title="Click to rename"
+                      onClick={() => openRenameModal(pk)}
+                    >
+                      <PasskeyIcon class="size-4 shrink-0 text-muted" />
+                      <span>{passkeyLabel(pk)}</span>
+                    </button>
+                  </td>
+                  <td class="py-2 pr-3 whitespace-nowrap">
+                    {formatDate(pk.created_at)}
+                  </td>
+                  <td class="py-2 text-right">
+                    {passkeys.length > 1 && (
+                      <button
+                        type="button"
+                        class="btn-destructive-subtle"
+                        disabled={revokingId === pk.id}
+                        title="Revoke passkey"
+                        onClick={() => handleRevoke(pk.id)}
+                      >
+                        <CircleXmarkIcon class="size-4 text-error" />
+                        {revokingId === pk.id ? 'Revoking...' : 'Revoke'}
+                      </button>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {/* Rename passkey modal */}
+      <Modal
+        open={modalOpen}
+        onClose={closeModal}
+        dismissible
+        asForm
+        onSubmit={handleSaveLabel}
+        aria-label="Rename passkey"
+      >
+        <button
+          type="button"
+          class="absolute top-3 right-3 rounded p-1 text-muted transition-colors hover:text-text"
+          onClick={closeModal}
+          aria-label="Close"
+        >
+          <XMarkIcon class="size-5" />
+        </button>
+
+        <CardHeading
+          icon={<PasskeyIcon class="size-10" />}
+          title={modalPasskey?.label ? 'Rename Passkey' : 'Name Passkey'}
+          subtitle={
+            modalPasskey ? `Created ${formatDate(modalPasskey.created_at)}` : ''
+          }
+        />
+
+        <div class="space-y-1">
+          <label class="label" for="passkey-label">
+            <PasskeyIcon class="size-4 opacity-60" aria-hidden="true" />
+            Label
+          </label>
+          <input
+            id="passkey-label"
+            type="text"
+            class="input"
+            value={modalLabel}
+            maxLength={100}
+            placeholder="e.g. MacBook, iPhone, Work laptop"
+            onInput={(e) => setModalLabel((e.target as HTMLInputElement).value)}
+            autofocus
+            autocomplete="off"
+          />
+          <p class="text-center text-sm text-muted">
+            A friendly name to identify this passkey
+          </p>
+        </div>
+
+        <button
+          type="submit"
+          class="btn btn-primary w-full tracking-wider uppercase"
+          disabled={savingLabel}
+        >
+          {savingLabel ? 'Saving\u2026' : 'Save'}
+        </button>
+      </Modal>
+    </div>
+  );
+}
+
 function AccountCard() {
   const auth = useAuth();
   const [confirmText, setConfirmText] = useState('');
   const [deleting, setDeleting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showConfirm, setShowConfirm] = useState(false);
+  const [nameInput, setNameInput] = useState(auth.displayName ?? '');
+  const [saving, setSaving] = useState(false);
+
+  const nameChanged =
+    nameInput.trim() !== '' && nameInput.trim() !== (auth.displayName ?? '');
+
+  const handleSaveName = useCallback(async () => {
+    if (!auth.sessionToken) return;
+    const trimmed = nameInput.trim();
+    if (!trimmed || trimmed.length > 100) return;
+    setSaving(true);
+    setError(null);
+    try {
+      const res = await updateDisplayName(auth.sessionToken, trimmed);
+      auth.setDisplayName(res.display_name);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to update name');
+    } finally {
+      setSaving(false);
+    }
+  }, [auth, nameInput]);
 
   const handleDelete = useCallback(async () => {
     if (!auth.sessionToken || confirmText !== 'DELETE') return;
@@ -279,25 +580,62 @@ function AccountCard() {
   }, [auth, confirmText]);
 
   return (
-    <div class="card">
+    <div class="card space-y-6">
       <CardHeading
         title="Your Account"
-        subtitle={
-          <>
-            Signed in as{' '}
-            <span class="font-medium text-text">{auth.displayName}</span>
-          </>
-        }
+        subtitle="Manage your display name and account."
       />
 
+      <div class="space-y-1">
+        <label class="label" for="display-name">
+          <UserIcon class="size-4 opacity-60" aria-hidden="true" />
+          Change Display Name
+        </label>
+        <div class="relative">
+          <input
+            id="display-name"
+            type="text"
+            class="input"
+            value={nameInput}
+            maxLength={100}
+            onInput={(e) => setNameInput((e.target as HTMLInputElement).value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && nameChanged) handleSaveName();
+            }}
+            autocomplete="off"
+          />
+        </div>
+        <p class="mt-3 text-center text-sm text-muted">
+          {nameChanged ? (
+            <button
+              type="button"
+              class="btn btn-primary btn-sm tracking-wider uppercase"
+              disabled={saving}
+              onClick={handleSaveName}
+            >
+              {saving ? 'Saving\u2026' : 'Update Name'}
+            </button>
+          ) : (
+            <button
+              type="button"
+              class="btn btn-sm invisible"
+              disabled={saving}
+              onClick={handleSaveName}
+            >
+              &nbsp;
+            </button>
+          )}
+        </p>
+      </div>
+
       {error && (
-        <div role="alert" class="alert-error mb-4">
+        <div role="alert" class="alert-error">
           {error}
         </div>
       )}
 
       {!showConfirm ? (
-        <div class="flex justify-center">
+        <div class="mt-16 flex justify-center">
           <button
             type="button"
             class="btn btn-sm btn-danger inline-flex tracking-wider uppercase"
@@ -357,7 +695,6 @@ function AccountCard() {
 function SettingsContent() {
   return (
     <div class="space-y-4">
-      <ApiKeysCard />
       <div class="card">
         <CardHeading
           title="Notes Key"
@@ -368,6 +705,8 @@ function SettingsContent() {
           <SyncNotesKeyButton />
         </div>
       </div>
+      <ApiKeysCard />
+      <PasskeysCard />
       <AccountCard />
     </div>
   );

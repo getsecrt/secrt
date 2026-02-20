@@ -17,6 +17,7 @@ vi.mock('../router', () => ({
   useRoute: () => mockUseRoute(),
 }));
 
+const mockSetDisplayName = vi.fn<(name: string) => void>();
 const mockAuth: AuthState = {
   loading: false,
   authenticated: false,
@@ -25,6 +26,7 @@ const mockAuth: AuthState = {
   sessionToken: null,
   login: mockLogin,
   logout: mockLogout,
+  setDisplayName: mockSetDisplayName,
 };
 vi.mock('../lib/auth-context', () => ({
   useAuth: () => mockAuth,

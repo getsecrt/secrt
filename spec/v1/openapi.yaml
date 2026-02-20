@@ -755,6 +755,44 @@ paths:
         "500":
           $ref: "#/components/responses/InternalError"
 
+  /api/v1/amk/commit:
+    post:
+      operationId: commitAmk
+      summary: Eagerly commit an AMK hash
+      description: |
+        Commits an AMK hash so other devices can detect an existing key
+        before syncing. Uses first-writer-wins semantics — once a commit
+        is established, calls with a different hash return 409.
+        Session auth only.
+      tags: [amk]
+      security:
+        - sessionBearer: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CommitAmkRequest"
+      responses:
+        "200":
+          description: AMK committed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BurnResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "409":
+          description: Different AMK already committed for this account
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
   /api/v1/secrets/{id}/meta:
     put:
       operationId: attachEncryptedNote
@@ -866,7 +904,168 @@ paths:
         "500":
           $ref: "#/components/responses/InternalError"
 
+  /api/v1/auth/passkeys:
+    get:
+      operationId: listPasskeys
+      summary: List passkeys for current session user
+      tags: [auth]
+      security:
+        - sessionBearer: []
+      responses:
+        "200":
+          description: Passkeys for current user
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ListPasskeysResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /api/v1/auth/passkeys/add/start:
+    post:
+      operationId: passkeyAddStart
+      summary: Start adding a passkey to an existing account
+      description: |
+        Issues a random challenge for the WebAuthn ceremony. Session auth required.
+        Challenge expires after 10 minutes.
+      tags: [auth]
+      security:
+        - sessionBearer: []
+      responses:
+        "200":
+          description: Add-passkey challenge issued
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PasskeyStartResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /api/v1/auth/passkeys/add/finish:
+    post:
+      operationId: passkeyAddFinish
+      summary: Complete adding a passkey
+      description: |
+        Consumes a valid, unexpired challenge_id and registers the new passkey
+        credential for the session user.
+      tags: [auth]
+      security:
+        - sessionBearer: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PasskeyAddFinishRequest"
+      responses:
+        "200":
+          description: Passkey added
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PasskeyAddFinishResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /api/v1/auth/passkeys/{id}:
+    patch:
+      operationId: renamePasskey
+      summary: Rename a passkey
+      description: |
+        Updates the label for a passkey owned by the session user.
+        Label is trimmed and must be 100 characters or fewer. Empty labels are allowed.
+      tags: [auth]
+      security:
+        - sessionBearer: []
+      parameters:
+        - $ref: "#/components/parameters/passkeyId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RenamePasskeyRequest"
+      responses:
+        "200":
+          description: Passkey renamed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BurnResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /api/v1/auth/passkeys/{id}/revoke:
+    post:
+      operationId: revokePasskey
+      summary: Revoke a passkey
+      description: |
+        Deletes a passkey credential. Cannot revoke the last active passkey
+        for the account.
+      tags: [auth]
+      security:
+        - sessionBearer: []
+      parameters:
+        - $ref: "#/components/parameters/passkeyId"
+      responses:
+        "200":
+          description: Passkey revoked
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BurnResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
   /api/v1/auth/account:
+    patch:
+      operationId: updateDisplayName
+      summary: Update display name
+      description: |
+        Updates the display name for the session-authenticated user.
+        Name is trimmed and must be 1–100 characters.
+      tags: [auth]
+      security:
+        - sessionBearer: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateDisplayNameRequest"
+      responses:
+        "200":
+          description: Display name updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UpdateDisplayNameResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/InternalError"
     delete:
       operationId: deleteAccount
       summary: Delete account and owned resources
@@ -921,6 +1120,14 @@ components:
       description: API key prefix
       schema:
         type: string
+    passkeyId:
+      name: id
+      in: path
+      required: true
+      description: Passkey ID
+      schema:
+        type: integer
+        format: int64
 
   headers:
     X-Request-Id:
@@ -1094,6 +1301,92 @@ components:
         keys_revoked:
           type: integer
           format: int64
+
+    PasskeyItem:
+      type: object
+      required: [id, label, created_at]
+      properties:
+        id:
+          type: integer
+          format: int64
+        label:
+          type: string
+          description: User-assigned label (empty string if unnamed)
+        created_at:
+          type: string
+          format: date-time
+
+    ListPasskeysResponse:
+      type: object
+      required: [passkeys]
+      properties:
+        passkeys:
+          type: array
+          items:
+            $ref: "#/components/schemas/PasskeyItem"
+
+    PasskeyAddFinishRequest:
+      type: object
+      required: [challenge_id, credential_id, public_key]
+      additionalProperties: false
+      properties:
+        challenge_id:
+          type: string
+          description: Challenge identifier from add/start
+        credential_id:
+          type: string
+          description: WebAuthn credential ID (non-empty)
+        public_key:
+          type: string
+          description: WebAuthn public key (non-empty)
+
+    PasskeyAddFinishResponse:
+      type: object
+      required: [ok, passkey]
+      properties:
+        ok:
+          type: boolean
+        passkey:
+          $ref: "#/components/schemas/PasskeyItem"
+
+    RenamePasskeyRequest:
+      type: object
+      required: [label]
+      additionalProperties: false
+      properties:
+        label:
+          type: string
+          description: New label (trimmed, max 100 chars, empty allowed)
+          maxLength: 100
+
+    UpdateDisplayNameRequest:
+      type: object
+      required: [display_name]
+      additionalProperties: false
+      properties:
+        display_name:
+          type: string
+          description: New display name (trimmed, 1–100 chars)
+          minLength: 1
+          maxLength: 100
+
+    UpdateDisplayNameResponse:
+      type: object
+      required: [ok, display_name]
+      properties:
+        ok:
+          type: boolean
+        display_name:
+          type: string
+
+    CommitAmkRequest:
+      type: object
+      required: [amk_commit]
+      additionalProperties: false
+      properties:
+        amk_commit:
+          type: string
+          description: base64url-encoded 32-byte AMK commitment hash
 
     EncMetaV1:
       type: object

@@ -18,6 +18,7 @@ export interface AuthState {
   sessionToken: string | null;
   login: (token: string, userId: string, displayName: string) => void;
   logout: () => Promise<void>;
+  setDisplayName: (name: string) => void;
 }
 
 const defaultState: AuthState = {
@@ -28,6 +29,7 @@ const defaultState: AuthState = {
   sessionToken: null,
   login: () => {},
   logout: async () => {},
+  setDisplayName: () => {},
 };
 
 const AuthContext = createContext<AuthState>(defaultState);
@@ -67,7 +69,7 @@ export function AuthProvider({ children }: { children: ComponentChildren }) {
     fetchSession(token)
       .then((res) => {
         if (cancelled) return;
-        if (res.authenticated) {
+        if (res.authenticated && res.user_id && res.display_name) {
           setToken(token);
           setAuthenticated(true);
           setUserId(res.user_id);
@@ -123,6 +125,16 @@ export function AuthProvider({ children }: { children: ComponentChildren }) {
     setDisplayName(null);
   }, []);
 
+  const updateDisplayName = useCallback(
+    (name: string) => {
+      setDisplayName(name);
+      if (userId) {
+        setCachedProfile({ userId, displayName: name });
+      }
+    },
+    [userId],
+  );
+
   return (
     <AuthContext.Provider
       value={{
@@ -133,6 +145,7 @@ export function AuthProvider({ children }: { children: ComponentChildren }) {
         sessionToken,
         login,
         logout,
+        setDisplayName: updateDisplayName,
       }}
     >
       {children}

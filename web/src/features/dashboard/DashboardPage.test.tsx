@@ -11,6 +11,7 @@ const mockAuth: {
   sessionToken: string | null;
   login: ReturnType<typeof vi.fn>;
   logout: ReturnType<typeof vi.fn>;
+  setDisplayName: ReturnType<typeof vi.fn>;
 } = {
   loading: false,
   authenticated: true,
@@ -19,6 +20,7 @@ const mockAuth: {
   sessionToken: 'uss_test.secret',
   login: vi.fn(),
   logout: vi.fn(),
+  setDisplayName: vi.fn(),
 };
 vi.mock('../../lib/auth-context', () => ({
   useAuth: () => mockAuth,
@@ -179,7 +181,7 @@ describe('DashboardPage', () => {
 
     // Should show confirmation UI, not call the API yet
     expect(screen.getByText('Burn this secret?')).toBeInTheDocument();
-    expect(screen.getByText('Yes, burn')).toBeInTheDocument();
+    expect(screen.getByText('Burn it')).toBeInTheDocument();
     expect(screen.getByText('Cancel')).toBeInTheDocument();
     expect(burnSecretAuthed).not.toHaveBeenCalled();
   });
@@ -203,7 +205,7 @@ describe('DashboardPage', () => {
 
     // Click Burn, then confirm
     await user.click(screen.getByText('Burn'));
-    await user.click(screen.getByText('Yes, burn'));
+    await user.click(screen.getByText('Burn it'));
 
     expect(burnSecretAuthed).toHaveBeenCalledWith(
       'uss_test.secret',
@@ -242,7 +244,7 @@ describe('DashboardPage', () => {
 
     await screen.findByText('aaaa1111bbbb2222');
     await user.click(screen.getByText('Burn'));
-    await user.click(screen.getByText('Yes, burn'));
+    await user.click(screen.getByText('Burn it'));
 
     const alert = await screen.findByRole('alert');
     expect(alert).toHaveTextContent('Burn denied');

@@ -6,7 +6,13 @@ import { ensureCompressor, compress } from '../../crypto/compress';
 import { CODEC_ZSTD } from '../../crypto/constants';
 import { encryptNote, generateAmk, computeAmkCommit } from '../../crypto/amk';
 import { base64urlEncode } from '../../crypto/encoding';
-import { createSecret, fetchInfo, updateSecretMeta, amkExists, commitAmk } from '../../lib/api';
+import {
+  createSecret,
+  fetchInfo,
+  updateSecretMeta,
+  amkExists,
+  commitAmk,
+} from '../../lib/api';
 import { loadAmk, storeAmk } from '../../lib/amk-store';
 import {
   checkEnvelopeSize,
@@ -85,7 +91,9 @@ export function SendPage() {
   const abortRef = useRef<AbortController | null>(null);
   const passwordCopiedTimerRef = useRef<number | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const [noteStatus, setNoteStatus] = useState<'checking' | 'available' | 'needs-sync'>('checking');
+  const [noteStatus, setNoteStatus] = useState<
+    'checking' | 'available' | 'needs-sync'
+  >('checking');
   const [serverInfo, setServerInfo] = useState<ApiInfo | null>(() => {
     try {
       const cached = sessionStorage.getItem('server_info');
@@ -120,7 +128,11 @@ export function SendPage() {
 
   // Check AMK status for note availability on second-browser scenario
   useEffect(() => {
-    if (!auth.authenticated || !auth.userId || !serverInfo?.features?.encrypted_notes) {
+    if (
+      !auth.authenticated ||
+      !auth.userId ||
+      !serverInfo?.features?.encrypted_notes
+    ) {
       setNoteStatus('available');
       return;
     }
@@ -139,7 +151,9 @@ export function SendPage() {
         if (!cancelled) setNoteStatus('available');
       }
     });
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+    };
   }, [auth.authenticated, auth.userId, auth.sessionToken, serverInfo]);
 
   // Page-level drag listener to switch to file mode
@@ -440,11 +454,7 @@ export function SendPage() {
               const commit = await computeAmkCommit(amk);
               await commitAmk(auth.sessionToken, base64urlEncode(commit));
             }
-            const encrypted = await encryptNote(
-              amk,
-              res.id,
-              utf8Encode(note),
-            );
+            const encrypted = await encryptNote(amk, res.id, utf8Encode(note));
             const encMeta: EncMetaV1 = {
               v: 1,
               note: {
@@ -528,11 +538,13 @@ export function SendPage() {
             <label class="label">
               {mode === 'text' ? (
                 <>
-                  <DocumentIcon class="size-4 opacity-60" aria-hidden="true" /> Secret Message
+                  <DocumentIcon class="size-4 opacity-60" aria-hidden="true" />{' '}
+                  Secret Message
                 </>
               ) : (
                 <>
-                  <UploadIcon class="size-4 opacity-60" aria-hidden="true" /> Secret File
+                  <UploadIcon class="size-4 opacity-60" aria-hidden="true" />{' '}
+                  Secret File
                 </>
               )}
             </label>
@@ -688,9 +700,22 @@ export function SendPage() {
           </div>
         )}
         {notesAvailable && noteStatus === 'needs-sync' && (
-          <div class="rounded-lg border border-dashed border-yellow-500/30 bg-yellow-500/5 p-3 text-center text-sm text-muted">
-            <NoteIcon class="mr-1 inline size-4 opacity-60" />
-            Sync your Notes Key from an authenticated device to add notes.
+          <div class="space-y-1">
+            <label class="label" for="note">
+              <NoteIcon class="size-4 opacity-60" aria-hidden="true" />
+              <span class="flex items-baseline gap-2">
+                Private Note{' '}
+                <span class="text-sm font-normal text-faint">optional</span>
+              </span>
+            </label>
+            <input
+              disabled
+              class="input border-yellow-600 text-center dark:border-yellow-500/50"
+              value="Notes Unavailable: No Notes Key"
+            />
+            <p class="text-center text-sm">
+              Sync Notes Key from an authenticated device to add notes.
+            </p>
           </div>
         )}
 
@@ -714,8 +739,15 @@ export function SendPage() {
 
         {/* Error */}
         {status.step === 'error' && (
-          <div id="send-error" role="alert" class="alert-error flex items-center gap-2">
-            <TriangleExclamationIcon class="size-5 shrink-0" aria-hidden="true" />
+          <div
+            id="send-error"
+            role="alert"
+            class="alert-error flex items-center gap-2"
+          >
+            <TriangleExclamationIcon
+              class="size-5 shrink-0"
+              aria-hidden="true"
+            />
             <span>
               {status.message.split('\n').map((line, i, arr) => (
                 <>

@@ -62,13 +62,18 @@ function timeRemaining(expiresAt: string, now: number) {
   );
 }
 
-function formatDate(iso: string): string {
-  return new Date(iso).toLocaleDateString(undefined, {
+function formatDateParts(iso: string): { date: string; time: string } {
+  const d = new Date(iso);
+  const date = d.toLocaleDateString(undefined, {
     month: 'short',
     day: 'numeric',
+  });
+  const time = d.toLocaleTimeString(undefined, {
     hour: '2-digit',
     minute: '2-digit',
+    hour12: false,
   });
+  return { date, time };
 }
 
 function formatSize(bytes: number): string {
@@ -159,7 +164,7 @@ function BurnPopover({
                 setOpen(false);
               }}
             >
-              {burning ? 'Burning...' : 'Yes, burn'}
+              {burning ? 'Burning...' : 'Burn it'}
             </button>
             <button
               type="button"
@@ -376,7 +381,7 @@ function DashboardContent() {
             <table class="w-full text-sm">
               <thead>
                 <tr class="border-b border-border text-left">
-                  <th class="pr-3 pb-2 font-medium">ID</th>
+                  <th class="w-0 pr-3 pb-2 font-medium">ID</th>
                   <th
                     class={`pr-3 pb-2 font-medium ${thSortable}`}
                     onClick={() => toggleSort('created_at')}
@@ -389,7 +394,7 @@ function DashboardContent() {
                     />
                   </th>
                   <th
-                    class={`hidden pr-3 pb-2 font-medium sm:table-cell ${thSortable}`}
+                    class={`pr-3 pb-2 font-medium whitespace-nowrap ${thSortable}`}
                     onClick={() => toggleSort('ciphertext_size')}
                   >
                     Size
@@ -423,15 +428,20 @@ function DashboardContent() {
                 {pageSecrets.map((s) => (
                   <tr key={s.id} class="border-b border-border/50">
                     <td
-                      class="link-subtle max-w-[8rem] cursor-pointer truncate py-2 pr-3 font-mono text-xs hover:text-accent sm:max-w-[12rem] md:max-w-[18rem] lg:max-w-none"
+                      class="link-subtle max-w-20 cursor-pointer truncate py-2 pr-3 font-mono text-xs hover:text-accent xs:max-w-32 sm:max-w-44 lg:max-w-none"
                       onClick={() => setSelectedSecret(s)}
                     >
                       {s.id}
                     </td>
                     <td class="py-2 pr-3 whitespace-nowrap">
-                      {formatDate(s.created_at)}
+                      <span class="text-black dark:text-white">
+                        {formatDateParts(s.created_at).date}
+                      </span>{' '}
+                      <span class="text-xs text-muted">
+                        {formatDateParts(s.created_at).time}
+                      </span>
                     </td>
-                    <td class="hidden py-2 pr-3 whitespace-nowrap sm:table-cell">
+                    <td class="py-2 pr-3 whitespace-nowrap">
                       {formatSize(s.ciphertext_size)}
                     </td>
                     <td
@@ -564,7 +574,14 @@ function DashboardContent() {
               </div>
               <div>
                 <dt class="font-medium text-muted">Created</dt>
-                <dd class="mt-0.5">{formatDate(selectedSecret.created_at)}</dd>
+                <dd class="mt-0.5">
+                  <span class="text-black dark:text-white">
+                    {formatDateParts(selectedSecret.created_at).date}
+                  </span>{' '}
+                  <span class="text-muted">
+                    {formatDateParts(selectedSecret.created_at).time}
+                  </span>
+                </dd>
               </div>
               <div>
                 <dt class="font-medium text-muted">Remaining</dt>

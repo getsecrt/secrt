@@ -6,6 +6,23 @@ All notable changes to the secrt monorepo are documented here. Individual crate 
 - [secrt-core](crates/secrt-core/CHANGELOG.md)
 - [secrt-server](crates/secrt-server/CHANGELOG.md)
 
+## 0.14.0 — 2026-02-20
+
+### Added
+
+- **Passkey management:** users can now add, rename, and revoke passkeys from the settings page. New passkeys prompt for a name immediately after creation. Five new API endpoints for passkey CRUD operations.
+- **Display name editing:** persistent input on the settings page replaces the old inline toggle. New `PATCH /api/v1/auth/account` endpoint.
+- **Admin CLI expansion:** `secrt-admin` gains `stats`, `secrets stats`, `users list/show`, `apikeys list`, and `top-users` commands for server administration.
+- **AMK eager commit:** `POST /api/v1/amk/commit` endpoint allows committing an AMK hash at registration time, enabling cross-browser conflict detection before the first note is written.
+- **Coarse last-active tracking:** records the month of each user's most recent login for stale-account cleanup without compromising privacy.
+
+### Changed
+
+- **Settings page redesign:** passkey rename uses a modal dialog, display name is always editable, unnamed passkeys show as "Default".
+- **Dashboard polish:** improved date/time display, responsive column widths, size column always visible.
+
+See [server](crates/secrt-server/CHANGELOG.md) changelog for full details.
+
 ## 0.13.0 — 2026-02-19
 
 ### Added

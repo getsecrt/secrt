@@ -6,9 +6,10 @@ import { navigate } from '../router';
 
 interface LayoutProps {
   children: ComponentChildren;
+  maxWidth?: string;
 }
 
-export function Layout({ children }: LayoutProps) {
+export function Layout({ children, maxWidth = 'max-w-2xl' }: LayoutProps) {
   const handleLogoClick = (e: MouseEvent) => {
     e.preventDefault();
     navigate('/');
@@ -35,7 +36,7 @@ export function Layout({ children }: LayoutProps) {
 
       <main
         id="main-content"
-        class="mx-auto flex w-full max-w-2xl flex-col gap-6 px-4 py-6"
+        class={`mx-auto flex w-full ${maxWidth} flex-col gap-6 px-4 py-6`}
       >
         {children}
       </main>

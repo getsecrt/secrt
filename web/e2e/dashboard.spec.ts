@@ -28,8 +28,13 @@ test.describe('Dashboard management', () => {
     );
 
     const credentialId = uniqueId('cred-dashboard');
-    await installFakePasskey(page, { createId: credentialId, getId: credentialId });
-    await registerPasskeyAccount(page, { displayName: `Dash User ${Date.now()}` });
+    await installFakePasskey(page, {
+      createId: credentialId,
+      getId: credentialId,
+    });
+    await registerPasskeyAccount(page, {
+      displayName: `Dash User ${Date.now()}`,
+    });
 
     const secretText = `dashboard-burn ${Date.now()}`;
     const shareUrl = await sendSecret(page, secretText);
@@ -44,7 +49,7 @@ test.describe('Dashboard management', () => {
     });
 
     await page.locator('button.btn-destructive-subtle').first().click();
-    await page.getByRole('button', { name: 'Yes, burn' }).click();
+    await page.getByRole('button', { name: 'Burn it' }).click();
 
     await expect(page.getByText(secretId)).toHaveCount(0);
     await expect(page.getByText('You have no active secrets.')).toBeVisible();

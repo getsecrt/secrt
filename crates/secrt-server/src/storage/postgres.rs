@@ -595,7 +595,7 @@ impl AuthStore for PgStore {
             .query_one(
                 "INSERT INTO passkeys (user_id, credential_id, public_key, sign_count) \
                  VALUES ($1, $2, $3, $4) \
-                 RETURNING id, user_id, credential_id, public_key, sign_count, created_at, revoked_at",
+                 RETURNING id, user_id, credential_id, public_key, sign_count, label, created_at, revoked_at",
                 &[&user_id, &credential_id, &public_key, &sign_count],
             )
             .await?;
@@ -605,8 +605,9 @@ impl AuthStore for PgStore {
             credential_id: row.try_get(2)?,
             public_key: row.try_get(3)?,
             sign_count: row.try_get(4)?,
-            created_at: row.try_get(5)?,
-            revoked_at: row.try_get(6)?,
+            label: row.try_get(5)?,
+            created_at: row.try_get(6)?,
+            revoked_at: row.try_get(7)?,
         })
     }
 
@@ -617,7 +618,7 @@ impl AuthStore for PgStore {
         let client = self.pool.get().await?;
         let row = client
             .query_opt(
-                "SELECT id, user_id, credential_id, public_key, sign_count, created_at, revoked_at \
+                "SELECT id, user_id, credential_id, public_key, sign_count, label, created_at, revoked_at \
                  FROM passkeys WHERE credential_id=$1",
                 &[&credential_id],
             )
@@ -631,8 +632,9 @@ impl AuthStore for PgStore {
             credential_id: row.try_get(2)?,
             public_key: row.try_get(3)?,
             sign_count: row.try_get(4)?,
-            created_at: row.try_get(5)?,
-            revoked_at: row.try_get(6)?,
+            label: row.try_get(5)?,
+            created_at: row.try_get(6)?,
+            revoked_at: row.try_get(7)?,
         })
     }
 
@@ -1005,6 +1007,99 @@ impl AuthStore for PgStore {
             expires_at: row.try_get(5)?,
             created_at: row.try_get(6)?,
         })
+    }
+
+    async fn update_display_name(
+        &self,
+        user_id: UserId,
+        display_name: &str,
+    ) -> Result<(), StorageError> {
+        let client = self.pool.get().await?;
+        let n = client
+            .execute(
+                "UPDATE users SET display_name=$1 WHERE id=$2",
+                &[&display_name, &user_id],
+            )
+            .await?;
+        if n == 0 {
+            return Err(StorageError::NotFound);
+        }
+        Ok(())
+    }
+
+    async fn list_passkeys_by_user(
+        &self,
+        user_id: UserId,
+    ) -> Result<Vec<PasskeyRecord>, StorageError> {
+        let client = self.pool.get().await?;
+        let rows = client
+            .query(
+                "SELECT id, user_id, credential_id, public_key, sign_count, label, created_at, revoked_at \
+                 FROM passkeys WHERE user_id=$1 AND revoked_at IS NULL \
+                 ORDER BY created_at",
+                &[&user_id],
+            )
+            .await?;
+        let mut out = Vec::with_capacity(rows.len());
+        for row in &rows {
+            out.push(PasskeyRecord {
+                id: row.try_get(0)?,
+                user_id: row.try_get(1)?,
+                credential_id: row.try_get(2)?,
+                public_key: row.try_get(3)?,
+                sign_count: row.try_get(4)?,
+                label: row.try_get(5)?,
+                created_at: row.try_get(6)?,
+                revoked_at: row.try_get(7)?,
+            });
+        }
+        Ok(out)
+    }
+
+    async fn revoke_passkey(&self, id: i64, user_id: UserId) -> Result<bool, StorageError> {
+        let mut client = self.pool.get().await?;
+        let tx = client.transaction().await?;
+
+        // Check active passkey count — refuse if this is the last one
+        let count: i64 = tx
+            .query_one(
+                "SELECT COUNT(*) FROM passkeys WHERE user_id=$1 AND revoked_at IS NULL",
+                &[&user_id],
+            )
+            .await?
+            .try_get(0)?;
+        if count <= 1 {
+            return Ok(false);
+        }
+
+        let n = tx
+            .execute(
+                "UPDATE passkeys SET revoked_at=now() WHERE id=$1 AND user_id=$2 AND revoked_at IS NULL",
+                &[&id, &user_id],
+            )
+            .await?;
+
+        tx.commit().await?;
+        Ok(n > 0)
+    }
+
+    async fn update_passkey_label(
+        &self,
+        id: i64,
+        user_id: UserId,
+        label: &str,
+    ) -> Result<(), StorageError> {
+        let client = self.pool.get().await?;
+        let n = client
+            .execute(
+                "UPDATE passkeys SET label=$1 WHERE id=$2 AND user_id=$3 AND revoked_at IS NULL",
+                &[&label, &id, &user_id],
+            )
+            .await?;
+        if n == 0 {
+            return Err(StorageError::NotFound);
+        }
+        Ok(())
     }
 }
 

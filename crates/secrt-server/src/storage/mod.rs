@@ -87,6 +87,7 @@ pub struct PasskeyRecord {
     pub credential_id: String,
     pub public_key: String,
     pub sign_count: i64,
+    pub label: String,
     pub created_at: DateTime<Utc>,
     pub revoked_at: Option<DateTime<Utc>>,
 }
@@ -335,6 +336,27 @@ pub trait AuthStore: Send + Sync {
         user_code: &str,
         now: DateTime<Utc>,
     ) -> Result<ChallengeRecord, StorageError>;
+
+    async fn update_display_name(
+        &self,
+        user_id: UserId,
+        display_name: &str,
+    ) -> Result<(), StorageError>;
+
+    async fn list_passkeys_by_user(
+        &self,
+        user_id: UserId,
+    ) -> Result<Vec<PasskeyRecord>, StorageError>;
+
+    /// Soft-revoke a passkey. Returns false if it was the last active passkey.
+    async fn revoke_passkey(&self, id: i64, user_id: UserId) -> Result<bool, StorageError>;
+
+    async fn update_passkey_label(
+        &self,
+        id: i64,
+        user_id: UserId,
+        label: &str,
+    ) -> Result<(), StorageError>;
 }
 
 #[async_trait]
@@ -651,6 +673,34 @@ where
         (**self)
             .find_device_challenge_by_user_code(user_code, now)
             .await
+    }
+
+    async fn update_display_name(
+        &self,
+        user_id: UserId,
+        display_name: &str,
+    ) -> Result<(), StorageError> {
+        (**self).update_display_name(user_id, display_name).await
+    }
+
+    async fn list_passkeys_by_user(
+        &self,
+        user_id: UserId,
+    ) -> Result<Vec<PasskeyRecord>, StorageError> {
+        (**self).list_passkeys_by_user(user_id).await
+    }
+
+    async fn revoke_passkey(&self, id: i64, user_id: UserId) -> Result<bool, StorageError> {
+        (**self).revoke_passkey(id, user_id).await
+    }
+
+    async fn update_passkey_label(
+        &self,
+        id: i64,
+        user_id: UserId,
+        label: &str,
+    ) -> Result<(), StorageError> {
+        (**self).update_passkey_label(id, user_id, label).await
     }
 }
 

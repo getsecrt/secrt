@@ -335,6 +335,7 @@ impl AuthStore for MemStore {
             credential_id: credential_id.to_string(),
             public_key: public_key.to_string(),
             sign_count,
+            label: String::new(),
             created_at: Utc::now(),
             revoked_at: None,
         };
@@ -631,6 +632,62 @@ impl AuthStore for MemStore {
             }
         }
         Ok(())
+    }
+
+    async fn update_display_name(
+        &self,
+        user_id: UserId,
+        display_name: &str,
+    ) -> Result<(), StorageError> {
+        let mut m = self.users.lock().expect("users mutex poisoned");
+        let u = m.get_mut(&user_id).ok_or(StorageError::NotFound)?;
+        u.display_name = display_name.to_string();
+        Ok(())
+    }
+
+    async fn list_passkeys_by_user(
+        &self,
+        user_id: UserId,
+    ) -> Result<Vec<PasskeyRecord>, StorageError> {
+        let m = self.passkeys.lock().expect("passkeys mutex poisoned");
+        Ok(m.values()
+            .filter(|p| p.user_id == user_id && p.revoked_at.is_none())
+            .cloned()
+            .collect())
+    }
+
+    async fn revoke_passkey(&self, id: i64, user_id: UserId) -> Result<bool, StorageError> {
+        let mut m = self.passkeys.lock().expect("passkeys mutex poisoned");
+        let active_count = m
+            .values()
+            .filter(|p| p.user_id == user_id && p.revoked_at.is_none())
+            .count();
+        if active_count <= 1 {
+            return Ok(false);
+        }
+        for p in m.values_mut() {
+            if p.id == id && p.user_id == user_id && p.revoked_at.is_none() {
+                p.revoked_at = Some(Utc::now());
+                return Ok(true);
+            }
+        }
+        Ok(false)
+    }
+
+    async fn update_passkey_label(
+        &self,
+        id: i64,
+        user_id: UserId,
+        label: &str,
+    ) -> Result<(), StorageError> {
+        let mut m = self.passkeys.lock().expect("passkeys mutex poisoned");
+        for p in m.values_mut() {
+            if p.id == id && p.user_id == user_id && p.revoked_at.is_none() {
+                p.label = label.to_string();
+                return Ok(());
+            }
+        }
+        Err(StorageError::NotFound)
     }
 }
 
