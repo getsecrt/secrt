@@ -19,6 +19,7 @@ export function PrivacyPage() {
         <CardHeading
           title="Privacy Policy"
           subtitle="Last updated: February 17, 2026"
+          underline
         />
 
         {/* TL;DR */}
