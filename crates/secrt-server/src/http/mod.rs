@@ -4853,9 +4853,83 @@ mod tests {
 
         // delete_account: POST -> 405
         let resp = handle_account_entry(
-            State(state),
+            State(state.clone()),
             Request::builder()
                 .method("POST")
+                .uri("/x")
+                .body(Body::empty())
+                .expect("request"),
+        )
+        .await;
+        assert_eq!(resp.status(), StatusCode::METHOD_NOT_ALLOWED);
+
+        // account: GET -> 405
+        let resp = handle_account_entry(
+            State(state.clone()),
+            Request::builder()
+                .method("GET")
+                .uri("/x")
+                .body(Body::empty())
+                .expect("request"),
+        )
+        .await;
+        assert_eq!(resp.status(), StatusCode::METHOD_NOT_ALLOWED);
+
+        // passkeys list: POST -> 405
+        let resp = handle_passkeys_list_entry(
+            State(state.clone()),
+            Request::builder()
+                .method("POST")
+                .uri("/x")
+                .body(Body::empty())
+                .expect("request"),
+        )
+        .await;
+        assert_eq!(resp.status(), StatusCode::METHOD_NOT_ALLOWED);
+
+        // passkey rename: GET -> 405
+        let resp = handle_passkey_entry(
+            State(state.clone()),
+            Path(1),
+            Request::builder()
+                .method("GET")
+                .uri("/x")
+                .body(Body::empty())
+                .expect("request"),
+        )
+        .await;
+        assert_eq!(resp.status(), StatusCode::METHOD_NOT_ALLOWED);
+
+        // passkey revoke: GET -> 405
+        let resp = handle_revoke_passkey_entry(
+            State(state.clone()),
+            Path(1),
+            Request::builder()
+                .method("GET")
+                .uri("/x")
+                .body(Body::empty())
+                .expect("request"),
+        )
+        .await;
+        assert_eq!(resp.status(), StatusCode::METHOD_NOT_ALLOWED);
+
+        // passkey add start: GET -> 405
+        let resp = handle_passkey_add_start_entry(
+            State(state.clone()),
+            Request::builder()
+                .method("GET")
+                .uri("/x")
+                .body(Body::empty())
+                .expect("request"),
+        )
+        .await;
+        assert_eq!(resp.status(), StatusCode::METHOD_NOT_ALLOWED);
+
+        // passkey add finish: GET -> 405
+        let resp = handle_passkey_add_finish_entry(
+            State(state),
+            Request::builder()
+                .method("GET")
                 .uri("/x")
                 .body(Body::empty())
                 .expect("request"),
