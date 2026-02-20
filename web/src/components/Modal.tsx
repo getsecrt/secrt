@@ -15,6 +15,8 @@ interface ModalProps {
   /** Form submit handler (only used when asForm is true). */
   onSubmit?: (e: Event) => void;
   children: ComponentChildren;
+  /** Accessible label for the modal dialog. */
+  'aria-label'?: string;
   /** data-testid for the backdrop/dialog element. */
   'data-testid'?: string;
 }
@@ -34,6 +36,7 @@ export function Modal({
   asForm = false,
   onSubmit,
   children,
+  'aria-label': ariaLabel,
   'data-testid': testId,
 }: ModalProps) {
   const dialogRef = useRef<HTMLDialogElement>(null);
@@ -79,6 +82,8 @@ export function Modal({
     <dialog
       ref={dialogRef}
       class="modal-backdrop"
+      aria-modal="true"
+      aria-label={ariaLabel}
       onCancel={handleCancel}
       onClick={handleBackdropClick}
       data-testid={testId}

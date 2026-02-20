@@ -500,11 +500,11 @@ export function SendPage() {
             <label class="label">
               {mode === 'text' ? (
                 <>
-                  <DocumentIcon class="size-4 opacity-60" /> Secret Message
+                  <DocumentIcon class="size-4 opacity-60" aria-hidden="true" /> Secret Message
                 </>
               ) : (
                 <>
-                  <UploadIcon class="size-4 opacity-60" /> Secret File
+                  <UploadIcon class="size-4 opacity-60" aria-hidden="true" /> Secret File
                 </>
               )}
             </label>
@@ -596,7 +596,7 @@ export function SendPage() {
         {/* Passphrase */}
         <div class="space-y-1">
           <label class="label" for="passphrase">
-            <LockIcon class="size-4 opacity-60" />
+            <LockIcon class="size-4 opacity-60" aria-hidden="true" />
             <span class="flex items-baseline gap-2">
               Passphrase{' '}
               <span class="text-sm font-normal text-faint">optional</span>
@@ -620,7 +620,6 @@ export function SendPage() {
               aria-label={
                 showPassphrase ? 'Hide passphrase' : 'Show passphrase'
               }
-              tabIndex={-1}
             >
               {showPassphrase ? (
                 <EyeSlashIcon class="label size-4 hover:text-black dark:hover:text-white" />
@@ -638,7 +637,7 @@ export function SendPage() {
         {notesAvailable && (
           <div class="space-y-1">
             <label class="label" for="note">
-              <NoteIcon class="size-4 opacity-60" />
+              <NoteIcon class="size-4 opacity-60" aria-hidden="true" />
               <span class="flex items-baseline gap-2">
                 Private Note{' '}
                 <span class="text-sm font-normal text-faint">optional</span>
@@ -673,14 +672,16 @@ export function SendPage() {
           type="submit"
           class="btn btn-primary mt-3 w-full tracking-wider uppercase"
           disabled={busy}
+          aria-busy={busy}
+          aria-describedby={status.step === 'error' ? 'send-error' : undefined}
         >
           {buttonLabel}
         </button>
 
         {/* Error */}
         {status.step === 'error' && (
-          <div role="alert" class="alert-error flex items-center gap-2">
-            <TriangleExclamationIcon class="size-5 shrink-0" />
+          <div id="send-error" role="alert" class="alert-error flex items-center gap-2">
+            <TriangleExclamationIcon class="size-5 shrink-0" aria-hidden="true" />
             <span>
               {status.message.split('\n').map((line, i, arr) => (
                 <>
@@ -700,6 +701,7 @@ export function SendPage() {
         dismissible
         asForm
         onSubmit={handleGeneratePasswordFromModal}
+        aria-label="Password generator"
         data-testid="password-generator-backdrop"
       >
         <button

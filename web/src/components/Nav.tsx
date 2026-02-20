@@ -128,21 +128,26 @@ function UserMenu({
         type="button"
         class={triggerClass}
         onClick={() => setOpen(true)}
+        aria-haspopup="menu"
+        aria-expanded={open}
+        aria-controls={open ? 'user-menu' : undefined}
       >
         <div class="flex items-center gap-1">
-          <UserIcon class="size-4" />
+          <UserIcon class="size-4" aria-hidden="true" />
           {displayName}
         </div>
-        <ChevronDownIcon class="size-3" />
+        <ChevronDownIcon class="size-3" aria-hidden="true" />
       </button>
       {open && (
         <div
           ref={menuRef}
           id="user-menu"
+          role="menu"
           class="rounded-b-lg bg-neutral-200/70 p-1 shadow-lg inset-shadow-border-3 backdrop-blur dark:bg-neutral-700/70"
         >
           <a
             href="/dashboard"
+            role="menuitem"
             class={itemClass}
             onClick={(e: MouseEvent) => {
               e.preventDefault();
@@ -150,11 +155,12 @@ function UserMenu({
               navigate('/dashboard');
             }}
           >
-            <TableIcon class="size-4" />
+            <TableIcon class="size-4" aria-hidden="true" />
             Dashboard
           </a>
           <a
             href="/settings"
+            role="menuitem"
             class={itemClass}
             onClick={(e: MouseEvent) => {
               e.preventDefault();
@@ -162,18 +168,19 @@ function UserMenu({
               navigate('/settings');
             }}
           >
-            <GearIcon class="size-4" />
+            <GearIcon class="size-4" aria-hidden="true" />
             Settings
           </a>
           <button
             type="button"
+            role="menuitem"
             class={itemClass}
             onClick={() => {
               setOpen(false);
               onLogout();
             }}
           >
-            <LogoutIcon class="size-4" />
+            <LogoutIcon class="size-4" aria-hidden="true" />
             Log out
           </button>
         </div>
@@ -260,28 +267,33 @@ function DownloadsMenu() {
         type="button"
         class={triggerClass}
         onClick={() => setOpen(true)}
+        aria-haspopup="menu"
+        aria-expanded={open}
+        aria-controls={open ? 'downloads-menu' : undefined}
       >
         <div class="flex items-center gap-1">
-          <DownloadIcon class="size-4" />
+          <DownloadIcon class="size-4" aria-hidden="true" />
           CLI Downloads
         </div>
-        <ChevronDownIcon class="size-3" />
+        <ChevronDownIcon class="size-3" aria-hidden="true" />
       </button>
       {open && (
         <div
           ref={menuRef}
           id="downloads-menu"
+          role="menu"
           class="rounded-b-lg bg-neutral-200/70 p-1 shadow-lg inset-shadow-border-3 backdrop-blur dark:bg-neutral-700/70"
         >
           {downloadLinks.map(({ label, href, icon: Icon }) => (
             <a
               key={label}
               href={href}
+              role="menuitem"
               class={itemClass}
               target="_blank"
               rel="noopener noreferrer"
             >
-              <Icon class="size-4" />
+              <Icon class="size-4" aria-hidden="true" />
               {label}
             </a>
           ))}
@@ -338,21 +350,26 @@ function MoreInfoMenu({ active }: { active?: boolean }) {
         type="button"
         class={triggerClass}
         onClick={() => setOpen(true)}
+        aria-haspopup="menu"
+        aria-expanded={open}
+        aria-controls={open ? 'more-info-menu' : undefined}
       >
         <div class="flex items-center gap-1">
-          <CircleQuestionIcon class="size-4" />
+          <CircleQuestionIcon class="size-4" aria-hidden="true" />
           More Information
         </div>
-        <ChevronDownIcon class="size-3" />
+        <ChevronDownIcon class="size-3" aria-hidden="true" />
       </button>
       {open && (
         <div
           ref={menuRef}
           id="more-info-menu"
+          role="menu"
           class="rounded-b-lg bg-neutral-200/70 p-1 shadow-lg inset-shadow-border-3 backdrop-blur dark:bg-neutral-700/70"
         >
           <a
             href="/how-it-works"
+            role="menuitem"
             class={itemClass}
             onClick={(e: MouseEvent) => {
               e.preventDefault();
@@ -360,11 +377,12 @@ function MoreInfoMenu({ active }: { active?: boolean }) {
               navigate('/how-it-works');
             }}
           >
-            <GearIcon class="size-4" />
+            <GearIcon class="size-4" aria-hidden="true" />
             How it Works
           </a>
           <a
             href="/privacy"
+            role="menuitem"
             class={itemClass}
             onClick={(e: MouseEvent) => {
               e.preventDefault();
@@ -372,25 +390,27 @@ function MoreInfoMenu({ active }: { active?: boolean }) {
               navigate('/privacy');
             }}
           >
-            <EyeSlashIcon class="size-4" />
+            <EyeSlashIcon class="size-4" aria-hidden="true" />
             Privacy Policy
           </a>
           <a
             href="https://github.com/getsecrt/secrt/blob/main/SECURITY.md"
+            role="menuitem"
             class={itemClass}
             target="_blank"
             rel="noopener noreferrer"
           >
-            <LockIcon class="size-4" />
+            <LockIcon class="size-4" aria-hidden="true" />
             Security Policy
           </a>
           <a
             href="https://github.com/getsecrt/secrt"
+            role="menuitem"
             class={itemClass}
             target="_blank"
             rel="noopener noreferrer"
           >
-            <GitHubIcon class="size-4" />
+            <GitHubIcon class="size-4" aria-hidden="true" />
             GitHub Repo
           </a>
         </div>
@@ -428,7 +448,7 @@ export function Nav() {
           <div class="hidden items-center gap-6 sm:flex">
             <NavLink href="/" active={isActive('send')}>
               <span class={navItemClass}>
-                <SquarePlusIcon class="size-4" />
+                <SquarePlusIcon class="size-4" aria-hidden="true" />
                 Create
               </span>
             </NavLink>
@@ -449,7 +469,7 @@ export function Nav() {
               ) : (
                 <NavLink href="/login" active={isActive('login')}>
                   <span class={navItemClass}>
-                    <PasskeyIcon class="size-4" />
+                    <PasskeyIcon class="size-4" aria-hidden="true" />
                     Log In
                   </span>
                 </NavLink>
@@ -483,6 +503,7 @@ export function Nav() {
         <>
           <div
             class="fixed inset-0 sm:hidden"
+            aria-hidden="true"
             onClick={() => setMenuOpen(false)}
           />
           <div class="absolute right-0 left-0 border-t border-border bg-neutral-200/70 px-4 pt-2 pb-4 shadow-lg backdrop-blur-xs sm:hidden dark:bg-neutral-700/80">
@@ -490,7 +511,7 @@ export function Nav() {
               {!auth.loading && auth.authenticated && (
                 <div class="mb-1 flex items-center justify-between border-b border-border px-2 py-1 pb-2 text-sm text-black/55 dark:text-white/55">
                   <span class="flex items-center gap-1.5">
-                    <UserIcon class="size-4" />
+                    <UserIcon class="size-4" aria-hidden="true" />
                     {auth.displayName}
                   </span>
                   <button
@@ -498,7 +519,7 @@ export function Nav() {
                     class="flex items-center gap-1 rounded-md px-2 py-1 text-muted transition-colors hover:text-text"
                     onClick={handleLogout}
                   >
-                    <LogoutIcon class="size-4" />
+                    <LogoutIcon class="size-4" aria-hidden="true" />
                     Log out
                   </button>
                 </div>
@@ -507,7 +528,7 @@ export function Nav() {
               {!auth.loading && !auth.authenticated && (
                 <NavLink href="/login" active={isActive('login')}>
                   <span class={navItemClass}>
-                    <PasskeyIcon class="size-4" />
+                    <PasskeyIcon class="size-4" aria-hidden="true" />
                     Log In / Register
                   </span>
                 </NavLink>
@@ -515,7 +536,7 @@ export function Nav() {
 
               <NavLink href="/" active={isActive('send')}>
                 <span class={navItemClass}>
-                  <SquarePlusIcon class="size-4" />
+                  <SquarePlusIcon class="size-4" aria-hidden="true" />
                   Create
                 </span>
               </NavLink>
@@ -524,13 +545,13 @@ export function Nav() {
                 <>
                   <NavLink href="/dashboard" active={isActive('dashboard')}>
                     <span class={navItemClass}>
-                      <TableIcon class="size-4" />
+                      <TableIcon class="size-4" aria-hidden="true" />
                       Dashboard
                     </span>
                   </NavLink>
                   <NavLink href="/settings" active={isActive('settings')}>
                     <span class={navItemClass}>
-                      <GearIcon class="size-4" />
+                      <GearIcon class="size-4" aria-hidden="true" />
                       Settings
                     </span>
                   </NavLink>
@@ -539,7 +560,7 @@ export function Nav() {
 
               <div class="flex flex-col gap-1">
                 <span class="flex items-center gap-1 px-2 text-sm text-muted">
-                  <CircleQuestionIcon class="size-4" />
+                  <CircleQuestionIcon class="size-4" aria-hidden="true" />
                   More Information
                 </span>
                 <NavLink
@@ -548,7 +569,7 @@ export function Nav() {
                   class="pl-6"
                 >
                   <span class={navItemClass}>
-                    <GearIcon class="size-4" />
+                    <GearIcon class="size-4" aria-hidden="true" />
                     How it Works
                   </span>
                 </NavLink>
@@ -558,7 +579,7 @@ export function Nav() {
                   class="pl-6"
                 >
                   <span class={navItemClass}>
-                    <EyeSlashIcon class="size-4" />
+                    <EyeSlashIcon class="size-4" aria-hidden="true" />
                     Privacy Policy
                   </span>
                 </NavLink>
@@ -568,7 +589,7 @@ export function Nav() {
                   class="pl-6"
                 >
                   <span class={navItemClass}>
-                    <LockIcon class="size-4" />
+                    <LockIcon class="size-4" aria-hidden="true" />
                     Security Policy
                   </span>
                 </NavLink>
@@ -578,7 +599,7 @@ export function Nav() {
                   class="pl-6"
                 >
                   <span class={navItemClass}>
-                    <GitHubIcon class="size-4" />
+                    <GitHubIcon class="size-4" aria-hidden="true" />
                     GitHub Repository
                   </span>
                 </NavLink>
@@ -586,7 +607,7 @@ export function Nav() {
 
               <div class="flex flex-col gap-1">
                 <span class="flex items-center gap-1 px-2 text-sm text-muted">
-                  <DownloadIcon class="size-4" />
+                  <DownloadIcon class="size-4" aria-hidden="true" />
                   CLI Downloads
                 </span>
                 {downloadLinks.map(({ label, href, icon: Icon }) => (

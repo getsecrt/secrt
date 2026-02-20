@@ -92,6 +92,7 @@ export function FileDropZone({
     <div
       role="button"
       tabIndex={0}
+      aria-label="Drop a file here or click to browse"
       class={`flex cursor-pointer flex-col items-center justify-center gap-2 rounded-md border-2 border-dashed px-4 py-6 text-center transition-colors ${
         dragOver
           ? 'border-accent bg-accent/5'
@@ -103,7 +104,7 @@ export function FileDropZone({
       onClick={handleClick}
       onKeyDown={handleKeyDown}
     >
-      <UploadIcon class="size-8 text-muted" />
+      <UploadIcon class="size-8 text-muted" aria-hidden="true" />
       <p class="text-muted">Drop a file or click to browse</p>
       <input
         ref={inputRef}

@@ -16,18 +16,27 @@ export function Layout({ children }: LayoutProps) {
 
   return (
     <div class="flex min-h-screen flex-col">
+      <a
+        href="#main-content"
+        class="sr-only focus:not-sr-only focus:absolute focus:z-50 focus:rounded focus:bg-surface focus:px-4 focus:py-2 focus:text-text focus:shadow"
+      >
+        Skip to main content
+      </a>
       <Nav />
 
-      <div class="flex flex-col items-center px-4 pt-5">
+      <header class="flex flex-col items-center px-4 pt-5">
         <a class="flex justify-center" href="/" onClick={handleLogoClick}>
           <Logo />
         </a>
         <p class="mt-1 text-center text-xs text-muted">
           Private, Zero-Knowledge, One-Time Secret Sharing
         </p>
-      </div>
+      </header>
 
-      <main class="mx-auto flex w-full max-w-2xl flex-col gap-6 px-4 py-6">
+      <main
+        id="main-content"
+        class="mx-auto flex w-full max-w-2xl flex-col gap-6 px-4 py-6"
+      >
         {children}
       </main>
 
@@ -40,7 +49,7 @@ export function Layout({ children }: LayoutProps) {
             class="text-faint transition-colors hover:text-muted"
             aria-label="GitHub"
           >
-            <GitHubIcon class="size-5" />
+            <GitHubIcon class="size-5" aria-hidden="true" />
           </a>
         </div>
 

@@ -291,7 +291,7 @@ describe('ClaimPage', () => {
       expect(screen.getByText('Passphrase Required')).toBeInTheDocument();
     });
 
-    await user.type(screen.getByLabelText(/Passphrase/), 'correct-pass');
+    await user.type(screen.getByLabelText(/Passphrase/, { selector: 'input' }), 'correct-pass');
     await user.click(screen.getByRole('button', { name: 'Decrypt' }));
 
     await waitFor(() => {
@@ -315,7 +315,7 @@ describe('ClaimPage', () => {
       expect(screen.getByText('Passphrase Required')).toBeInTheDocument();
     });
 
-    await user.type(screen.getByLabelText(/Passphrase/), 'wrong-pass');
+    await user.type(screen.getByLabelText(/Passphrase/, { selector: 'input' }), 'wrong-pass');
     await user.click(screen.getByRole('button', { name: 'Decrypt' }));
 
     await waitFor(() => {
@@ -323,7 +323,7 @@ describe('ClaimPage', () => {
     });
 
     // The form should still be visible for retry
-    expect(screen.getByLabelText(/Passphrase/)).toBeInTheDocument();
+    expect(screen.getByLabelText(/Passphrase/, { selector: 'input' })).toBeInTheDocument();
   });
 
   it('shows Argon2 load error and does not silently retry', async () => {
@@ -339,7 +339,7 @@ describe('ClaimPage', () => {
       expect(screen.getByText('Passphrase Required')).toBeInTheDocument();
     });
 
-    await user.type(screen.getByLabelText(/Passphrase/), 'correct-pass');
+    await user.type(screen.getByLabelText(/Passphrase/, { selector: 'input' }), 'correct-pass');
     await user.click(screen.getByRole('button', { name: 'Decrypt' }));
 
     await waitFor(() => {
@@ -358,7 +358,7 @@ describe('ClaimPage', () => {
       expect(screen.getByText('Passphrase Required')).toBeInTheDocument();
     });
 
-    const input = screen.getByLabelText(/Passphrase/);
+    const input = screen.getByLabelText(/Passphrase/, { selector: 'input' });
     expect(input).toHaveAttribute('type', 'password');
     await user.click(screen.getByLabelText('Show passphrase'));
     expect(input).toHaveAttribute('type', 'text');

@@ -30,6 +30,7 @@ export function CopyButton({
       type="button"
       class={`btn btn-primary tracking-wider uppercase ${className ?? ''}`}
       onClick={handleClick}
+      aria-live="polite"
     >
       {icon}
       {copied ? 'Copied!' : label}

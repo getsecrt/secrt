@@ -1,8 +1,13 @@
-import { useCallback, useEffect } from 'preact/hooks';
+import { useCallback, useEffect, useState } from 'preact/hooks';
 import { isDark, setDarkMode } from '../lib/theme';
 
 export function ThemeToggle() {
-  const toggle = useCallback(() => setDarkMode(!isDark()), []);
+  const [dark, setDark] = useState(isDark);
+  const toggle = useCallback(() => {
+    const next = !isDark();
+    setDarkMode(next);
+    setDark(next);
+  }, []);
 
   useEffect(() => {
     const onKeydown = (e: KeyboardEvent) => {
@@ -19,7 +24,9 @@ export function ThemeToggle() {
         return;
 
       e.preventDefault();
-      setDarkMode(!isDark());
+      const next = !isDark();
+      setDarkMode(next);
+      setDark(next);
     };
 
     document.addEventListener('keydown', onKeydown);
@@ -32,6 +39,7 @@ export function ThemeToggle() {
       class="relative inline-flex cursor-pointer gap-px rounded-full bg-surface-raised shadow-[inset_0_0_2px_1px_var(--color-neutral-200)] dark:bg-neutral-900 dark:shadow-[inset_0_0_2px_var(--color-neutral-800)]"
       role="switch"
       aria-label="Toggle dark mode"
+      aria-checked={dark}
       onClick={toggle}
     >
       <span

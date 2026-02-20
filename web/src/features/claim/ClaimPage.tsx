@@ -215,8 +215,8 @@ export function ClaimPage({ id }: ClaimPageProps) {
   // ── Pure loading: validating fragment ──
   if (status.step === 'init') {
     return (
-      <div class="card space-y-4 text-center">
-        <div class="flex justify-center">
+      <div class="card space-y-4 text-center" role="status" aria-label="Loading">
+        <div class="flex justify-center" aria-hidden="true">
           <div class="size-8 animate-spin rounded-full border-2 border-border border-t-accent" />
         </div>
         <p class="text-muted">Preparing&hellip;</p>
@@ -360,6 +360,7 @@ export function ClaimPage({ id }: ClaimPageProps) {
         dismissible={false}
         asForm={isPassphraseStep}
         onSubmit={isPassphraseStep ? handleDecrypt : undefined}
+        aria-label={isPassphraseStep ? 'Passphrase required' : 'View secret'}
       >
         {isPassphraseStep ? (
           <>
@@ -388,6 +389,7 @@ export function ClaimPage({ id }: ClaimPageProps) {
                   type={showPassphrase ? 'text' : 'password'}
                   class="input pr-10"
                   value={passphrase}
+                  aria-describedby={passphraseError ? 'claim-passphrase-error' : undefined}
                   onInput={(e) => {
                     const value = (e.target as HTMLInputElement).value;
                     setPassphrase(value);
@@ -408,7 +410,6 @@ export function ClaimPage({ id }: ClaimPageProps) {
                   aria-label={
                     showPassphrase ? 'Hide passphrase' : 'Show passphrase'
                   }
-                  tabIndex={-1}
                 >
                   {showPassphrase ? (
                     <EyeSlashIcon class="size-4" />
@@ -420,8 +421,8 @@ export function ClaimPage({ id }: ClaimPageProps) {
             </div>
 
             {passphraseError && (
-              <div role="alert" class="alert-error flex items-center gap-2">
-                <TriangleExclamationIcon class="size-5 shrink-0" />
+              <div id="claim-passphrase-error" role="alert" class="alert-error flex items-center gap-2">
+                <TriangleExclamationIcon class="size-5 shrink-0" aria-hidden="true" />
                 {passphraseError}
               </div>
             )}
@@ -430,6 +431,7 @@ export function ClaimPage({ id }: ClaimPageProps) {
               type="submit"
               class="btn btn-primary w-full tracking-wider uppercase"
               disabled={!passphrase.trim() || status.step === 'decrypting'}
+              aria-busy={status.step === 'decrypting'}
             >
               {status.step === 'decrypting' ? 'Decrypting\u2026' : 'Decrypt'}
             </button>
@@ -452,6 +454,7 @@ export function ClaimPage({ id }: ClaimPageProps) {
               class="btn btn-primary w-full tracking-wider uppercase"
               onClick={handleClaim}
               disabled={isBusy}
+              aria-busy={isBusy}
             >
               {isBusy ? 'Retrieving\u2026' : 'View Secret'}
             </button>

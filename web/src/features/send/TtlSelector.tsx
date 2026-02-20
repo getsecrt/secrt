@@ -19,15 +19,16 @@ export function TtlSelector({ value, onChange, disabled }: TtlSelectorProps) {
   return (
     <fieldset class="space-y-2" disabled={disabled}>
       <legend class="label">
-        <ClockIcon class="size-4 opacity-60" />
+        <ClockIcon class="size-4 opacity-60" aria-hidden="true" />
         Expires After
       </legend>
-      <div class="flex flex-wrap justify-center gap-1.5">
+      <div class="flex flex-wrap justify-center gap-1.5" role="radiogroup" aria-label="Expiry duration">
         {TTL_PRESETS.map((preset) => (
           <button
             key={preset.seconds}
             type="button"
-            aria-pressed={preset.seconds === value}
+            role="radio"
+            aria-checked={preset.seconds === value}
             class={`rounded-full border px-3 py-1 text-xs font-medium text-muted transition-colors ${
               preset.seconds === value
                 ? 'border-green-600 bg-green-500 text-white'
