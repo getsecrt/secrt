@@ -26,6 +26,23 @@ export function App() {
     return () => window.removeEventListener('popstate', onNav);
   }, []);
 
+  useEffect(() => {
+    const titles: Record<string, string> = {
+      send: 'secrt',
+      claim: 'Claim Secret — secrt',
+      sync: 'Sync Key — secrt',
+      'how-it-works': 'How It Works — secrt',
+      privacy: 'Privacy — secrt',
+      login: 'Log In — secrt',
+      register: 'Register — secrt',
+      dashboard: 'Dashboard — secrt',
+      settings: 'Settings — secrt',
+      device: 'Approve Device — secrt',
+      'not-found': 'Not Found — secrt',
+    };
+    document.title = titles[route.page] ?? 'secrt';
+  }, [route.page]);
+
   if (import.meta.env.DEV && route.page === 'theme') {
     return <ThemePage />;
   }

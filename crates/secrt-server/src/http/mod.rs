@@ -2669,7 +2669,7 @@ pub async fn handle_secret_page(
             // Rewrite generic OG/Twitter meta tags for secret-specific previews
             spa.replace(
                 "content=\"secrt — Private One-Time Secret Sharing\"",
-                "content=\"You've been sent a secret!\"",
+                "content=\"You've been sent a secret\"",
             )
             .replace(
                 "content=\"Share passwords, keys, and sensitive data with zero-knowledge encryption. Secrets self-destruct after being read.\"",
@@ -2685,7 +2685,7 @@ pub async fn handle_secret_page(
             )
             .replace(
                 "<title>secrt</title>",
-                "<title>You've been sent a secret! — secrt</title>",
+                "<title>You've been sent a secret — secrt</title>",
             )
         }
         None => {
@@ -2693,8 +2693,8 @@ pub async fn handle_secret_page(
             format!(
                 "<!doctype html><html lang=\"en\"><head>\
                  <meta charset=\"utf-8\">\
-                 <title>You've been sent a secret! — secrt</title>\
-                 <meta property=\"og:title\" content=\"You've been sent a secret!\">\
+                 <title>You've been sent a secret — secrt</title>\
+                 <meta property=\"og:title\" content=\"You've been sent a secret\">\
                  <meta property=\"og:description\" content=\"Open to view your secret. It can only be viewed once.\">\
                  <meta property=\"og:image\" content=\"{secret_image}\">\
                  <meta property=\"og:url\" content=\"{secret_url}\">\
@@ -4133,7 +4133,7 @@ mod tests {
 
         // OG title should be rewritten for secret pages
         assert!(
-            body.contains("content=\"You've been sent a secret!\""),
+            body.contains("content=\"You've been sent a secret\""),
             "og:title should be rewritten; body={body}"
         );
         // OG description should be rewritten
@@ -4153,7 +4153,7 @@ mod tests {
         );
         // Title should be rewritten
         assert!(
-            body.contains("<title>You've been sent a secret! — secrt</title>"),
+            body.contains("<title>You've been sent a secret — secrt</title>"),
             "title should be rewritten; body={body}"
         );
     }

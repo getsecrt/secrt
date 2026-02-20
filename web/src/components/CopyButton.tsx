@@ -5,7 +5,7 @@ import { copyToClipboard } from '../lib/clipboard';
 interface CopyButtonProps {
   text: string;
   class?: string;
-  label?: string;
+  label?: ComponentChildren;
   icon?: ComponentChildren;
 }
 

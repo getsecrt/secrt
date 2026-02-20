@@ -67,4 +67,19 @@ describe('CopyButton', () => {
     );
     expect(screen.getByTestId('icon')).toBeInTheDocument();
   });
+
+  it('renders JSX content as label', () => {
+    render(
+      <CopyButton
+        text="hello"
+        label={
+          <>
+            Copy <span class="hidden xs:inline">Link</span>
+          </>
+        }
+      />,
+    );
+    expect(screen.getByRole('button').textContent).toContain('Copy');
+    expect(screen.getByRole('button').textContent).toContain('Link');
+  });
 });

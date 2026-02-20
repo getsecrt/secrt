@@ -23,6 +23,17 @@ vi.mock('./features/auth/DevicePage', () => ({
 vi.mock('./features/trust/PrivacyPage', () => ({
   PrivacyPage: () => <div data-testid="privacy-page">PrivacyPage</div>,
 }));
+vi.mock('./features/trust/HowItWorksPage', () => ({
+  HowItWorksPage: () => (
+    <div data-testid="how-it-works-page">HowItWorksPage</div>
+  ),
+}));
+vi.mock('./features/claim/ClaimPage', () => ({
+  ClaimPage: () => <div data-testid="claim-page">ClaimPage</div>,
+}));
+vi.mock('./features/sync/SyncPage', () => ({
+  SyncPage: () => <div data-testid="sync-page">SyncPage</div>,
+}));
 vi.mock('./components/Layout', () => ({
   Layout: ({ children }: { children: preact.ComponentChildren }) => (
     <div data-testid="layout">{children}</div>
@@ -97,5 +108,27 @@ describe('App', () => {
     const layout = screen.getByTestId('layout');
     expect(authProvider).toContainElement(layout);
     expect(layout).toContainElement(screen.getByTestId('send-page'));
+  });
+
+  describe('document title', () => {
+    const cases: [string, string][] = [
+      ['send', 'secrt'],
+      ['claim', 'Claim Secret — secrt'],
+      ['sync', 'Sync Key — secrt'],
+      ['how-it-works', 'How It Works — secrt'],
+      ['privacy', 'Privacy — secrt'],
+      ['login', 'Log In — secrt'],
+      ['register', 'Register — secrt'],
+      ['dashboard', 'Dashboard — secrt'],
+      ['settings', 'Settings — secrt'],
+      ['device', 'Approve Device — secrt'],
+      ['not-found', 'Not Found — secrt'],
+    ];
+
+    it.each(cases)('sets title for "%s" route to "%s"', (page, expected) => {
+      mockUseRoute.mockReturnValue({ page, id: 'test-id' });
+      render(<App />);
+      expect(document.title).toBe(expected);
+    });
   });
 });

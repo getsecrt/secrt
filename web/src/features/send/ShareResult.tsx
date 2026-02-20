@@ -1,8 +1,11 @@
 import { encode } from 'uqr';
 import { useEffect, useRef } from 'preact/hooks';
-import { CheckCircleIcon } from '../../components/Icons';
+import {
+  CheckCircleIcon,
+  ClipboardIcon,
+  ShareFromSquareIcon,
+} from '../../components/Icons';
 import { CopyButton } from '../../components/CopyButton';
-import { ClipboardIcon } from '../../components/Icons';
 import { formatExpiryDate } from '../../lib/ttl';
 import { CardHeading } from '../../components/CardHeading';
 
@@ -94,12 +97,34 @@ export function ShareResult({
         </pre>
       </div>
 
-      <CopyButton
-        text={shareUrl}
-        icon={<ClipboardIcon class="size-5" />}
-        class="w-full"
-        label="Copy Link"
-      />
+      <div class="flex gap-4">
+        <CopyButton
+          text={shareUrl}
+          icon={<ClipboardIcon class="size-5" />}
+          class="w-full"
+          label={
+            <>
+              Copy<span class="hidden xs:inline">&nbsp;Link</span>
+            </>
+          }
+        />
+
+        {!!navigator.share && (
+          <button
+            type="button"
+            class="btn btn-primary w-full tracking-wider uppercase"
+            onClick={() => {
+              navigator.share({
+                title: "You've been sent a secret",
+                url: shareUrl,
+              });
+            }}
+          >
+            <ShareFromSquareIcon class="size-5" />
+            Share<span class="hidden xs:inline">&nbsp;Link</span>
+          </button>
+        )}
+      </div>
 
       <div class="mt-7 flex justify-center">
         <QrCanvas url={shareUrl} />

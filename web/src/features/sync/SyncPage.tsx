@@ -108,7 +108,7 @@ export function SyncPage({ id }: SyncPageProps) {
           setStatus({
             step: 'error',
             message:
-              'This sync link belongs to a different account. Log in as the correct user and try again.',
+              'This sync link belongs to a different account.\nLog in as the correct user and try again.',
           });
           return;
         }
@@ -141,7 +141,7 @@ export function SyncPage({ id }: SyncPageProps) {
           setStatus({
             step: 'error',
             message:
-              'This sync link has expired or was already used. Sync links can only be used once.',
+              'This sync link has expired or was already used.\nSync links can only be used once.',
           });
         } else if (message.includes('410') || message.includes('claimed')) {
           setStatus({
@@ -187,7 +187,9 @@ export function SyncPage({ id }: SyncPageProps) {
           title="Sync Failed"
           icon={<CircleXmarkIcon class="size-10 text-error" />}
         />
-        <p class="text-center text-muted">{status.message}</p>
+        <p class="text-center whitespace-pre-line text-muted">
+          {status.message}
+        </p>
         <div class="flex flex-col items-center gap-3">
           <a
             href="/dashboard"
