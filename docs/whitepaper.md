@@ -568,7 +568,7 @@ The entire feature is gated behind an `ENCRYPTED_NOTES_ENABLED` environment vari
 
 ### CLI Application
 
-The secrt CLI ([`crates/secrt-cli/`](https://github.com/getsecrt/secrt/tree/main/crates/secrt-cli)) is a single static binary (~1.5 MB) with no runtime dependencies. Design principles:
+The secrt CLI ([`crates/secrt-cli/`](https://github.com/getsecrt/secrt/tree/main/crates/secrt-cli)) is a single static binary (< 2 MB download) with no runtime dependencies. Design principles:
 
 - **Minimal dependencies.** Uses `ring` for crypto, `ureq` for blocking HTTP, hand-rolled argument parsing (no clap).
 - **No async runtime.** Blocking I/O keeps the control flow simple and predictable.
