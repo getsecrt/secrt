@@ -47,6 +47,7 @@ export function SyncNotesKeyButton() {
       // 2. Seal the AMK as a secret (no passphrase, binary payload)
       const { envelope, urlKey, claimHash } = await seal(amk, {
         type: 'binary',
+        userId: auth.userId,
       });
 
       if (controller.signal.aborted) return;
@@ -93,7 +94,7 @@ export function SyncNotesKeyButton() {
         onClick={handleSync}
         disabled={state.step === 'creating'}
       >
-        Sync Notes Key to Another Browser
+        Sync Notes Key to Another Device
       </button>
 
       <Modal open={modalOpen} onClose={handleClose} class="max-w-md">

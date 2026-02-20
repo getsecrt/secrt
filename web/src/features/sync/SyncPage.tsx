@@ -103,7 +103,17 @@ export function SyncPage({ id }: SyncPageProps) {
         const result = await open(res.envelope, urlKey);
         if (controller.signal.aborted) return;
 
-        // 3. Validate AMK (must be exactly 32 bytes)
+        // 3. Verify the sync link belongs to the current user
+        if (result.meta.userId && result.meta.userId !== auth.userId) {
+          setStatus({
+            step: 'error',
+            message:
+              'This sync link belongs to a different account. Log in as the correct user and try again.',
+          });
+          return;
+        }
+
+        // 5. Validate AMK (must be exactly 32 bytes)
         if (result.content.length !== AMK_LEN) {
           setStatus({
             step: 'error',
@@ -112,13 +122,13 @@ export function SyncPage({ id }: SyncPageProps) {
           return;
         }
 
-        // 4. Check if we already have an AMK — warn if replacing
+        // 6. Check if we already have an AMK — warn if replacing
         const existing = await loadAmk(auth.userId!);
         if (existing) {
           // Overwrite — the user explicitly chose to sync
         }
 
-        // 5. Store AMK in IndexedDB
+        // 7. Store AMK in IndexedDB
         await storeAmk(auth.userId!, result.content);
 
         setStatus({ step: 'done' });
