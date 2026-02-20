@@ -4,6 +4,7 @@
 
 ### Added
 
+- **Admin stats and management commands:** `secrt-admin` now supports `stats` (dashboard overview), `secrets stats` (expiry buckets, passphrase breakdown, size stats), `users list` (with resource counts), `users show <id>` (detail view with keys, secrets, passkeys, AMK status), `apikeys list` (optionally filtered by user), and `top-users` (rank users by secrets, bytes, or keys). Both `apikey` and `apikeys` are accepted as top-level commands for backward compatibility. Output is TTY-aware with color.
 - **`POST /api/v1/amk/commit` endpoint:** eagerly commits an AMK hash at registration time so other devices can detect that a Notes Key already exists. Uses first-writer-wins semantics — returns 409 if a different AMK hash is already committed, preventing accidental key divergence across browsers.
 - **Second-browser AMK conflict detection (web):** the Send page now checks whether the server already has a committed AMK before showing the private-note field. If another device registered the key but this browser hasn't synced it yet, a "Sync your Notes Key" message appears instead of silently generating a conflicting key.
 - **Coarse last-active tracking:** new `last_active_at DATE` column on users table (migration 003) records the month of each user's most recent login, rounded to the 1st of the month. Enables stale-account cleanup without compromising privacy.

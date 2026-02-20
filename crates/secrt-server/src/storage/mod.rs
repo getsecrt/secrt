@@ -712,6 +712,161 @@ where
     }
 }
 
+// ── Admin query result types ──────────────────────────────────────────
+
+pub struct DashboardStats {
+    pub active_secrets: i64,
+    pub total_secret_bytes: i64,
+    pub secrets_24h: i64,
+    pub secrets_7d: i64,
+    pub secrets_30d: i64,
+    pub total_users: i64,
+    pub users_active_30d: i64,
+    pub users_active_90d: i64,
+    pub active_api_keys: i64,
+    pub revoked_api_keys: i64,
+    pub active_sessions: i64,
+}
+
+pub struct SecretBreakdown {
+    pub expiring_1h: i64,
+    pub expiring_24h: i64,
+    pub expiring_7d: i64,
+    pub expiring_beyond_7d: i64,
+    pub anonymous_count: i64,
+    pub authenticated_count: i64,
+    pub passphrase_protected: i64,
+    pub not_passphrase_protected: i64,
+    pub avg_ciphertext_bytes: i64,
+    pub median_ciphertext_bytes: i64,
+}
+
+pub struct UserListEntry {
+    pub id: UserId,
+    pub display_name: String,
+    pub created_at: DateTime<Utc>,
+    pub last_active_at: NaiveDate,
+    pub active_api_keys: i64,
+    pub active_secrets: i64,
+    pub passkey_count: i64,
+}
+
+pub struct UserDetail {
+    pub user: UserRecord,
+    pub api_keys: Vec<ApiKeyRecord>,
+    pub secret_count: i64,
+    pub total_secret_bytes: i64,
+    pub passkey_count: i64,
+    pub has_amk: bool,
+}
+
+pub struct ApiKeyListEntry {
+    pub prefix: String,
+    pub scopes: String,
+    pub user_id: Option<UserId>,
+    pub display_name: Option<String>,
+    pub created_at: DateTime<Utc>,
+    pub revoked_at: Option<DateTime<Utc>>,
+}
+
+pub struct TopUser {
+    pub id: UserId,
+    pub display_name: String,
+    pub value: i64,
+}
+
+#[async_trait]
+pub trait AdminStore: Send + Sync {
+    async fn dashboard_stats(&self, now: DateTime<Utc>) -> Result<DashboardStats, StorageError>;
+    async fn secret_breakdown(&self, now: DateTime<Utc>) -> Result<SecretBreakdown, StorageError>;
+    async fn list_users(
+        &self,
+        now: DateTime<Utc>,
+        limit: i64,
+        offset: i64,
+    ) -> Result<Vec<UserListEntry>, StorageError>;
+    async fn user_detail(
+        &self,
+        user_id: UserId,
+        now: DateTime<Utc>,
+    ) -> Result<UserDetail, StorageError>;
+    async fn list_all_api_keys(
+        &self,
+        user_id: Option<UserId>,
+        limit: i64,
+    ) -> Result<Vec<ApiKeyListEntry>, StorageError>;
+    async fn top_users_by_secrets(
+        &self,
+        now: DateTime<Utc>,
+        limit: i64,
+    ) -> Result<Vec<TopUser>, StorageError>;
+    async fn top_users_by_bytes(
+        &self,
+        now: DateTime<Utc>,
+        limit: i64,
+    ) -> Result<Vec<TopUser>, StorageError>;
+    async fn top_users_by_keys(&self, limit: i64) -> Result<Vec<TopUser>, StorageError>;
+}
+
+#[async_trait]
+impl<T> AdminStore for Arc<T>
+where
+    T: AdminStore + ?Sized,
+{
+    async fn dashboard_stats(&self, now: DateTime<Utc>) -> Result<DashboardStats, StorageError> {
+        (**self).dashboard_stats(now).await
+    }
+
+    async fn secret_breakdown(&self, now: DateTime<Utc>) -> Result<SecretBreakdown, StorageError> {
+        (**self).secret_breakdown(now).await
+    }
+
+    async fn list_users(
+        &self,
+        now: DateTime<Utc>,
+        limit: i64,
+        offset: i64,
+    ) -> Result<Vec<UserListEntry>, StorageError> {
+        (**self).list_users(now, limit, offset).await
+    }
+
+    async fn user_detail(
+        &self,
+        user_id: UserId,
+        now: DateTime<Utc>,
+    ) -> Result<UserDetail, StorageError> {
+        (**self).user_detail(user_id, now).await
+    }
+
+    async fn list_all_api_keys(
+        &self,
+        user_id: Option<UserId>,
+        limit: i64,
+    ) -> Result<Vec<ApiKeyListEntry>, StorageError> {
+        (**self).list_all_api_keys(user_id, limit).await
+    }
+
+    async fn top_users_by_secrets(
+        &self,
+        now: DateTime<Utc>,
+        limit: i64,
+    ) -> Result<Vec<TopUser>, StorageError> {
+        (**self).top_users_by_secrets(now, limit).await
+    }
+
+    async fn top_users_by_bytes(
+        &self,
+        now: DateTime<Utc>,
+        limit: i64,
+    ) -> Result<Vec<TopUser>, StorageError> {
+        (**self).top_users_by_bytes(now, limit).await
+    }
+
+    async fn top_users_by_keys(&self, limit: i64) -> Result<Vec<TopUser>, StorageError> {
+        (**self).top_users_by_keys(limit).await
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

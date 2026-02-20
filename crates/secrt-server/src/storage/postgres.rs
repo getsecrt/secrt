@@ -9,9 +9,11 @@ use uuid::Uuid;
 use secrt_core::api::EncMetaV1;
 
 use super::{
-    AmkStore, AmkUpsertResult, AmkWrapperRecord, ApiKeyRecord, ApiKeyRegistrationLimits,
-    ApiKeysStore, AuthStore, ChallengeRecord, PasskeyRecord, SecretQuotaLimits, SecretRecord,
-    SecretSummary, SecretsStore, SessionRecord, StorageError, StorageUsage, UserId, UserRecord,
+    AdminStore, AmkStore, AmkUpsertResult, AmkWrapperRecord, ApiKeyListEntry, ApiKeyRecord,
+    ApiKeyRegistrationLimits, ApiKeysStore, AuthStore, ChallengeRecord, DashboardStats,
+    PasskeyRecord, SecretBreakdown, SecretQuotaLimits, SecretRecord, SecretSummary, SecretsStore,
+    SessionRecord, StorageError, StorageUsage, TopUser, UserDetail, UserId, UserListEntry,
+    UserRecord,
 };
 
 const POOL_MAX_SIZE: usize = 10;
@@ -1193,5 +1195,356 @@ impl AmkStore for PgStore {
             return Err(StorageError::NotFound);
         }
         Ok(())
+    }
+}
+
+#[async_trait]
+impl AdminStore for PgStore {
+    async fn dashboard_stats(&self, now: DateTime<Utc>) -> Result<DashboardStats, StorageError> {
+        let client = self.pool.get().await?;
+        let now_24h = now - chrono::Duration::hours(24);
+        let now_7d = now - chrono::Duration::days(7);
+        let now_30d = now - chrono::Duration::days(30);
+        let active_30d = now.date_naive().with_day(1).expect("day 1") - chrono::Duration::days(30);
+        let active_90d = now.date_naive().with_day(1).expect("day 1") - chrono::Duration::days(90);
+
+        let row = client
+            .query_one(
+                "WITH secret_stats AS ( \
+                     SELECT COUNT(*) AS active, \
+                            COALESCE(SUM(octet_length(envelope::text)), 0) AS total_bytes, \
+                            COUNT(*) FILTER (WHERE created_at >= $2) AS created_24h, \
+                            COUNT(*) FILTER (WHERE created_at >= $3) AS created_7d, \
+                            COUNT(*) FILTER (WHERE created_at >= $4) AS created_30d \
+                     FROM secrets WHERE expires_at > $1 \
+                 ), user_stats AS ( \
+                     SELECT COUNT(*) AS total, \
+                            COUNT(*) FILTER (WHERE last_active_at >= $5) AS active_30d, \
+                            COUNT(*) FILTER (WHERE last_active_at >= $6) AS active_90d \
+                     FROM users \
+                 ), key_stats AS ( \
+                     SELECT COUNT(*) FILTER (WHERE revoked_at IS NULL) AS active, \
+                            COUNT(*) FILTER (WHERE revoked_at IS NOT NULL) AS revoked \
+                     FROM api_keys \
+                 ), session_stats AS ( \
+                     SELECT COUNT(*) AS active \
+                     FROM sessions WHERE expires_at > $1 AND revoked_at IS NULL \
+                 ) \
+                 SELECT s.active, s.total_bytes, s.created_24h, s.created_7d, s.created_30d, \
+                        u.total, u.active_30d, u.active_90d, \
+                        k.active, k.revoked, \
+                        ss.active \
+                 FROM secret_stats s, user_stats u, key_stats k, session_stats ss",
+                &[&now, &now_24h, &now_7d, &now_30d, &active_30d, &active_90d],
+            )
+            .await?;
+
+        Ok(DashboardStats {
+            active_secrets: row.try_get(0)?,
+            total_secret_bytes: row.try_get(1)?,
+            secrets_24h: row.try_get(2)?,
+            secrets_7d: row.try_get(3)?,
+            secrets_30d: row.try_get(4)?,
+            total_users: row.try_get(5)?,
+            users_active_30d: row.try_get(6)?,
+            users_active_90d: row.try_get(7)?,
+            active_api_keys: row.try_get(8)?,
+            revoked_api_keys: row.try_get(9)?,
+            active_sessions: row.try_get(10)?,
+        })
+    }
+
+    async fn secret_breakdown(&self, now: DateTime<Utc>) -> Result<SecretBreakdown, StorageError> {
+        let client = self.pool.get().await?;
+        let now_1h = now + chrono::Duration::hours(1);
+        let now_24h = now + chrono::Duration::hours(24);
+        let now_7d = now + chrono::Duration::days(7);
+
+        let row = client
+            .query_one(
+                "SELECT \
+                     COUNT(*) FILTER (WHERE expires_at <= $2) AS expiring_1h, \
+                     COUNT(*) FILTER (WHERE expires_at > $2 AND expires_at <= $3) AS expiring_24h, \
+                     COUNT(*) FILTER (WHERE expires_at > $3 AND expires_at <= $4) AS expiring_7d, \
+                     COUNT(*) FILTER (WHERE expires_at > $4) AS expiring_beyond_7d, \
+                     COUNT(*) FILTER (WHERE owner_key LIKE 'anon:%' OR owner_key LIKE 'ip:%') AS anonymous, \
+                     COUNT(*) FILTER (WHERE owner_key LIKE 'user:%' OR owner_key LIKE 'apikey:%') AS authenticated, \
+                     COUNT(*) FILTER (WHERE COALESCE(envelope->'kdf'->>'name', 'none') <> 'none') AS passphrase_yes, \
+                     COUNT(*) FILTER (WHERE COALESCE(envelope->'kdf'->>'name', 'none') = 'none') AS passphrase_no, \
+                     COALESCE(AVG(octet_length(envelope::text)), 0)::bigint AS avg_bytes, \
+                     COALESCE(PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY octet_length(envelope::text)), 0)::bigint AS median_bytes \
+                 FROM secrets WHERE expires_at > $1",
+                &[&now, &now_1h, &now_24h, &now_7d],
+            )
+            .await?;
+
+        Ok(SecretBreakdown {
+            expiring_1h: row.try_get(0)?,
+            expiring_24h: row.try_get(1)?,
+            expiring_7d: row.try_get(2)?,
+            expiring_beyond_7d: row.try_get(3)?,
+            anonymous_count: row.try_get(4)?,
+            authenticated_count: row.try_get(5)?,
+            passphrase_protected: row.try_get(6)?,
+            not_passphrase_protected: row.try_get(7)?,
+            avg_ciphertext_bytes: row.try_get(8)?,
+            median_ciphertext_bytes: row.try_get(9)?,
+        })
+    }
+
+    async fn list_users(
+        &self,
+        now: DateTime<Utc>,
+        limit: i64,
+        offset: i64,
+    ) -> Result<Vec<UserListEntry>, StorageError> {
+        let client = self.pool.get().await?;
+        let rows = client
+            .query(
+                "SELECT u.id, u.display_name, u.created_at, u.last_active_at, \
+                        (SELECT COUNT(*) FROM api_keys WHERE user_id = u.id AND revoked_at IS NULL) AS active_keys, \
+                        (SELECT COUNT(*) FROM secrets WHERE expires_at > $1 AND ( \
+                            owner_key = 'user:' || u.id::text \
+                            OR owner_key IN (SELECT 'apikey:' || key_prefix FROM api_keys WHERE user_id = u.id) \
+                        )) AS active_secrets, \
+                        (SELECT COUNT(*) FROM passkeys WHERE user_id = u.id AND revoked_at IS NULL) AS passkey_count \
+                 FROM users u \
+                 ORDER BY u.last_active_at DESC, u.created_at DESC \
+                 LIMIT $2 OFFSET $3",
+                &[&now, &limit, &offset],
+            )
+            .await?;
+
+        let mut out = Vec::with_capacity(rows.len());
+        for row in &rows {
+            out.push(UserListEntry {
+                id: row.try_get(0)?,
+                display_name: row.try_get(1)?,
+                created_at: row.try_get(2)?,
+                last_active_at: row.try_get(3)?,
+                active_api_keys: row.try_get(4)?,
+                active_secrets: row.try_get(5)?,
+                passkey_count: row.try_get(6)?,
+            });
+        }
+        Ok(out)
+    }
+
+    async fn user_detail(
+        &self,
+        user_id: UserId,
+        now: DateTime<Utc>,
+    ) -> Result<UserDetail, StorageError> {
+        let client = self.pool.get().await?;
+
+        // User record
+        let user_row = client
+            .query_opt(
+                "SELECT id, display_name, created_at, last_active_at FROM users WHERE id = $1",
+                &[&user_id],
+            )
+            .await?;
+        let Some(user_row) = user_row else {
+            return Err(StorageError::NotFound);
+        };
+        let user = UserRecord {
+            id: user_row.try_get(0)?,
+            display_name: user_row.try_get(1)?,
+            created_at: user_row.try_get(2)?,
+            last_active_at: user_row.try_get(3)?,
+        };
+
+        // API keys
+        let key_rows = client
+            .query(
+                "SELECT id, key_prefix, auth_hash, scopes, user_id, created_at, revoked_at \
+                 FROM api_keys WHERE user_id = $1 ORDER BY created_at DESC",
+                &[&user_id],
+            )
+            .await?;
+        let mut api_keys = Vec::with_capacity(key_rows.len());
+        for row in &key_rows {
+            api_keys.push(ApiKeyRecord {
+                id: row.try_get(0)?,
+                prefix: row.try_get(1)?,
+                auth_hash: row.try_get(2)?,
+                scopes: row.try_get(3)?,
+                user_id: row.try_get(4)?,
+                created_at: row.try_get(5)?,
+                revoked_at: row.try_get(6)?,
+            });
+        }
+
+        // Secret count + bytes (via all owner keys for this user)
+        let secret_row = client
+            .query_one(
+                "SELECT COUNT(*), COALESCE(SUM(octet_length(envelope::text)), 0) \
+                 FROM secrets WHERE expires_at > $1 AND ( \
+                     owner_key = 'user:' || $2::text \
+                     OR owner_key IN (SELECT 'apikey:' || key_prefix FROM api_keys WHERE user_id = $2) \
+                 )",
+                &[&now, &user_id],
+            )
+            .await?;
+        let secret_count: i64 = secret_row.try_get(0)?;
+        let total_secret_bytes: i64 = secret_row.try_get(1)?;
+
+        // Passkey count
+        let passkey_row = client
+            .query_one(
+                "SELECT COUNT(*) FROM passkeys WHERE user_id = $1 AND revoked_at IS NULL",
+                &[&user_id],
+            )
+            .await?;
+        let passkey_count: i64 = passkey_row.try_get(0)?;
+
+        // AMK check
+        let amk_row = client
+            .query_one(
+                "SELECT EXISTS(SELECT 1 FROM amk_accounts WHERE user_id = $1)",
+                &[&user_id],
+            )
+            .await?;
+        let has_amk: bool = amk_row.try_get(0)?;
+
+        Ok(UserDetail {
+            user,
+            api_keys,
+            secret_count,
+            total_secret_bytes,
+            passkey_count,
+            has_amk,
+        })
+    }
+
+    async fn list_all_api_keys(
+        &self,
+        user_id: Option<UserId>,
+        limit: i64,
+    ) -> Result<Vec<ApiKeyListEntry>, StorageError> {
+        let client = self.pool.get().await?;
+        let rows = if let Some(uid) = user_id {
+            client
+                .query(
+                    "SELECT k.key_prefix, k.scopes, k.user_id, u.display_name, k.created_at, k.revoked_at \
+                     FROM api_keys k LEFT JOIN users u ON k.user_id = u.id \
+                     WHERE k.user_id = $1 \
+                     ORDER BY k.created_at DESC LIMIT $2",
+                    &[&uid, &limit],
+                )
+                .await?
+        } else {
+            client
+                .query(
+                    "SELECT k.key_prefix, k.scopes, k.user_id, u.display_name, k.created_at, k.revoked_at \
+                     FROM api_keys k LEFT JOIN users u ON k.user_id = u.id \
+                     ORDER BY k.created_at DESC LIMIT $1",
+                    &[&limit],
+                )
+                .await?
+        };
+
+        let mut out = Vec::with_capacity(rows.len());
+        for row in &rows {
+            out.push(ApiKeyListEntry {
+                prefix: row.try_get(0)?,
+                scopes: row.try_get(1)?,
+                user_id: row.try_get(2)?,
+                display_name: row.try_get(3)?,
+                created_at: row.try_get(4)?,
+                revoked_at: row.try_get(5)?,
+            });
+        }
+        Ok(out)
+    }
+
+    async fn top_users_by_secrets(
+        &self,
+        now: DateTime<Utc>,
+        limit: i64,
+    ) -> Result<Vec<TopUser>, StorageError> {
+        let client = self.pool.get().await?;
+        let rows = client
+            .query(
+                "SELECT u.id, u.display_name, COUNT(s.id) AS secret_count \
+                 FROM users u \
+                 JOIN secrets s ON s.expires_at > $1 AND ( \
+                     s.owner_key = 'user:' || u.id::text \
+                     OR s.owner_key IN (SELECT 'apikey:' || key_prefix FROM api_keys WHERE user_id = u.id) \
+                 ) \
+                 GROUP BY u.id, u.display_name \
+                 ORDER BY secret_count DESC \
+                 LIMIT $2",
+                &[&now, &limit],
+            )
+            .await?;
+
+        let mut out = Vec::with_capacity(rows.len());
+        for row in &rows {
+            out.push(TopUser {
+                id: row.try_get(0)?,
+                display_name: row.try_get(1)?,
+                value: row.try_get(2)?,
+            });
+        }
+        Ok(out)
+    }
+
+    async fn top_users_by_bytes(
+        &self,
+        now: DateTime<Utc>,
+        limit: i64,
+    ) -> Result<Vec<TopUser>, StorageError> {
+        let client = self.pool.get().await?;
+        let rows = client
+            .query(
+                "SELECT u.id, u.display_name, \
+                        COALESCE(SUM(octet_length(s.envelope::text)), 0)::bigint AS total_bytes \
+                 FROM users u \
+                 JOIN secrets s ON s.expires_at > $1 AND ( \
+                     s.owner_key = 'user:' || u.id::text \
+                     OR s.owner_key IN (SELECT 'apikey:' || key_prefix FROM api_keys WHERE user_id = u.id) \
+                 ) \
+                 GROUP BY u.id, u.display_name \
+                 ORDER BY total_bytes DESC \
+                 LIMIT $2",
+                &[&now, &limit],
+            )
+            .await?;
+
+        let mut out = Vec::with_capacity(rows.len());
+        for row in &rows {
+            out.push(TopUser {
+                id: row.try_get(0)?,
+                display_name: row.try_get(1)?,
+                value: row.try_get(2)?,
+            });
+        }
+        Ok(out)
+    }
+
+    async fn top_users_by_keys(&self, limit: i64) -> Result<Vec<TopUser>, StorageError> {
+        let client = self.pool.get().await?;
+        let rows = client
+            .query(
+                "SELECT u.id, u.display_name, COUNT(k.id) AS key_count \
+                 FROM users u \
+                 JOIN api_keys k ON k.user_id = u.id AND k.revoked_at IS NULL \
+                 GROUP BY u.id, u.display_name \
+                 ORDER BY key_count DESC \
+                 LIMIT $1",
+                &[&limit],
+            )
+            .await?;
+
+        let mut out = Vec::with_capacity(rows.len());
+        for row in &rows {
+            out.push(TopUser {
+                id: row.try_get(0)?,
+                display_name: row.try_get(1)?,
+                value: row.try_get(2)?,
+            });
+        }
+        Ok(out)
     }
 }
