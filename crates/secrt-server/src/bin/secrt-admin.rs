@@ -10,6 +10,9 @@ use secrt_server::storage::migrations::migrate;
 use secrt_server::storage::postgres::PgStore;
 use secrt_server::storage::{AdminStore, ApiKeysStore, UserId};
 
+/// Default path for the server's environment file (systemd `EnvironmentFile=`).
+const DEFAULT_ENV_FILE: &str = "/etc/secrt-server/env";
+
 // ── Action types ─────────────────────────────────────────────────────
 
 enum Action {
@@ -171,15 +174,47 @@ fn colors() -> &'static Color {
     }
 }
 
+/// Remove `--env-file <path>` from the argument list so it doesn't
+/// interfere with subcommand parsing.
+fn strip_env_file_flag(args: &[String]) -> Vec<String> {
+    let mut out = Vec::with_capacity(args.len());
+    let mut skip_next = false;
+    for arg in args {
+        if skip_next {
+            skip_next = false;
+            continue;
+        }
+        if arg == "--env-file" {
+            skip_next = true;
+            continue;
+        }
+        out.push(arg.clone());
+    }
+    out
+}
+
 // ── Main ─────────────────────────────────────────────────────────────
 
 #[tokio::main]
 async fn main() -> ExitCode {
+    let raw_args: Vec<String> = std::env::args().collect();
+
+    // 1. Explicit --env-file (always loaded, even in production)
+    if let Some(path) = parse_flag_str(&raw_args, "--env-file") {
+        if let Err(err) = load_dotenv_if_present(path) {
+            eprintln!("warning: could not read env file {path}: {err}");
+        }
+    }
+
+    // 2. Standard deployment path (always tried)
+    let _ = load_dotenv_if_present(DEFAULT_ENV_FILE);
+
+    // 3. Local .env (dev only)
     if std::env::var("ENV").unwrap_or_else(|_| "development".to_string()) != "production" {
         let _ = load_dotenv_if_present(".env");
     }
 
-    let args: Vec<String> = std::env::args().collect();
+    let args = strip_env_file_flag(&raw_args);
 
     let action = match parse_action(&args) {
         Some(a) => a,
@@ -570,12 +605,17 @@ fn truncate(s: &str, max: usize) -> String {
 }
 
 fn usage() {
-    eprintln!("Usage:");
-    eprintln!("  secrt-admin stats                              Dashboard overview");
-    eprintln!("  secrt-admin secrets stats                      Detailed secret analytics");
-    eprintln!("  secrt-admin users list [--limit N]             List users (default: 50)");
-    eprintln!("  secrt-admin users show <user-id>               User detail view");
-    eprintln!("  secrt-admin apikeys list [--user ID] [--limit N]  List API keys");
-    eprintln!("  secrt-admin apikey revoke <prefix>             Revoke an API key");
-    eprintln!("  secrt-admin top-users [--by secrets|bytes|keys] [--limit N]");
+    eprintln!("Usage: secrt-admin [options] <command>");
+    eprintln!();
+    eprintln!("Options:");
+    eprintln!("  --env-file <path>   Load environment from file (default: {DEFAULT_ENV_FILE})");
+    eprintln!();
+    eprintln!("Commands:");
+    eprintln!("  stats                              Dashboard overview");
+    eprintln!("  secrets stats                      Detailed secret analytics");
+    eprintln!("  users list [--limit N]             List users (default: 50)");
+    eprintln!("  users show <user-id>               User detail view");
+    eprintln!("  apikeys list [--user ID] [--limit N]  List API keys");
+    eprintln!("  apikey revoke <prefix>             Revoke an API key");
+    eprintln!("  top-users [--by secrets|bytes|keys] [--limit N]");
 }

@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.14.1 — 2026-02-20
+
+### Added
+
+- **`secrt-admin` env-file auto-loading:** `secrt-admin` now automatically loads environment variables from `/etc/secrt-server/env` (the standard systemd `EnvironmentFile` path), so it works out of the box on deployed hosts without needing to manually export `DATABASE_URL`. A new `--env-file <path>` flag allows overriding the default path for non-standard setups. Existing environment variables are never overwritten.
+
 ## 0.14.0 — 2026-02-20
 
 ### Added
