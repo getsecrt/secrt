@@ -8,7 +8,7 @@ rust-version = "1.82"
 description = "Axum backend and admin tooling for secrt"
 
 [dependencies]
-secrt-core = { path = "../secrt-core", version = "0.14.1" }
+secrt-core = { path = "../secrt-core", version = "0.14.2" }
 ring.workspace = true
 serde.workspace = true
 serde_json = { workspace = true, features = ["raw_value"] }

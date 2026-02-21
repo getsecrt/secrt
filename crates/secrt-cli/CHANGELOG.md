@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.14.2 — 2026-02-20
+
+### Added
+
+- **Auto-copy share link to clipboard:** after `secrt send`, the share link is automatically copied to the system clipboard using platform-native commands (`pbcopy` on macOS, `xclip`/`xsel` on Linux, `clip.exe` on Windows). A `→ Copied to clipboard` indicator appears on stderr. No new dependencies.
+- **`--no-copy` flag:** disables clipboard auto-copy for a single invocation.
+- **`auto_copy` config option:** set `auto_copy = false` in `config.toml` to disable clipboard auto-copy permanently. Copy is skipped automatically in non-TTY, `--json`, and `--silent` modes.
+
 ## 0.14.0 — 2026-02-20
 
 _No CLI changes — version bump only to stay in sync with workspace._
