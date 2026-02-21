@@ -308,7 +308,7 @@
   }
 
   .card {
-    @apply rounded-lg border border-neutral-300/50 bg-neutral-100 p-6 shadow-md backdrop-blur-md dark:border-neutral-700/35 dark:bg-neutral-950/40;
+    @apply rounded-lg border border-neutral-300/50 bg-neutral-100 p-4 shadow-md backdrop-blur-md sm:p-6 dark:border-neutral-700/35 dark:bg-neutral-950/40;
   }
 
   /* ── Modal (native <dialog>) ── */

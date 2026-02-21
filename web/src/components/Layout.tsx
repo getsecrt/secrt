@@ -25,18 +25,18 @@ export function Layout({ children, maxWidth = 'max-w-2xl' }: LayoutProps) {
       </a>
       <Nav />
 
-      <header class="flex flex-col items-center px-4 pt-5">
+      <header class="flex flex-col items-center px-4 pt-1 sm:pt-4">
         <a class="flex justify-center" href="/" onClick={handleLogoClick}>
-          <Logo />
+          <Logo class="hidden sm:block sm:w-40" />
         </a>
         <p class="mt-1 text-center text-xs text-muted">
-          Private, Zero-Knowledge, One-Time Secret Sharing
+          Zero-Knowledge One-Time Secret Sharing
         </p>
       </header>
 
       <main
         id="main-content"
-        class={`mx-auto flex w-full ${maxWidth} flex-col gap-6 px-4 py-6`}
+        class={`mx-auto flex w-full ${maxWidth} flex-col gap-6 px-2 py-6 sm:px-4`}
       >
         {children}
       </main>

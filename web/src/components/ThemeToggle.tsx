@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'preact/hooks';
 import { isDark, setDarkMode } from '../lib/theme';
 
-export function ThemeToggle() {
+export function ThemeToggle({ class: className }: { class?: string }) {
   const [dark, setDark] = useState(isDark);
   const toggle = useCallback(() => {
     const next = !isDark();
@@ -36,7 +36,7 @@ export function ThemeToggle() {
   return (
     <button
       type="button"
-      class="relative inline-flex cursor-pointer gap-px rounded-full bg-surface-raised shadow-[inset_0_0_2px_1px_var(--color-neutral-200)] dark:bg-neutral-900 dark:shadow-[inset_0_0_2px_var(--color-neutral-800)]"
+      class={`relative inline-flex cursor-pointer gap-px rounded-full bg-surface-raised shadow-[inset_0_0_2px_1px_var(--color-neutral-200)] dark:bg-neutral-900 dark:shadow-[inset_0_0_2px_var(--color-neutral-800)]${className ? ` ${className}` : ''}`}
       role="switch"
       aria-label="Toggle dark mode"
       aria-checked={dark}

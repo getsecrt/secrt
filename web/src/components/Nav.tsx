@@ -5,6 +5,7 @@ import {
   useCallback,
   useRef,
 } from 'preact/hooks';
+import { Logo } from './Logo';
 import { ThemeToggle } from './ThemeToggle';
 import {
   MenuIcon,
@@ -482,7 +483,7 @@ export function Nav() {
           <div class="flex w-full items-center justify-between sm:hidden">
             <button
               type="button"
-              class="p-1 text-muted hover:text-text"
+              class="w-15 p-1 text-muted hover:text-text"
               onClick={toggleMenu}
               aria-label={menuOpen ? 'Close menu' : 'Open menu'}
               aria-expanded={menuOpen}
@@ -493,7 +494,12 @@ export function Nav() {
                 <MenuIcon class="size-6" />
               )}
             </button>
-            <ThemeToggle />
+
+            <Logo class="w-22" />
+
+            <div class="w-15">
+              <ThemeToggle />
+            </div>
           </div>
         </div>
       </div>
