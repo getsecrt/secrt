@@ -2359,7 +2359,10 @@ mod tests {
         let config = crate::config::Config::default();
         let mut pa = ParsedArgs::default();
         resolve_globals_with_config(&mut pa, &deps, &config);
-        assert!(!pa.no_copy, "auto_copy=None should leave no_copy=false (default on)");
+        assert!(
+            !pa.no_copy,
+            "auto_copy=None should leave no_copy=false (default on)"
+        );
     }
 
     #[test]

@@ -984,7 +984,10 @@ fn send_non_tty_skips_clipboard() {
     let code = cli::run(&args(&["secrt", "send"]), &mut deps);
     assert_eq!(code, 0, "stderr: {}", stderr.to_string());
     let copied = calls.lock().unwrap();
-    assert!(copied.is_empty(), "clipboard should not be called in non-TTY");
+    assert!(
+        copied.is_empty(),
+        "clipboard should not be called in non-TTY"
+    );
     assert!(
         !stderr.to_string().contains("Copied to clipboard"),
         "should not show copied indicator in non-TTY"
@@ -1002,7 +1005,10 @@ fn send_json_skips_clipboard() {
     let code = cli::run(&args(&["secrt", "send", "--json"]), &mut deps);
     assert_eq!(code, 0, "stderr: {}", stderr.to_string());
     let copied = calls.lock().unwrap();
-    assert!(copied.is_empty(), "clipboard should not be called in JSON mode");
+    assert!(
+        copied.is_empty(),
+        "clipboard should not be called in JSON mode"
+    );
     // JSON output should include copied: false
     let json: serde_json::Value =
         serde_json::from_str(stdout.to_string().trim()).expect("valid JSON");
@@ -1021,7 +1027,10 @@ fn send_silent_skips_clipboard() {
     let code = cli::run(&args(&["secrt", "send", "--silent"]), &mut deps);
     assert_eq!(code, 0, "stderr: {}", stderr.to_string());
     let copied = calls.lock().unwrap();
-    assert!(copied.is_empty(), "clipboard should not be called in silent mode");
+    assert!(
+        copied.is_empty(),
+        "clipboard should not be called in silent mode"
+    );
 }
 
 #[test]
@@ -1036,7 +1045,10 @@ fn send_no_copy_flag_skips_clipboard() {
     let code = cli::run(&args(&["secrt", "send", "--no-copy"]), &mut deps);
     assert_eq!(code, 0, "stderr: {}", stderr.to_string());
     let copied = calls.lock().unwrap();
-    assert!(copied.is_empty(), "clipboard should not be called with --no-copy");
+    assert!(
+        copied.is_empty(),
+        "clipboard should not be called with --no-copy"
+    );
     assert!(
         !stderr.to_string().contains("Copied to clipboard"),
         "should not show copied indicator with --no-copy"
