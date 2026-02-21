@@ -176,6 +176,7 @@ mod tests {
             delete_keychain_secret: Box::new(|_: &str| Err("unused".into())),
             get_keychain_secret_list: Box::new(|_key: &str| Vec::new()),
             open_browser: Box::new(|_: &str| Err("unused".into())),
+            copy_to_clipboard: Box::new(|_: &str| Ok(())),
             sleep: Box::new(|_: std::time::Duration| {}),
         }
     }

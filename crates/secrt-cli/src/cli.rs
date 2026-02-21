@@ -21,6 +21,7 @@ pub type KeychainSetFn = Box<dyn Fn(&str, &str) -> Result<(), String>>;
 pub type KeychainDeleteFn = Box<dyn Fn(&str) -> Result<(), String>>;
 pub type KeychainListFn = Box<dyn Fn(&str) -> Vec<String>>;
 pub type OpenBrowserFn = Box<dyn Fn(&str) -> Result<(), String>>;
+pub type CopyToClipboardFn = Box<dyn Fn(&str) -> Result<(), String>>;
 pub type SleepFn = Box<dyn Fn(std::time::Duration)>;
 
 /// Injectable dependencies for testing.
@@ -39,6 +40,7 @@ pub struct Deps {
     pub delete_keychain_secret: KeychainDeleteFn,
     pub get_keychain_secret_list: KeychainListFn,
     pub open_browser: OpenBrowserFn,
+    pub copy_to_clipboard: CopyToClipboardFn,
     pub sleep: SleepFn,
 }
 
@@ -69,6 +71,7 @@ pub struct ParsedArgs {
 
     // Send
     pub qr: bool,
+    pub no_copy: bool,
 
     // Passphrase
     pub passphrase_prompt: bool,
@@ -322,6 +325,7 @@ pub fn parse_flags(args: &[String]) -> Result<ParsedArgs, CliError> {
             "--hidden" => pa.hidden = true,
             "--silent" => pa.silent = true,
             "--qr" | "-Q" => pa.qr = true,
+            "--no-copy" => pa.no_copy = true,
             "--note" => pa.note = next_val!("--note"),
             "--output" | "-o" => pa.output = next_val!("--output"),
             "--passphrase-prompt" | "-p" => pa.passphrase_prompt = true,
@@ -455,6 +459,13 @@ pub fn resolve_globals_with_config(
         }
         if !dp.is_empty() {
             pa.decryption_passphrases = dp;
+        }
+    }
+
+    // auto_copy: config can disable; CLI --no-copy also disables
+    if !pa.no_copy {
+        if let Some(false) = config.auto_copy {
+            pa.no_copy = true;
         }
     }
 }
@@ -1149,6 +1160,7 @@ pub fn print_send_help(deps: &mut Deps) {
             ("--base-url", "<url>", "Server URL"),
             ("--api-key", "<key>", "API key"),
             ("-Q, --qr", "", "Display share URL as QR code"),
+            ("--no-copy", "", "Don't copy share link to clipboard"),
             ("--json", "", "Output as JSON"),
             ("--silent", "", "Suppress status output"),
             ("-h, --help", "", "Show help"),
@@ -1649,6 +1661,12 @@ mod tests {
     }
 
     #[test]
+    fn flags_no_copy() {
+        let pa = parse_flags(&s(&["--no-copy"])).unwrap();
+        assert!(pa.no_copy);
+    }
+
+    #[test]
     fn flags_multi_line_and_trim() {
         let pa = parse_flags(&s(&["--multi-line", "--trim"])).unwrap();
         assert!(pa.multi_line);
@@ -2081,6 +2099,7 @@ mod tests {
             delete_keychain_secret: Box::new(|_: &str| Err("unused".into())),
             get_keychain_secret_list: Box::new(|_: &str| Vec::new()),
             open_browser: Box::new(|_: &str| Err("unused".into())),
+            copy_to_clipboard: Box::new(|_: &str| Ok(())),
             sleep: Box::new(|_: std::time::Duration| {}),
         };
         f(&mut deps);
@@ -2144,6 +2163,7 @@ mod tests {
             delete_keychain_secret: Box::new(|_: &str| Err("unused".into())),
             get_keychain_secret_list: Box::new(|_key: &str| Vec::new()),
             open_browser: Box::new(|_: &str| Err("unused".into())),
+            copy_to_clipboard: Box::new(|_: &str| Ok(())),
             sleep: Box::new(|_: std::time::Duration| {}),
         }
     }
@@ -2307,6 +2327,54 @@ mod tests {
         let mut pa = ParsedArgs::default();
         resolve_globals_with_config(&mut pa, &deps, &config);
         assert!(pa.ttl.is_empty(), "ttl should remain empty when no config");
+    }
+
+    #[test]
+    fn globals_config_auto_copy_false() {
+        let deps = make_deps_for_globals(std::collections::HashMap::new());
+        let config = crate::config::Config {
+            auto_copy: Some(false),
+            ..Default::default()
+        };
+        let mut pa = ParsedArgs::default();
+        resolve_globals_with_config(&mut pa, &deps, &config);
+        assert!(pa.no_copy, "auto_copy=false should set no_copy=true");
+    }
+
+    #[test]
+    fn globals_config_auto_copy_true() {
+        let deps = make_deps_for_globals(std::collections::HashMap::new());
+        let config = crate::config::Config {
+            auto_copy: Some(true),
+            ..Default::default()
+        };
+        let mut pa = ParsedArgs::default();
+        resolve_globals_with_config(&mut pa, &deps, &config);
+        assert!(!pa.no_copy, "auto_copy=true should leave no_copy=false");
+    }
+
+    #[test]
+    fn globals_config_auto_copy_none() {
+        let deps = make_deps_for_globals(std::collections::HashMap::new());
+        let config = crate::config::Config::default();
+        let mut pa = ParsedArgs::default();
+        resolve_globals_with_config(&mut pa, &deps, &config);
+        assert!(!pa.no_copy, "auto_copy=None should leave no_copy=false (default on)");
+    }
+
+    #[test]
+    fn globals_no_copy_flag_wins_over_config() {
+        let deps = make_deps_for_globals(std::collections::HashMap::new());
+        let config = crate::config::Config {
+            auto_copy: Some(true),
+            ..Default::default()
+        };
+        let mut pa = ParsedArgs {
+            no_copy: true,
+            ..Default::default()
+        };
+        resolve_globals_with_config(&mut pa, &deps, &config);
+        assert!(pa.no_copy, "CLI --no-copy should win over auto_copy=true");
     }
 
     // --- format_ttl_seconds tests ---

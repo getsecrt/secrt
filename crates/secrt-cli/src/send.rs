@@ -219,12 +219,20 @@ pub fn run_send(args: &[String], deps: &mut Deps) -> i32 {
     // Output
     let share_link = format_share_link(&resp.share_url, &result.url_key);
 
+    // Copy to clipboard (only in interactive TTY mode, not JSON/silent/piped)
+    let copied = if !pa.no_copy && !pa.json && !pa.silent && is_tty {
+        (deps.copy_to_clipboard)(&share_link).is_ok()
+    } else {
+        false
+    };
+
     if pa.json {
         let mut out = serde_json::json!({
             "id": resp.id,
             "share_url": resp.share_url,
             "share_link": share_link,
             "expires_at": resp.expires_at,
+            "copied": copied,
         });
         if let Some(ref pw) = generated_password {
             out["password"] = serde_json::Value::String(pw.clone());
@@ -235,6 +243,11 @@ pub fn run_send(args: &[String], deps: &mut Deps) -> i32 {
         let _ = writeln!(deps.stdout, "{}", c(URL, &share_link));
     } else {
         let _ = writeln!(deps.stdout, "{}", share_link);
+    }
+
+    if copied && is_tty && !pa.json {
+        let c = color_func(true);
+        let _ = writeln!(deps.stderr, "{}", c(DIM, "\u{2192} Copied to clipboard"));
     }
 
     // Render QR code to stderr if requested and TTY (skip in --json mode)

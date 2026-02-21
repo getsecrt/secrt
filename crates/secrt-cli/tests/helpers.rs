@@ -186,6 +186,7 @@ pub struct TestDepsBuilder {
     mock_responses: Option<MockApiResponses>,
     keychain_secrets: HashMap<String, String>,
     keychain_secret_lists: HashMap<String, Vec<String>>,
+    copy_to_clipboard_fn: Option<Box<dyn Fn(&str) -> Result<(), String>>>,
 }
 
 impl TestDepsBuilder {
@@ -213,6 +214,7 @@ impl TestDepsBuilder {
             mock_responses: None,
             keychain_secrets: HashMap::new(),
             keychain_secret_lists: HashMap::new(),
+            copy_to_clipboard_fn: None,
         }
     }
 
@@ -327,6 +329,14 @@ impl TestDepsBuilder {
         self
     }
 
+    pub fn copy_to_clipboard_fn(
+        mut self,
+        f: impl Fn(&str) -> Result<(), String> + 'static,
+    ) -> Self {
+        self.copy_to_clipboard_fn = Some(Box::new(f));
+        self
+    }
+
     pub fn build(self) -> (Deps, SharedBuf, SharedBuf) {
         let stdout = SharedBuf::new();
         let stderr = SharedBuf::new();
@@ -377,6 +387,10 @@ impl TestDepsBuilder {
                 Box::new(move |key: &str| kcl.get(key).cloned().unwrap_or_default())
             },
             open_browser: Box::new(|_: &str| Ok(())),
+            copy_to_clipboard: match self.copy_to_clipboard_fn {
+                Some(f) => Box::new(f),
+                None => Box::new(|_: &str| Ok(())),
+            },
             sleep: Box::new(|_: std::time::Duration| {}),
             make_api: if let Some(mock_responses) = self.mock_responses {
                 Box::new(move |_base_url: &str, _api_key: &str| {

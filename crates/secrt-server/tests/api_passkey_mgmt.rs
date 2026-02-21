@@ -101,12 +101,7 @@ async fn list_passkeys_wrong_method_405() {
     let app = test_app_with_store(store, test_config());
     let token = passkey_register_flow(&app, "Alice", "cred-list-405").await;
 
-    let req = authed_json(
-        "POST",
-        "/api/v1/auth/passkeys",
-        &token,
-        json!({}),
-    );
+    let req = authed_json("POST", "/api/v1/auth/passkeys", &token, json!({}));
     let resp = app.oneshot(req).await.expect("response");
     assert_eq!(resp.status(), StatusCode::METHOD_NOT_ALLOWED);
 }
@@ -403,10 +398,7 @@ async fn rename_passkey_success() {
 
     // Verify label persisted in store
     let passkeys = store.passkeys.lock().expect("lock");
-    let pk = passkeys
-        .values()
-        .find(|p| p.id == pk_id)
-        .expect("passkey");
+    let pk = passkeys.values().find(|p| p.id == pk_id).expect("passkey");
     assert_eq!(pk.label, "MacBook Pro");
 }
 
@@ -683,9 +675,7 @@ async fn update_display_name_requires_auth() {
         .method("PATCH")
         .uri("/api/v1/auth/account")
         .header("content-type", "application/json")
-        .body(Body::from(
-            json!({"display_name": "New Name"}).to_string(),
-        ))
+        .body(Body::from(json!({"display_name": "New Name"}).to_string()))
         .expect("request");
     let resp = app.oneshot(req).await.expect("response");
     assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);

@@ -1,5 +1,7 @@
 mod helpers;
 
+use std::sync::{Arc, Mutex};
+
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use base64::Engine;
 
@@ -930,4 +932,172 @@ fn send_note_success_attaches_note() {
         "should not warn about missing auth: {}",
         err
     );
+}
+
+// ── Clipboard auto-copy tests ───────────────────────────────────────
+
+fn tracking_clipboard() -> (impl Fn(&str) -> Result<(), String>, Arc<Mutex<Vec<String>>>) {
+    let calls = Arc::new(Mutex::new(Vec::<String>::new()));
+    let calls_clone = Arc::clone(&calls);
+    let f = move |text: &str| -> Result<(), String> {
+        calls_clone.lock().unwrap().push(text.to_string());
+        Ok(())
+    };
+    (f, calls)
+}
+
+#[test]
+fn send_tty_copies_to_clipboard() {
+    let (clipboard_fn, calls) = tracking_clipboard();
+    let (mut deps, _stdout, stderr) = TestDepsBuilder::new()
+        .read_pass(&["my secret"])
+        .is_tty(true)
+        .mock_create(Ok(mock_send_response()))
+        .copy_to_clipboard_fn(clipboard_fn)
+        .build();
+    let code = cli::run(&args(&["secrt", "send"]), &mut deps);
+    assert_eq!(code, 0, "stderr: {}", stderr.to_string());
+    let copied = calls.lock().unwrap();
+    assert_eq!(copied.len(), 1, "clipboard should be called once");
+    assert!(
+        copied[0].contains("secrt.ca/s/test-id-123#"),
+        "should copy the share link: {}",
+        copied[0]
+    );
+    let err = stderr.to_string();
+    assert!(
+        err.contains("Copied to clipboard"),
+        "should show copied indicator: {}",
+        err
+    );
+}
+
+#[test]
+fn send_non_tty_skips_clipboard() {
+    let (clipboard_fn, calls) = tracking_clipboard();
+    let (mut deps, _stdout, stderr) = TestDepsBuilder::new()
+        .stdin(b"my secret")
+        .is_tty(false)
+        .mock_create(Ok(mock_send_response()))
+        .copy_to_clipboard_fn(clipboard_fn)
+        .build();
+    let code = cli::run(&args(&["secrt", "send"]), &mut deps);
+    assert_eq!(code, 0, "stderr: {}", stderr.to_string());
+    let copied = calls.lock().unwrap();
+    assert!(copied.is_empty(), "clipboard should not be called in non-TTY");
+    assert!(
+        !stderr.to_string().contains("Copied to clipboard"),
+        "should not show copied indicator in non-TTY"
+    );
+}
+
+#[test]
+fn send_json_skips_clipboard() {
+    let (clipboard_fn, calls) = tracking_clipboard();
+    let (mut deps, stdout, stderr) = TestDepsBuilder::new()
+        .stdin(b"my secret")
+        .mock_create(Ok(mock_send_response()))
+        .copy_to_clipboard_fn(clipboard_fn)
+        .build();
+    let code = cli::run(&args(&["secrt", "send", "--json"]), &mut deps);
+    assert_eq!(code, 0, "stderr: {}", stderr.to_string());
+    let copied = calls.lock().unwrap();
+    assert!(copied.is_empty(), "clipboard should not be called in JSON mode");
+    // JSON output should include copied: false
+    let json: serde_json::Value =
+        serde_json::from_str(stdout.to_string().trim()).expect("valid JSON");
+    assert_eq!(json["copied"], serde_json::Value::Bool(false));
+}
+
+#[test]
+fn send_silent_skips_clipboard() {
+    let (clipboard_fn, calls) = tracking_clipboard();
+    let (mut deps, _stdout, stderr) = TestDepsBuilder::new()
+        .read_pass(&["my secret"])
+        .is_tty(true)
+        .mock_create(Ok(mock_send_response()))
+        .copy_to_clipboard_fn(clipboard_fn)
+        .build();
+    let code = cli::run(&args(&["secrt", "send", "--silent"]), &mut deps);
+    assert_eq!(code, 0, "stderr: {}", stderr.to_string());
+    let copied = calls.lock().unwrap();
+    assert!(copied.is_empty(), "clipboard should not be called in silent mode");
+}
+
+#[test]
+fn send_no_copy_flag_skips_clipboard() {
+    let (clipboard_fn, calls) = tracking_clipboard();
+    let (mut deps, _stdout, stderr) = TestDepsBuilder::new()
+        .read_pass(&["my secret"])
+        .is_tty(true)
+        .mock_create(Ok(mock_send_response()))
+        .copy_to_clipboard_fn(clipboard_fn)
+        .build();
+    let code = cli::run(&args(&["secrt", "send", "--no-copy"]), &mut deps);
+    assert_eq!(code, 0, "stderr: {}", stderr.to_string());
+    let copied = calls.lock().unwrap();
+    assert!(copied.is_empty(), "clipboard should not be called with --no-copy");
+    assert!(
+        !stderr.to_string().contains("Copied to clipboard"),
+        "should not show copied indicator with --no-copy"
+    );
+}
+
+#[test]
+fn send_clipboard_failure_is_graceful() {
+    let (mut deps, stdout, stderr) = TestDepsBuilder::new()
+        .read_pass(&["my secret"])
+        .is_tty(true)
+        .mock_create(Ok(mock_send_response()))
+        .copy_to_clipboard_fn(|_| Err("xclip not found".into()))
+        .build();
+    let code = cli::run(&args(&["secrt", "send"]), &mut deps);
+    assert_eq!(code, 0, "clipboard failure should not affect exit code");
+    assert!(
+        stdout.to_string().contains("#"),
+        "should still output share link: {}",
+        stdout.to_string()
+    );
+    assert!(
+        !stderr.to_string().contains("Copied to clipboard"),
+        "should not show copied indicator on failure"
+    );
+}
+
+#[test]
+fn send_auto_copy_false_config_skips_clipboard() {
+    // Write a config file with auto_copy = false
+    let dir = std::env::temp_dir().join(format!(
+        "secrt_test_autocopy_{}",
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    ));
+    let secrt_dir = dir.join("secrt");
+    std::fs::create_dir_all(&secrt_dir).unwrap();
+    let config_path = secrt_dir.join("config.toml");
+    std::fs::write(&config_path, "auto_copy = false\n").unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let _ = std::fs::set_permissions(&config_path, std::fs::Permissions::from_mode(0o600));
+    }
+
+    let (clipboard_fn, calls) = tracking_clipboard();
+    let (mut deps, _stdout, stderr) = TestDepsBuilder::new()
+        .read_pass(&["my secret"])
+        .is_tty(true)
+        .env("XDG_CONFIG_HOME", dir.to_str().unwrap())
+        .mock_create(Ok(mock_send_response()))
+        .copy_to_clipboard_fn(clipboard_fn)
+        .build();
+    let code = cli::run(&args(&["secrt", "send"]), &mut deps);
+    assert_eq!(code, 0, "stderr: {}", stderr.to_string());
+    let copied = calls.lock().unwrap();
+    assert!(
+        copied.is_empty(),
+        "clipboard should not be called when auto_copy = false"
+    );
+    let _ = std::fs::remove_dir_all(&dir);
 }

@@ -13,6 +13,7 @@ pub struct Config {
     pub default_ttl: Option<String>,
     pub show_input: Option<bool>,
     pub use_keychain: Option<bool>,
+    pub auto_copy: Option<bool>,
     #[serde(default)]
     pub decryption_passphrases: Vec<String>,
 }
@@ -124,6 +125,9 @@ pub const CONFIG_TEMPLATE: &str = "\
 
 # Show input while typing (default: false)
 # show_input = false
+
+# Auto-copy share link to clipboard after send (default: true)
+# auto_copy = true
 
 # Read secrets (api_key, passphrase) from the OS credential store
 # (macOS Keychain, Linux keyutils, Windows Credential Manager).
@@ -547,6 +551,10 @@ mod tests {
         assert!(
             CONFIG_TEMPLATE.contains("use_keychain"),
             "template missing use_keychain"
+        );
+        assert!(
+            CONFIG_TEMPLATE.contains("auto_copy"),
+            "template missing auto_copy"
         );
     }
 
