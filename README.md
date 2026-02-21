@@ -12,7 +12,7 @@
 </p>
 
 <p align="center">
-  Zero-knowledge one-time secret sharing — <a href="https://secrt.ca">secrt.ca</a>
+  Zero-knowledge one-time secret sharing
 </p>
 
 ---
@@ -25,22 +25,17 @@ Monorepo for the [secrt.ca](https://secrt.ca) protocol. Share secrets that self-
 
 ### CLI
 
-| Platform | Download |
-|----------|----------|
-| macOS (Universal) | [secrt-macos.pkg](https://github.com/getsecrt/secrt/releases/latest/download/secrt-macos.pkg) |
-| Windows x64 | [secrt-windows-amd64.zip](https://github.com/getsecrt/secrt/releases/latest/download/secrt-windows-amd64.zip) |
-| Windows ARM64 | [secrt-windows-arm64.zip](https://github.com/getsecrt/secrt/releases/latest/download/secrt-windows-arm64.zip) |
-| Linux x64 | [secrt-linux-amd64.tar.gz](https://github.com/getsecrt/secrt/releases/latest/download/secrt-linux-amd64.tar.gz) |
-| Linux ARM64 | [secrt-linux-arm64.tar.gz](https://github.com/getsecrt/secrt/releases/latest/download/secrt-linux-arm64.tar.gz) |
+| Platform          | Download                                                                                                        |
+| ----------------- | --------------------------------------------------------------------------------------------------------------- |
+| macOS (Universal) | [secrt-macos.pkg](https://github.com/getsecrt/secrt/releases/latest/download/secrt-macos.pkg)                   |
+| Windows x64       | [secrt-windows-amd64.zip](https://github.com/getsecrt/secrt/releases/latest/download/secrt-windows-amd64.zip)   |
+| Windows ARM64     | [secrt-windows-arm64.zip](https://github.com/getsecrt/secrt/releases/latest/download/secrt-windows-arm64.zip)   |
+| Linux x64         | [secrt-linux-amd64.tar.gz](https://github.com/getsecrt/secrt/releases/latest/download/secrt-linux-amd64.tar.gz) |
+| Linux ARM64       | [secrt-linux-arm64.tar.gz](https://github.com/getsecrt/secrt/releases/latest/download/secrt-linux-arm64.tar.gz) |
 
 ### Server
 
 Server releases use separate tags (`server/v*`). Download from the [latest server release](https://github.com/getsecrt/secrt/releases?q=server).
-
-| Platform | Download |
-|----------|----------|
-| Linux x64 | [secrt-server-linux-amd64](https://github.com/getsecrt/secrt/releases/download/server%2Fv0.12.1/secrt-server-linux-amd64) |
-| Linux ARM64 | [secrt-server-linux-arm64](https://github.com/getsecrt/secrt/releases/download/server%2Fv0.12.1/secrt-server-linux-arm64) |
 
 ## Quick start
 
@@ -158,7 +153,7 @@ SECRT_API_ORIGIN=http://127.0.0.1:8080 pnpm -C web dev
 
 Notes:
 
-- WebAuthn passkeys work on `localhost`/`127.0.0.1` in modern browsers.
+- WebAuthn passkeys work on `localhost` (but **not** `127.0.0.1`) in modern browsers.
 - Production-style static build path remains `/static/*`; the Vite build emits `/static/assets/*`.
 
 ## License
