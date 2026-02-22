@@ -1,5 +1,27 @@
 # Changelog
 
+## 0.14.5 — 2026-02-22
+
+### Added
+
+- **ECDH-based AMK transfer in app login flow:** the browser can now encrypt the user's Account Master Key (AMK) and hand it to the Tauri desktop app during login approval. The `/app/start` endpoint accepts an optional `ecdh_public_key`, embeds it in the `verification_url` as `&ek=`, and the `/app/approve` endpoint accepts an `amk_transfer` blob (`ct`, `nonce`, `ecdh_public_key`) which is stored on the challenge and returned by `/app/poll`.
+- **OS keychain storage in Tauri app:** session tokens, cached profiles, and AMK are now stored in the OS keychain (`keyring` crate, service `ca.secrt.app`) instead of renderer-accessible storage. Tauri IPC commands (`keyring_set`, `keyring_get`, `keyring_delete`) enforce a Rust-side key allowlist.
+- **Verification URL safety guard (web):** `isAllowedVerificationUrl()` validates that verification URLs are HTTPS and match the expected API origin before opening the system browser, preventing open-redirect and protocol-hijack attacks.
+- **Spec documentation:** app login endpoints fully documented in `api.md`, `server.md`, and `openapi.yaml`.
+- **Tauri native crypto test vectors:** all 5 spec envelope vectors verified through the Tauri IPC command layer with deterministic RNG injection.
+
+### Changed
+
+- **Session tokens minted at poll time:** tokens are now created fresh when the desktop app polls (after atomically consuming the challenge), rather than being stored in challenge JSON at approve time. Eliminates raw bearer tokens from the database.
+- **ECDH and AMK transfer input validation:** both app-login and device-auth endpoints now validate ECDH public key length (65 bytes, uncompressed P-256) and AMK transfer field lengths (nonce 12 bytes, ct 48 bytes) at the API boundary.
+- **Async session storage (web):** `getSessionToken()`, `setSessionToken()`, `clearSessionToken()`, `getCachedProfile()`, and `setCachedProfile()` are now async to support Tauri keychain reads. Synchronous fast-paths (`getSessionTokenSync`, `getCachedProfileSync`) available for browser-only initial render.
+- **Dual-backend AMK persistence (web):** AMK storage routes to OS keychain in Tauri mode, IndexedDB in the browser.
+
+### Fixed
+
+- **Maskable icon colors:** SVG fill colors corrected for proper color assignment.
+- **Async test assertions:** redirect tests in `AuthGuard`, `DashboardPage`, and `SettingsPage` now use `waitFor` to account for Preact's asynchronous `useEffect` ordering.
+
 ## 0.14.4 — 2026-02-22
 
 ### Added

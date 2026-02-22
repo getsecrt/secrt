@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
-import { render, screen, cleanup } from '@testing-library/preact';
+import { render, screen, cleanup, waitFor } from '@testing-library/preact';
 
 // Mock dependencies
 const mockAuth = {
@@ -43,7 +43,7 @@ describe('AuthGuard', () => {
     expect(screen.queryByText('Protected content')).toBeNull();
   });
 
-  it('redirects to /login when not authenticated', () => {
+  it('redirects to /login when not authenticated', async () => {
     mockAuth.loading = false;
     mockAuth.authenticated = false;
     render(
@@ -51,7 +51,7 @@ describe('AuthGuard', () => {
         <p>Protected content</p>
       </AuthGuard>,
     );
-    expect(mockNavigate).toHaveBeenCalledWith('/login');
+    await waitFor(() => expect(mockNavigate).toHaveBeenCalledWith('/login'));
   });
 
   it('does not render children when unauthenticated', () => {

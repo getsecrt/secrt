@@ -2,27 +2,38 @@ import { useState, useEffect } from 'preact/hooks';
 import { useAuth } from '../../lib/auth-context';
 import { navigate } from '../../router';
 import { appLoginApprove } from '../../lib/api';
+import { loadAmk } from '../../lib/amk-store';
+import {
+  generateEcdhKeyPair,
+  exportPublicKey,
+  performEcdh,
+  deriveTransferKey,
+} from '../../crypto/amk';
+import { base64urlEncode, base64urlDecode } from '../../crypto/encoding';
 import {
   CheckCircleIcon,
   TriangleExclamationIcon,
 } from '../../components/Icons';
 import { CardHeading } from '../../components/CardHeading';
 
+type AmkTransferData = { ct: string; nonce: string; ecdh_public_key: string };
+
 type AppLoginState =
   | { step: 'confirm' }
+  | { step: 'computing' }
   | { step: 'approving' }
   | { step: 'done' }
   | { step: 'error'; message: string }
   | { step: 'no-code' };
 
-function parseUserCode(): string | null {
+function parseUrlParams(): { code: string | null; ek: string | null } {
   const params = new URLSearchParams(window.location.search);
-  return params.get('code');
+  return { code: params.get('code'), ek: params.get('ek') };
 }
 
 export function AppLoginPage() {
   const auth = useAuth();
-  const [userCode] = useState(() => parseUserCode() ?? '');
+  const [{ code: userCode, ek: ecdhPeerKey }] = useState(parseUrlParams);
   const [state, setState] = useState<AppLoginState>(() =>
     userCode ? { step: 'confirm' } : { step: 'no-code' },
   );
@@ -78,11 +89,65 @@ export function AppLoginPage() {
   }
 
   const handleApprove = async () => {
-    if (!auth.sessionToken) return;
-    setState({ step: 'approving' });
+    if (!auth.sessionToken || !userCode) return;
+    setState({ step: 'computing' });
 
     try {
-      await appLoginApprove(auth.sessionToken, userCode);
+      let amkTransfer: AmkTransferData | undefined;
+
+      try {
+        if (ecdhPeerKey && auth.userId) {
+          const amk = await loadAmk(auth.userId);
+
+          if (amk) {
+            const browserKp = await generateEcdhKeyPair();
+            const browserPkBytes = await exportPublicKey(browserKp.publicKey);
+
+            const peerPkBytes = base64urlDecode(ecdhPeerKey);
+            const sharedSecret = await performEcdh(
+              browserKp.privateKey,
+              peerPkBytes,
+            );
+
+            const transferKey = await deriveTransferKey(sharedSecret);
+
+            const nonce = new Uint8Array(12);
+            crypto.getRandomValues(nonce);
+            const aad = new TextEncoder().encode('secrt-amk-transfer-v1');
+            const tkBuf = new ArrayBuffer(transferKey.byteLength);
+            new Uint8Array(tkBuf).set(transferKey);
+            const nonceBuf = new ArrayBuffer(nonce.byteLength);
+            new Uint8Array(nonceBuf).set(nonce);
+            const aadBuf = new ArrayBuffer(aad.byteLength);
+            new Uint8Array(aadBuf).set(aad);
+            const amkBuf = new ArrayBuffer(amk.byteLength);
+            new Uint8Array(amkBuf).set(amk);
+            const cryptoKey = await crypto.subtle.importKey(
+              'raw',
+              tkBuf,
+              'AES-GCM',
+              false,
+              ['encrypt'],
+            );
+            const ct = await crypto.subtle.encrypt(
+              { name: 'AES-GCM', iv: nonceBuf, additionalData: aadBuf },
+              cryptoKey,
+              amkBuf,
+            );
+
+            amkTransfer = {
+              ct: base64urlEncode(new Uint8Array(ct)),
+              nonce: base64urlEncode(nonce),
+              ecdh_public_key: base64urlEncode(browserPkBytes),
+            };
+          }
+        }
+      } catch {
+        // ECDH setup failure is non-fatal — approve without AMK transfer
+      }
+
+      setState({ step: 'approving' });
+      await appLoginApprove(auth.sessionToken, userCode, amkTransfer);
       setState({ step: 'done' });
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Approval failed.';
@@ -94,7 +159,7 @@ export function AppLoginPage() {
     navigate('/');
   };
 
-  const busy = state.step === 'approving';
+  const busy = state.step === 'approving' || state.step === 'computing';
 
   return (
     <div class="card text-center">

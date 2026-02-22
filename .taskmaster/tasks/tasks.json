@@ -124,14 +124,14 @@
         "id": 25,
         "title": "Verify native crypto end-to-end with spec test vectors",
         "description": "The Rust crypto bridge (seal_secret, open_secret, derive_claim_token) is wired up and the envelope dispatcher routes to native in Tauri, but needs end-to-end verification. Run the spec test vectors from spec/v1/envelope.vectors.json through the Tauri IPC path to confirm the native crypto produces identical results to the WebCrypto path. Also verify compression/decompression round-trips correctly.",
-        "status": "pending",
+        "status": "done",
         "priority": "high",
         "dependencies": [],
         "subtasks": [
-          { "id": 1, "title": "Write test harness that invokes Tauri commands with vector inputs", "status": "pending" },
-          { "id": 2, "title": "Verify all 5 envelope test vectors pass through native path", "status": "pending" },
-          { "id": 3, "title": "Test compression round-trip (text and file payloads)", "status": "pending" },
-          { "id": 4, "title": "Test passphrase-protected secrets through native path", "status": "pending" }
+          { "id": 1, "title": "Write test harness that invokes Tauri commands with vector inputs", "status": "done" },
+          { "id": 2, "title": "Verify all 5 envelope test vectors pass through native path", "status": "done" },
+          { "id": 3, "title": "Test compression round-trip (text and file payloads)", "status": "done" },
+          { "id": 4, "title": "Test passphrase-protected secrets through native path", "status": "done" }
         ]
       },
       {

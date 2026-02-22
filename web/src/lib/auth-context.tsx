@@ -3,11 +3,13 @@ import { useState, useEffect, useCallback, useContext } from 'preact/hooks';
 import type { ComponentChildren } from 'preact';
 import {
   getSessionToken,
+  getSessionTokenSync,
   setSessionToken,
   clearSessionToken,
-  getCachedProfile,
+  getCachedProfileSync,
   setCachedProfile,
 } from './session';
+import { isTauri } from './config';
 import { fetchSession, logout as apiLogout } from './api';
 
 export interface AuthState {
@@ -35,17 +37,18 @@ const defaultState: AuthState = {
 const AuthContext = createContext<AuthState>(defaultState);
 
 export function AuthProvider({ children }: { children: ComponentChildren }) {
-  // Read cached auth state synchronously to avoid a flash of wrong UI.
-  // - No token → loading: false immediately (we know user is unauthenticated)
-  // - Token + cached profile → loading: false, render authenticated UI instantly
-  // - Token but no cache → loading: true, wait for fetchSession
+  // Read cached auth state synchronously for browser (avoids flash of wrong UI).
+  // In Tauri mode, start with loading: true and resolve via useEffect (keyring is async).
   const [cached] = useState(() => {
-    const token = getSessionToken();
-    const profile = token ? getCachedProfile() : null;
+    if (isTauri()) return { token: null as string | null, profile: null };
+    const token = getSessionTokenSync();
+    const profile = token ? getCachedProfileSync() : null;
     return { token, profile };
   });
 
-  const [loading, setLoading] = useState(!!cached.token && !cached.profile);
+  const [loading, setLoading] = useState(
+    isTauri() ? true : !!cached.token && !cached.profile,
+  );
   const [authenticated, setAuthenticated] = useState(!!cached.profile);
   const [userId, setUserId] = useState<string | null>(
     cached.profile?.userId ?? null,
@@ -59,15 +62,17 @@ export function AuthProvider({ children }: { children: ComponentChildren }) {
 
   // Validate the session in the background
   useEffect(() => {
-    const token = getSessionToken();
-    if (!token) {
-      setLoading(false);
-      return;
-    }
-
     let cancelled = false;
-    fetchSession(token)
-      .then((res) => {
+
+    (async () => {
+      const token = await getSessionToken();
+      if (!token) {
+        if (!cancelled) setLoading(false);
+        return;
+      }
+
+      try {
+        const res = await fetchSession(token);
         if (cancelled) return;
         if (res.authenticated && res.user_id && res.display_name) {
           setToken(token);
@@ -79,20 +84,19 @@ export function AuthProvider({ children }: { children: ComponentChildren }) {
             displayName: res.display_name,
           });
         } else {
-          clearSessionToken();
+          await clearSessionToken();
           setAuthenticated(false);
           setToken(null);
           setUserId(null);
           setDisplayName(null);
         }
-      })
-      .catch(() => {
+      } catch {
         // Network error or aborted request — don't clear the token.
-        // Only the .then() path clears it when the server says invalid.
-      })
-      .finally(() => {
+        // Only the success path clears it when the server says invalid.
+      } finally {
         if (!cancelled) setLoading(false);
-      });
+      }
+    })();
 
     return () => {
       cancelled = true;
@@ -100,6 +104,7 @@ export function AuthProvider({ children }: { children: ComponentChildren }) {
   }, []);
 
   const login = useCallback((token: string, uid: string, name: string) => {
+    // Update React state synchronously, persist to storage async (fire-and-forget)
     setSessionToken(token);
     setCachedProfile({ userId: uid, displayName: name });
     setToken(token);
@@ -110,7 +115,7 @@ export function AuthProvider({ children }: { children: ComponentChildren }) {
   }, []);
 
   const logout = useCallback(async () => {
-    const token = getSessionToken();
+    const token = await getSessionToken();
     if (token) {
       try {
         await apiLogout(token);
@@ -118,7 +123,7 @@ export function AuthProvider({ children }: { children: ComponentChildren }) {
         /* best-effort */
       }
     }
-    clearSessionToken();
+    await clearSessionToken();
     setToken(null);
     setAuthenticated(false);
     setUserId(null);

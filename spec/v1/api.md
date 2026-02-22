@@ -417,6 +417,126 @@ Other outcomes:
 - `400` if `user_code` is not found or challenge is not pending
 - `401` if session token is missing or invalid
 
+### App Login (desktop app → browser → session token)
+
+App login enables a desktop application (e.g. Tauri) to obtain a session token by opening the user's system browser for passkey authentication. The flow is similar to device authorization, but mints a session token instead of an API key. Optional ECDH key exchange allows the browser to transfer the Account Master Key (AMK) to the app.
+
+#### Start app login
+
+`POST /api/v1/auth/app/start`
+
+Unauthenticated. IP rate-limited.
+
+Request (optional JSON body):
+
+```json
+{
+  "ecdh_public_key": "<base64url uncompressed P-256 public key, 65 bytes decoded>"
+}
+```
+
+An empty POST (no body or `Content-Type`) is valid and starts the flow without ECDH. If `Content-Type: application/json` is set, the body is parsed strictly — unknown fields and malformed JSON return `400`.
+
+`ecdh_public_key` validation: must be valid base64url, decoded length exactly 65 bytes (uncompressed P-256: `0x04` prefix + 32 + 32).
+
+Response (`200`):
+
+```json
+{
+  "app_code": "<base64url opaque identifier>",
+  "user_code": "ABCD-1234",
+  "verification_url": "https://secrt.ca/app-login?code=ABCD-1234&ek=<base64url>",
+  "expires_in": 600,
+  "interval": 2
+}
+```
+
+`verification_url` includes `&ek=<key>` only when `ecdh_public_key` was provided.
+
+#### Poll app login status
+
+`POST /api/v1/auth/app/poll`
+
+Unauthenticated. IP rate-limited.
+
+Request:
+
+```json
+{
+  "app_code": "<base64url>"
+}
+```
+
+Responses:
+
+- Pending: `200` `{ "status": "authorization_pending" }`
+- Approved: `200` — the challenge is atomically consumed, then a fresh session token is minted:
+
+```json
+{
+  "status": "complete",
+  "session_token": "uss_<sid>.<secret>",
+  "user_id": "<uuid>",
+  "display_name": "<string>",
+  "amk_transfer": {
+    "ct": "<base64url 48 bytes>",
+    "nonce": "<base64url 12 bytes>",
+    "ecdh_public_key": "<base64url 65 bytes>"
+  }
+}
+```
+
+- Expired or already consumed: `400` `{ "error": "expired_token" }`
+
+`amk_transfer` is present only when the approver attached encrypted AMK material. `session_token` is minted at poll time (not stored in the challenge) to avoid persisting raw bearer tokens in the database.
+
+**Concurrency safety:** The challenge is consumed (deleted) atomically before the session token is minted. If two clients poll the same approved challenge concurrently, exactly one will succeed — the other receives `expired_token`. This prevents duplicate session creation.
+
+#### Approve app login (session required)
+
+`POST /api/v1/auth/app/approve`
+
+Headers:
+
+- `Authorization: Bearer uss_<sid>.<secret>`
+
+Request:
+
+```json
+{
+  "user_code": "ABCD-1234",
+  "amk_transfer": {
+    "ct": "<base64url 48 bytes: 32-byte AMK + 16-byte GCM tag>",
+    "nonce": "<base64url 12 bytes: AES-GCM nonce>",
+    "ecdh_public_key": "<base64url 65 bytes: approver's ephemeral P-256 public key>"
+  }
+}
+```
+
+`amk_transfer` is optional. Field validation:
+
+- `ecdh_public_key`: valid base64url, 65 bytes decoded
+- `nonce`: valid base64url, 12 bytes decoded
+- `ct`: valid base64url, 48 bytes decoded
+
+Response (`200`):
+
+```json
+{ "ok": true }
+```
+
+Behavior:
+
+1. Validates session auth.
+2. Looks up a pending `app-login` challenge by `user_code` (constant-time comparison).
+3. Updates challenge status to `"approved"` with the user's `user_id`, `display_name`, and optional `amk_transfer`.
+4. Session token is **not** minted here — deferred to poll time.
+
+Other outcomes:
+
+- `400` if `user_code` is not found, challenge is not pending, or `amk_transfer` fields are invalid
+- `401` if session token is missing or invalid
+
 ### API key management (session required)
 
 #### Register API key auth token

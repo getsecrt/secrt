@@ -179,6 +179,10 @@ The header is an internal signal between the reverse proxy and the application a
 - `POST /api/v1/auth/device/poll`
 - `POST /api/v1/auth/device/approve`
 - `GET /api/v1/auth/device/challenge`
+- `GET /app-login`
+- `POST /api/v1/auth/app/start`
+- `POST /api/v1/auth/app/poll`
+- `POST /api/v1/auth/app/approve`
 - `PUT /api/v1/amk/wrapper`
 - `GET /api/v1/amk/wrapper`
 - `GET /api/v1/amk/wrappers`
@@ -216,6 +220,7 @@ Authenticated endpoints:
 - `POST /api/v1/auth/passkeys/add/finish` (session-authenticated)
 - `PATCH /api/v1/auth/passkeys/{id}` (session-authenticated)
 - `POST /api/v1/auth/passkeys/{id}/revoke` (session-authenticated)
+- `POST /api/v1/auth/app/approve` (session-authenticated)
 - `POST /api/v1/amk/commit` (session-authenticated)
 - `PATCH /api/v1/auth/account` (session-authenticated)
 - `DELETE /api/v1/auth/account` (session-authenticated)
@@ -281,6 +286,27 @@ Storage reuse: device-auth challenges are stored in the `webauthn_challenges` ta
 4. Register API key linked to session user (reuses existing registration quota logic).
 5. Update challenge status to `"approved"` with the generated prefix.
 6. Return `{ "ok": true }`.
+
+### 6.2. App Login Flow
+
+App login enables desktop applications to obtain a session token via browser-based passkey authentication. Challenges are stored in `webauthn_challenges` with `purpose = "app-login"` and 10-minute expiry.
+
+**Challenge lifecycle:**
+
+1. **Start** (`POST /api/v1/auth/app/start`, unauthenticated): generates `app_code` (32 random bytes) and `user_code`. Stores challenge JSON with `status: "pending"`, optional `ecdh_public_key`, no `session_token`.
+2. **Approve** (`POST /api/v1/auth/app/approve`, session-authenticated): updates challenge to `status: "approved"` with `user_id` and `display_name`. Does **not** mint a session token. Optionally attaches `amk_transfer`.
+3. **Poll** (`POST /api/v1/auth/app/poll`, unauthenticated): atomically consumes the challenge, then mints a fresh session token. Returns the token, user info, and optional `amk_transfer`.
+
+**Consume-then-mint ordering:** The poll handler MUST consume the challenge before minting the session token. This ordering is critical for concurrency safety — if the token were minted first, concurrent polls could race past the consume step and each create a valid session. With consume-first, the atomic delete ensures exactly one poll succeeds.
+
+**No raw tokens in challenge JSON:** The session token is never stored in the `challenge_json` column. This ensures bearer tokens are never persisted in plaintext in the database. The token is minted fresh at poll time after successful consume.
+
+**Input validation:**
+
+- `ecdh_public_key`: base64url, 65 bytes decoded (uncompressed P-256). Validated at start time and in `amk_transfer`.
+- `amk_transfer.nonce`: base64url, 12 bytes decoded (AES-GCM nonce).
+- `amk_transfer.ct`: base64url, 48 bytes decoded (32-byte AMK + 16-byte GCM tag).
+- `AppStartRequest` rejects unknown JSON fields (`deny_unknown_fields`).
 
 ## 7. Ownership and Quota Model
 
@@ -373,8 +399,31 @@ Device authorization approve (`POST /api/v1/auth/device/approve`):
 - Requires `Authorization: Bearer uss_<sid>.<secret>`
 - Requires `Content-Type: application/json`
 - Body field `user_code` MUST be a non-empty string
+- Optional `amk_transfer` validated: `ecdh_public_key` 65 bytes, `nonce` 12 bytes, `ct` 48 bytes
 - User code comparison is constant-time
 - Reuses API key registration quota enforcement
+
+App login start (`POST /api/v1/auth/app/start`):
+
+- IP rate-limited
+- Optional JSON body. If `Content-Type: application/json` is set, body is parsed strictly (unknown fields → 400)
+- Optional `ecdh_public_key`: valid base64url, decoded length exactly 65 bytes (uncompressed P-256)
+- Empty POST (no body or Content-Type) is valid
+
+App login poll (`POST /api/v1/auth/app/poll`):
+
+- Requires `Content-Type: application/json`
+- Body field `app_code` MUST be a non-empty string
+- IP rate-limited
+
+App login approve (`POST /api/v1/auth/app/approve`):
+
+- Requires `Authorization: Bearer uss_<sid>.<secret>`
+- Requires `Content-Type: application/json`
+- Body field `user_code` MUST be a non-empty string
+- Optional `amk_transfer` validated: `ecdh_public_key` 65 bytes, `nonce` 12 bytes, `ct` 48 bytes
+- User code comparison is constant-time
+- Session token minted at poll time, not stored in challenge
 
 List request (`GET /api/v1/secrets`):
 

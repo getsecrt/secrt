@@ -3221,9 +3221,10 @@ checksum = "94143f37725109f92c262ed2cf5e59bce7498c01bcc1502d7b9afe439a4e9f49"
 
 [[package]]
 name = "secrt-app"
-version = "0.14.4"
+version = "0.14.5"
 dependencies = [
  "base64 0.22.1",
+ "keyring",
  "ring",
  "secrt-core",
  "serde",
@@ -3235,7 +3236,7 @@ dependencies = [
 
 [[package]]
 name = "secrt-cli"
-version = "0.14.4"
+version = "0.14.5"
 dependencies = [
  "base64 0.22.1",
  "dirs",
@@ -3253,7 +3254,7 @@ dependencies = [
 
 [[package]]
 name = "secrt-core"
-version = "0.14.4"
+version = "0.14.5"
 dependencies = [
  "argon2",
  "base64 0.22.1",
@@ -3266,7 +3267,7 @@ dependencies = [
 
 [[package]]
 name = "secrt-server"
-version = "0.14.4"
+version = "0.14.5"
 dependencies = [
  "async-trait",
  "axum",

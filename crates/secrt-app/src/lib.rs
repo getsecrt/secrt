@@ -142,6 +142,51 @@ fn derive_claim_token(url_key_b64: String) -> Result<String, String> {
     derive_claim_token_inner(&url_key_b64)
 }
 
+// --- Keyring (OS credential store) ---
+
+const KEYRING_SERVICE: &str = "ca.secrt.app";
+const ALLOWED_KEY_PREFIXES: &[&str] = &["session_token", "session_profile", "amk:"];
+
+fn validate_keyring_key(key: &str) -> Result<(), String> {
+    if ALLOWED_KEY_PREFIXES
+        .iter()
+        .any(|p| key == *p || key.starts_with(p))
+    {
+        Ok(())
+    } else {
+        Err(format!("disallowed keyring key: {key}"))
+    }
+}
+
+#[tauri::command]
+fn keyring_set(key: String, value: String) -> Result<(), String> {
+    validate_keyring_key(&key)?;
+    let entry = keyring::Entry::new(KEYRING_SERVICE, &key).map_err(|e| e.to_string())?;
+    entry.set_password(&value).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn keyring_get(key: String) -> Result<Option<String>, String> {
+    validate_keyring_key(&key)?;
+    let entry = keyring::Entry::new(KEYRING_SERVICE, &key).map_err(|e| e.to_string())?;
+    match entry.get_password() {
+        Ok(v) => Ok(Some(v)),
+        Err(keyring::Error::NoEntry) => Ok(None),
+        Err(e) => Err(e.to_string()),
+    }
+}
+
+#[tauri::command]
+fn keyring_delete(key: String) -> Result<(), String> {
+    validate_keyring_key(&key)?;
+    let entry = keyring::Entry::new(KEYRING_SERVICE, &key).map_err(|e| e.to_string())?;
+    match entry.delete_credential() {
+        Ok(()) => Ok(()),
+        Err(keyring::Error::NoEntry) => Ok(()),
+        Err(e) => Err(e.to_string()),
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -150,6 +195,9 @@ pub fn run() {
             seal_secret,
             open_secret,
             derive_claim_token,
+            keyring_set,
+            keyring_get,
+            keyring_delete,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

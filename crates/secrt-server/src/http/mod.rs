@@ -377,6 +377,37 @@ struct AmkTransferJson {
     ecdh_public_key: String,
 }
 
+/// Validate an ECDH public key is base64url-encoded uncompressed P-256 (65 bytes).
+fn validate_ecdh_public_key(s: &str) -> Result<(), &'static str> {
+    let bytes = URL_SAFE_NO_PAD
+        .decode(s)
+        .map_err(|_| "ecdh_public_key: invalid base64url")?;
+    if bytes.len() != 65 {
+        return Err("ecdh_public_key: decoded length must be 65 bytes (uncompressed P-256)");
+    }
+    Ok(())
+}
+
+/// Validate AMK transfer fields: ecdh_public_key (65 bytes), nonce (12 bytes), ct (48 bytes).
+fn validate_amk_transfer(t: &AmkTransferJson) -> Result<(), &'static str> {
+    validate_ecdh_public_key(&t.ecdh_public_key)?;
+    let nonce = URL_SAFE_NO_PAD
+        .decode(&t.nonce)
+        .map_err(|_| "amk_transfer.nonce: invalid base64url")?;
+    if nonce.len() != 12 {
+        return Err("amk_transfer.nonce: decoded length must be 12 bytes (AES-GCM nonce)");
+    }
+    let ct = URL_SAFE_NO_PAD
+        .decode(&t.ct)
+        .map_err(|_| "amk_transfer.ct: invalid base64url")?;
+    if ct.len() != 48 {
+        return Err(
+            "amk_transfer.ct: decoded length must be 48 bytes (32-byte AMK + 16-byte GCM tag)",
+        );
+    }
+    Ok(())
+}
+
 #[derive(Serialize, Deserialize)]
 struct DeviceChallengeJson {
     user_code: String,
@@ -493,6 +524,13 @@ struct AppPollRequest {
     app_code: String,
 }
 
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct AppStartRequest {
+    #[serde(default)]
+    ecdh_public_key: Option<String>,
+}
+
 #[derive(Serialize)]
 struct AppPollResponse {
     status: String,
@@ -502,12 +540,16 @@ struct AppPollResponse {
     user_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     display_name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    amk_transfer: Option<AmkTransferJson>,
 }
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct AppApproveRequest {
     user_code: String,
+    #[serde(default)]
+    amk_transfer: Option<AmkTransferJson>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -515,11 +557,13 @@ struct AppChallengeJson {
     user_code: String,
     status: String,
     #[serde(skip_serializing_if = "Option::is_none")]
-    session_token: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     user_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     display_name: Option<String>,
+    #[serde(default)]
+    ecdh_public_key: Option<String>,
+    #[serde(default)]
+    amk_transfer: Option<AmkTransferJson>,
 }
 
 fn generate_user_code() -> Result<String, ()> {
@@ -2225,6 +2269,13 @@ pub async fn handle_device_start_entry(
     };
     let auth_token_b64 = URL_SAFE_NO_PAD.encode(&auth_token_bytes);
 
+    // Validate ECDH public key if present
+    if let Some(ref ek) = payload.ecdh_public_key {
+        if let Err(msg) = validate_ecdh_public_key(ek) {
+            return bad_request(msg);
+        }
+    }
+
     // Generate device_code and user_code
     let device_code = match random_b64(DEVICE_CODE_LEN) {
         Ok(v) => v,
@@ -2376,6 +2427,13 @@ pub async fn handle_device_approve_entry(
         Ok(v) => v,
         Err(resp) => return resp,
     };
+
+    // Validate amk_transfer fields if present
+    if let Some(ref amk) = payload.amk_transfer {
+        if let Err(msg) = validate_amk_transfer(amk) {
+            return bad_request(msg);
+        }
+    }
 
     let now = Utc::now();
 
@@ -2949,8 +3007,28 @@ pub async fn handle_app_start_entry(State(state): State<Arc<AppState>>, req: Req
         return rate_limited();
     }
 
-    // No request body needed
-    let _ = req;
+    // Optionally parse request body for ECDH public key.
+    // If Content-Type is JSON, parse strictly (400 on malformed).
+    // If no Content-Type or empty body, treat as no ECDH key (backward compat).
+    let ecdh_public_key = if is_json_content_type(req.headers()) {
+        match to_bytes(req.into_body(), 4 * 1024).await {
+            Ok(body) if !body.is_empty() => {
+                let parsed: AppStartRequest = match serde_json::from_slice(&body) {
+                    Ok(v) => v,
+                    Err(e) => return bad_request(format!("invalid request body: {e}")),
+                };
+                if let Some(ref ek) = parsed.ecdh_public_key {
+                    if let Err(msg) = validate_ecdh_public_key(ek) {
+                        return bad_request(msg);
+                    }
+                }
+                parsed.ecdh_public_key
+            }
+            _ => None,
+        }
+    } else {
+        None
+    };
 
     let app_code = match random_b64(DEVICE_CODE_LEN) {
         Ok(v) => v,
@@ -2964,9 +3042,10 @@ pub async fn handle_app_start_entry(State(state): State<Arc<AppState>>, req: Req
     let challenge_data = AppChallengeJson {
         user_code: user_code.clone(),
         status: "pending".into(),
-        session_token: None,
         user_id: None,
         display_name: None,
+        ecdh_public_key: ecdh_public_key.clone(),
+        amk_transfer: None,
     };
     let challenge_json = match serde_json::to_string(&challenge_data) {
         Ok(v) => v,
@@ -2989,11 +3068,14 @@ pub async fn handle_app_start_entry(State(state): State<Arc<AppState>>, req: Req
         return internal_server_error();
     }
 
-    let verification_url = format!(
+    let mut verification_url = format!(
         "{}/app-login?code={}",
         state.cfg.public_base_url,
         urlencoding::encode(&user_code)
     );
+    if let Some(ref ek) = ecdh_public_key {
+        verification_url.push_str(&format!("&ek={}", urlencoding::encode(ek)));
+    }
 
     json_response(
         StatusCode::OK,
@@ -3044,7 +3126,9 @@ pub async fn handle_app_poll_entry(State(state): State<Arc<AppState>>, req: Requ
     };
 
     if data.status == "approved" {
-        // Consume the challenge atomically (one-time read)
+        // Consume the challenge atomically (one-time read).
+        // MUST consume before minting to prevent concurrent polls from
+        // each creating a valid session.
         match state
             .auth_store
             .consume_challenge(&payload.app_code, APP_LOGIN_PURPOSE, now)
@@ -3059,13 +3143,29 @@ pub async fn handle_app_poll_entry(State(state): State<Arc<AppState>>, req: Requ
                 return internal_server_error();
             }
         }
+
+        // Mint a fresh session token now (after consume succeeded).
+        let user_id_str = match &data.user_id {
+            Some(uid) => uid.clone(),
+            None => return internal_server_error(),
+        };
+        let user_id: UserId = match user_id_str.parse() {
+            Ok(v) => v,
+            Err(_) => return internal_server_error(),
+        };
+        let (session_token, _) = match issue_session_token(&state, user_id).await {
+            Ok(v) => v,
+            Err(resp) => return resp,
+        };
+
         return json_response(
             StatusCode::OK,
             AppPollResponse {
                 status: "complete".into(),
-                session_token: data.session_token,
+                session_token: Some(session_token),
                 user_id: data.user_id,
                 display_name: data.display_name,
+                amk_transfer: data.amk_transfer,
             },
         );
     }
@@ -3077,6 +3177,7 @@ pub async fn handle_app_poll_entry(State(state): State<Arc<AppState>>, req: Requ
             session_token: None,
             user_id: None,
             display_name: None,
+            amk_transfer: None,
         },
     )
 }
@@ -3098,6 +3199,13 @@ pub async fn handle_app_approve_entry(
         Ok(v) => v,
         Err(resp) => return resp,
     };
+
+    // Validate amk_transfer fields if present
+    if let Some(ref amk) = payload.amk_transfer {
+        if let Err(msg) = validate_amk_transfer(amk) {
+            return bad_request(msg);
+        }
+    }
 
     let now = Utc::now();
 
@@ -3135,13 +3243,7 @@ pub async fn handle_app_approve_entry(
         return bad_request("invalid or expired code");
     }
 
-    // Issue a session token for the authenticated user
-    let (session_token, _) = match issue_session_token(&state, user_id).await {
-        Ok(v) => v,
-        Err(resp) => return resp,
-    };
-
-    // Get user info for the response
+    // Get user info for the challenge update (token minted at poll time)
     let user = match state.auth_store.get_user_by_id(user_id).await {
         Ok(u) => u,
         Err(e) => {
@@ -3150,13 +3252,14 @@ pub async fn handle_app_approve_entry(
         }
     };
 
-    // Update challenge to approved state with session token
+    // Update challenge to approved state — no session token stored
     let updated = AppChallengeJson {
         user_code: data.user_code,
         status: "approved".into(),
-        session_token: Some(session_token),
         user_id: Some(user_id.to_string()),
         display_name: Some(user.display_name),
+        ecdh_public_key: data.ecdh_public_key,
+        amk_transfer: payload.amk_transfer,
     };
     let updated_json = match serde_json::to_string(&updated) {
         Ok(v) => v,
@@ -6110,6 +6213,125 @@ mod tests {
         assert_eq!(body["interval"], 2);
     }
 
+    // Valid 65-byte uncompressed P-256 public key (0x04 + 64 bytes), base64url-encoded
+    const TEST_ECDH_KEY: &str =
+        "BEFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUE";
+    const TEST_ECDH_KEY2: &str =
+        "BEJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkI";
+    // Valid 12-byte AES-GCM nonce, base64url-encoded
+    const TEST_NONCE: &str = "Tk5OTk5OTk5OTk5O";
+    // Valid 48-byte ciphertext (32 AMK + 16 GCM tag), base64url-encoded
+    const TEST_CT: &str = "Q0NDQ0NDQ0NDQ0NDQ0NDQ0NDQ0NDQ0NDQ0NDQ0NDQ0NDQ0NDQ0NDQ0NDQ0NDQ0ND";
+
+    #[tokio::test]
+    async fn app_start_embeds_ecdh_key_in_url() {
+        let state = test_state();
+
+        let body = serde_json::json!({ "ecdh_public_key": TEST_ECDH_KEY }).to_string();
+        let resp = handle_app_start_entry(State(state.clone()), post_json("/x", &body)).await;
+        assert_eq!(resp.status(), StatusCode::OK);
+
+        let resp_body: serde_json::Value =
+            serde_json::from_str(&response_text(resp).await).expect("json");
+        let verification_url = resp_body["verification_url"]
+            .as_str()
+            .expect("verification_url");
+        assert!(
+            verification_url.contains("&ek="),
+            "verification_url should contain &ek= param, got: {verification_url}"
+        );
+    }
+
+    #[tokio::test]
+    async fn app_amk_transfer_roundtrips() {
+        let (state, token, _user_id, _prefix) = test_state_with_session().await;
+
+        // 1. Start with ECDH public key
+        let start_body = serde_json::json!({ "ecdh_public_key": TEST_ECDH_KEY }).to_string();
+        let start_resp =
+            handle_app_start_entry(State(state.clone()), post_json("/x", &start_body)).await;
+        assert_eq!(start_resp.status(), StatusCode::OK);
+        let start_data: serde_json::Value =
+            serde_json::from_str(&response_text(start_resp).await).expect("json");
+        let app_code = start_data["app_code"]
+            .as_str()
+            .expect("app_code")
+            .to_string();
+        let user_code = start_data["user_code"]
+            .as_str()
+            .expect("user_code")
+            .to_string();
+
+        // 2. Approve with amk_transfer (valid lengths: 65-byte ecdh, 12-byte nonce, 48-byte ct)
+        let amk_transfer = serde_json::json!({
+            "ct": TEST_CT,
+            "nonce": TEST_NONCE,
+            "ecdh_public_key": TEST_ECDH_KEY2,
+        });
+        let approve_body = serde_json::json!({
+            "user_code": user_code,
+            "amk_transfer": amk_transfer,
+        })
+        .to_string();
+        let approve_resp = handle_app_approve_entry(
+            State(state.clone()),
+            authed_post_json("/x", &token, &approve_body),
+        )
+        .await;
+        assert_eq!(approve_resp.status(), StatusCode::OK);
+
+        // 3. Poll — should get amk_transfer back
+        let poll_payload = serde_json::json!({ "app_code": app_code }).to_string();
+        let poll_resp =
+            handle_app_poll_entry(State(state.clone()), post_json("/x", &poll_payload)).await;
+        assert_eq!(poll_resp.status(), StatusCode::OK);
+        let poll_body: serde_json::Value =
+            serde_json::from_str(&response_text(poll_resp).await).expect("json");
+        assert_eq!(poll_body["status"], "complete");
+        assert_eq!(poll_body["amk_transfer"]["ct"], TEST_CT);
+        assert_eq!(poll_body["amk_transfer"]["nonce"], TEST_NONCE);
+        assert_eq!(poll_body["amk_transfer"]["ecdh_public_key"], TEST_ECDH_KEY2);
+    }
+
+    #[tokio::test]
+    async fn app_approve_without_amk_transfer() {
+        let (state, token, _user_id, _prefix) = test_state_with_session().await;
+
+        // Start without ECDH key
+        let start_resp = handle_app_start_entry(State(state.clone()), post_json("/x", "{}")).await;
+        let start_data: serde_json::Value =
+            serde_json::from_str(&response_text(start_resp).await).expect("json");
+        let app_code = start_data["app_code"]
+            .as_str()
+            .expect("app_code")
+            .to_string();
+        let user_code = start_data["user_code"]
+            .as_str()
+            .expect("user_code")
+            .to_string();
+
+        // Approve without amk_transfer (original behavior)
+        let approve_body = serde_json::json!({ "user_code": user_code }).to_string();
+        let approve_resp = handle_app_approve_entry(
+            State(state.clone()),
+            authed_post_json("/x", &token, &approve_body),
+        )
+        .await;
+        assert_eq!(approve_resp.status(), StatusCode::OK);
+
+        // Poll — amk_transfer should be absent
+        let poll_payload = serde_json::json!({ "app_code": app_code }).to_string();
+        let poll_resp =
+            handle_app_poll_entry(State(state.clone()), post_json("/x", &poll_payload)).await;
+        let poll_body: serde_json::Value =
+            serde_json::from_str(&response_text(poll_resp).await).expect("json");
+        assert_eq!(poll_body["status"], "complete");
+        assert!(
+            poll_body.get("amk_transfer").is_none() || poll_body["amk_transfer"].is_null(),
+            "amk_transfer should not be present when not provided"
+        );
+    }
+
     #[tokio::test]
     async fn app_poll_pending() {
         let state = test_state();
@@ -6266,6 +6488,217 @@ mod tests {
             body.contains("invalid or expired code"),
             "wrong user_code should return 'invalid or expired code'"
         );
+    }
+
+    // ── App login validation tests ──────────────────────────
+
+    #[tokio::test]
+    async fn app_start_rejects_invalid_ecdh_key_short() {
+        let state = test_state();
+        // "dGVzdA" decodes to "test" (4 bytes), not 65
+        let body = serde_json::json!({ "ecdh_public_key": "dGVzdA" }).to_string();
+        let resp = handle_app_start_entry(State(state), post_json("/x", &body)).await;
+        assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+        let text = response_text(resp).await;
+        assert!(text.contains("65 bytes"), "should mention 65 bytes: {text}");
+    }
+
+    #[tokio::test]
+    async fn app_start_rejects_invalid_base64() {
+        let state = test_state();
+        let body = serde_json::json!({ "ecdh_public_key": "!!!invalid-base64!!!" }).to_string();
+        let resp = handle_app_start_entry(State(state), post_json("/x", &body)).await;
+        assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+        let text = response_text(resp).await;
+        assert!(
+            text.contains("invalid base64url"),
+            "should mention base64url: {text}"
+        );
+    }
+
+    #[tokio::test]
+    async fn app_start_rejects_unknown_fields() {
+        let state = test_state();
+        let body =
+            serde_json::json!({ "ecdh_public_key": TEST_ECDH_KEY, "extra": true }).to_string();
+        let resp = handle_app_start_entry(State(state), post_json("/x", &body)).await;
+        assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+    }
+
+    #[tokio::test]
+    async fn app_approve_rejects_invalid_amk_transfer_nonce() {
+        let (state, token, _user_id, _prefix) = test_state_with_session().await;
+
+        let start_resp = handle_app_start_entry(State(state.clone()), post_json("/x", "{}")).await;
+        let start_data: serde_json::Value =
+            serde_json::from_str(&response_text(start_resp).await).expect("json");
+        let user_code = start_data["user_code"]
+            .as_str()
+            .expect("user_code")
+            .to_string();
+
+        // Bad nonce (4 bytes instead of 12)
+        let amk = serde_json::json!({
+            "ct": TEST_CT,
+            "nonce": "dGVzdA",
+            "ecdh_public_key": TEST_ECDH_KEY2,
+        });
+        let body = serde_json::json!({ "user_code": user_code, "amk_transfer": amk }).to_string();
+        let resp =
+            handle_app_approve_entry(State(state), authed_post_json("/x", &token, &body)).await;
+        assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+        let text = response_text(resp).await;
+        assert!(text.contains("12 bytes"), "should mention 12 bytes: {text}");
+    }
+
+    #[tokio::test]
+    async fn app_approve_rejects_invalid_amk_transfer_ct() {
+        let (state, token, _user_id, _prefix) = test_state_with_session().await;
+
+        let start_resp = handle_app_start_entry(State(state.clone()), post_json("/x", "{}")).await;
+        let start_data: serde_json::Value =
+            serde_json::from_str(&response_text(start_resp).await).expect("json");
+        let user_code = start_data["user_code"]
+            .as_str()
+            .expect("user_code")
+            .to_string();
+
+        // Bad ct (4 bytes instead of 48)
+        let amk = serde_json::json!({
+            "ct": "dGVzdA",
+            "nonce": TEST_NONCE,
+            "ecdh_public_key": TEST_ECDH_KEY2,
+        });
+        let body = serde_json::json!({ "user_code": user_code, "amk_transfer": amk }).to_string();
+        let resp =
+            handle_app_approve_entry(State(state), authed_post_json("/x", &token, &body)).await;
+        assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+        let text = response_text(resp).await;
+        assert!(text.contains("48 bytes"), "should mention 48 bytes: {text}");
+    }
+
+    #[tokio::test]
+    async fn app_challenge_json_has_no_session_token() {
+        let (state, token, _user_id, _prefix) = test_state_with_session().await;
+
+        // Start → approve → verify raw challenge JSON doesn't contain session_token
+        let start_resp = handle_app_start_entry(State(state.clone()), post_json("/x", "{}")).await;
+        let start_data: serde_json::Value =
+            serde_json::from_str(&response_text(start_resp).await).expect("json");
+        let app_code = start_data["app_code"]
+            .as_str()
+            .expect("app_code")
+            .to_string();
+        let user_code = start_data["user_code"]
+            .as_str()
+            .expect("user_code")
+            .to_string();
+
+        let approve_payload = serde_json::json!({ "user_code": user_code }).to_string();
+        handle_app_approve_entry(
+            State(state.clone()),
+            authed_post_json("/x", &token, &approve_payload),
+        )
+        .await;
+
+        // Read the raw challenge JSON from the store
+        let now = Utc::now();
+        let challenge = state
+            .auth_store
+            .get_challenge(&app_code, APP_LOGIN_PURPOSE, now)
+            .await
+            .expect("challenge should exist");
+        let raw_json: serde_json::Value =
+            serde_json::from_str(&challenge.challenge_json).expect("valid json");
+
+        // session_token must NOT be present in the stored challenge
+        assert!(
+            raw_json.get("session_token").is_none() || raw_json["session_token"].is_null(),
+            "session_token should not be stored in challenge JSON, got: {raw_json}"
+        );
+    }
+
+    #[tokio::test]
+    async fn app_poll_still_returns_session_token() {
+        let (state, token, _user_id, _prefix) = test_state_with_session().await;
+
+        let start_resp = handle_app_start_entry(State(state.clone()), post_json("/x", "{}")).await;
+        let start_data: serde_json::Value =
+            serde_json::from_str(&response_text(start_resp).await).expect("json");
+        let app_code = start_data["app_code"]
+            .as_str()
+            .expect("app_code")
+            .to_string();
+        let user_code = start_data["user_code"]
+            .as_str()
+            .expect("user_code")
+            .to_string();
+
+        let approve_payload = serde_json::json!({ "user_code": user_code }).to_string();
+        handle_app_approve_entry(
+            State(state.clone()),
+            authed_post_json("/x", &token, &approve_payload),
+        )
+        .await;
+
+        let poll_payload = serde_json::json!({ "app_code": app_code }).to_string();
+        let poll_resp = handle_app_poll_entry(State(state), post_json("/x", &poll_payload)).await;
+        assert_eq!(poll_resp.status(), StatusCode::OK);
+        let poll_body: serde_json::Value =
+            serde_json::from_str(&response_text(poll_resp).await).expect("json");
+
+        assert_eq!(poll_body["status"], "complete");
+        let session_token = poll_body["session_token"]
+            .as_str()
+            .expect("session_token should be present in poll response");
+        assert!(
+            session_token.starts_with("uss_"),
+            "session_token should start with uss_ prefix"
+        );
+    }
+
+    #[tokio::test]
+    async fn device_start_rejects_invalid_ecdh_key() {
+        let state = test_state();
+        let auth_token = URL_SAFE_NO_PAD.encode(&[0u8; 32]);
+        let body = serde_json::json!({
+            "auth_token": auth_token,
+            "ecdh_public_key": "dGVzdA"  // 4 bytes, not 65
+        })
+        .to_string();
+        let resp = handle_device_start_entry(State(state), post_json("/x", &body)).await;
+        assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+        let text = response_text(resp).await;
+        assert!(text.contains("65 bytes"), "should mention 65 bytes: {text}");
+    }
+
+    #[tokio::test]
+    async fn device_approve_rejects_invalid_amk_transfer() {
+        let (state, token, _user_id, _prefix) = test_state_with_session().await;
+
+        let auth_token = URL_SAFE_NO_PAD.encode(&[0u8; 32]);
+        let start_body = serde_json::json!({ "auth_token": auth_token }).to_string();
+        let start_resp =
+            handle_device_start_entry(State(state.clone()), post_json("/x", &start_body)).await;
+        let start_data: serde_json::Value =
+            serde_json::from_str(&response_text(start_resp).await).expect("json");
+        let user_code = start_data["user_code"]
+            .as_str()
+            .expect("user_code")
+            .to_string();
+
+        // Bad amk_transfer (wrong nonce length)
+        let amk = serde_json::json!({
+            "ct": TEST_CT,
+            "nonce": "dGVzdA",
+            "ecdh_public_key": TEST_ECDH_KEY2,
+        });
+        let body = serde_json::json!({ "user_code": user_code, "amk_transfer": amk }).to_string();
+        let resp =
+            handle_device_approve_entry(State(state), authed_post_json("/x", &token, &body)).await;
+        assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+        let text = response_text(resp).await;
+        assert!(text.contains("12 bytes"), "should mention 12 bytes: {text}");
     }
 
     // ── API-key-with-user_id cross-auth tests ─────────────

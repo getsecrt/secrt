@@ -1,9 +1,33 @@
 /**
- * IndexedDB persistence for the Account Master Key (AMK).
+ * Persistence for the Account Master Key (AMK).
  *
- * The AMK is stored encrypted-at-rest in the browser's IndexedDB, keyed by
- * user ID. This module provides simple get/set/clear helpers.
+ * - **Tauri:** stored in OS keychain via `keyring` crate (base64url-encoded).
+ * - **Browser:** stored in IndexedDB keyed by user ID.
  */
+
+import { isTauri } from './config';
+import { base64urlEncode, base64urlDecode } from '../crypto/encoding';
+
+// --- Tauri keychain path ---
+
+async function storeTauri(userId: string, amk: Uint8Array): Promise<void> {
+  const { keyringSet } = await import('./keyring');
+  await keyringSet(`amk:${userId}`, base64urlEncode(amk));
+}
+
+async function loadTauri(userId: string): Promise<Uint8Array | null> {
+  const { keyringGet } = await import('./keyring');
+  const raw = await keyringGet(`amk:${userId}`);
+  if (!raw) return null;
+  return base64urlDecode(raw);
+}
+
+async function clearTauri(userId: string): Promise<void> {
+  const { keyringDelete } = await import('./keyring');
+  await keyringDelete(`amk:${userId}`);
+}
+
+// --- Browser IndexedDB path ---
 
 const DB_NAME = 'secrt-amk';
 const DB_VERSION = 1;
@@ -30,11 +54,7 @@ function txPromise<T>(tx: IDBTransaction, request: IDBRequest<T>): Promise<T> {
   });
 }
 
-/** Store an AMK for a given user. */
-export async function storeAmk(
-  userId: string,
-  amk: Uint8Array,
-): Promise<void> {
+async function storeIdb(userId: string, amk: Uint8Array): Promise<void> {
   const db = await openDb();
   try {
     const tx = db.transaction(STORE_NAME, 'readwrite');
@@ -46,8 +66,7 @@ export async function storeAmk(
   }
 }
 
-/** Load an AMK for a given user, or null if not found. */
-export async function loadAmk(userId: string): Promise<Uint8Array | null> {
+async function loadIdb(userId: string): Promise<Uint8Array | null> {
   const db = await openDb();
   try {
     const tx = db.transaction(STORE_NAME, 'readonly');
@@ -55,7 +74,6 @@ export async function loadAmk(userId: string): Promise<Uint8Array | null> {
     const req = store.get(userId);
     const result = await txPromise(tx, req);
     if (!result) return null;
-    // Ensure we return a Uint8Array (IDB may store as ArrayBuffer)
     if (result instanceof Uint8Array) return result;
     if (result instanceof ArrayBuffer) return new Uint8Array(result);
     return null;
@@ -64,8 +82,7 @@ export async function loadAmk(userId: string): Promise<Uint8Array | null> {
   }
 }
 
-/** Clear a stored AMK for a given user. */
-export async function clearAmk(userId: string): Promise<void> {
+async function clearIdb(userId: string): Promise<void> {
   const db = await openDb();
   try {
     const tx = db.transaction(STORE_NAME, 'readwrite');
@@ -75,4 +92,24 @@ export async function clearAmk(userId: string): Promise<void> {
   } finally {
     db.close();
   }
+}
+
+// --- Public API ---
+
+/** Store an AMK for a given user. */
+export async function storeAmk(
+  userId: string,
+  amk: Uint8Array,
+): Promise<void> {
+  return isTauri() ? storeTauri(userId, amk) : storeIdb(userId, amk);
+}
+
+/** Load an AMK for a given user, or null if not found. */
+export async function loadAmk(userId: string): Promise<Uint8Array | null> {
+  return isTauri() ? loadTauri(userId) : loadIdb(userId);
+}
+
+/** Clear a stored AMK for a given user. */
+export async function clearAmk(userId: string): Promise<void> {
+  return isTauri() ? clearTauri(userId) : clearIdb(userId);
 }

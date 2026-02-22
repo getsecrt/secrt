@@ -98,11 +98,11 @@ describe('DashboardPage', () => {
     cleanup();
   });
 
-  it('redirects unauthenticated users to /login', () => {
+  it('redirects unauthenticated users to /login', async () => {
     mockAuth.authenticated = false;
     mockAuth.loading = false;
     render(<DashboardPage />);
-    expect(mockNavigate).toHaveBeenCalledWith('/login');
+    await waitFor(() => expect(mockNavigate).toHaveBeenCalledWith('/login'));
   });
 
   it('shows loading state while fetching secrets', () => {

@@ -34,7 +34,7 @@ vi.mock('../../crypto/encoding', () => ({
   base64urlEncode: vi.fn().mockReturnValue('cmFuZG9t'),
 }));
 
-import { LoginPage } from './LoginPage';
+import { LoginPage, isAllowedVerificationUrl } from './LoginPage';
 import { supportsWebAuthn, getPasskeyCredential } from '../../lib/webauthn';
 import { loginPasskeyStart, loginPasskeyFinish } from '../../lib/api';
 
@@ -141,5 +141,30 @@ describe('LoginPage', () => {
     render(<LoginPage />);
     await user.click(screen.getByText('Register a New Account'));
     expect(mockNavigate).toHaveBeenCalledWith('/register');
+  });
+});
+
+describe('isAllowedVerificationUrl', () => {
+  it('rejects non-https URLs', () => {
+    expect(isAllowedVerificationUrl('http://secrt.ca/app-login?code=ABCD-1234')).toBe(false);
+  });
+
+  it('rejects invalid URLs', () => {
+    expect(isAllowedVerificationUrl('not-a-url')).toBe(false);
+    expect(isAllowedVerificationUrl('')).toBe(false);
+  });
+
+  it('accepts https URLs in dev mode (getApiBase returns empty)', () => {
+    // In test env, isTauri() is false and getApiBase() returns ''
+    expect(isAllowedVerificationUrl('https://secrt.ca/app-login?code=ABCD-1234')).toBe(true);
+    expect(isAllowedVerificationUrl('https://any-host.com/path')).toBe(true);
+  });
+
+  it('rejects javascript: protocol', () => {
+    expect(isAllowedVerificationUrl('javascript:alert(1)')).toBe(false);
+  });
+
+  it('rejects data: protocol', () => {
+    expect(isAllowedVerificationUrl('data:text/html,<h1>hi</h1>')).toBe(false);
   });
 });

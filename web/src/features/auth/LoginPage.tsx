@@ -7,10 +7,17 @@ import {
   appLoginStart,
   appLoginPoll,
 } from '../../lib/api';
-import { base64urlEncode } from '../../crypto/encoding';
+import { base64urlEncode, base64urlDecode } from '../../crypto/encoding';
+import {
+  generateEcdhKeyPair,
+  exportPublicKey,
+  performEcdh,
+  deriveTransferKey,
+} from '../../crypto/amk';
+import { storeAmk } from '../../lib/amk-store';
 import { navigate } from '../../router';
 import { getRedirectParam } from '../../lib/redirect';
-import { isTauri } from '../../lib/config';
+import { isTauri, getApiBase } from '../../lib/config';
 import {
   PasskeyIcon,
   TriangleExclamationIcon,
@@ -32,6 +39,19 @@ function friendlyLoginError(raw: string): string {
   return raw;
 }
 
+/** Validate that a verification URL is HTTPS and matches the API origin. */
+export function isAllowedVerificationUrl(url: string): boolean {
+  try {
+    const parsed = new URL(url);
+    if (parsed.protocol !== 'https:') return false;
+    const apiBase = getApiBase();
+    if (!apiBase) return true; // Dev mode — no origin to check
+    return parsed.hostname === new URL(apiBase).hostname;
+  } catch {
+    return false;
+  }
+}
+
 // ── Tauri Login Flow ────────────────────────────────────
 
 type TauriLoginState =
@@ -46,6 +66,7 @@ function TauriLoginFlow() {
   const redirectTo = getRedirectParam();
   const [state, setState] = useState<TauriLoginState>({ step: 'idle' });
   const abortRef = useRef<AbortController | null>(null);
+  const ecdhPrivateKeyRef = useRef<CryptoKey | null>(null);
 
   // Cleanup polling on unmount
   useEffect(() => {
@@ -59,19 +80,32 @@ function TauriLoginFlow() {
     setState({ step: 'starting' });
 
     try {
-      const res = await appLoginStart();
+      // Generate ECDH keypair for AMK transfer
+      let ecdhPubKeyB64: string | undefined;
+      try {
+        const kp = await generateEcdhKeyPair();
+        ecdhPrivateKeyRef.current = kp.privateKey;
+        const pubBytes = await exportPublicKey(kp.publicKey);
+        ecdhPubKeyB64 = base64urlEncode(pubBytes);
+      } catch {
+        // ECDH generation failure is non-fatal — proceed without AMK transfer
+      }
+
+      const res = await appLoginStart(ecdhPubKeyB64);
       setState({
         step: 'polling',
         appCode: res.app_code,
         userCode: res.user_code,
       });
 
-      // Open system browser
-      try {
-        const { open } = await import('@tauri-apps/plugin-shell');
-        await open(res.verification_url);
-      } catch {
-        // If shell plugin fails, show the URL for manual copy
+      // Open system browser (only if URL passes origin check)
+      if (isAllowedVerificationUrl(res.verification_url)) {
+        try {
+          const { open } = await import('@tauri-apps/plugin-shell');
+          await open(res.verification_url);
+        } catch {
+          // If shell plugin fails, the user_code is already displayed for manual entry
+        }
       }
 
       // Start polling
@@ -94,6 +128,60 @@ function TauriLoginFlow() {
                 pollRes.user_id &&
                 pollRes.display_name
               ) {
+                // Decrypt and store AMK if transfer data is present
+                try {
+                  const privKey = ecdhPrivateKeyRef.current;
+                  if (pollRes.amk_transfer && privKey) {
+                    const peerPkBytes = base64urlDecode(
+                      pollRes.amk_transfer.ecdh_public_key,
+                    );
+                    const sharedSecret = await performEcdh(
+                      privKey,
+                      peerPkBytes,
+                    );
+                    const transferKey =
+                      await deriveTransferKey(sharedSecret);
+
+                    const ct = base64urlDecode(pollRes.amk_transfer.ct);
+                    const nonce = base64urlDecode(
+                      pollRes.amk_transfer.nonce,
+                    );
+                    const aad = new TextEncoder().encode(
+                      'secrt-amk-transfer-v1',
+                    );
+
+                    const buf = (a: Uint8Array): ArrayBuffer => {
+                      const b = new ArrayBuffer(a.byteLength);
+                      new Uint8Array(b).set(a);
+                      return b;
+                    };
+
+                    const cryptoKey = await crypto.subtle.importKey(
+                      'raw',
+                      buf(transferKey),
+                      'AES-GCM',
+                      false,
+                      ['decrypt'],
+                    );
+                    const amkPt = await crypto.subtle.decrypt(
+                      {
+                        name: 'AES-GCM',
+                        iv: buf(nonce),
+                        additionalData: buf(aad),
+                      },
+                      cryptoKey,
+                      buf(ct),
+                    );
+                    await storeAmk(
+                      pollRes.user_id,
+                      new Uint8Array(amkPt),
+                    );
+                  }
+                } catch {
+                  // AMK decryption failure is non-fatal — login still succeeds
+                }
+                ecdhPrivateKeyRef.current = null;
+
                 auth.login(
                   pollRes.session_token,
                   pollRes.user_id,

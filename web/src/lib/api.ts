@@ -535,6 +535,7 @@ export async function addPasskeyFinish(
 /* ── App Login API (desktop app → browser approval) ── */
 
 export async function appLoginStart(
+  ecdhPublicKey?: string,
   signal?: AbortSignal,
 ): Promise<{
   app_code: string;
@@ -543,7 +544,14 @@ export async function appLoginStart(
   expires_in: number;
   interval: number;
 }> {
-  return requestJson('/api/v1/auth/app/start', { method: 'POST' }, signal);
+  const init: RequestInit = ecdhPublicKey
+    ? {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ ecdh_public_key: ecdhPublicKey }),
+      }
+    : { method: 'POST' };
+  return requestJson('/api/v1/auth/app/start', init, signal);
 }
 
 export async function appLoginPoll(
@@ -554,6 +562,7 @@ export async function appLoginPoll(
   session_token?: string;
   user_id?: string;
   display_name?: string;
+  amk_transfer?: { ct: string; nonce: string; ecdh_public_key: string };
 }> {
   return requestJson(
     '/api/v1/auth/app/poll',
@@ -569,8 +578,11 @@ export async function appLoginPoll(
 export async function appLoginApprove(
   token: string,
   userCode: string,
+  amkTransfer?: { ct: string; nonce: string; ecdh_public_key: string },
   signal?: AbortSignal,
 ): Promise<{ ok: boolean }> {
+  const body: Record<string, unknown> = { user_code: userCode };
+  if (amkTransfer) body.amk_transfer = amkTransfer;
   return requestJson<{ ok: boolean }>(
     '/api/v1/auth/app/approve',
     {
@@ -579,7 +591,7 @@ export async function appLoginApprove(
         authorization: `Bearer ${token}`,
         'content-type': 'application/json',
       },
-      body: JSON.stringify({ user_code: userCode }),
+      body: JSON.stringify(body),
     },
     signal,
   );

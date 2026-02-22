@@ -97,13 +97,13 @@ describe('SettingsPage', () => {
 
   /* ---- 1. Redirect unauthenticated users ---- */
 
-  it('redirects unauthenticated users to /login', () => {
+  it('redirects unauthenticated users to /login', async () => {
     mockAuth.authenticated = false;
     mockAuth.loading = false;
 
     render(<SettingsPage />);
 
-    expect(mockNavigate).toHaveBeenCalledWith('/login');
+    await waitFor(() => expect(mockNavigate).toHaveBeenCalledWith('/login'));
   });
 
   /* ---- 2. Renders API key list ---- */

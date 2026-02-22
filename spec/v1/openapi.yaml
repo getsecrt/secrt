@@ -641,6 +641,105 @@ paths:
         "500":
           $ref: "#/components/responses/InternalError"
 
+  /api/v1/auth/app/start:
+    post:
+      operationId: appLoginStart
+      summary: Start app login flow
+      description: |
+        Initiates a desktop-app login flow. The app opens the returned
+        `verification_url` in the system browser where the user authenticates
+        with their passkey and approves the login code.
+        Optional `ecdh_public_key` enables AMK transfer.
+      tags: [auth]
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AppStartRequest"
+      responses:
+        "200":
+          description: App login flow started
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AppStartResponse"
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/X-Request-Id"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /api/v1/auth/app/poll:
+    post:
+      operationId: appLoginPoll
+      summary: Poll app login status
+      description: |
+        Polls for app login approval. When approved, atomically consumes
+        the challenge and mints a fresh session token. The session token
+        is never stored in the challenge — it is created at poll time only.
+      tags: [auth]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AppPollRequest"
+      responses:
+        "200":
+          description: Poll result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AppPollResponse"
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/X-Request-Id"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /api/v1/auth/app/approve:
+    post:
+      operationId: appLoginApprove
+      summary: Approve app login (session required)
+      description: |
+        Approves a pending app login by user_code. Requires an authenticated
+        passkey session. Updates the challenge to approved state with optional
+        AMK transfer data. Session token is NOT minted here — deferred to poll.
+      tags: [auth]
+      security:
+        - sessionBearer: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AppApproveRequest"
+      responses:
+        "200":
+          description: App login approved
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BurnResponse"
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/X-Request-Id"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
   /api/v1/amk/wrapper:
     put:
       operationId: upsertAmkWrapper
@@ -1663,6 +1762,72 @@ components:
         user_code:
           type: string
           description: User code displayed in the CLI terminal (format XXXX-XXXX)
+        amk_transfer:
+          $ref: "#/components/schemas/AmkTransfer"
+
+    AppStartRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        ecdh_public_key:
+          type: string
+          description: base64url-encoded uncompressed P-256 public key (65 bytes decoded)
+
+    AppStartResponse:
+      type: object
+      required: [app_code, user_code, verification_url, expires_in, interval]
+      properties:
+        app_code:
+          type: string
+          description: Opaque identifier for polling
+        user_code:
+          type: string
+          description: Human-readable code (XXXX-XXXX) shown to the user
+        verification_url:
+          type: string
+          format: uri
+          description: URL to open in the system browser
+        expires_in:
+          type: integer
+          description: Seconds until the challenge expires
+        interval:
+          type: integer
+          description: Recommended poll interval in seconds
+
+    AppPollRequest:
+      type: object
+      required: [app_code]
+      additionalProperties: false
+      properties:
+        app_code:
+          type: string
+
+    AppPollResponse:
+      type: object
+      required: [status]
+      properties:
+        status:
+          type: string
+          enum: [authorization_pending, complete]
+        session_token:
+          type: string
+          description: Session bearer token (present only when status is complete)
+        user_id:
+          type: string
+          format: uuid
+        display_name:
+          type: string
+        amk_transfer:
+          $ref: "#/components/schemas/AmkTransfer"
+
+    AppApproveRequest:
+      type: object
+      required: [user_code]
+      additionalProperties: false
+      properties:
+        user_code:
+          type: string
+          description: User code displayed in the desktop app (format XXXX-XXXX)
         amk_transfer:
           $ref: "#/components/schemas/AmkTransfer"
 
