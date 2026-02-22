@@ -1,5 +1,6 @@
 import { base64urlEncode, base64urlDecode } from '../crypto/encoding';
 import { URL_KEY_LEN } from '../crypto/constants';
+import { isTauri } from './config';
 
 /**
  * Format a share link from secret ID and url_key.
@@ -11,7 +12,7 @@ export function formatShareLink(
   urlKey: Uint8Array,
   baseUrl?: string,
 ): string {
-  const origin = baseUrl ?? window.location.origin;
+  const origin = baseUrl ?? (isTauri() ? 'https://secrt.ca' : window.location.origin);
   return `${origin}/s/${id}#${base64urlEncode(urlKey)}`;
 }
 
@@ -24,7 +25,7 @@ export function formatSyncLink(
   urlKey: Uint8Array,
   baseUrl?: string,
 ): string {
-  const origin = baseUrl ?? window.location.origin;
+  const origin = baseUrl ?? (isTauri() ? 'https://secrt.ca' : window.location.origin);
   return `${origin}/sync/${id}#${base64urlEncode(urlKey)}`;
 }
 

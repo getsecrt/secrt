@@ -4,6 +4,7 @@ members = [
     "crates/secrt-core",
     "crates/secrt-cli",
     "crates/secrt-server",
+    "crates/secrt-app",
     # "crates/secrt-wasm",     # future
 ]
 

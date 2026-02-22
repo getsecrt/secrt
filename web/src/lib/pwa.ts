@@ -10,6 +10,9 @@ export function registerServiceWorker(
   const isProduction = options.isProduction ?? import.meta.env.PROD;
   if (!isProduction) return;
 
+  // Skip service worker registration in Tauri — not needed for desktop app
+  if (typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window) return;
+
   const nav = options.nav ?? navigator;
   if (!('serviceWorker' in nav)) return;
 

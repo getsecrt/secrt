@@ -5,6 +5,8 @@ import type {
   OpenResult,
   KdfArgon2id,
 } from '../types';
+import { isTauri } from '../lib/config';
+import { nativeSeal, nativeOpen, nativeDeriveClaimToken } from './native';
 import {
   AAD,
   HKDF_INFO_ENC,
@@ -59,6 +61,7 @@ interface SealOptions {
  * Safe to call multiple times.
  */
 export async function preloadPassphraseKdf(): Promise<void> {
+  if (isTauri()) return; // Native argon2id needs no WASM preloading
   await preloadArgon2id();
 }
 
@@ -66,7 +69,7 @@ export async function preloadPassphraseKdf(): Promise<void> {
  * Seal plaintext content into an encrypted envelope.
  * Returns the envelope JSON, url_key, and claim_hash.
  */
-export async function seal(
+async function webSeal(
   content: Uint8Array,
   meta: PayloadMeta,
   options?: SealOptions,
@@ -172,7 +175,7 @@ export async function seal(
 /**
  * Open (decrypt) an envelope using the url_key and optional passphrase.
  */
-export async function open(
+async function webOpen(
   envelope: EnvelopeJson,
   urlKey: Uint8Array,
   passphrase?: string,
@@ -275,7 +278,7 @@ export async function deriveClaimHash(urlKey: Uint8Array): Promise<string> {
  * Derive the claim_token from a url_key.
  * claim_token = HKDF-SHA-256(url_key, CLAIM_SALT, HKDF_INFO_CLAIM, 32)
  */
-export async function deriveClaimToken(
+async function webDeriveClaimToken(
   urlKey: Uint8Array,
 ): Promise<Uint8Array> {
   const claimSalt = new Uint8Array(
@@ -371,4 +374,31 @@ async function hkdfDerive(
 
 function cryptoRng(b: Uint8Array): void {
   crypto.getRandomValues(b);
+}
+
+// ── Bridge exports: dispatch to native (Tauri) or web crypto ──
+
+export async function seal(
+  content: Uint8Array,
+  meta: PayloadMeta,
+  options?: SealOptions,
+): Promise<SealResult> {
+  if (isTauri()) return nativeSeal(content, meta, options?.passphrase);
+  return webSeal(content, meta, options);
+}
+
+export async function open(
+  envelope: EnvelopeJson,
+  urlKey: Uint8Array,
+  passphrase?: string,
+): Promise<OpenResult> {
+  if (isTauri()) return nativeOpen(envelope, urlKey, passphrase);
+  return webOpen(envelope, urlKey, passphrase);
+}
+
+export async function deriveClaimToken(
+  urlKey: Uint8Array,
+): Promise<Uint8Array> {
+  if (isTauri()) return nativeDeriveClaimToken(urlKey);
+  return webDeriveClaimToken(urlKey);
 }

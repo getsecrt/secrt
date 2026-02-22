@@ -14,3 +14,4 @@ web/.e2e-server.pid
 web/.e2e-vite.pid
 web/coverage
 .playwright-mcp
+crates/secrt-app/gen/

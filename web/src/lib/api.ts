@@ -1,3 +1,4 @@
+import { getApiBase } from './config';
 import type {
   ApiInfo,
   CreateRequest,
@@ -41,10 +42,11 @@ async function requestJson<T>(
   const headers = new Headers(init.headers ?? {});
   headers.set('accept', 'application/json');
 
-  const res = await fetch(path, {
+  const base = getApiBase();
+  const res = await fetch(`${base}${path}`, {
     ...init,
     headers,
-    credentials: 'same-origin',
+    credentials: base ? 'include' : 'same-origin',
     signal,
   });
 
