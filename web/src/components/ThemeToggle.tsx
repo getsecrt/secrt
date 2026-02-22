@@ -36,14 +36,14 @@ export function ThemeToggle({ class: className }: { class?: string }) {
   return (
     <button
       type="button"
-      class={`relative inline-flex cursor-pointer gap-px rounded-full bg-surface-raised shadow-[inset_0_0_2px_1px_var(--color-neutral-200)] dark:bg-neutral-900 dark:shadow-[inset_0_0_2px_var(--color-neutral-800)]${className ? ` ${className}` : ''}`}
+      class={`theme-toggle-track relative inline-flex cursor-pointer gap-px rounded-full bg-surface-raised dark:bg-neutral-900${className ? ` ${className}` : ''}`}
       role="switch"
       aria-label="Toggle dark mode"
       aria-checked={dark}
       onClick={toggle}
     >
       <span
-        class="absolute top-0 left-0 size-7 rounded-full bg-surface shadow-md transition-transform duration-200 dark:translate-x-[calc(100%+1px)]"
+        class="theme-toggle-knob absolute top-0 left-0 size-7 rounded-full bg-surface transition-transform duration-200 hover:bg-white dark:translate-x-[calc(100%+1px)] dark:bg-neutral-800 dark:hover:bg-neutral-600"
         aria-hidden="true"
       />
       <span
@@ -57,21 +57,20 @@ export function ThemeToggle({ class: className }: { class?: string }) {
           stroke="currentColor"
           stroke-width="1.5"
           stroke-linecap="round"
-          stroke-linejoin="round"
         >
           <circle cx="12" cy="12" r="4" />
           <line x1="12" y1="2" x2="12" y2="4" />
           <line x1="12" y1="20" x2="12" y2="22" />
-          <line x1="4.93" y1="4.93" x2="6.34" y2="6.34" />
-          <line x1="17.66" y1="17.66" x2="19.07" y2="19.07" />
+          <line x1="5" y1="5" x2="6.3" y2="6.3" />
+          <line x1="17.7" y1="17.7" x2="19" y2="19" />
           <line x1="2" y1="12" x2="4" y2="12" />
           <line x1="20" y1="12" x2="22" y2="12" />
-          <line x1="4.93" y1="19.07" x2="6.34" y2="17.66" />
-          <line x1="17.66" y1="6.34" x2="19.07" y2="4.93" />
+          <line x1="5" y1="19" x2="6.3" y2="17.7" />
+          <line x1="17.7" y1="6.3" x2="19" y2="5" />
         </svg>
       </span>
       <span
-        class="relative z-10 flex size-7 items-center justify-center rounded-full text-faint transition-colors hover:text-neutral-800 dark:bg-neutral-800 dark:text-muted dark:hover:bg-neutral-700 dark:hover:text-neutral-100"
+        class="relative z-10 flex size-7 items-center justify-center rounded-full text-faint transition-colors hover:text-neutral-800 dark:text-muted dark:hover:bg-neutral-750 dark:hover:text-neutral-100"
         aria-hidden="true"
       >
         <svg
@@ -80,10 +79,8 @@ export function ThemeToggle({ class: className }: { class?: string }) {
           fill="none"
           stroke="currentColor"
           stroke-width="1.5"
-          stroke-linecap="round"
-          stroke-linejoin="round"
         >
-          <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
+          <path d="M21 12.79A9 9 0 1 1 11.2 3 7 7 0 0 0 21 13z" />
         </svg>
       </span>
     </button>

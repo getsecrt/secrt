@@ -25,6 +25,10 @@
   /*--color-neutral-500: oklch(0.56 0 0);*/
   --color-neutral-550: oklch(0.5 0 0);
   /*--color-neutral-600: oklch(0.44 0 0);*/
+  --color-neutral-650: oklch(0.4 0 0);
+  /*--color-neutral-700: oklch(37.1% 0 0);*/
+  --color-neutral-750: oklch(31% 0 0);
+  /*--color-neutral-800: oklch(26.9% 0 0);*/
 
   /* Surfaces & borders (neutral scale) */
   --color-bg: #fff;
@@ -305,6 +309,26 @@
 
   .textarea {
     @apply resize-y;
+  }
+
+  .theme-toggle-track {
+    box-shadow: inset 0 0 2px 1px var(--color-neutral-200);
+    .dark & {
+      box-shadow: inset 0 0 2px var(--color-neutral-800);
+    }
+  }
+
+  .theme-toggle-knob {
+    box-shadow:
+      0 4px 6px 0px rgb(0 0 0 / 0.02),
+      0 2px 3px 2px rgb(0 0 0 / 0.02);
+
+    .dark & {
+      box-shadow:
+        0 4px 6px 0px rgb(0 0 0 / 0.25),
+        0 0px 1px 3px rgb(0 0 0 / 0.05),
+        inset 0 0 2px 1px rgb(255 255 255 / 0.05);
+    }
   }
 
   .card {

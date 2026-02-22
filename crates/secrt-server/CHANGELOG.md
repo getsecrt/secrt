@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.14.3 - [Unreleased]
+
+- **Mobile UI:** Tightened up padding/spacing, added small logo to header to replace header logo.
+
 ## 0.14.2 — 2026-02-20
 
 ### Added
