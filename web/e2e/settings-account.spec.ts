@@ -63,7 +63,7 @@ test.describe('Settings: API keys and account deletion', () => {
     await expect(confirmDelete).toBeEnabled();
 
     await confirmDelete.click();
-    await expect(page.getByPlaceholder('Enter your secret...')).toBeVisible({
+    await expect(page.getByPlaceholder('Enter your secret or drag a file here...')).toBeVisible({
       timeout: 15_000,
     });
 

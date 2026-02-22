@@ -51,9 +51,9 @@ test.describe('Send and claim flow', () => {
     // Correct passphrase
     await claimPage.locator('#claim-passphrase').fill(passphrase);
     await claimPage.getByRole('button', { name: 'Decrypt' }).click();
-    await expect(claimPage.getByText('Secret Decrypted')).toBeVisible({
-      timeout: 15_000,
-    });
+    await expect(
+      claimPage.getByRole('button', { name: 'Copy secret' }),
+    ).toBeVisible({ timeout: 15_000 });
 
     const content = await claimPage.locator('textarea').inputValue();
     expect(content?.trim()).toBe(secret);

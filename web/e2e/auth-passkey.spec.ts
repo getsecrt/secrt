@@ -27,8 +27,8 @@ test.describe('Passkey auth flow', () => {
     await registerPasskeyAccount(page, { displayName });
 
     await page.goto('/settings');
-    await expect(page.getByText('Your Account')).toBeVisible();
-    await expect(page.getByRole('main').getByText(displayName)).toBeVisible();
+    await expect(page.getByText('Your Account', { exact: true })).toBeVisible();
+    await expect(page.locator('#display-name')).toHaveValue(displayName);
 
     // Reset persisted session and verify login flow from a fresh app instance.
     await page.evaluate(() => localStorage.removeItem('session_token'));
@@ -41,7 +41,7 @@ test.describe('Passkey auth flow', () => {
 
     await loginWithPasskey(loginPage);
     await loginPage.goto('/settings');
-    await expect(loginPage.getByRole('main').getByText(displayName)).toBeVisible();
+    await expect(loginPage.locator('#display-name')).toHaveValue(displayName);
     await loginPage.close();
   });
 

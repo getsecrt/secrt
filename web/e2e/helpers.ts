@@ -86,7 +86,7 @@ export async function registerPasskeyAccount(
   await page.goto('/register');
   await page.locator('#display-name').fill(displayName);
   await page.getByRole('button', { name: 'Register with Passkey' }).click();
-  await expect(page.getByPlaceholder('Enter your secret...')).toBeVisible({
+  await expect(page.getByPlaceholder('Enter your secret or drag a file here...')).toBeVisible({
     timeout: 15_000,
   });
 
@@ -102,7 +102,7 @@ export async function registerPasskeyAccount(
 export async function loginWithPasskey(page: Page): Promise<void> {
   await page.goto('/login');
   await page.getByRole('button', { name: 'Log in with Passkey' }).click();
-  await expect(page.getByPlaceholder('Enter your secret...')).toBeVisible({
+  await expect(page.getByPlaceholder('Enter your secret or drag a file here...')).toBeVisible({
     timeout: 15_000,
   });
 }
@@ -116,7 +116,7 @@ export async function sendSecret(
   opts?: { passphrase?: string },
 ): Promise<string> {
   await page.goto('/');
-  await page.getByPlaceholder('Enter your secret...').fill(text);
+  await page.getByPlaceholder('Enter your secret or drag a file here...').fill(text);
 
   if (opts?.passphrase) {
     await page.locator('#passphrase').fill(opts.passphrase);
@@ -162,9 +162,9 @@ export async function claimSecret(
     await page.getByRole('button', { name: 'Decrypt' }).click();
   }
 
-  await expect(page.getByText('Secret Decrypted')).toBeVisible({
-    timeout: 15_000,
-  });
+  await expect(
+    page.getByRole('button', { name: 'Copy secret' }),
+  ).toBeVisible({ timeout: 15_000 });
 
   const content = await page.locator('textarea').inputValue();
   if (content === null) throw new Error('Secret content not found');

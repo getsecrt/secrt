@@ -13,7 +13,7 @@ test.describe('Clipboard', () => {
     const shareUrl = await sendSecret(page, secret);
 
     // Click copy button
-    await page.getByRole('button', { name: 'Copy link' }).click();
+    await page.getByRole('button', { name: /^Copy/ }).click();
     await expect(page.getByText('Copied!')).toBeVisible();
 
     // Verify clipboard content

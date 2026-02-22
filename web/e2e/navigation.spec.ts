@@ -4,7 +4,7 @@ test.describe('Navigation', () => {
   test('home page loads and shows send form', async ({ page }) => {
     await page.goto('/');
     await expect(
-      page.getByPlaceholder('Enter your secret...'),
+      page.getByPlaceholder('Enter your secret or drag a file here...'),
     ).toBeVisible();
     await expect(
       page.getByRole('button', { name: 'Create secret' }),
@@ -24,7 +24,7 @@ test.describe('Navigation', () => {
     }
 
     await expect(
-      page.getByPlaceholder('Enter your secret...'),
+      page.getByPlaceholder('Enter your secret or drag a file here...'),
     ).toBeVisible();
   });
 
@@ -46,7 +46,7 @@ test.describe('Navigation', () => {
     await page.goto('/how-it-works');
     await page.getByRole('link', { name: 'Home' }).click();
     await expect(
-      page.getByPlaceholder('Enter your secret...'),
+      page.getByPlaceholder('Enter your secret or drag a file here...'),
     ).toBeVisible();
   });
 
@@ -54,7 +54,7 @@ test.describe('Navigation', () => {
     page,
   }) => {
     await page.goto('/');
-    await page.getByRole('link', { name: 'How secrt Works →' }).click();
+    await page.getByRole('link', { name: 'How it Works' }).click();
     await expect(page.getByText('How secrt Works')).toBeVisible();
   });
 });
