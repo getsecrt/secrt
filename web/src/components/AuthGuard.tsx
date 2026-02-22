@@ -11,7 +11,10 @@ export function AuthGuard({
 
   useEffect(() => {
     if (!auth.loading && !auth.authenticated) {
-      navigate('/login');
+      // setTimeout avoids Preact effect ordering: child effects fire before
+      // parent effects, so navigate() (which dispatches PopStateEvent) would
+      // fire before the parent's useRoute listener is attached.
+      setTimeout(() => navigate('/login'), 0);
     }
   }, [auth.loading, auth.authenticated]);
 
