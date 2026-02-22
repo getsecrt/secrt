@@ -13,38 +13,54 @@ fn system_rng(buf: &mut [u8]) -> Result<(), EnvelopeError> {
 }
 
 #[derive(Serialize)]
-struct SealResponse {
-    envelope: serde_json::Value,
-    url_key: String,
-    claim_hash: String,
+pub struct SealResponse {
+    pub envelope: serde_json::Value,
+    pub url_key: String,
+    pub claim_hash: String,
 }
 
-#[tauri::command]
-fn seal_secret(
-    content_b64: String,
-    payload_type: String,
+#[derive(Serialize)]
+pub struct OpenResponse {
+    pub content: String,
+    pub payload_type: String,
+    pub filename: Option<String>,
+    pub mime: Option<String>,
+}
+
+fn parse_metadata(
+    payload_type: &str,
     filename: Option<String>,
     mime: Option<String>,
-    passphrase: Option<String>,
-) -> Result<SealResponse, String> {
-    let content = URL_SAFE_NO_PAD
-        .decode(&content_b64)
-        .map_err(|e| e.to_string())?;
-
-    let metadata = match payload_type.as_str() {
+) -> PayloadMeta {
+    match payload_type {
         "file" => PayloadMeta::file(
             filename.unwrap_or_default(),
             mime.unwrap_or_else(|| "application/octet-stream".into()),
         ),
         "binary" => PayloadMeta::binary(),
         _ => PayloadMeta::text(),
-    };
+    }
+}
+
+pub fn seal_secret_inner(
+    content_b64: &str,
+    payload_type: &str,
+    filename: Option<String>,
+    mime: Option<String>,
+    passphrase: Option<String>,
+    rand_bytes: &dyn Fn(&mut [u8]) -> Result<(), EnvelopeError>,
+) -> Result<SealResponse, String> {
+    let content = URL_SAFE_NO_PAD
+        .decode(content_b64)
+        .map_err(|e| e.to_string())?;
+
+    let metadata = parse_metadata(payload_type, filename, mime);
 
     let result = secrt_core::seal(SealParams {
         content,
         metadata,
         passphrase: passphrase.unwrap_or_default(),
-        rand_bytes: &system_rng,
+        rand_bytes,
         compression_policy: CompressionPolicy::default(),
     })
     .map_err(|e| e.to_string())?;
@@ -56,22 +72,13 @@ fn seal_secret(
     })
 }
 
-#[derive(Serialize)]
-struct OpenResponse {
-    content: String,
-    payload_type: String,
-    filename: Option<String>,
-    mime: Option<String>,
-}
-
-#[tauri::command]
-fn open_secret(
+pub fn open_secret_inner(
     envelope: serde_json::Value,
-    url_key_b64: String,
+    url_key_b64: &str,
     passphrase: Option<String>,
 ) -> Result<OpenResponse, String> {
     let url_key = URL_SAFE_NO_PAD
-        .decode(&url_key_b64)
+        .decode(url_key_b64)
         .map_err(|e| e.to_string())?;
 
     let result = secrt_core::open(OpenParams {
@@ -95,18 +102,50 @@ fn open_secret(
     })
 }
 
-#[tauri::command]
-fn derive_claim_token(url_key_b64: String) -> Result<String, String> {
+pub fn derive_claim_token_inner(url_key_b64: &str) -> Result<String, String> {
     let url_key = URL_SAFE_NO_PAD
-        .decode(&url_key_b64)
+        .decode(url_key_b64)
         .map_err(|e| e.to_string())?;
     let token = secrt_core::derive_claim_token(&url_key).map_err(|e| e.to_string())?;
     Ok(URL_SAFE_NO_PAD.encode(&token))
 }
 
+#[tauri::command]
+fn seal_secret(
+    content_b64: String,
+    payload_type: String,
+    filename: Option<String>,
+    mime: Option<String>,
+    passphrase: Option<String>,
+) -> Result<SealResponse, String> {
+    seal_secret_inner(
+        &content_b64,
+        &payload_type,
+        filename,
+        mime,
+        passphrase,
+        &system_rng,
+    )
+}
+
+#[tauri::command]
+fn open_secret(
+    envelope: serde_json::Value,
+    url_key_b64: String,
+    passphrase: Option<String>,
+) -> Result<OpenResponse, String> {
+    open_secret_inner(envelope, &url_key_b64, passphrase)
+}
+
+#[tauri::command]
+fn derive_claim_token(url_key_b64: String) -> Result<String, String> {
+    derive_claim_token_inner(&url_key_b64)
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_shell::init())
         .invoke_handler(tauri::generate_handler![
             seal_secret,
             open_secret,

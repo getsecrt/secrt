@@ -8,6 +8,7 @@ import {
 import { registerPasskeyStart, registerPasskeyFinish, commitAmk } from '../../lib/api';
 import { navigate } from '../../router';
 import { getRedirectParam } from '../../lib/redirect';
+import { isTauri } from '../../lib/config';
 import { generateAmk, computeAmkCommit } from '../../crypto/amk';
 import { base64urlEncode } from '../../crypto/encoding';
 import { storeAmk } from '../../lib/amk-store';
@@ -150,6 +151,56 @@ export function RegisterPage() {
   if (auth.authenticated) {
     navigate(redirectTo);
     return null;
+  }
+
+  // In Tauri, registration requires WebAuthn which only works in a real browser
+  if (isTauri()) {
+    const handleOpenBrowser = async () => {
+      try {
+        const { open } = await import('@tauri-apps/plugin-shell');
+        await open('https://secrt.ca/register');
+      } catch {
+        // Fallback — user can navigate manually
+      }
+    };
+
+    return (
+      <div class="space-y-4">
+        <div class="card space-y-6 text-center">
+          <CardHeading
+            title="Register"
+            icon={<PasskeyIcon class="size-10" />}
+            subtitle="Registration requires your system browser for passkey creation."
+            class="mb-4"
+          />
+          <p class="text-muted">
+            After registering in the browser, return here and log in to link
+            your account.
+          </p>
+          <button
+            type="button"
+            class="btn btn-primary w-full tracking-wider uppercase"
+            onClick={handleOpenBrowser}
+          >
+            Open Browser to Register
+          </button>
+        </div>
+        <p class="text-center text-muted">
+          Already have an account?
+          <br />
+          <a
+            href={redirectTo === '/' ? '/login' : `/login?redirect=${encodeURIComponent(redirectTo)}`}
+            class="link"
+            onClick={(e: MouseEvent) => {
+              e.preventDefault();
+              navigate(redirectTo === '/' ? '/login' : `/login?redirect=${encodeURIComponent(redirectTo)}`);
+            }}
+          >
+            Log In
+          </a>
+        </p>
+      </div>
+    );
   }
 
   const busy = state.step === 'creating';

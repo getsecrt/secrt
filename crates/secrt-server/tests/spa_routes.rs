@@ -26,6 +26,7 @@ async fn spa_routes_return_index_html() {
         "/dashboard",
         "/settings",
         "/device",
+        "/app-login",
         "/sync/test-sync-id",
     ];
 

@@ -490,14 +490,15 @@ impl AuthStore for MemStore {
         Ok(())
     }
 
-    async fn find_device_challenge_by_user_code(
+    async fn find_challenge_by_user_code(
         &self,
         user_code: &str,
+        purpose: &str,
         now: DateTime<Utc>,
     ) -> Result<ChallengeRecord, StorageError> {
         let m = self.challenges.lock().expect("challenges mutex poisoned");
         for rec in m.values() {
-            if rec.purpose != "device-auth" || rec.expires_at <= now {
+            if rec.purpose != purpose || rec.expires_at <= now {
                 continue;
             }
             if let Ok(json) = serde_json::from_str::<serde_json::Value>(&rec.challenge_json) {

@@ -980,9 +980,10 @@ impl AuthStore for PgStore {
         Ok(())
     }
 
-    async fn find_device_challenge_by_user_code(
+    async fn find_challenge_by_user_code(
         &self,
         user_code: &str,
+        purpose: &str,
         now: DateTime<Utc>,
     ) -> Result<ChallengeRecord, StorageError> {
         let client = self.pool.get().await?;
@@ -990,9 +991,9 @@ impl AuthStore for PgStore {
             .query_opt(
                 "SELECT id, challenge_id, user_id, purpose, challenge_json, expires_at, created_at \
                  FROM webauthn_challenges \
-                 WHERE purpose='device-auth' AND expires_at>$1 \
-                   AND challenge_json::jsonb->>'user_code'=$2",
-                &[&now, &user_code],
+                 WHERE purpose=$1 AND expires_at>$2 \
+                   AND challenge_json::jsonb->>'user_code'=$3",
+                &[&purpose, &now, &user_code],
             )
             .await?;
         let Some(row) = row else {

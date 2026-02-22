@@ -11,6 +11,7 @@ import { RegisterPage } from './features/auth/RegisterPage';
 import { DashboardPage } from './features/dashboard/DashboardPage';
 import { SettingsPage } from './features/settings/SettingsPage';
 import { DevicePage } from './features/auth/DevicePage';
+import { AppLoginPage } from './features/auth/AppLoginPage';
 import { SyncPage } from './features/sync/SyncPage';
 import { ThemePage } from './features/test/ThemePage';
 
@@ -38,6 +39,7 @@ export function App() {
       dashboard: 'Dashboard — secrt',
       settings: 'Settings — secrt',
       device: 'Approve Device — secrt',
+      'app-login': 'Authorize App — secrt',
       'not-found': 'Not Found — secrt',
     };
     document.title = titles[route.page] ?? 'secrt';
@@ -78,6 +80,9 @@ export function App() {
       break;
     case 'device':
       page = <DevicePage />;
+      break;
+    case 'app-login':
+      page = <AppLoginPage />;
       break;
     case 'not-found':
       page = (

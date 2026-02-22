@@ -330,10 +330,11 @@ pub trait AuthStore: Send + Sync {
         now: DateTime<Utc>,
     ) -> Result<(), StorageError>;
 
-    /// Find a device-auth challenge by its user_code (for the approve endpoint).
-    async fn find_device_challenge_by_user_code(
+    /// Find a challenge by its user_code and purpose (for approve endpoints).
+    async fn find_challenge_by_user_code(
         &self,
         user_code: &str,
+        purpose: &str,
         now: DateTime<Utc>,
     ) -> Result<ChallengeRecord, StorageError>;
 
@@ -665,13 +666,14 @@ where
             .await
     }
 
-    async fn find_device_challenge_by_user_code(
+    async fn find_challenge_by_user_code(
         &self,
         user_code: &str,
+        purpose: &str,
         now: DateTime<Utc>,
     ) -> Result<ChallengeRecord, StorageError> {
         (**self)
-            .find_device_challenge_by_user_code(user_code, now)
+            .find_challenge_by_user_code(user_code, purpose, now)
             .await
     }
 

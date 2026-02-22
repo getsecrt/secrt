@@ -473,6 +473,55 @@ const DEVICE_CODE_LEN: usize = 32;
 const DEVICE_AUTH_PURPOSE: &str = "device-auth";
 const DEVICE_AUTH_EXPIRY_SECS: i64 = 600;
 
+// --- App login flow types (desktop app → system browser → session token) ---
+
+const APP_LOGIN_PURPOSE: &str = "app-login";
+const APP_LOGIN_EXPIRY_SECS: i64 = 600;
+
+#[derive(Serialize)]
+struct AppStartResponse {
+    app_code: String,
+    user_code: String,
+    verification_url: String,
+    expires_in: u64,
+    interval: u64,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct AppPollRequest {
+    app_code: String,
+}
+
+#[derive(Serialize)]
+struct AppPollResponse {
+    status: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    session_token: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    user_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    display_name: Option<String>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct AppApproveRequest {
+    user_code: String,
+}
+
+#[derive(Serialize, Deserialize)]
+struct AppChallengeJson {
+    user_code: String,
+    status: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    session_token: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    user_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    display_name: Option<String>,
+}
+
 fn generate_user_code() -> Result<String, ()> {
     let rng = SystemRandom::new();
     let mut bytes = [0u8; 8];
@@ -498,6 +547,7 @@ pub fn build_router(state: Arc<AppState>) -> Router {
         .route("/dashboard", get(handle_index))
         .route("/settings", get(handle_index))
         .route("/device", get(handle_index))
+        .route("/app-login", get(handle_index))
         .route("/sync/{id}", get(handle_index))
         .route("/robots.txt", get(handle_robots_txt))
         .route("/.well-known/security.txt", get(handle_security_txt));
@@ -574,6 +624,9 @@ pub fn build_router(state: Arc<AppState>) -> Router {
             "/api/v1/auth/device/challenge",
             any(handle_device_challenge_entry),
         )
+        .route("/api/v1/auth/app/start", any(handle_app_start_entry))
+        .route("/api/v1/auth/app/poll", any(handle_app_poll_entry))
+        .route("/api/v1/auth/app/approve", any(handle_app_approve_entry))
         .route("/api/v1/amk/wrapper", any(handle_amk_wrapper_entry))
         .route("/api/v1/amk/wrappers", any(handle_amk_wrappers_list_entry))
         .route("/api/v1/amk/commit", any(handle_amk_commit_entry))
@@ -2329,7 +2382,7 @@ pub async fn handle_device_approve_entry(
     // Find the challenge by user_code
     let challenge = match state
         .auth_store
-        .find_device_challenge_by_user_code(&payload.user_code, now)
+        .find_challenge_by_user_code(&payload.user_code, DEVICE_AUTH_PURPOSE, now)
         .await
     {
         Ok(c) => c,
@@ -2853,7 +2906,7 @@ pub async fn handle_device_challenge_entry(
     let now = Utc::now();
     let challenge = match state
         .auth_store
-        .find_device_challenge_by_user_code(&query.user_code, now)
+        .find_challenge_by_user_code(&query.user_code, DEVICE_AUTH_PURPOSE, now)
         .await
     {
         Ok(c) => c,
@@ -2882,6 +2935,248 @@ pub async fn handle_device_challenge_entry(
             status: data.status,
         },
     )
+}
+
+// --- App login flow handlers ---
+
+pub async fn handle_app_start_entry(State(state): State<Arc<AppState>>, req: Request) -> Response {
+    if req.method() != Method::POST {
+        return method_not_allowed();
+    }
+
+    let ip = get_client_ip(req.headers(), request_connect_addr(&req));
+    if !state.apikey_register_limiter.allow(&ip) {
+        return rate_limited();
+    }
+
+    // No request body needed
+    let _ = req;
+
+    let app_code = match random_b64(DEVICE_CODE_LEN) {
+        Ok(v) => v,
+        Err(_) => return internal_server_error(),
+    };
+    let user_code = match generate_user_code() {
+        Ok(v) => v,
+        Err(_) => return internal_server_error(),
+    };
+
+    let challenge_data = AppChallengeJson {
+        user_code: user_code.clone(),
+        status: "pending".into(),
+        session_token: None,
+        user_id: None,
+        display_name: None,
+    };
+    let challenge_json = match serde_json::to_string(&challenge_data) {
+        Ok(v) => v,
+        Err(_) => return internal_server_error(),
+    };
+
+    let expires_at = Utc::now() + chrono::Duration::seconds(APP_LOGIN_EXPIRY_SECS);
+    if let Err(e) = state
+        .auth_store
+        .insert_challenge(
+            &app_code,
+            None,
+            APP_LOGIN_PURPOSE,
+            &challenge_json,
+            expires_at,
+        )
+        .await
+    {
+        error!(error = %e, "failed to insert app login challenge");
+        return internal_server_error();
+    }
+
+    let verification_url = format!(
+        "{}/app-login?code={}",
+        state.cfg.public_base_url,
+        urlencoding::encode(&user_code)
+    );
+
+    json_response(
+        StatusCode::OK,
+        AppStartResponse {
+            app_code,
+            user_code,
+            verification_url,
+            expires_in: APP_LOGIN_EXPIRY_SECS as u64,
+            interval: 2,
+        },
+    )
+}
+
+pub async fn handle_app_poll_entry(State(state): State<Arc<AppState>>, req: Request) -> Response {
+    if req.method() != Method::POST {
+        return method_not_allowed();
+    }
+
+    let ip = get_client_ip(req.headers(), request_connect_addr(&req));
+    if !state.apikey_register_limiter.allow(&ip) {
+        return rate_limited();
+    }
+
+    let payload: AppPollRequest = match read_json_body(req, 4 * 1024, None).await {
+        Ok(v) => v,
+        Err(resp) => return resp,
+    };
+
+    let now = Utc::now();
+    let challenge = match state
+        .auth_store
+        .get_challenge(&payload.app_code, APP_LOGIN_PURPOSE, now)
+        .await
+    {
+        Ok(c) => c,
+        Err(StorageError::NotFound) => {
+            return bad_request("expired_token");
+        }
+        Err(e) => {
+            error!(error = %e, "failed to get app login challenge");
+            return internal_server_error();
+        }
+    };
+
+    let data: AppChallengeJson = match serde_json::from_str(&challenge.challenge_json) {
+        Ok(v) => v,
+        Err(_) => return internal_server_error(),
+    };
+
+    if data.status == "approved" {
+        // Consume the challenge atomically (one-time read)
+        match state
+            .auth_store
+            .consume_challenge(&payload.app_code, APP_LOGIN_PURPOSE, now)
+            .await
+        {
+            Ok(_) => {}
+            Err(StorageError::NotFound) => {
+                return bad_request("expired_token");
+            }
+            Err(e) => {
+                error!(error = %e, "failed to consume app login challenge");
+                return internal_server_error();
+            }
+        }
+        return json_response(
+            StatusCode::OK,
+            AppPollResponse {
+                status: "complete".into(),
+                session_token: data.session_token,
+                user_id: data.user_id,
+                display_name: data.display_name,
+            },
+        );
+    }
+
+    json_response(
+        StatusCode::OK,
+        AppPollResponse {
+            status: "authorization_pending".into(),
+            session_token: None,
+            user_id: None,
+            display_name: None,
+        },
+    )
+}
+
+pub async fn handle_app_approve_entry(
+    State(state): State<Arc<AppState>>,
+    req: Request,
+) -> Response {
+    if req.method() != Method::POST {
+        return method_not_allowed();
+    }
+
+    let (user_id, _, _) = match require_session_user(&state, req.headers()).await {
+        Ok(v) => v,
+        Err(resp) => return resp,
+    };
+
+    let payload: AppApproveRequest = match read_json_body(req, 4 * 1024, None).await {
+        Ok(v) => v,
+        Err(resp) => return resp,
+    };
+
+    let now = Utc::now();
+
+    // Find the challenge by user_code
+    let challenge = match state
+        .auth_store
+        .find_challenge_by_user_code(&payload.user_code, APP_LOGIN_PURPOSE, now)
+        .await
+    {
+        Ok(c) => c,
+        Err(StorageError::NotFound) => {
+            return bad_request("invalid or expired code");
+        }
+        Err(e) => {
+            error!(error = %e, "failed to find app login challenge");
+            return internal_server_error();
+        }
+    };
+
+    let data: AppChallengeJson = match serde_json::from_str(&challenge.challenge_json) {
+        Ok(v) => v,
+        Err(_) => return internal_server_error(),
+    };
+
+    // Verify it's still pending
+    if data.status != "pending" {
+        return bad_request("already authorized");
+    }
+
+    // Constant-time user_code comparison
+    if !crate::domain::auth::secure_equals_hex(
+        &hex::encode(data.user_code.as_bytes()),
+        &hex::encode(payload.user_code.as_bytes()),
+    ) {
+        return bad_request("invalid or expired code");
+    }
+
+    // Issue a session token for the authenticated user
+    let (session_token, _) = match issue_session_token(&state, user_id).await {
+        Ok(v) => v,
+        Err(resp) => return resp,
+    };
+
+    // Get user info for the response
+    let user = match state.auth_store.get_user_by_id(user_id).await {
+        Ok(u) => u,
+        Err(e) => {
+            error!(error = %e, "failed to get user for app login");
+            return internal_server_error();
+        }
+    };
+
+    // Update challenge to approved state with session token
+    let updated = AppChallengeJson {
+        user_code: data.user_code,
+        status: "approved".into(),
+        session_token: Some(session_token),
+        user_id: Some(user_id.to_string()),
+        display_name: Some(user.display_name),
+    };
+    let updated_json = match serde_json::to_string(&updated) {
+        Ok(v) => v,
+        Err(_) => return internal_server_error(),
+    };
+    if let Err(e) = state
+        .auth_store
+        .update_challenge_json(
+            &challenge.challenge_id,
+            APP_LOGIN_PURPOSE,
+            &updated_json,
+            now,
+        )
+        .await
+    {
+        error!(error = %e, "failed to update app login challenge");
+        return internal_server_error();
+    }
+
+    json_response(StatusCode::OK, serde_json::json!({ "ok": true }))
 }
 
 pub async fn handle_info_entry(State(state): State<Arc<AppState>>, req: Request) -> Response {
@@ -3542,14 +3837,15 @@ mod tests {
             Ok(())
         }
 
-        async fn find_device_challenge_by_user_code(
+        async fn find_challenge_by_user_code(
             &self,
             user_code: &str,
+            purpose: &str,
             now: DateTime<Utc>,
         ) -> Result<ChallengeRecord, StorageError> {
             let m = self.challenges.lock().unwrap();
             for rec in m.values() {
-                if rec.purpose != "device-auth" || rec.expires_at <= now {
+                if rec.purpose != purpose || rec.expires_at <= now {
                     continue;
                 }
                 if let Ok(json) = serde_json::from_str::<serde_json::Value>(&rec.challenge_json) {
@@ -4305,13 +4601,13 @@ mod tests {
             .await
             .expect("insert device challenge");
         let found = store
-            .find_device_challenge_by_user_code("ABCD-1234", now)
+            .find_challenge_by_user_code("ABCD-1234", "device-auth", now)
             .await
             .expect("find by user_code");
         assert_eq!(found.challenge_id, "dc1");
         assert!(matches!(
             store
-                .find_device_challenge_by_user_code("XXXX-0000", now)
+                .find_challenge_by_user_code("XXXX-0000", "device-auth", now)
                 .await,
             Err(StorageError::NotFound)
         ));
@@ -5769,6 +6065,197 @@ mod tests {
         // Approve with wrong user_code
         let wrong_code_payload = serde_json::json!({ "user_code": "ZZZZ-9999" }).to_string();
         let resp = handle_device_approve_entry(
+            State(state),
+            authed_post_json("/x", &token, &wrong_code_payload),
+        )
+        .await;
+        assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+        let body = response_text(resp).await;
+        assert!(
+            body.contains("invalid or expired code"),
+            "wrong user_code should return 'invalid or expired code'"
+        );
+    }
+
+    // ── App login flow tests ────────────────────────────────
+
+    #[tokio::test]
+    async fn app_start_returns_codes() {
+        let state = test_state();
+
+        let resp = handle_app_start_entry(State(state.clone()), post_json("/x", "{}")).await;
+        assert_eq!(resp.status(), StatusCode::OK);
+
+        let body: serde_json::Value =
+            serde_json::from_str(&response_text(resp).await).expect("json");
+
+        let app_code = body["app_code"].as_str().expect("app_code");
+        assert!(!app_code.is_empty());
+
+        let user_code = body["user_code"].as_str().expect("user_code");
+        assert_eq!(
+            user_code.len(),
+            9,
+            "user_code should be 9 chars (XXXX-XXXX)"
+        );
+        assert_eq!(&user_code[4..5], "-", "user_code should have dash");
+
+        let verification_url = body["verification_url"].as_str().expect("verification_url");
+        assert!(
+            verification_url.starts_with("https://example.com/app-login"),
+            "verification_url should start with public_base_url/app-login"
+        );
+
+        assert_eq!(body["expires_in"], APP_LOGIN_EXPIRY_SECS as u64);
+        assert_eq!(body["interval"], 2);
+    }
+
+    #[tokio::test]
+    async fn app_poll_pending() {
+        let state = test_state();
+
+        // Start the app login flow
+        let start_resp = handle_app_start_entry(State(state.clone()), post_json("/x", "{}")).await;
+        assert_eq!(start_resp.status(), StatusCode::OK);
+        let start_body: serde_json::Value =
+            serde_json::from_str(&response_text(start_resp).await).expect("json");
+        let app_code = start_body["app_code"].as_str().expect("app_code");
+
+        // Poll immediately — should be pending
+        let poll_payload = serde_json::json!({ "app_code": app_code }).to_string();
+        let poll_resp = handle_app_poll_entry(State(state), post_json("/x", &poll_payload)).await;
+        assert_eq!(poll_resp.status(), StatusCode::OK);
+        let poll_body: serde_json::Value =
+            serde_json::from_str(&response_text(poll_resp).await).expect("json");
+        assert_eq!(poll_body["status"], "authorization_pending");
+        assert!(
+            poll_body.get("session_token").is_none() || poll_body["session_token"].is_null(),
+            "session_token should not be present while pending"
+        );
+    }
+
+    #[tokio::test]
+    async fn app_poll_approved() {
+        let (state, token, _user_id, _prefix) = test_state_with_session().await;
+
+        // 1. Start app login flow
+        let start_resp = handle_app_start_entry(State(state.clone()), post_json("/x", "{}")).await;
+        assert_eq!(start_resp.status(), StatusCode::OK);
+        let start_body: serde_json::Value =
+            serde_json::from_str(&response_text(start_resp).await).expect("json");
+        let app_code = start_body["app_code"]
+            .as_str()
+            .expect("app_code")
+            .to_string();
+        let user_code = start_body["user_code"]
+            .as_str()
+            .expect("user_code")
+            .to_string();
+
+        // 2. Approve with authenticated session
+        let approve_payload = serde_json::json!({ "user_code": user_code }).to_string();
+        let approve_resp = handle_app_approve_entry(
+            State(state.clone()),
+            authed_post_json("/x", &token, &approve_payload),
+        )
+        .await;
+        assert_eq!(approve_resp.status(), StatusCode::OK);
+        let approve_body: serde_json::Value =
+            serde_json::from_str(&response_text(approve_resp).await).expect("json");
+        assert_eq!(approve_body["ok"], true);
+
+        // 3. Poll — should get "complete" with session_token
+        let poll_payload = serde_json::json!({ "app_code": app_code }).to_string();
+        let poll_resp =
+            handle_app_poll_entry(State(state.clone()), post_json("/x", &poll_payload)).await;
+        assert_eq!(poll_resp.status(), StatusCode::OK);
+        let poll_body: serde_json::Value =
+            serde_json::from_str(&response_text(poll_resp).await).expect("json");
+        assert_eq!(poll_body["status"], "complete");
+        let session_token = poll_body["session_token"]
+            .as_str()
+            .expect("session_token should be present");
+        assert!(
+            !session_token.is_empty(),
+            "session_token should be non-empty"
+        );
+        assert!(
+            poll_body["user_id"].as_str().is_some(),
+            "user_id should be present"
+        );
+        assert!(
+            poll_body["display_name"].as_str().is_some(),
+            "display_name should be present"
+        );
+    }
+
+    #[tokio::test]
+    async fn app_poll_consumed() {
+        let (state, token, _user_id, _prefix) = test_state_with_session().await;
+
+        // Start → approve → poll (consumes) → poll again (should fail)
+        let start_resp = handle_app_start_entry(State(state.clone()), post_json("/x", "{}")).await;
+        let start_body: serde_json::Value =
+            serde_json::from_str(&response_text(start_resp).await).expect("json");
+        let app_code = start_body["app_code"]
+            .as_str()
+            .expect("app_code")
+            .to_string();
+        let user_code = start_body["user_code"]
+            .as_str()
+            .expect("user_code")
+            .to_string();
+
+        // Approve
+        let approve_payload = serde_json::json!({ "user_code": user_code }).to_string();
+        handle_app_approve_entry(
+            State(state.clone()),
+            authed_post_json("/x", &token, &approve_payload),
+        )
+        .await;
+
+        // First poll — consumes
+        let poll_payload = serde_json::json!({ "app_code": app_code }).to_string();
+        let poll_resp =
+            handle_app_poll_entry(State(state.clone()), post_json("/x", &poll_payload)).await;
+        assert_eq!(poll_resp.status(), StatusCode::OK);
+
+        // Second poll — consumed, should get expired_token
+        let poll_resp2 = handle_app_poll_entry(State(state), post_json("/x", &poll_payload)).await;
+        assert_eq!(poll_resp2.status(), StatusCode::BAD_REQUEST);
+        let poll_body2 = response_text(poll_resp2).await;
+        assert!(
+            poll_body2.contains("expired_token"),
+            "second poll should return expired_token"
+        );
+    }
+
+    #[tokio::test]
+    async fn app_approve_requires_session() {
+        let state = test_state();
+
+        // Start the app login flow
+        let start_resp = handle_app_start_entry(State(state.clone()), post_json("/x", "{}")).await;
+        let start_body: serde_json::Value =
+            serde_json::from_str(&response_text(start_resp).await).expect("json");
+        let user_code = start_body["user_code"].as_str().expect("user_code");
+
+        // Try to approve without session token — should get 401
+        let approve_payload = serde_json::json!({ "user_code": user_code }).to_string();
+        let resp = handle_app_approve_entry(State(state), post_json("/x", &approve_payload)).await;
+        assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
+    }
+
+    #[tokio::test]
+    async fn app_approve_wrong_code() {
+        let (state, token, _user_id, _prefix) = test_state_with_session().await;
+
+        // Start the app login flow
+        handle_app_start_entry(State(state.clone()), post_json("/x", "{}")).await;
+
+        // Approve with wrong user_code
+        let wrong_code_payload = serde_json::json!({ "user_code": "ZZZZ-9999" }).to_string();
+        let resp = handle_app_approve_entry(
             State(state),
             authed_post_json("/x", &token, &wrong_code_payload),
         )

@@ -1,11 +1,20 @@
-import { useState, useCallback } from 'preact/hooks';
+import { useState, useCallback, useEffect, useRef } from 'preact/hooks';
 import { useAuth } from '../../lib/auth-context';
 import { supportsWebAuthn, getPasskeyCredential } from '../../lib/webauthn';
-import { loginPasskeyStart, loginPasskeyFinish } from '../../lib/api';
+import {
+  loginPasskeyStart,
+  loginPasskeyFinish,
+  appLoginStart,
+  appLoginPoll,
+} from '../../lib/api';
 import { base64urlEncode } from '../../crypto/encoding';
 import { navigate } from '../../router';
 import { getRedirectParam } from '../../lib/redirect';
-import { PasskeyIcon, TriangleExclamationIcon } from '../../components/Icons';
+import { isTauri } from '../../lib/config';
+import {
+  PasskeyIcon,
+  TriangleExclamationIcon,
+} from '../../components/Icons';
 import { CardHeading } from '../../components/CardHeading';
 
 type LoginState =
@@ -23,6 +32,188 @@ function friendlyLoginError(raw: string): string {
   return raw;
 }
 
+// ── Tauri Login Flow ────────────────────────────────────
+
+type TauriLoginState =
+  | { step: 'idle' }
+  | { step: 'starting' }
+  | { step: 'polling'; appCode: string; userCode: string }
+  | { step: 'done' }
+  | { step: 'error'; message: string };
+
+function TauriLoginFlow() {
+  const auth = useAuth();
+  const redirectTo = getRedirectParam();
+  const [state, setState] = useState<TauriLoginState>({ step: 'idle' });
+  const abortRef = useRef<AbortController | null>(null);
+
+  // Cleanup polling on unmount
+  useEffect(() => {
+    return () => {
+      abortRef.current?.abort();
+    };
+  }, []);
+
+  const handleLogin = useCallback(async () => {
+    if (state.step === 'starting' || state.step === 'polling') return;
+    setState({ step: 'starting' });
+
+    try {
+      const res = await appLoginStart();
+      setState({
+        step: 'polling',
+        appCode: res.app_code,
+        userCode: res.user_code,
+      });
+
+      // Open system browser
+      try {
+        const { open } = await import('@tauri-apps/plugin-shell');
+        await open(res.verification_url);
+      } catch {
+        // If shell plugin fails, show the URL for manual copy
+      }
+
+      // Start polling
+      const controller = new AbortController();
+      abortRef.current = controller;
+
+      const poll = async () => {
+        while (!controller.signal.aborted) {
+          await new Promise((r) => setTimeout(r, (res.interval ?? 2) * 1000));
+          if (controller.signal.aborted) break;
+
+          try {
+            const pollRes = await appLoginPoll(
+              res.app_code,
+              controller.signal,
+            );
+            if (pollRes.status === 'complete') {
+              if (
+                pollRes.session_token &&
+                pollRes.user_id &&
+                pollRes.display_name
+              ) {
+                auth.login(
+                  pollRes.session_token,
+                  pollRes.user_id,
+                  pollRes.display_name,
+                );
+                setState({ step: 'done' });
+                navigate(redirectTo);
+              }
+              return;
+            }
+            // authorization_pending — continue polling
+          } catch (err) {
+            if (controller.signal.aborted) return;
+            const msg = err instanceof Error ? err.message : 'Polling failed.';
+            if (msg.includes('expired_token')) {
+              setState({
+                step: 'error',
+                message: 'Login session expired. Please try again.',
+              });
+              return;
+            }
+            // Transient error — keep polling
+          }
+        }
+      };
+      poll();
+    } catch (err) {
+      const message =
+        err instanceof Error ? err.message : 'Failed to start login.';
+      setState({ step: 'error', message });
+    }
+  }, [state.step, auth, redirectTo]);
+
+  const handleCancel = useCallback(() => {
+    abortRef.current?.abort();
+    setState({ step: 'idle' });
+  }, []);
+
+  const busy = state.step === 'starting' || state.step === 'polling';
+
+  return (
+    <div class="space-y-4">
+      <div class="card space-y-6 text-center">
+        <CardHeading
+          title="Log In"
+          icon={<PasskeyIcon class="size-10" />}
+          subtitle="Log in via your system browser using your passkey."
+          class="mb-4"
+        />
+
+        {state.step === 'polling' && (
+          <div class="space-y-3">
+            <p class="text-muted">
+              Approve this code in your browser to continue:
+            </p>
+            <div class="bg-surface-alt mx-auto rounded-lg px-6 py-4 font-mono text-3xl font-bold tracking-[0.3em]">
+              {state.userCode}
+            </div>
+            <p class="text-xs text-faint">Waiting for approval...</p>
+          </div>
+        )}
+
+        {state.step === 'error' && (
+          <div
+            role="alert"
+            class="alert-error flex items-center justify-center gap-2"
+          >
+            <TriangleExclamationIcon class="size-5 shrink-0" />
+            {state.message}
+          </div>
+        )}
+
+        {state.step === 'polling' ? (
+          <button
+            type="button"
+            class="btn w-full tracking-wider uppercase"
+            onClick={handleCancel}
+          >
+            Cancel
+          </button>
+        ) : (
+          <button
+            type="button"
+            class="btn btn-primary w-full tracking-wider uppercase"
+            onClick={handleLogin}
+            disabled={busy}
+          >
+            {state.step === 'starting'
+              ? 'Starting\u2026'
+              : 'Log in via Browser'}
+          </button>
+        )}
+      </div>
+
+      <p class="text-center text-muted">
+        <a
+          href={
+            redirectTo === '/'
+              ? '/register'
+              : `/register?redirect=${encodeURIComponent(redirectTo)}`
+          }
+          class="link"
+          onClick={(e: MouseEvent) => {
+            e.preventDefault();
+            navigate(
+              redirectTo === '/'
+                ? '/register'
+                : `/register?redirect=${encodeURIComponent(redirectTo)}`,
+            );
+          }}
+        >
+          Register a New Account
+        </a>
+      </p>
+    </div>
+  );
+}
+
+// ── Main LoginPage ──────────────────────────────────────
+
 export function LoginPage() {
   const auth = useAuth();
   const redirectTo = getRedirectParam();
@@ -36,6 +227,11 @@ export function LoginPage() {
     return null;
   }
 
+  // In Tauri, use browser-based login flow instead of passkeys
+  if (isTauri()) {
+    return <TauriLoginFlow />;
+  }
+
   const busy = state.step === 'authenticating';
 
   const handleLogin = useCallback(async () => {
@@ -43,19 +239,6 @@ export function LoginPage() {
     setState({ step: 'authenticating' });
 
     try {
-      // 1. Get passkey credential from browser (discoverable — no allowCredentials)
-      // We need a challenge first, but for discoverable flow we need the credential_id
-      // to start. Use a two-step approach: get credential first with a dummy challenge,
-      // then do the server flow.
-      // Actually, the server requires credential_id to start login. So we first
-      // invoke the browser's passkey picker, then call the server.
-
-      // The server's login/start needs a credential_id. For discoverable credentials,
-      // we first need to get the credential_id from the browser. We'll use a preliminary
-      // navigator.credentials.get() without a server challenge, then do the full flow.
-      // However, WebAuthn requires a challenge. We'll generate a throwaway one locally
-      // for the initial credential selection, then do the actual server challenge.
-
       // Step 1: Use a local random challenge just to invoke the passkey picker
       const localChallenge = new Uint8Array(32);
       crypto.getRandomValues(localChallenge);

@@ -532,6 +532,59 @@ export async function addPasskeyFinish(
   );
 }
 
+/* ── App Login API (desktop app → browser approval) ── */
+
+export async function appLoginStart(
+  signal?: AbortSignal,
+): Promise<{
+  app_code: string;
+  user_code: string;
+  verification_url: string;
+  expires_in: number;
+  interval: number;
+}> {
+  return requestJson('/api/v1/auth/app/start', { method: 'POST' }, signal);
+}
+
+export async function appLoginPoll(
+  appCode: string,
+  signal?: AbortSignal,
+): Promise<{
+  status: string;
+  session_token?: string;
+  user_id?: string;
+  display_name?: string;
+}> {
+  return requestJson(
+    '/api/v1/auth/app/poll',
+    {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ app_code: appCode }),
+    },
+    signal,
+  );
+}
+
+export async function appLoginApprove(
+  token: string,
+  userCode: string,
+  signal?: AbortSignal,
+): Promise<{ ok: boolean }> {
+  return requestJson<{ ok: boolean }>(
+    '/api/v1/auth/app/approve',
+    {
+      method: 'POST',
+      headers: {
+        authorization: `Bearer ${token}`,
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({ user_code: userCode }),
+    },
+    signal,
+  );
+}
+
 /* ── Device Auth Challenge API ───────────────────── */
 
 export async function getDeviceChallenge(

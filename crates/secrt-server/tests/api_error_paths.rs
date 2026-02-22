@@ -307,9 +307,10 @@ impl AuthStore for ErrStore {
         Err(StorageError::NotFound)
     }
 
-    async fn find_device_challenge_by_user_code(
+    async fn find_challenge_by_user_code(
         &self,
         _user_code: &str,
+        _purpose: &str,
         _now: DateTime<Utc>,
     ) -> Result<ChallengeRecord, StorageError> {
         Err(StorageError::NotFound)
