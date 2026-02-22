@@ -323,6 +323,12 @@
       0 4px 6px 0px rgb(0 0 0 / 0.02),
       0 2px 3px 2px rgb(0 0 0 / 0.02);
 
+    .theme-toggle-track:hover & {
+      box-shadow:
+        0 4px 6px 0px rgb(0 0 0 / 0.03),
+        0 2px 3px 2px rgb(0 0 0 / 0.03);
+    }
+
     .dark & {
       box-shadow:
         0 4px 6px 0px rgb(0 0 0 / 0.25),

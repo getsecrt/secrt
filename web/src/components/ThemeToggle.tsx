@@ -43,10 +43,6 @@ export function ThemeToggle({ class: className }: { class?: string }) {
       onClick={toggle}
     >
       <span
-        class="theme-toggle-knob absolute top-0 left-0 size-7 rounded-full bg-surface transition-transform duration-200 hover:bg-white dark:translate-x-[calc(100%+1px)] dark:bg-neutral-800 dark:hover:bg-neutral-600"
-        aria-hidden="true"
-      />
-      <span
         class="relative z-10 flex size-7 items-center justify-center rounded-full text-muted transition-colors hover:text-neutral-800 dark:text-faint dark:hover:text-neutral-200"
         aria-hidden="true"
       >
@@ -83,6 +79,11 @@ export function ThemeToggle({ class: className }: { class?: string }) {
           <path d="M21 12.79A9 9 0 1 1 11.2 3 7 7 0 0 0 21 13z" />
         </svg>
       </span>
+
+      <span
+        class="theme-toggle-knob absolute top-0 left-0 size-7 rounded-full bg-surface transition-transform duration-200 hover:bg-white dark:translate-x-[calc(100%+1px)] dark:bg-neutral-800 dark:hover:bg-neutral-600"
+        aria-hidden="true"
+      />
     </button>
   );
 }
