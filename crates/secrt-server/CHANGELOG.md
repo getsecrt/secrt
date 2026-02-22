@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.14.4 — 2026-02-22
+
+### Added
+
+- **App login endpoints (desktop app auth):** three new endpoints for an OAuth-style desktop app login flow that bypasses WebAuthn RP ID mismatch in Tauri's webview:
+  - `POST /api/v1/auth/app/start` — unauthenticated; generates `app_code` + `user_code`, stores challenge with `purpose = "app-login"` and 10-minute expiry. Returns `verification_url` pointing to `/app-login?code=...`.
+  - `POST /api/v1/auth/app/poll` — unauthenticated; polls by `app_code`. Returns `authorization_pending` while waiting, `complete` with `session_token`, `user_id`, and `display_name` on approval. Challenge consumed atomically on completion.
+  - `POST /api/v1/auth/app/approve` — session auth required; looks up challenge by `user_code` with constant-time comparison, issues a session token for the authenticated user, and marks the challenge as approved.
+- **`/app-login` SPA route:** serves the frontend approval page for desktop app authorization.
+- **App login approval page (web):** browser-side approval page at `/app-login?code=XXXX-XXXX` — shows the authorization code, requires authenticated session, single-click approve.
+
+### Changed
+
+- **Generalized `find_challenge_by_user_code`:** renamed from `find_device_challenge_by_user_code` with an added `purpose` parameter, allowing both device-auth and app-login flows to share the same challenge lookup infrastructure.
+
 ## 0.14.3 — 2026-02-21
 
 ### Changed
