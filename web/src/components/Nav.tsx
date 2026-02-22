@@ -446,7 +446,7 @@ export function Nav() {
       <div class="border-b border-border bg-neutral-200/50 pt-[env(safe-area-inset-top)] shadow-sm backdrop-blur dark:bg-neutral-700/50">
         <div class="mx-auto flex max-w-lg items-center justify-center gap-4 px-4 py-1.5">
           {/* Desktop links (hidden below sm) */}
-          <div class="hidden items-center gap-6 sm:flex">
+          <div class="hidden items-center gap-3 sm:flex md:gap-8">
             <NavLink href="/" active={isActive('send')}>
               <span class={navItemClass}>
                 <SquarePlusIcon class="size-4" aria-hidden="true" />
