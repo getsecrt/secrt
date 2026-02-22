@@ -1,8 +1,11 @@
 # Changelog
 
-## 0.14.3 - [Unreleased]
+## 0.14.3 — 2026-02-21
 
-- **Mobile UI:** Tightened up padding/spacing, added small logo to header to replace header logo.
+### Changed
+
+- **Mobile UI:** Tightened padding/spacing, added logo to mobile header.
+- **Theme toggle:** Moved inset shadow to vanilla CSS to fix Tailwind 4.2 dark-mode override regression. Polished knob hover effect.
 
 ## 0.14.2 — 2026-02-20
 
