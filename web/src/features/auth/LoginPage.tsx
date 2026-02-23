@@ -185,9 +185,10 @@ function TauriLoginFlow() {
                       pollRes.user_id,
                       new Uint8Array(amkPt),
                     );
+                    console.info('[AMK transfer] AMK decrypted and stored for user', pollRes.user_id, '— length:', amkPt.byteLength);
                   }
                 } catch (amkErr) {
-                  console.warn('[AMK transfer] AMK decryption failed:', amkErr);
+                  console.warn('[AMK transfer] AMK decryption/storage failed:', amkErr);
                   // AMK decryption failure is non-fatal — login still succeeds
                 }
                 ecdhPrivateKeyRef.current = null;
