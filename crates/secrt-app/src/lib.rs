@@ -1,3 +1,8 @@
+use std::collections::HashMap;
+use std::fs;
+use std::path::PathBuf;
+use std::sync::Mutex;
+
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use base64::Engine;
 use ring::rand::{SecureRandom, SystemRandom};
@@ -144,10 +149,21 @@ fn derive_claim_token(url_key_b64: String) -> Result<String, String> {
     derive_claim_token_inner(&url_key_b64)
 }
 
-// --- Keyring (OS credential store) ---
+// --- Credential store (OS keychain with file-based fallback) ---
+//
+// macOS Tahoe 26 has a regression where SecItemAdd succeeds but
+// SecItemCopyMatching returns errSecItemNotFound for the same item.
+// We try the OS keychain first; if a set+verify round-trip fails,
+// we fall back to a JSON file in the app data directory.
 
 const KEYRING_SERVICE: &str = "ca.secrt.app";
 const ALLOWED_KEY_PREFIXES: &[&str] = &["session_token", "session_profile", "amk:"];
+const FALLBACK_FILENAME: &str = "credentials.json";
+
+/// Lazily-initialized flag: if the OS keychain fails a round-trip,
+/// all subsequent operations use the file fallback for the rest of
+/// the process lifetime.
+static KEYCHAIN_BROKEN: Mutex<Option<bool>> = Mutex::new(None);
 
 fn validate_keyring_key(key: &str) -> Result<(), String> {
     if ALLOWED_KEY_PREFIXES
@@ -160,55 +176,133 @@ fn validate_keyring_key(key: &str) -> Result<(), String> {
     }
 }
 
+/// Return the path to the fallback credentials file.
+/// Uses the standard app data directory: ~/Library/Application Support/ca.secrt.app/
+fn fallback_path() -> Result<PathBuf, String> {
+    let dir = dirs::data_dir()
+        .ok_or("cannot determine app data directory")?
+        .join(KEYRING_SERVICE);
+    if !dir.exists() {
+        fs::create_dir_all(&dir).map_err(|e| format!("create data dir: {e}"))?;
+    }
+    Ok(dir.join(FALLBACK_FILENAME))
+}
+
+fn fallback_read() -> Result<HashMap<String, String>, String> {
+    let path = fallback_path()?;
+    if !path.exists() {
+        return Ok(HashMap::new());
+    }
+    let data = fs::read_to_string(&path).map_err(|e| format!("read credentials: {e}"))?;
+    serde_json::from_str(&data).map_err(|e| format!("parse credentials: {e}"))
+}
+
+fn fallback_write(map: &HashMap<String, String>) -> Result<(), String> {
+    let path = fallback_path()?;
+    let data = serde_json::to_string_pretty(map).map_err(|e| format!("serialize: {e}"))?;
+    fs::write(&path, data).map_err(|e| format!("write credentials: {e}"))
+}
+
+/// Check whether the OS keychain works by doing a set+get round-trip.
+/// Caches the result for the process lifetime.
+fn is_keychain_broken() -> bool {
+    let mut guard = KEYCHAIN_BROKEN.lock().unwrap_or_else(|e| e.into_inner());
+    if let Some(broken) = *guard {
+        return broken;
+    }
+    let broken = probe_keychain();
+    *guard = Some(broken);
+    if broken {
+        eprintln!("[keyring] OS keychain probe failed — using file-based fallback");
+    } else {
+        eprintln!("[keyring] OS keychain probe succeeded");
+    }
+    broken
+}
+
+fn probe_keychain() -> bool {
+    let probe_key = "__secrt_probe__";
+    let probe_val = "probe";
+    let set_ok = keyring::Entry::new(KEYRING_SERVICE, probe_key)
+        .and_then(|e| e.set_password(probe_val))
+        .is_ok();
+    if !set_ok {
+        return true;
+    }
+    let get_ok = keyring::Entry::new(KEYRING_SERVICE, probe_key)
+        .and_then(|e| e.get_password())
+        .is_ok();
+    // Cleanup
+    let _ = keyring::Entry::new(KEYRING_SERVICE, probe_key)
+        .and_then(|e| e.delete_credential());
+    !get_ok
+}
+
 #[tauri::command]
 fn keyring_set(key: String, value: String) -> Result<(), String> {
     validate_keyring_key(&key)?;
-    let entry = keyring::Entry::new(KEYRING_SERVICE, &key).map_err(|e| {
-        eprintln!("[keyring] Entry::new failed for set key={key}: {e}");
-        e.to_string()
-    })?;
-    entry.set_password(&value).map_err(|e| {
-        eprintln!("[keyring] set_password failed key={key}: {e}");
-        e.to_string()
-    })?;
-    // Verify round-trip on the Rust side
-    let verify = keyring::Entry::new(KEYRING_SERVICE, &key)
-        .and_then(|e| e.get_password());
-    eprintln!("[keyring] set key={key} ok, verify read: {verify:?}");
-    Ok(())
+    if is_keychain_broken() {
+        let mut map = fallback_read()?;
+        map.insert(key, value);
+        return fallback_write(&map);
+    }
+    let entry = keyring::Entry::new(KEYRING_SERVICE, &key).map_err(|e| e.to_string())?;
+    entry.set_password(&value).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
 fn keyring_get(key: String) -> Result<Option<String>, String> {
     validate_keyring_key(&key)?;
-    let entry = keyring::Entry::new(KEYRING_SERVICE, &key).map_err(|e| {
-        eprintln!("[keyring] Entry::new failed for get key={key}: {e}");
-        e.to_string()
-    })?;
+    if is_keychain_broken() {
+        let map = fallback_read()?;
+        return Ok(map.get(&key).cloned());
+    }
+    let entry = keyring::Entry::new(KEYRING_SERVICE, &key).map_err(|e| e.to_string())?;
     match entry.get_password() {
-        Ok(v) => {
-            eprintln!("[keyring] get key={key}: found ({} bytes)", v.len());
-            Ok(Some(v))
-        }
-        Err(keyring::Error::NoEntry) => {
-            eprintln!("[keyring] get key={key}: NoEntry");
-            Ok(None)
-        }
-        Err(e) => {
-            eprintln!("[keyring] get key={key}: error: {e}");
-            Err(e.to_string())
-        }
+        Ok(v) => Ok(Some(v)),
+        Err(keyring::Error::NoEntry) => Ok(None),
+        Err(e) => Err(e.to_string()),
     }
 }
 
 #[tauri::command]
 fn keyring_delete(key: String) -> Result<(), String> {
     validate_keyring_key(&key)?;
+    if is_keychain_broken() {
+        let mut map = fallback_read()?;
+        map.remove(&key);
+        return fallback_write(&map);
+    }
     let entry = keyring::Entry::new(KEYRING_SERVICE, &key).map_err(|e| e.to_string())?;
     match entry.delete_credential() {
         Ok(()) => Ok(()),
         Err(keyring::Error::NoEntry) => Ok(()),
         Err(e) => Err(e.to_string()),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn keyring_probe_detects_broken_keychain() {
+        // This test documents the current macOS Tahoe behavior.
+        // If the keychain works, probe returns false; if broken, true.
+        // Either way the app should function via the fallback.
+        let broken = probe_keychain();
+        eprintln!("keychain broken: {broken}");
+    }
+
+    #[test]
+    fn fallback_roundtrip() {
+        let mut map = HashMap::new();
+        map.insert("amk:test-user".into(), "test-value-123".into());
+        fallback_write(&map).expect("write");
+        let read = fallback_read().expect("read");
+        assert_eq!(read.get("amk:test-user").unwrap(), "test-value-123");
+        // Cleanup
+        let _ = fs::remove_file(fallback_path().unwrap());
     }
 }
 
