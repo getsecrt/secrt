@@ -54,11 +54,31 @@
         "priority": "high",
         "dependencies": [],
         "subtasks": [
-          { "id": 1, "title": "Design source icon (SVG or 1024px PNG)", "status": "pending" },
-          { "id": 2, "title": "Generate macOS .icns with all required sizes", "status": "pending" },
-          { "id": 3, "title": "Generate Windows .ico and Store PNGs", "status": "pending" },
-          { "id": 4, "title": "Generate Linux PNG variants", "status": "pending" },
-          { "id": 5, "title": "Create liquid-glass variant for macOS Tahoe / iOS 26", "status": "pending" }
+          {
+            "id": 1,
+            "title": "Design source icon (SVG or 1024px PNG)",
+            "status": "pending"
+          },
+          {
+            "id": 2,
+            "title": "Generate macOS .icns with all required sizes",
+            "status": "pending"
+          },
+          {
+            "id": 3,
+            "title": "Generate Windows .ico and Store PNGs",
+            "status": "pending"
+          },
+          {
+            "id": 4,
+            "title": "Generate Linux PNG variants",
+            "status": "pending"
+          },
+          {
+            "id": 5,
+            "title": "Create liquid-glass variant for macOS Tahoe / iOS 26",
+            "status": "done"
+          }
         ]
       },
       {
@@ -69,27 +89,41 @@
         "priority": "high",
         "dependencies": [],
         "subtasks": [
-          { "id": 1, "title": "Create release-app.yml workflow skeleton", "status": "pending" },
-          { "id": 2, "title": "Configure macOS code signing and notarization", "status": "pending" },
-          { "id": 3, "title": "Configure Windows Trusted Signing", "status": "pending" },
-          { "id": 4, "title": "Build universal macOS binary (.dmg)", "status": "pending" },
-          { "id": 5, "title": "Build Windows installer (x64/arm64)", "status": "pending" },
-          { "id": 6, "title": "Build Linux packages (AppImage, deb)", "status": "pending" },
-          { "id": 7, "title": "Generate SHA-256 checksums and publish GitHub Release", "status": "pending" }
-        ]
-      },
-      {
-        "id": 22,
-        "title": "Fix passkey login in Tauri webview",
-        "description": "WebAuthn navigator.credentials may not work correctly in Tauri's webview (WKWebView on macOS, WebView2 on Windows). Investigate whether passkey ceremonies work, and if not, implement a workaround. Options: (1) open system browser for auth and redirect back via deep link, (2) use Tauri's shell plugin to open browser for OAuth-style flow, (3) implement a session token exchange mechanism, (4) provide email/code fallback auth. This blocks authenticated features (dashboard, settings, encrypted notes, device approval).",
-        "status": "done",
-        "priority": "high",
-        "dependencies": [],
-        "subtasks": [
-          { "id": 1, "title": "Test WebAuthn in WKWebView (macOS) and WebView2 (Windows)", "status": "done" },
-          { "id": 2, "title": "Design fallback auth strategy if passkeys don't work", "status": "done" },
-          { "id": 3, "title": "Implement chosen auth solution", "status": "done" },
-          { "id": 4, "title": "Test auth flow end-to-end on macOS and Windows", "status": "done" }
+          {
+            "id": 1,
+            "title": "Create release-app.yml workflow skeleton",
+            "status": "pending"
+          },
+          {
+            "id": 2,
+            "title": "Configure macOS code signing and notarization",
+            "status": "pending"
+          },
+          {
+            "id": 3,
+            "title": "Configure Windows Trusted Signing",
+            "status": "pending"
+          },
+          {
+            "id": 4,
+            "title": "Build universal macOS binary (.dmg)",
+            "status": "pending"
+          },
+          {
+            "id": 5,
+            "title": "Build Windows installer (x64/arm64)",
+            "status": "pending"
+          },
+          {
+            "id": 6,
+            "title": "Build Linux packages (AppImage, deb)",
+            "status": "pending"
+          },
+          {
+            "id": 7,
+            "title": "Generate SHA-256 checksums and publish GitHub Release",
+            "status": "pending"
+          }
         ]
       },
       {
@@ -100,10 +134,26 @@
         "priority": "high",
         "dependencies": [],
         "subtasks": [
-          { "id": 1, "title": "Add URL input / paste field to SendPage or Nav", "status": "pending" },
-          { "id": 2, "title": "Parse pasted URLs and extract ID + fragment key", "status": "pending" },
-          { "id": 3, "title": "Navigate to internal claim route with parsed data", "status": "pending" },
-          { "id": 4, "title": "Add global Cmd+V paste handler for secrt URLs", "status": "pending" }
+          {
+            "id": 1,
+            "title": "Add URL input / paste field to SendPage or Nav",
+            "status": "pending"
+          },
+          {
+            "id": 2,
+            "title": "Parse pasted URLs and extract ID + fragment key",
+            "status": "pending"
+          },
+          {
+            "id": 3,
+            "title": "Navigate to internal claim route with parsed data",
+            "status": "pending"
+          },
+          {
+            "id": 4,
+            "title": "Add global Cmd+V paste handler for secrt URLs",
+            "status": "pending"
+          }
         ]
       },
       {
@@ -114,24 +164,26 @@
         "priority": "high",
         "dependencies": [],
         "subtasks": [
-          { "id": 1, "title": "Add tauri-plugin-clipboard-manager dependency", "status": "pending" },
-          { "id": 2, "title": "Update capabilities/default.json with clipboard permissions", "status": "pending" },
-          { "id": 3, "title": "Implement timed clipboard clear in clipboard.ts for Tauri", "status": "pending" },
-          { "id": 4, "title": "Add countdown toast/indicator for clipboard clear", "status": "pending" }
-        ]
-      },
-      {
-        "id": 25,
-        "title": "Verify native crypto end-to-end with spec test vectors",
-        "description": "The Rust crypto bridge (seal_secret, open_secret, derive_claim_token) is wired up and the envelope dispatcher routes to native in Tauri, but needs end-to-end verification. Run the spec test vectors from spec/v1/envelope.vectors.json through the Tauri IPC path to confirm the native crypto produces identical results to the WebCrypto path. Also verify compression/decompression round-trips correctly.",
-        "status": "done",
-        "priority": "high",
-        "dependencies": [],
-        "subtasks": [
-          { "id": 1, "title": "Write test harness that invokes Tauri commands with vector inputs", "status": "done" },
-          { "id": 2, "title": "Verify all 5 envelope test vectors pass through native path", "status": "done" },
-          { "id": 3, "title": "Test compression round-trip (text and file payloads)", "status": "done" },
-          { "id": 4, "title": "Test passphrase-protected secrets through native path", "status": "done" }
+          {
+            "id": 1,
+            "title": "Add tauri-plugin-clipboard-manager dependency",
+            "status": "pending"
+          },
+          {
+            "id": 2,
+            "title": "Update capabilities/default.json with clipboard permissions",
+            "status": "pending"
+          },
+          {
+            "id": 3,
+            "title": "Implement timed clipboard clear in clipboard.ts for Tauri",
+            "status": "pending"
+          },
+          {
+            "id": 4,
+            "title": "Add countdown toast/indicator for clipboard clear",
+            "status": "pending"
+          }
         ]
       },
       {
@@ -140,13 +192,35 @@
         "description": "Add Tauri's updater plugin so the app can check for and install updates. Critical for a security tool — need to push fixes fast. Requires a signed update manifest hosted somewhere (GitHub Releases or a dedicated endpoint). The updater should check on app launch and optionally on a timer, with a non-intrusive notification when updates are available.",
         "status": "pending",
         "priority": "medium",
-        "dependencies": [21],
+        "dependencies": [
+          21
+        ],
         "subtasks": [
-          { "id": 1, "title": "Add tauri-plugin-updater dependency", "status": "pending" },
-          { "id": 2, "title": "Configure update endpoint (GitHub Releases or custom)", "status": "pending" },
-          { "id": 3, "title": "Implement update check on app launch", "status": "pending" },
-          { "id": 4, "title": "Add update notification UI", "status": "pending" },
-          { "id": 5, "title": "Sign update manifests in release pipeline", "status": "pending" }
+          {
+            "id": 1,
+            "title": "Add tauri-plugin-updater dependency",
+            "status": "pending"
+          },
+          {
+            "id": 2,
+            "title": "Configure update endpoint (GitHub Releases or custom)",
+            "status": "pending"
+          },
+          {
+            "id": 3,
+            "title": "Implement update check on app launch",
+            "status": "pending"
+          },
+          {
+            "id": 4,
+            "title": "Add update notification UI",
+            "status": "pending"
+          },
+          {
+            "id": 5,
+            "title": "Sign update manifests in release pipeline",
+            "status": "pending"
+          }
         ]
       },
       {
@@ -155,13 +229,35 @@
         "description": "Register the app to handle secrt.ca URLs and/or a secrt:// custom protocol so clicking a share link opens the desktop app instead of the browser. Tauri 2 has a deep-link plugin. macOS Universal Links require an apple-app-site-association file on the server. Windows uses URI protocol handlers. Linux uses .desktop file handlers. Consider also registering for secrt:// as a fallback protocol.",
         "status": "pending",
         "priority": "medium",
-        "dependencies": [23],
+        "dependencies": [
+          23
+        ],
         "subtasks": [
-          { "id": 1, "title": "Add tauri-plugin-deep-link dependency and permissions", "status": "pending" },
-          { "id": 2, "title": "Register secrt:// custom protocol on all platforms", "status": "pending" },
-          { "id": 3, "title": "Investigate macOS Universal Links (apple-app-site-association)", "status": "pending" },
-          { "id": 4, "title": "Handle incoming deep links and route to claim page", "status": "pending" },
-          { "id": 5, "title": "Test deep links on macOS, Windows, and Linux", "status": "pending" }
+          {
+            "id": 1,
+            "title": "Add tauri-plugin-deep-link dependency and permissions",
+            "status": "pending"
+          },
+          {
+            "id": 2,
+            "title": "Register secrt:// custom protocol on all platforms",
+            "status": "pending"
+          },
+          {
+            "id": 3,
+            "title": "Investigate macOS Universal Links (apple-app-site-association)",
+            "status": "pending"
+          },
+          {
+            "id": 4,
+            "title": "Handle incoming deep links and route to claim page",
+            "status": "pending"
+          },
+          {
+            "id": 5,
+            "title": "Test deep links on macOS, Windows, and Linux",
+            "status": "pending"
+          }
         ]
       },
       {
@@ -172,23 +268,51 @@
         "priority": "medium",
         "dependencies": [],
         "subtasks": [
-          { "id": 1, "title": "Define shortcut map for all platforms", "status": "pending" },
-          { "id": 2, "title": "Implement shortcut handler (Tauri plugin or JS keydown)", "status": "pending" },
-          { "id": 3, "title": "Add Cmd+V global paste-link handler", "status": "pending" },
-          { "id": 4, "title": "Test shortcuts on macOS and Windows", "status": "pending" }
+          {
+            "id": 1,
+            "title": "Define shortcut map for all platforms",
+            "status": "pending"
+          },
+          {
+            "id": 2,
+            "title": "Implement shortcut handler (Tauri plugin or JS keydown)",
+            "status": "pending"
+          },
+          {
+            "id": 3,
+            "title": "Add Cmd+V global paste-link handler",
+            "status": "pending"
+          },
+          {
+            "id": 4,
+            "title": "Test shortcuts on macOS and Windows",
+            "status": "pending"
+          }
         ]
       },
       {
         "id": 29,
         "title": "Add offline state detection and messaging",
         "description": "The app requires network to create or claim secrets. Add graceful offline detection using navigator.onLine and online/offline events. Show a clear banner or toast when offline. Disable create/claim actions with explanation. Re-enable automatically when connectivity returns.",
-        "status": "pending",
+        "status": "done",
         "priority": "medium",
         "dependencies": [],
         "subtasks": [
-          { "id": 1, "title": "Add online/offline event listeners", "status": "pending" },
-          { "id": 2, "title": "Show offline banner in Layout", "status": "pending" },
-          { "id": 3, "title": "Disable form submissions when offline", "status": "pending" }
+          {
+            "id": 1,
+            "title": "Add online/offline event listeners",
+            "status": "done"
+          },
+          {
+            "id": 2,
+            "title": "Show offline banner in Layout",
+            "status": "done"
+          },
+          {
+            "id": 3,
+            "title": "Disable form submissions when offline",
+            "status": "done"
+          }
         ]
       },
       {
@@ -199,9 +323,21 @@
         "priority": "medium",
         "dependencies": [],
         "subtasks": [
-          { "id": 1, "title": "Create About page or modal with version, build, and links", "status": "pending" },
-          { "id": 2, "title": "Read version from Tauri app API", "status": "pending" },
-          { "id": 3, "title": "Add navigation to About from settings or menu", "status": "pending" }
+          {
+            "id": 1,
+            "title": "Create About page or modal with version, build, and links",
+            "status": "pending"
+          },
+          {
+            "id": 2,
+            "title": "Read version from Tauri app API",
+            "status": "pending"
+          },
+          {
+            "id": 3,
+            "title": "Add navigation to About from settings or menu",
+            "status": "pending"
+          }
         ]
       },
       {
@@ -210,11 +346,27 @@
         "description": "Current CSP allows 'unsafe-inline' for scripts and styles. For production, tighten the CSP (nonces or hashes for inline scripts if possible). Audit capabilities/default.json to ensure only necessary permissions are granted — add clipboard, deep-link, updater permissions as needed but nothing extra. Review connect-src to ensure only secrt.ca is allowed.",
         "status": "pending",
         "priority": "medium",
-        "dependencies": [24, 26, 27],
+        "dependencies": [
+          24,
+          26,
+          27
+        ],
         "subtasks": [
-          { "id": 1, "title": "Audit and tighten CSP in tauri.conf.json", "status": "pending" },
-          { "id": 2, "title": "Audit capabilities/default.json for minimal permissions", "status": "pending" },
-          { "id": 3, "title": "Test that app functions correctly with tightened policies", "status": "pending" }
+          {
+            "id": 1,
+            "title": "Audit and tighten CSP in tauri.conf.json",
+            "status": "pending"
+          },
+          {
+            "id": 2,
+            "title": "Audit capabilities/default.json for minimal permissions",
+            "status": "pending"
+          },
+          {
+            "id": 3,
+            "title": "Test that app functions correctly with tightened policies",
+            "status": "pending"
+          }
         ]
       },
       {
@@ -225,9 +377,21 @@
         "priority": "low",
         "dependencies": [],
         "subtasks": [
-          { "id": 1, "title": "Enable drag-drop in Tauri window config", "status": "pending" },
-          { "id": 2, "title": "Handle drop events and populate send form", "status": "pending" },
-          { "id": 3, "title": "Test with various file types and sizes", "status": "pending" }
+          {
+            "id": 1,
+            "title": "Enable drag-drop in Tauri window config",
+            "status": "pending"
+          },
+          {
+            "id": 2,
+            "title": "Handle drop events and populate send form",
+            "status": "pending"
+          },
+          {
+            "id": 3,
+            "title": "Test with various file types and sizes",
+            "status": "pending"
+          }
         ]
       },
       {
@@ -238,9 +402,21 @@
         "priority": "low",
         "dependencies": [],
         "subtasks": [
-          { "id": 1, "title": "Add tauri-plugin-tray dependency and icon", "status": "pending" },
-          { "id": 2, "title": "Configure tray menu items", "status": "pending" },
-          { "id": 3, "title": "Handle tray actions (open window, paste-claim, quit)", "status": "pending" }
+          {
+            "id": 1,
+            "title": "Add tauri-plugin-tray dependency and icon",
+            "status": "pending"
+          },
+          {
+            "id": 2,
+            "title": "Configure tray menu items",
+            "status": "pending"
+          },
+          {
+            "id": 3,
+            "title": "Handle tray actions (open window, paste-claim, quit)",
+            "status": "pending"
+          }
         ]
       },
       {
@@ -249,12 +425,28 @@
         "description": "Store session tokens and optional default passphrases in the OS keychain (macOS Keychain, Windows Credential Manager, Linux Secret Service) instead of localStorage. The CLI already has keychain support. Use Tauri's stronghold plugin or a keychain plugin. Also support saving default encryption/decryption passphrases like the CLI config does.",
         "status": "pending",
         "priority": "low",
-        "dependencies": [22],
+        "dependencies": [],
         "subtasks": [
-          { "id": 1, "title": "Evaluate Tauri keychain/stronghold plugins", "status": "pending" },
-          { "id": 2, "title": "Migrate session token storage from localStorage to keychain", "status": "pending" },
-          { "id": 3, "title": "Add default passphrase save/load from keychain", "status": "pending" },
-          { "id": 4, "title": "Add settings UI for managing stored passphrases", "status": "pending" }
+          {
+            "id": 1,
+            "title": "Evaluate Tauri keychain/stronghold plugins",
+            "status": "pending"
+          },
+          {
+            "id": 2,
+            "title": "Migrate session token storage from localStorage to keychain",
+            "status": "pending"
+          },
+          {
+            "id": 3,
+            "title": "Add default passphrase save/load from keychain",
+            "status": "pending"
+          },
+          {
+            "id": 4,
+            "title": "Add settings UI for managing stored passphrases",
+            "status": "pending"
+          }
         ]
       },
       {
@@ -265,9 +457,21 @@
         "priority": "low",
         "dependencies": [],
         "subtasks": [
-          { "id": 1, "title": "Experiment with titlebar styles on macOS and Windows", "status": "pending" },
-          { "id": 2, "title": "Adjust traffic light position if using transparent titlebar", "status": "pending" },
-          { "id": 3, "title": "Add custom drag region if frameless", "status": "pending" }
+          {
+            "id": 1,
+            "title": "Experiment with titlebar styles on macOS and Windows",
+            "status": "pending"
+          },
+          {
+            "id": 2,
+            "title": "Adjust traffic light position if using transparent titlebar",
+            "status": "pending"
+          },
+          {
+            "id": 3,
+            "title": "Add custom drag region if frameless",
+            "status": "pending"
+          }
         ]
       },
       {
@@ -278,9 +482,21 @@
         "priority": "high",
         "dependencies": [],
         "subtasks": [
-          { "id": 1, "title": "Re-test keychain on next macOS update", "status": "pending" },
-          { "id": 2, "title": "Test keyring crate v4 stable when released", "status": "pending" },
-          { "id": 3, "title": "Remove file fallback once keychain works reliably", "status": "pending" }
+          {
+            "id": 1,
+            "title": "Re-test keychain on next macOS update",
+            "status": "pending"
+          },
+          {
+            "id": 2,
+            "title": "Test keyring crate v4 stable when released",
+            "status": "pending"
+          },
+          {
+            "id": 3,
+            "title": "Remove file fallback once keychain works reliably",
+            "status": "pending"
+          }
         ]
       },
       {
