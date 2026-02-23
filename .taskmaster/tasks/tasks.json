@@ -82,14 +82,14 @@
         "id": 22,
         "title": "Fix passkey login in Tauri webview",
         "description": "WebAuthn navigator.credentials may not work correctly in Tauri's webview (WKWebView on macOS, WebView2 on Windows). Investigate whether passkey ceremonies work, and if not, implement a workaround. Options: (1) open system browser for auth and redirect back via deep link, (2) use Tauri's shell plugin to open browser for OAuth-style flow, (3) implement a session token exchange mechanism, (4) provide email/code fallback auth. This blocks authenticated features (dashboard, settings, encrypted notes, device approval).",
-        "status": "pending",
+        "status": "done",
         "priority": "high",
         "dependencies": [],
         "subtasks": [
-          { "id": 1, "title": "Test WebAuthn in WKWebView (macOS) and WebView2 (Windows)", "status": "pending" },
-          { "id": 2, "title": "Design fallback auth strategy if passkeys don't work", "status": "pending" },
-          { "id": 3, "title": "Implement chosen auth solution", "status": "pending" },
-          { "id": 4, "title": "Test auth flow end-to-end on macOS and Windows", "status": "pending" }
+          { "id": 1, "title": "Test WebAuthn in WKWebView (macOS) and WebView2 (Windows)", "status": "done" },
+          { "id": 2, "title": "Design fallback auth strategy if passkeys don't work", "status": "done" },
+          { "id": 3, "title": "Implement chosen auth solution", "status": "done" },
+          { "id": 4, "title": "Test auth flow end-to-end on macOS and Windows", "status": "done" }
         ]
       },
       {

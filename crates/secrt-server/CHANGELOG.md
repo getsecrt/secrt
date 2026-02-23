@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.14.7 — 2026-02-22
+
+### Added
+
+- **In-app registration via browser flow:** clicking "Register a New Account" in the Tauri desktop app now opens the system browser directly to the registration page with the app-login URL as a redirect. After registering, the user lands on the approval page to authorize the app — a single browser trip instead of two.
+
+### Changed
+
+- **Tauri register page simplified:** the Tauri WebView register page now redirects to the login page where both "Log in via Browser" and "Register a New Account" options are available, replacing the previous dead-end "Open Browser to Register" screen.
+- **AppLoginPage intent fallback:** the `/app-login` page now reads an optional `intent=register` URL parameter and redirects unauthenticated users to `/register` instead of `/login` when present.
+
 ## 0.14.6 — 2026-02-22
 
 ### Added
