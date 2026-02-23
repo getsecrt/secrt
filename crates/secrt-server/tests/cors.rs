@@ -75,12 +75,7 @@ async fn preflight_from_tauri_macos_origin() {
 
 #[tokio::test]
 async fn preflight_from_tauri_windows_linux_origin() {
-    let resp = preflight(
-        test_app(),
-        "https://tauri.localhost",
-        "/api/v1/secrets",
-    )
-    .await;
+    let resp = preflight(test_app(), "https://tauri.localhost", "/api/v1/secrets").await;
 
     assert_eq!(resp.status(), StatusCode::OK);
     assert_eq!(
@@ -93,12 +88,7 @@ async fn preflight_from_tauri_windows_linux_origin() {
 
 #[tokio::test]
 async fn preflight_from_unknown_origin_has_no_cors_headers() {
-    let resp = preflight(
-        test_app(),
-        "https://evil.example.com",
-        "/api/v1/secrets",
-    )
-    .await;
+    let resp = preflight(test_app(), "https://evil.example.com", "/api/v1/secrets").await;
 
     assert!(
         resp.headers().get("access-control-allow-origin").is_none(),

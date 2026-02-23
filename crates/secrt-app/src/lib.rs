@@ -6,12 +6,12 @@ use std::sync::Mutex;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use base64::Engine;
 use ring::rand::{SecureRandom, SystemRandom};
-#[cfg(debug_assertions)]
-use tauri::Manager;
 use secrt_core::{
     CompressionPolicy, EnvelopeError, OpenParams, PayloadMeta, PayloadType, SealParams,
 };
 use serde::Serialize;
+#[cfg(debug_assertions)]
+use tauri::Manager;
 
 fn system_rng(buf: &mut [u8]) -> Result<(), EnvelopeError> {
     SystemRandom::new()
@@ -233,8 +233,7 @@ fn probe_keychain() -> bool {
         .and_then(|e| e.get_password())
         .is_ok();
     // Cleanup
-    let _ = keyring::Entry::new(KEYRING_SERVICE, probe_key)
-        .and_then(|e| e.delete_credential());
+    let _ = keyring::Entry::new(KEYRING_SERVICE, probe_key).and_then(|e| e.delete_credential());
     !get_ok
 }
 
