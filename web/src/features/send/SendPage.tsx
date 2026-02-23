@@ -137,20 +137,26 @@ export function SendPage() {
       return;
     }
     let cancelled = false;
-    loadAmk(auth.userId).then(async (amk) => {
-      if (cancelled) return;
-      if (amk) {
-        setNoteStatus('available');
-        return;
-      }
-      // No local AMK — check if one is committed on the server
-      try {
-        const { exists } = await amkExists(auth.sessionToken!);
-        if (!cancelled) setNoteStatus(exists ? 'needs-sync' : 'available');
-      } catch {
+    loadAmk(auth.userId)
+      .then(async (amk) => {
+        if (cancelled) return;
+        console.info('[SendPage] loadAmk result:', amk ? `found (${amk.byteLength} bytes)` : 'null');
+        if (amk) {
+          setNoteStatus('available');
+          return;
+        }
+        // No local AMK — check if one is committed on the server
+        try {
+          const { exists } = await amkExists(auth.sessionToken!);
+          if (!cancelled) setNoteStatus(exists ? 'needs-sync' : 'available');
+        } catch {
+          if (!cancelled) setNoteStatus('available');
+        }
+      })
+      .catch((err) => {
+        console.warn('[SendPage] loadAmk failed:', err);
         if (!cancelled) setNoteStatus('available');
-      }
-    });
+      });
     return () => {
       cancelled = true;
     };
