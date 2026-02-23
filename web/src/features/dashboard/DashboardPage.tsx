@@ -364,7 +364,7 @@ function DashboardContent() {
       )}
 
       {loading && allSecrets.length === 0 ? (
-        <p class="text-muted">Loading...</p>
+        <p class="text-center text-muted">Loading secrets...</p>
       ) : allSecrets.length === 0 ? (
         <div class="text-center">
           <p class="mb-4 text-muted">You have no active secrets.</p>
