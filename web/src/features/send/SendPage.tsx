@@ -90,7 +90,7 @@ function GetSecretForm() {
   );
 
   return (
-    <form onSubmit={handleSubmit} role="tabpanel" class="space-y-8">
+    <form onSubmit={handleSubmit} role="tabpanel" class="space-y-6">
       <p class="text-center text-sm text-muted">
         Paste a secrt link to view the secret.
       </p>
@@ -100,7 +100,7 @@ function GetSecretForm() {
         </label>
         <input
           id="get-url"
-          type="url"
+          type="text"
           class={`input ${getError ? 'input-error' : ''}`}
           placeholder="https://secrt.ca/s/abc123#..."
           value={getUrl}
@@ -110,7 +110,11 @@ function GetSecretForm() {
           }}
           autoFocus
         />
-        {getError && <p class="text-sm text-red-600">{getError}</p>}
+        {getError ? (
+          <p class="text-sm text-red-600">{getError}</p>
+        ) : (
+          <p class="text-center text-sm text-muted">&nbsp;</p>
+        )}
       </div>
       <button
         type="submit"
@@ -591,15 +595,15 @@ export function SendPage() {
     <div class="space-y-4">
       <div class="card space-y-6">
         {/* Send / Get tab switcher */}
-        <div class="flex gap-2" role="tablist">
+        <div class="-mt-1.5 flex gap-2" role="tablist">
           <button
             type="button"
             role="tab"
             aria-selected={tab === 'send'}
             class={`flex-1 border-b-2 px-4 pb-1.5 text-center font-semibold tracking-wider uppercase transition-colors ${
               tab === 'send'
-                ? 'border-accent text-white'
-                : 'text-muted dark:border-neutral-600 dark:hover:border-neutral-400 dark:hover:text-neutral-300'
+                ? 'border-accent-hover text-black dark:border-accent dark:text-white'
+                : 'border-neutral-200 text-muted hover:border-neutral-400 hover:text-neutral-800 dark:border-neutral-600 dark:hover:border-neutral-400 dark:hover:text-neutral-300'
             }`}
             onClick={() => setTab('send')}
           >
@@ -611,8 +615,8 @@ export function SendPage() {
             aria-selected={tab === 'get'}
             class={`flex-1 border-b-2 px-4 pb-1.5 text-center font-semibold tracking-wider uppercase transition-colors ${
               tab === 'get'
-                ? 'border-accent text-white'
-                : 'text-muted dark:border-neutral-600 dark:hover:border-neutral-400 dark:hover:text-neutral-300'
+                ? 'border-accent-hover text-black dark:border-accent dark:text-white'
+                : 'border-neutral-200 text-muted hover:border-neutral-400 hover:text-neutral-800 dark:border-neutral-600 dark:hover:border-neutral-400 dark:hover:text-neutral-300'
             }`}
             onClick={() => setTab('get')}
           >
@@ -629,6 +633,9 @@ export function SendPage() {
             onSubmit={handleSubmit}
             onDragOver={handlePageDragOver}
           >
+            <p class="text-center text-sm text-muted">
+              The server never sees the original text or file.
+            </p>
             {/* Content input */}
             <div class="space-y-1">
               <div class="flex items-center justify-between gap-2">
