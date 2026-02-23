@@ -14,7 +14,7 @@ import {
   performEcdh,
   deriveTransferKey,
 } from '../../crypto/amk';
-import { storeAmk, loadAmk } from '../../lib/amk-store';
+import { storeAmk } from '../../lib/amk-store';
 import { navigate } from '../../router';
 import { getRedirectParam } from '../../lib/redirect';
 import { isTauri, getApiBase } from '../../lib/config';
@@ -87,14 +87,11 @@ function TauriLoginFlow() {
         ecdhPrivateKeyRef.current = kp.privateKey;
         const pubBytes = await exportPublicKey(kp.publicKey);
         ecdhPubKeyB64 = base64urlEncode(pubBytes);
-      } catch (ecdhErr) {
-        console.warn('[AMK transfer] ECDH key generation failed:', ecdhErr);
+      } catch {
         // ECDH generation failure is non-fatal — proceed without AMK transfer
       }
 
-      console.info('[AMK transfer] Starting app login, ecdhPubKey:', ecdhPubKeyB64 ? 'present' : 'MISSING');
       const res = await appLoginStart(ecdhPubKeyB64);
-      console.info('[AMK transfer] Verification URL:', res.verification_url);
       setState({
         step: 'polling',
         appCode: res.app_code,
@@ -126,7 +123,6 @@ function TauriLoginFlow() {
               controller.signal,
             );
             if (pollRes.status === 'complete') {
-              console.info('[AMK transfer] Poll complete, has amk_transfer:', !!pollRes.amk_transfer, 'has privKey:', !!ecdhPrivateKeyRef.current);
               if (
                 pollRes.session_token &&
                 pollRes.user_id &&
@@ -135,11 +131,6 @@ function TauriLoginFlow() {
                 // Decrypt and store AMK if transfer data is present
                 try {
                   const privKey = ecdhPrivateKeyRef.current;
-                  if (!pollRes.amk_transfer) {
-                    console.warn('[AMK transfer] Poll response has no amk_transfer data');
-                  } else if (!privKey) {
-                    console.warn('[AMK transfer] ECDH private key is null — cannot decrypt AMK');
-                  }
                   if (pollRes.amk_transfer && privKey) {
                     const peerPkBytes = base64urlDecode(
                       pollRes.amk_transfer.ecdh_public_key,
@@ -185,13 +176,8 @@ function TauriLoginFlow() {
                       pollRes.user_id,
                       new Uint8Array(amkPt),
                     );
-                    console.info('[AMK transfer] AMK decrypted and stored for user', pollRes.user_id, '— length:', amkPt.byteLength, '— isTauri:', isTauri());
-                    // Verify round-trip
-                    const verify = await loadAmk(pollRes.user_id);
-                    console.info('[AMK transfer] Verify round-trip:', verify ? `ok (${verify.byteLength} bytes)` : 'FAILED - null');
                   }
-                } catch (amkErr) {
-                  console.warn('[AMK transfer] AMK decryption/storage failed:', amkErr);
+                } catch {
                   // AMK decryption failure is non-fatal — login still succeeds
                 }
                 ecdhPrivateKeyRef.current = null;

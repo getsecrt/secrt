@@ -96,17 +96,9 @@ export function AppLoginPage() {
       let amkTransfer: AmkTransferData | undefined;
 
       try {
-        if (!ecdhPeerKey) {
-          console.warn('[AMK transfer] No ek (ECDH public key) in URL — app did not request AMK transfer');
-        } else if (!auth.userId) {
-          console.warn('[AMK transfer] No userId in auth context');
-        }
         if (ecdhPeerKey && auth.userId) {
           const amk = await loadAmk(auth.userId);
 
-          if (!amk) {
-            console.warn('[AMK transfer] No AMK in IndexedDB for user', auth.userId);
-          }
           if (amk) {
             const browserKp = await generateEcdhKeyPair();
             const browserPkBytes = await exportPublicKey(browserKp.publicKey);
@@ -150,8 +142,7 @@ export function AppLoginPage() {
             };
           }
         }
-      } catch (ecdhErr) {
-        console.warn('[AMK transfer] ECDH setup failed:', ecdhErr);
+      } catch {
         // ECDH setup failure is non-fatal — approve without AMK transfer
       }
 

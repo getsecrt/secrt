@@ -20,7 +20,6 @@ import {
   frameSizeError,
 } from '../../lib/envelope-size';
 import { formatShareLink } from '../../lib/url';
-import { isTauri } from '../../lib/config';
 import { copyToClipboard } from '../../lib/clipboard';
 import { TTL_DEFAULT, isValidTtl } from '../../lib/ttl';
 import {
@@ -141,7 +140,6 @@ export function SendPage() {
     loadAmk(auth.userId)
       .then(async (amk) => {
         if (cancelled) return;
-        console.info('[SendPage] loadAmk result:', amk ? `found (${amk.byteLength} bytes)` : 'null', '— userId:', auth.userId, '— isTauri:', isTauri());
         if (amk) {
           setNoteStatus('available');
           return;
@@ -154,8 +152,7 @@ export function SendPage() {
           if (!cancelled) setNoteStatus('available');
         }
       })
-      .catch((err) => {
-        console.warn('[SendPage] loadAmk failed:', err);
+      .catch(() => {
         if (!cancelled) setNoteStatus('available');
       });
     return () => {
