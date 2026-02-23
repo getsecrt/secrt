@@ -15,7 +15,7 @@ name = "secrt_app"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [dependencies]
-secrt-core = { path = "../secrt-core", version = "0.14.5" }
+secrt-core = { path = "../secrt-core", version = "0.14.6" }
 tauri = { version = "2", features = [] }
 tauri-plugin-shell = "2"
 keyring = "3"

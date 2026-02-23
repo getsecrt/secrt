@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.14.6 — 2026-02-22
+
+### Added
+
+- **CORS support for Tauri desktop app:** the server now handles CORS preflight and response headers for Tauri webview origins (`tauri://localhost` on macOS, `https://tauri.localhost` on Windows/Linux). Allows the production Tauri app to make authenticated cross-origin requests to the API. Credentials are permitted so session-based auth works from the webview.
+- **CORS integration tests:** 8 tests covering preflight responses, allowed/rejected origins, method and header validation, and normal request behavior.
+
+### Fixed
+
+- **Tauri app login fails in production builds:** production Tauri webview (`tauri://localhost`) was blocked by missing CORS headers on all API requests, causing "Load failed" on every fetch. The CorsLayer now intercepts OPTIONS preflight before route dispatch.
+
+### Changed
+
+- **Tauri app credential storage:** file-based fallback for OS keychain storage when macOS Tahoe keychain is broken (set succeeds but get returns `errSecItemNotFound`). Credentials stored in `~/Library/Application Support/ca.secrt.app/credentials.json`. Auto-detected via probe on startup.
+- **Tauri app devtools:** WebInspector now auto-opens in debug builds for easier development.
+
 ## 0.14.5 — 2026-02-22
 
 ### Added
