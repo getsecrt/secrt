@@ -19,7 +19,7 @@ import {
   estimateEnvelopeSize,
   frameSizeError,
 } from '../../lib/envelope-size';
-import { formatShareLink } from '../../lib/url';
+import { formatShareLink, parseShareUrl } from '../../lib/url';
 import { copyToClipboard } from '../../lib/clipboard';
 import { TTL_DEFAULT, isValidTtl } from '../../lib/ttl';
 import {
@@ -32,6 +32,7 @@ import {
   EyeSlashIcon,
   GearIcon,
   KeyIcon,
+  LinkIcon,
   LockIcon,
   NoteIcon,
   TriangleExclamationIcon,
@@ -63,8 +64,74 @@ type SendStatus =
   | { step: 'done'; shareUrl: string; expiresAt: string }
   | { step: 'error'; message: string };
 
+function GetSecretForm() {
+  const [getUrl, setGetUrl] = useState('');
+  const [getError, setGetError] = useState('');
+
+  const handleGet = useCallback(() => {
+    const parsed = parseShareUrl(getUrl.trim());
+    if (!parsed) {
+      setGetError(
+        'Please enter a valid secrt link (e.g. https://secrt.ca/s/abc123#key)',
+      );
+      return;
+    }
+    setGetError('');
+    const fragment = base64urlEncode(parsed.urlKey);
+    navigate(`/s/${parsed.id}#${fragment}`);
+  }, [getUrl]);
+
+  const handleSubmit = useCallback(
+    (e: Event) => {
+      e.preventDefault();
+      handleGet();
+    },
+    [handleGet],
+  );
+
+  return (
+    <form onSubmit={handleSubmit} role="tabpanel" class="space-y-6">
+      <p class="text-center text-sm text-muted">
+        Paste a secrt link to view the secret.
+      </p>
+      <div class="space-y-2">
+        <label class="label" for="get-url">
+          <LinkIcon class="size-4 opacity-60" /> Secret Link
+        </label>
+        <input
+          id="get-url"
+          type="text"
+          class={`input ${getError ? 'input-error' : ''}`}
+          placeholder="https://secrt.ca/s/abc123#..."
+          value={getUrl}
+          onInput={(e) => {
+            setGetUrl((e.target as HTMLInputElement).value);
+            if (getError) setGetError('');
+          }}
+          autoFocus
+        />
+        {getError ? (
+          <p class="text-sm text-red-600">{getError}</p>
+        ) : (
+          <p class="text-center text-sm text-muted">&nbsp;</p>
+        )}
+      </div>
+      <button
+        type="submit"
+        class="btn btn-primary w-full tracking-wider uppercase"
+        disabled={!getUrl.trim()}
+      >
+        View Secret
+      </button>
+    </form>
+  );
+}
+
 export function SendPage() {
   const auth = useAuth();
+  const [tab, setTab] = useState<'send' | 'get'>(() =>
+    window.location.hash === '#get' ? 'get' : 'send',
+  );
   const [mode, setMode] = useState<'text' | 'file'>('text');
   const [text, setText] = useState('');
   const [file, setFile] = useState<File | null>(null);
@@ -526,243 +593,290 @@ export function SendPage() {
 
   return (
     <div class="space-y-4">
-      <form
-        class="card space-y-6"
-        onSubmit={handleSubmit}
-        onDragOver={handlePageDragOver}
-      >
-        <CardHeading
-          title="Send a Secret"
-          subtitle="The server never sees the original text or file."
-        />
+      <div class="card space-y-6">
+        {/* Send / Get tab switcher */}
+        <div class="-mt-1.5 flex gap-2" role="tablist">
+          <button
+            type="button"
+            role="tab"
+            aria-selected={tab === 'send'}
+            class={`flex-1 border-b-2 px-4 pb-1.5 text-center font-semibold tracking-wider uppercase transition-colors ${
+              tab === 'send'
+                ? 'border-accent-hover text-black dark:border-accent dark:text-white'
+                : 'border-neutral-200 text-muted hover:border-neutral-400 hover:text-neutral-800 dark:border-neutral-600 dark:hover:border-neutral-400 dark:hover:text-neutral-300'
+            }`}
+            onClick={() => setTab('send')}
+          >
+            Send Secret
+          </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={tab === 'get'}
+            class={`flex-1 border-b-2 px-4 pb-1.5 text-center font-semibold tracking-wider uppercase transition-colors ${
+              tab === 'get'
+                ? 'border-accent-hover text-black dark:border-accent dark:text-white'
+                : 'border-neutral-200 text-muted hover:border-neutral-400 hover:text-neutral-800 dark:border-neutral-600 dark:hover:border-neutral-400 dark:hover:text-neutral-300'
+            }`}
+            onClick={() => setTab('get')}
+          >
+            Get Secret
+          </button>
+        </div>
 
-        {/* Content input */}
-        <div class="space-y-1">
-          <div class="flex items-center justify-between gap-2">
-            <label class="label">
-              {mode === 'text' ? (
-                <>
-                  <DocumentIcon class="size-4 opacity-60" aria-hidden="true" />{' '}
-                  Secret Message
-                </>
-              ) : (
-                <>
-                  <UploadIcon class="size-4 opacity-60" aria-hidden="true" />{' '}
-                  Secret File
-                </>
-              )}
-            </label>
-            {mode === 'text' && (
-              <div class="flex items-center gap-1">
-                <button
-                  type="button"
-                  class="link"
-                  onClick={handleGenerateDefaultPassword}
-                  disabled={busy}
-                >
-                  {passwordCopied ? (
-                    'Copied to Clipboard!'
+        {tab === 'get' && <GetSecretForm />}
+
+        {/* Send tab content */}
+        {tab === 'send' && (
+          <form
+            class="space-y-6"
+            onSubmit={handleSubmit}
+            onDragOver={handlePageDragOver}
+          >
+            <p class="text-center text-sm text-muted">
+              The server never sees the original text or file.
+            </p>
+            {/* Content input */}
+            <div class="space-y-1">
+              <div class="flex items-center justify-between gap-2">
+                <label class="label">
+                  {mode === 'text' ? (
+                    <>
+                      <DocumentIcon
+                        class="size-4 opacity-60"
+                        aria-hidden="true"
+                      />{' '}
+                      Secret Message
+                    </>
                   ) : (
                     <>
-                      <span class="xs:hidden">Generate</span>
-                      <span class="hidden xs:inline">Generate a Password</span>
+                      <UploadIcon
+                        class="size-4 opacity-60"
+                        aria-hidden="true"
+                      />{' '}
+                      Secret File
                     </>
                   )}
-                </button>
+                </label>
+                {mode === 'text' && (
+                  <div class="flex items-center gap-1">
+                    <button
+                      type="button"
+                      class="link"
+                      onClick={handleGenerateDefaultPassword}
+                      disabled={busy}
+                    >
+                      {passwordCopied ? (
+                        'Copied to Clipboard!'
+                      ) : (
+                        <>
+                          <span class="xs:hidden">Generate</span>
+                          <span class="hidden xs:inline">
+                            Generate a Password
+                          </span>
+                        </>
+                      )}
+                    </button>
+                    <button
+                      type="button"
+                      class="rounded p-1 transition-colors hover:text-text"
+                      onClick={() => setPasswordModalOpen(true)}
+                      aria-label="Password generator settings"
+                      disabled={busy}
+                    >
+                      <GearIcon class="label size-4 hover:text-black dark:hover:text-white" />
+                    </button>
+                  </div>
+                )}
+              </div>
+              {/* Grid stack: textarea sets the height, drop zone overlays it */}
+              <div class="grid">
+                <textarea
+                  class={`textarea mb-0 [grid-area:1/1] ${mode === 'file' ? 'invisible' : ''} ${contentError && mode === 'text' ? 'input-error' : ''}`}
+                  rows={5}
+                  placeholder="Enter your secret or drag a file here..."
+                  value={text}
+                  onInput={(e) => {
+                    setText((e.target as HTMLTextAreaElement).value);
+                    setPasswordCopied(false);
+                    if (status.step === 'error') setStatus({ step: 'input' });
+                  }}
+                  disabled={busy || mode === 'file'}
+                />
+                {mode === 'file' && (
+                  <FileDropZone
+                    file={file}
+                    onFileSelect={handleFileSelect}
+                    onFileClear={handleFileClear}
+                    disabled={busy}
+                    className={`[grid-area:1/1] ${contentError ? 'border-error' : ''}`}
+                  />
+                )}
+              </div>
+              <p class="text-center text-sm">
+                {mode === 'text' ? (
+                  <>
+                    <button
+                      type="button"
+                      class="link"
+                      onClick={() => fileInputRef.current?.click()}
+                    >
+                      Choose a File
+                    </button>{' '}
+                    {/*or drag one here to upload*/}
+                    <input
+                      ref={fileInputRef}
+                      type="file"
+                      class="hidden"
+                      onChange={(e) => {
+                        const f = (e.target as HTMLInputElement).files?.[0];
+                        if (f) handleFileSelect(f);
+                      }}
+                    />
+                  </>
+                ) : (
+                  <>
+                    Max size{' '}
+                    {serverInfo
+                      ? `${Math.floor((auth.authenticated ? serverInfo.limits.authed : serverInfo.limits.public).max_envelope_bytes / 1024)} KB`
+                      : '256 KB'}
+                  </>
+                )}
+              </p>
+            </div>
+
+            {/* Passphrase */}
+            <div class="space-y-1">
+              <label class="label" for="passphrase">
+                <LockIcon class="size-4 opacity-60" aria-hidden="true" />
+                <span class="flex items-baseline gap-2">
+                  Passphrase{' '}
+                  <span class="text-sm font-normal text-faint">optional</span>
+                </span>
+              </label>
+              <div class="relative">
+                <input
+                  id="passphrase"
+                  type={showPassphrase ? 'text' : 'password'}
+                  class="input pr-10"
+                  placeholder=""
+                  value={passphrase}
+                  onInput={handlePassphraseInput}
+                  disabled={busy}
+                  autocomplete="off"
+                />
                 <button
                   type="button"
-                  class="rounded p-1 transition-colors hover:text-text"
-                  onClick={() => setPasswordModalOpen(true)}
-                  aria-label="Password generator settings"
-                  disabled={busy}
+                  class="absolute top-1/2 right-2 -translate-y-1/2 p-1 hover:text-text"
+                  onClick={() => setShowPassphrase((s) => !s)}
+                  aria-label={
+                    showPassphrase ? 'Hide passphrase' : 'Show passphrase'
+                  }
                 >
-                  <GearIcon class="label size-4 hover:text-black dark:hover:text-white" />
+                  {showPassphrase ? (
+                    <EyeSlashIcon class="label size-4 hover:text-black dark:hover:text-white" />
+                  ) : (
+                    <EyeIcon class="label size-4 hover:text-black dark:hover:text-white" />
+                  )}
                 </button>
               </div>
-            )}
-          </div>
-          {/* Grid stack: textarea sets the height, drop zone overlays it */}
-          <div class="grid">
-            <textarea
-              class={`textarea mb-0 [grid-area:1/1] ${mode === 'file' ? 'invisible' : ''} ${contentError && mode === 'text' ? 'input-error' : ''}`}
-              rows={5}
-              placeholder="Enter your secret or drag a file here..."
-              value={text}
-              onInput={(e) => {
-                setText((e.target as HTMLTextAreaElement).value);
-                setPasswordCopied(false);
-                if (status.step === 'error') setStatus({ step: 'input' });
-              }}
-              disabled={busy || mode === 'file'}
-            />
-            {mode === 'file' && (
-              <FileDropZone
-                file={file}
-                onFileSelect={handleFileSelect}
-                onFileClear={handleFileClear}
-                disabled={busy}
-                className={`[grid-area:1/1] ${contentError ? 'border-error' : ''}`}
-              />
-            )}
-          </div>
-          <p class="text-center text-sm">
-            {mode === 'text' ? (
-              <>
-                <button
-                  type="button"
-                  class="link"
-                  onClick={() => fileInputRef.current?.click()}
-                >
-                  Choose a File
-                </button>{' '}
-                {/*or drag one here to upload*/}
-                <input
-                  ref={fileInputRef}
-                  type="file"
-                  class="hidden"
-                  onChange={(e) => {
-                    const f = (e.target as HTMLInputElement).files?.[0];
-                    if (f) handleFileSelect(f);
-                  }}
-                />
-              </>
-            ) : (
-              <>
-                Max size{' '}
-                {serverInfo
-                  ? `${Math.floor((auth.authenticated ? serverInfo.limits.authed : serverInfo.limits.public).max_envelope_bytes / 1024)} KB`
-                  : '256 KB'}
-              </>
-            )}
-          </p>
-        </div>
+              <p class="text-center text-sm text-muted">
+                {passphrase
+                  ? 'The recipient must enter this password'
+                  : '\u00A0'}
+              </p>
+            </div>
 
-        {/* Passphrase */}
-        <div class="space-y-1">
-          <label class="label" for="passphrase">
-            <LockIcon class="size-4 opacity-60" aria-hidden="true" />
-            <span class="flex items-baseline gap-2">
-              Passphrase{' '}
-              <span class="text-sm font-normal text-faint">optional</span>
-            </span>
-          </label>
-          <div class="relative">
-            <input
-              id="passphrase"
-              type={showPassphrase ? 'text' : 'password'}
-              class="input pr-10"
-              placeholder=""
-              value={passphrase}
-              onInput={handlePassphraseInput}
+            {/* Private note (only shown when authenticated + feature enabled) */}
+            {notesAvailable && noteStatus === 'available' && (
+              <div class="space-y-1">
+                <label class="label" for="note">
+                  <NoteIcon class="size-4 opacity-60" aria-hidden="true" />
+                  <span class="flex items-baseline gap-2">
+                    Private Note{' '}
+                    <span class="text-sm font-normal text-faint">optional</span>
+                  </span>
+                </label>
+                <input
+                  id="note"
+                  type="text"
+                  class="input"
+                  placeholder="Description"
+                  value={note}
+                  onInput={(e) => setNote((e.target as HTMLInputElement).value)}
+                  disabled={busy}
+                  maxLength={500}
+                  autocomplete="off"
+                />
+                <p class="text-center text-sm text-muted">
+                  Only visible to you on your dashboard
+                </p>
+              </div>
+            )}
+            {notesAvailable && noteStatus === 'needs-sync' && (
+              <div class="space-y-1">
+                <label class="label" for="note">
+                  <NoteIcon class="size-4 opacity-60" aria-hidden="true" />
+                  <span class="flex items-baseline gap-2">
+                    Private Note{' '}
+                    <span class="text-sm font-normal text-faint">optional</span>
+                  </span>
+                </label>
+                <input
+                  disabled
+                  class="input border-yellow-600 text-center dark:border-yellow-500/50"
+                  value="Notes Unavailable: No Notes Key"
+                />
+                <p class="text-center text-sm">
+                  Sync Notes Key from an authenticated device to add notes.
+                </p>
+              </div>
+            )}
+
+            {/* TTL */}
+            <TtlSelector
+              value={ttlSeconds}
+              onChange={setTtlSeconds}
               disabled={busy}
-              autocomplete="off"
             />
+
+            {/* Submit */}
             <button
-              type="button"
-              class="absolute top-1/2 right-2 -translate-y-1/2 p-1 hover:text-text"
-              onClick={() => setShowPassphrase((s) => !s)}
-              aria-label={
-                showPassphrase ? 'Hide passphrase' : 'Show passphrase'
+              type="submit"
+              class="btn btn-primary mt-3 w-full tracking-wider uppercase"
+              disabled={busy}
+              aria-busy={busy}
+              aria-describedby={
+                status.step === 'error' ? 'send-error' : undefined
               }
             >
-              {showPassphrase ? (
-                <EyeSlashIcon class="label size-4 hover:text-black dark:hover:text-white" />
-              ) : (
-                <EyeIcon class="label size-4 hover:text-black dark:hover:text-white" />
-              )}
+              {buttonLabel}
             </button>
-          </div>
-          <p class="text-center text-sm text-muted">
-            {passphrase ? 'The recipient must enter this password' : '\u00A0'}
-          </p>
-        </div>
 
-        {/* Private note (only shown when authenticated + feature enabled) */}
-        {notesAvailable && noteStatus === 'available' && (
-          <div class="space-y-1">
-            <label class="label" for="note">
-              <NoteIcon class="size-4 opacity-60" aria-hidden="true" />
-              <span class="flex items-baseline gap-2">
-                Private Note{' '}
-                <span class="text-sm font-normal text-faint">optional</span>
-              </span>
-            </label>
-            <input
-              id="note"
-              type="text"
-              class="input"
-              placeholder="Description"
-              value={note}
-              onInput={(e) => setNote((e.target as HTMLInputElement).value)}
-              disabled={busy}
-              maxLength={500}
-              autocomplete="off"
-            />
-            <p class="text-center text-sm text-muted">
-              Only visible to you on your dashboard
-            </p>
-          </div>
+            {/* Error */}
+            {status.step === 'error' && (
+              <div
+                id="send-error"
+                role="alert"
+                class="alert-error flex items-center gap-2"
+              >
+                <TriangleExclamationIcon
+                  class="size-5 shrink-0"
+                  aria-hidden="true"
+                />
+                <span>
+                  {status.message.split('\n').map((line, i, arr) => (
+                    <>
+                      {line}
+                      {i < arr.length - 1 && <br />}
+                    </>
+                  ))}
+                </span>
+              </div>
+            )}
+          </form>
         )}
-        {notesAvailable && noteStatus === 'needs-sync' && (
-          <div class="space-y-1">
-            <label class="label" for="note">
-              <NoteIcon class="size-4 opacity-60" aria-hidden="true" />
-              <span class="flex items-baseline gap-2">
-                Private Note{' '}
-                <span class="text-sm font-normal text-faint">optional</span>
-              </span>
-            </label>
-            <input
-              disabled
-              class="input border-yellow-600 text-center dark:border-yellow-500/50"
-              value="Notes Unavailable: No Notes Key"
-            />
-            <p class="text-center text-sm">
-              Sync Notes Key from an authenticated device to add notes.
-            </p>
-          </div>
-        )}
-
-        {/* TTL */}
-        <TtlSelector
-          value={ttlSeconds}
-          onChange={setTtlSeconds}
-          disabled={busy}
-        />
-
-        {/* Submit */}
-        <button
-          type="submit"
-          class="btn btn-primary mt-3 w-full tracking-wider uppercase"
-          disabled={busy}
-          aria-busy={busy}
-          aria-describedby={status.step === 'error' ? 'send-error' : undefined}
-        >
-          {buttonLabel}
-        </button>
-
-        {/* Error */}
-        {status.step === 'error' && (
-          <div
-            id="send-error"
-            role="alert"
-            class="alert-error flex items-center gap-2"
-          >
-            <TriangleExclamationIcon
-              class="size-5 shrink-0"
-              aria-hidden="true"
-            />
-            <span>
-              {status.message.split('\n').map((line, i, arr) => (
-                <>
-                  {line}
-                  {i < arr.length - 1 && <br />}
-                </>
-              ))}
-            </span>
-          </div>
-        )}
-      </form>
+      </div>
 
       {/* Password generator modal */}
       <Modal

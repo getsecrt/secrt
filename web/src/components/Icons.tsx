@@ -477,6 +477,20 @@ export function LinuxIcon(props: IconProps) {
   );
 }
 
+export function LinkIcon(props: IconProps) {
+  return (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      viewBox="0 0 640 640"
+      fill="currentColor"
+      class="size-5"
+      {...props}
+    >
+      <path d="M452 160q-26 1-47 13-24-24-55-40a156 156 0 0 1 212 230l-71 71a156 156 0 0 1-267-110v-5a32 32 0 1 1 64 2v2a92 92 0 0 0 158 66l71-71a93 93 0 0 0-65-158m-145 77-5-3a92 92 0 0 0-108 17l-71 71a93 93 0 0 0 112 146q24 24 55 39A157 157 0 0 1 78 277l71-71a156 156 0 0 1 267 111v4a32 32 0 1 1-64-2v-2c0-34-18-63-45-79z" />
+    </svg>
+  );
+}
+
 export function ShareFromSquareIcon(props: IconProps) {
   return (
     <svg
