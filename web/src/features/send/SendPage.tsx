@@ -78,7 +78,11 @@ function GetSecretForm() {
     }
     setGetError('');
     const fragment = base64urlEncode(parsed.urlKey);
-    navigate(`/s/${parsed.id}#${fragment}`);
+    // Pass autoClaim flag so the claim page skips the confirm modal
+    const url = `/s/${parsed.id}#${fragment}`;
+    history.pushState({ autoClaim: true }, '', url);
+    window.scrollTo(0, 0);
+    window.dispatchEvent(new PopStateEvent('popstate'));
   }, [getUrl]);
 
   const handleSubmit = useCallback(

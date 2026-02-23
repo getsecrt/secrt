@@ -83,6 +83,12 @@ export function ClaimPage({ id }: ClaimPageProps) {
     ta.style.height = `${Math.min(ta.scrollHeight, 256)}px`;
   }, [status.step]);
 
+  // Auto-claim: skip the confirm modal when navigating from the Get form.
+  // suppressModal hides the modal during the entire claim+decrypt flow so
+  // the user only sees the placeholder card → revealed secret with no flash.
+  const autoClaimRef = useRef(!!history.state?.autoClaim);
+  const [suppressModal, setSuppressModal] = useState(() => !!history.state?.autoClaim);
+
   // Validate fragment on mount — stop at confirm screen, don't claim yet
   useEffect(() => {
     const fragment = window.location.hash.slice(1);
@@ -145,6 +151,7 @@ export function ClaimPage({ id }: ClaimPageProps) {
         void preloadPassphraseKdf().catch(() => {
           // Surface load errors when user attempts decrypt.
         });
+        setSuppressModal(false); // show passphrase modal even during auto-claim
         setStatus({ step: 'passphrase', envelope: res.envelope, urlKey });
         return;
       }
@@ -160,6 +167,15 @@ export function ClaimPage({ id }: ClaimPageProps) {
       setStatus(mapClaimError(err));
     }
   }, [id]);
+
+  // Skip confirm modal and claim immediately when navigating from the Get form
+  useEffect(() => {
+    if (status.step === 'confirm' && autoClaimRef.current) {
+      autoClaimRef.current = false;
+      history.replaceState(null, '');
+      handleClaim();
+    }
+  }, [status.step, handleClaim]);
 
   // Handle passphrase submission
   const handleDecrypt = useCallback(
@@ -255,7 +271,8 @@ export function ClaimPage({ id }: ClaimPageProps) {
     (status.step === 'decrypting' && passphraseRequired);
   const isBusy = status.step === 'claiming' || status.step === 'decrypting';
   const modalOpen =
-    status.step === 'confirm' || isBusy || status.step === 'passphrase';
+    !suppressModal &&
+    (status.step === 'confirm' || isBusy || status.step === 'passphrase');
 
   const isFile = isDone && status.meta.type === 'file';
 
