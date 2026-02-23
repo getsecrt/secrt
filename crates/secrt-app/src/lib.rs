@@ -1,6 +1,8 @@
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use base64::Engine;
 use ring::rand::{SecureRandom, SystemRandom};
+#[cfg(debug_assertions)]
+use tauri::Manager;
 use secrt_core::{
     CompressionPolicy, EnvelopeError, OpenParams, PayloadMeta, PayloadType, SealParams,
 };
@@ -199,6 +201,16 @@ pub fn run() {
             keyring_get,
             keyring_delete,
         ])
+        .setup(|app| {
+            #[cfg(debug_assertions)]
+            {
+                let windows = app.webview_windows();
+                for window in windows.values() {
+                    window.open_devtools();
+                }
+            }
+            Ok(())
+        })
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }
