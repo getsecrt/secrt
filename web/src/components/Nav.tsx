@@ -18,7 +18,7 @@ import {
   EyeSlashIcon,
   LockIcon,
   GitHubIcon,
-  SquarePlusIcon,
+  ShareFromSquareIcon,
   TableIcon,
   GearIcon,
   ChevronDownIcon,
@@ -449,8 +449,8 @@ export function Nav() {
           <div class="hidden items-center gap-3 sm:flex md:gap-8">
             <NavLink href="/" active={isActive('send')}>
               <span class={navItemClass}>
-                <SquarePlusIcon class="size-4" aria-hidden="true" />
-                Create
+                <ShareFromSquareIcon class="size-4" aria-hidden="true" />
+                Send/Get
               </span>
             </NavLink>
 
@@ -542,8 +542,8 @@ export function Nav() {
 
               <NavLink href="/" active={isActive('send')}>
                 <span class={navItemClass}>
-                  <SquarePlusIcon class="size-4" aria-hidden="true" />
-                  Create
+                  <ShareFromSquareIcon class="size-4" aria-hidden="true" />
+                  Send/Get
                 </span>
               </NavLink>
 
