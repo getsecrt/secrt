@@ -163,18 +163,41 @@ fn validate_keyring_key(key: &str) -> Result<(), String> {
 #[tauri::command]
 fn keyring_set(key: String, value: String) -> Result<(), String> {
     validate_keyring_key(&key)?;
-    let entry = keyring::Entry::new(KEYRING_SERVICE, &key).map_err(|e| e.to_string())?;
-    entry.set_password(&value).map_err(|e| e.to_string())
+    let entry = keyring::Entry::new(KEYRING_SERVICE, &key).map_err(|e| {
+        eprintln!("[keyring] Entry::new failed for set key={key}: {e}");
+        e.to_string()
+    })?;
+    entry.set_password(&value).map_err(|e| {
+        eprintln!("[keyring] set_password failed key={key}: {e}");
+        e.to_string()
+    })?;
+    // Verify round-trip on the Rust side
+    let verify = keyring::Entry::new(KEYRING_SERVICE, &key)
+        .and_then(|e| e.get_password());
+    eprintln!("[keyring] set key={key} ok, verify read: {verify:?}");
+    Ok(())
 }
 
 #[tauri::command]
 fn keyring_get(key: String) -> Result<Option<String>, String> {
     validate_keyring_key(&key)?;
-    let entry = keyring::Entry::new(KEYRING_SERVICE, &key).map_err(|e| e.to_string())?;
+    let entry = keyring::Entry::new(KEYRING_SERVICE, &key).map_err(|e| {
+        eprintln!("[keyring] Entry::new failed for get key={key}: {e}");
+        e.to_string()
+    })?;
     match entry.get_password() {
-        Ok(v) => Ok(Some(v)),
-        Err(keyring::Error::NoEntry) => Ok(None),
-        Err(e) => Err(e.to_string()),
+        Ok(v) => {
+            eprintln!("[keyring] get key={key}: found ({} bytes)", v.len());
+            Ok(Some(v))
+        }
+        Err(keyring::Error::NoEntry) => {
+            eprintln!("[keyring] get key={key}: NoEntry");
+            Ok(None)
+        }
+        Err(e) => {
+            eprintln!("[keyring] get key={key}: error: {e}");
+            Err(e.to_string())
+        }
     }
 }
 
