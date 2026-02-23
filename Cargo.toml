@@ -23,7 +23,7 @@ base64 = "0.22"
 axum = { version = "0.8", features = ["http1", "json", "tokio"] }
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "signal", "time", "net", "sync"] }
 tower = "0.5"
-tower-http = { version = "0.6", features = ["catch-panic", "trace", "timeout", "fs"] }
+tower-http = { version = "0.6", features = ["catch-panic", "cors", "trace", "timeout", "fs"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
 async-trait = "0.1"

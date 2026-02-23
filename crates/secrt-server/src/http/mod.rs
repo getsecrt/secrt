@@ -20,6 +20,7 @@ use ring::rand::{SecureRandom, SystemRandom};
 use serde::{Deserialize, Serialize};
 use serde_json::value::RawValue;
 use tower_http::catch_panic::CatchPanicLayer;
+use tower_http::cors::{AllowOrigin, CorsLayer};
 use tower_http::services::ServeDir;
 use tracing::{error, info, warn};
 use uuid::Uuid;
@@ -577,6 +578,32 @@ fn generate_user_code() -> Result<String, ()> {
     Ok(format!("{}-{}", &code[..4], &code[4..]))
 }
 
+/// CORS layer for Tauri desktop app origins.
+///
+/// Tauri webviews use `tauri://localhost` (macOS) and `https://tauri.localhost`
+/// (Windows/Linux). Without CORS headers, every cross-origin fetch from the
+/// production Tauri app is blocked by the webview's browser engine.
+fn cors_layer() -> CorsLayer {
+    CorsLayer::new()
+        .allow_origin(AllowOrigin::predicate(|origin, _| {
+            origin == "tauri://localhost" || origin == "https://tauri.localhost"
+        }))
+        .allow_methods([
+            Method::GET,
+            Method::POST,
+            Method::PUT,
+            Method::PATCH,
+            Method::DELETE,
+            Method::OPTIONS,
+        ])
+        .allow_headers([
+            AUTHORIZATION,
+            CONTENT_TYPE,
+            HeaderName::from_static("accept"),
+        ])
+        .allow_credentials(true)
+}
+
 pub fn build_router(state: Arc<AppState>) -> Router {
     let router = Router::new()
         .route("/healthz", get(handle_healthz))
@@ -681,6 +708,7 @@ pub fn build_router(state: Arc<AppState>) -> Router {
             state.clone(),
             request_middleware,
         ))
+        .layer(cors_layer())
         .with_state(state)
 }
 

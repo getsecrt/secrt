@@ -87,7 +87,8 @@ function TauriLoginFlow() {
         ecdhPrivateKeyRef.current = kp.privateKey;
         const pubBytes = await exportPublicKey(kp.publicKey);
         ecdhPubKeyB64 = base64urlEncode(pubBytes);
-      } catch {
+      } catch (ecdhErr) {
+        console.warn('[AMK transfer] ECDH key generation failed:', ecdhErr);
         // ECDH generation failure is non-fatal — proceed without AMK transfer
       }
 
@@ -131,6 +132,11 @@ function TauriLoginFlow() {
                 // Decrypt and store AMK if transfer data is present
                 try {
                   const privKey = ecdhPrivateKeyRef.current;
+                  if (!pollRes.amk_transfer) {
+                    console.warn('[AMK transfer] Poll response has no amk_transfer data');
+                  } else if (!privKey) {
+                    console.warn('[AMK transfer] ECDH private key is null — cannot decrypt AMK');
+                  }
                   if (pollRes.amk_transfer && privKey) {
                     const peerPkBytes = base64urlDecode(
                       pollRes.amk_transfer.ecdh_public_key,
@@ -177,7 +183,8 @@ function TauriLoginFlow() {
                       new Uint8Array(amkPt),
                     );
                   }
-                } catch {
+                } catch (amkErr) {
+                  console.warn('[AMK transfer] AMK decryption failed:', amkErr);
                   // AMK decryption failure is non-fatal — login still succeeds
                 }
                 ecdhPrivateKeyRef.current = null;
