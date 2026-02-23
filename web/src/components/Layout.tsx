@@ -3,6 +3,7 @@ import { Logo } from './Logo';
 import { Nav } from './Nav';
 import { GitHubIcon } from './Icons';
 import { navigate } from '../router';
+import { useOnline } from '../hooks/useOnline';
 
 interface LayoutProps {
   children: ComponentChildren;
@@ -10,6 +11,8 @@ interface LayoutProps {
 }
 
 export function Layout({ children, maxWidth = 'max-w-2xl' }: LayoutProps) {
+  const online = useOnline();
+
   const handleLogoClick = (e: MouseEvent) => {
     e.preventDefault();
     navigate('/');
@@ -24,6 +27,13 @@ export function Layout({ children, maxWidth = 'max-w-2xl' }: LayoutProps) {
         Skip to main content
       </a>
       <Nav />
+
+      {!online && (
+        <div role="alert" class="alert-error mx-2 mt-2 text-center sm:mx-4">
+          You are offline. You cannot create or claim secrets until connectivity
+          is restored.
+        </div>
+      )}
 
       <header class="flex flex-col items-center px-4 pt-1 sm:pt-4">
         <a class="flex justify-center" href="/" onClick={handleLogoClick}>
