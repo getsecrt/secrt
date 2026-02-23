@@ -13,6 +13,7 @@ import { SettingsPage } from './features/settings/SettingsPage';
 import { DevicePage } from './features/auth/DevicePage';
 import { AppLoginPage } from './features/auth/AppLoginPage';
 import { SyncPage } from './features/sync/SyncPage';
+import { AboutPage } from './features/about/AboutPage';
 import { ThemePage } from './features/test/ThemePage';
 
 export function App() {
@@ -40,6 +41,7 @@ export function App() {
       settings: 'Settings — secrt',
       device: 'Approve Device — secrt',
       'app-login': 'Authorize App — secrt',
+      about: 'About — secrt',
       'not-found': 'Not Found — secrt',
     };
     document.title = titles[route.page] ?? 'secrt';
@@ -83,6 +85,9 @@ export function App() {
       break;
     case 'app-login':
       page = <AppLoginPage />;
+      break;
+    case 'about':
+      page = <AboutPage />;
       break;
     case 'not-found':
       page = (
