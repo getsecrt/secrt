@@ -1,7 +1,6 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "Secrt",
-  "version": "0.14.5",
   "identifier": "ca.secrt.app",
   "build": {
     "beforeDevCommand": "SECRT_API_ORIGIN=https://secrt.ca pnpm dev",

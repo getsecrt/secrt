@@ -12,6 +12,7 @@ export type Route =
   | { page: 'settings' }
   | { page: 'device' }
   | { page: 'app-login' }
+  | { page: 'about' }
   | { page: 'theme' }
   | { page: 'not-found' };
 
@@ -60,6 +61,10 @@ export function matchRoute(path: string): Route {
 
   if (path === '/app-login') {
     return { page: 'app-login' };
+  }
+
+  if (path === '/about') {
+    return { page: 'about' };
   }
 
   if (import.meta.env.DEV) {
