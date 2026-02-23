@@ -14,7 +14,7 @@ import {
   performEcdh,
   deriveTransferKey,
 } from '../../crypto/amk';
-import { storeAmk } from '../../lib/amk-store';
+import { storeAmk, loadAmk } from '../../lib/amk-store';
 import { navigate } from '../../router';
 import { getRedirectParam } from '../../lib/redirect';
 import { isTauri, getApiBase } from '../../lib/config';
