@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
-import { render, screen, cleanup } from '@testing-library/preact';
+import { render, screen, cleanup, waitFor } from '@testing-library/preact';
 import userEvent from '@testing-library/user-event';
 
 // Mock dependencies
@@ -28,21 +28,48 @@ vi.mock('../../lib/webauthn', () => ({
 vi.mock('../../lib/api', () => ({
   loginPasskeyStart: vi.fn(),
   loginPasskeyFinish: vi.fn(),
+  appLoginStart: vi.fn(),
+  appLoginPoll: vi.fn(),
 }));
 
 vi.mock('../../crypto/encoding', () => ({
   base64urlEncode: vi.fn().mockReturnValue('cmFuZG9t'),
+  base64urlDecode: vi.fn().mockReturnValue(new Uint8Array(65)),
+}));
+
+vi.mock('../../crypto/amk', () => ({
+  generateEcdhKeyPair: vi.fn().mockRejectedValue(new Error('not in test')),
+  exportPublicKey: vi.fn(),
+  performEcdh: vi.fn(),
+  deriveTransferKey: vi.fn(),
+}));
+
+vi.mock('../../lib/amk-store', () => ({
+  storeAmk: vi.fn(),
+}));
+
+const mockIsTauri = vi.fn().mockReturnValue(false);
+vi.mock('../../lib/config', () => ({
+  isTauri: (...args: unknown[]) => mockIsTauri(...args),
+  getApiBase: () => '',
+}));
+
+const mockShellOpen = vi.fn();
+vi.mock('@tauri-apps/plugin-shell', () => ({
+  open: (...args: unknown[]) => mockShellOpen(...args),
 }));
 
 import { LoginPage, isAllowedVerificationUrl } from './LoginPage';
 import { supportsWebAuthn, getPasskeyCredential } from '../../lib/webauthn';
-import { loginPasskeyStart, loginPasskeyFinish } from '../../lib/api';
+import { loginPasskeyStart, loginPasskeyFinish, appLoginStart } from '../../lib/api';
 
 describe('LoginPage', () => {
   beforeEach(() => {
     mockAuth.authenticated = false;
     mockAuth.login.mockClear();
     mockNavigate.mockClear();
+    mockIsTauri.mockReturnValue(false);
+    mockShellOpen.mockClear();
     vi.mocked(supportsWebAuthn).mockReturnValue(true);
   });
 
@@ -141,6 +168,78 @@ describe('LoginPage', () => {
     render(<LoginPage />);
     await user.click(screen.getByText('Register a New Account'));
     expect(mockNavigate).toHaveBeenCalledWith('/register');
+  });
+
+  describe('TauriLoginFlow', () => {
+    beforeEach(() => {
+      mockIsTauri.mockReturnValue(true);
+      mockShellOpen.mockResolvedValue(undefined);
+      vi.mocked(appLoginStart).mockReset();
+    });
+
+    it('login opens browser without intent param', async () => {
+      vi.mocked(appLoginStart).mockResolvedValue({
+        app_code: 'app_123',
+        user_code: 'ABCD-1234',
+        verification_url: 'https://secrt.ca/app-login?code=ABCD-1234&ek=abc',
+        interval: 2,
+        expires_in: 600,
+      });
+
+      const user = userEvent.setup();
+      render(<LoginPage />);
+      await user.click(screen.getByText('Log in via Browser'));
+
+      await waitFor(() => {
+        expect(appLoginStart).toHaveBeenCalled();
+      });
+      await waitFor(() => {
+        expect(mockShellOpen).toHaveBeenCalledWith(
+          'https://secrt.ca/app-login?code=ABCD-1234&ek=abc',
+        );
+      });
+    });
+
+    it('register opens browser directly to /register with app-login redirect', async () => {
+      vi.mocked(appLoginStart).mockResolvedValue({
+        app_code: 'app_456',
+        user_code: 'EFGH-5678',
+        verification_url: 'https://secrt.ca/app-login?code=EFGH-5678&ek=xyz',
+        interval: 2,
+        expires_in: 600,
+      });
+
+      const user = userEvent.setup();
+      render(<LoginPage />);
+      await user.click(screen.getByText('Register a New Account'));
+
+      await waitFor(() => {
+        expect(appLoginStart).toHaveBeenCalled();
+      });
+      await waitFor(() => {
+        expect(mockShellOpen).toHaveBeenCalledWith(
+          `https://secrt.ca/register?redirect=${encodeURIComponent('/app-login?code=EFGH-5678&ek=xyz')}`,
+        );
+      });
+    });
+
+    it('shows user code while polling', async () => {
+      vi.mocked(appLoginStart).mockResolvedValue({
+        app_code: 'app_789',
+        user_code: 'WXYZ-9999',
+        verification_url: 'https://secrt.ca/app-login?code=WXYZ-9999&ek=def',
+        interval: 2,
+        expires_in: 600,
+      });
+
+      const user = userEvent.setup();
+      render(<LoginPage />);
+      await user.click(screen.getByText('Log in via Browser'));
+
+      await waitFor(() => {
+        expect(screen.getByText('WXYZ-9999')).toBeInTheDocument();
+      });
+    });
   });
 });
 

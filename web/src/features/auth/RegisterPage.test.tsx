@@ -29,6 +29,25 @@ vi.mock('../../lib/webauthn', () => ({
 vi.mock('../../lib/api', () => ({
   registerPasskeyStart: vi.fn(),
   registerPasskeyFinish: vi.fn(),
+  commitAmk: vi.fn(),
+}));
+
+const mockIsTauri = vi.fn().mockReturnValue(false);
+vi.mock('../../lib/config', () => ({
+  isTauri: (...args: unknown[]) => mockIsTauri(...args),
+}));
+
+vi.mock('../../crypto/amk', () => ({
+  generateAmk: vi.fn().mockReturnValue(new Uint8Array(32)),
+  computeAmkCommit: vi.fn().mockResolvedValue(new Uint8Array(32)),
+}));
+
+vi.mock('../../crypto/encoding', () => ({
+  base64urlEncode: vi.fn().mockReturnValue('cmFuZG9t'),
+}));
+
+vi.mock('../../lib/amk-store', () => ({
+  storeAmk: vi.fn(),
 }));
 
 import { RegisterPage } from './RegisterPage';
@@ -40,6 +59,7 @@ describe('RegisterPage', () => {
     mockAuth.authenticated = false;
     mockAuth.login.mockClear();
     mockNavigate.mockClear();
+    mockIsTauri.mockReturnValue(false);
     vi.mocked(supportsWebAuthn).mockReturnValue(true);
   });
 
@@ -151,6 +171,12 @@ describe('RegisterPage', () => {
     const user = userEvent.setup();
     render(<RegisterPage />);
     await user.click(screen.getByRole('link', { name: 'Log In' }));
+    expect(mockNavigate).toHaveBeenCalledWith('/login');
+  });
+
+  it('redirects to login in Tauri mode', () => {
+    mockIsTauri.mockReturnValue(true);
+    render(<RegisterPage />);
     expect(mockNavigate).toHaveBeenCalledWith('/login');
   });
 });

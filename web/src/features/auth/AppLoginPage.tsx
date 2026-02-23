@@ -26,28 +26,29 @@ type AppLoginState =
   | { step: 'error'; message: string }
   | { step: 'no-code' };
 
-function parseUrlParams(): { code: string | null; ek: string | null } {
+function parseUrlParams(): { code: string | null; ek: string | null; intent: string | null } {
   const params = new URLSearchParams(window.location.search);
-  return { code: params.get('code'), ek: params.get('ek') };
+  return { code: params.get('code'), ek: params.get('ek'), intent: params.get('intent') };
 }
 
 export function AppLoginPage() {
   const auth = useAuth();
-  const [{ code: userCode, ek: ecdhPeerKey }] = useState(parseUrlParams);
+  const [{ code: userCode, ek: ecdhPeerKey, intent }] = useState(parseUrlParams);
   const [state, setState] = useState<AppLoginState>(() =>
     userCode ? { step: 'confirm' } : { step: 'no-code' },
   );
 
-  // Redirect to login if not authenticated (preserve redirect back).
+  // Redirect to login (or register) if not authenticated (preserve redirect back).
   useEffect(() => {
     if (!auth.loading && !auth.authenticated) {
       const returnUrl = `/app-login${window.location.search}`;
+      const target = intent === 'register' ? '/register' : '/login';
       setTimeout(
-        () => navigate(`/login?redirect=${encodeURIComponent(returnUrl)}`),
+        () => navigate(`${target}?redirect=${encodeURIComponent(returnUrl)}`),
         0,
       );
     }
-  }, [auth.loading, auth.authenticated]);
+  }, [auth.loading, auth.authenticated, intent]);
 
   if (auth.loading) {
     return (

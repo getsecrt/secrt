@@ -135,4 +135,33 @@ describe('AppLoginPage', () => {
       );
     });
   });
+
+  it('redirects to register when not authenticated and intent=register', async () => {
+    mockAuth.authenticated = false;
+    mockAuth.loading = false;
+    setUrlParams('?code=ABCD-1234&intent=register');
+    render(<AppLoginPage />);
+
+    await waitFor(() => {
+      expect(mockNavigate).toHaveBeenCalledWith(
+        expect.stringContaining('/register?redirect='),
+      );
+    });
+    // Should NOT redirect to /login
+    expect(mockNavigate).not.toHaveBeenCalledWith(
+      expect.stringContaining('/login?redirect='),
+    );
+  });
+
+  it('ignores intent param when authenticated', () => {
+    mockAuth.authenticated = true;
+    mockAuth.loading = false;
+    setUrlParams('?code=ABCD-1234&intent=register');
+    render(<AppLoginPage />);
+
+    // Should show normal approval UI, not redirect
+    expect(screen.getByText('ABCD-1234')).toBeInTheDocument();
+    expect(screen.getByText('Approve')).toBeInTheDocument();
+    expect(mockNavigate).not.toHaveBeenCalled();
+  });
 });

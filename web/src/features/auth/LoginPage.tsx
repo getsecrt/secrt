@@ -75,7 +75,7 @@ function TauriLoginFlow() {
     };
   }, []);
 
-  const handleLogin = useCallback(async () => {
+  const handleLogin = useCallback(async (intent: 'login' | 'register' = 'login') => {
     if (state.step === 'starting' || state.step === 'polling') return;
     setState({ step: 'starting' });
 
@@ -98,11 +98,22 @@ function TauriLoginFlow() {
         userCode: res.user_code,
       });
 
-      // Open system browser (only if URL passes origin check)
-      if (isAllowedVerificationUrl(res.verification_url)) {
+      // Open system browser (only if URL passes origin check).
+      // For registration, go directly to /register with the app-login
+      // URL as redirect so the user lands on the registration form
+      // immediately instead of being routed through the login page.
+      let url: string;
+      if (intent === 'register') {
+        const parsed = new URL(res.verification_url);
+        const appLoginPath = `${parsed.pathname}${parsed.search}`;
+        url = `${parsed.origin}/register?redirect=${encodeURIComponent(appLoginPath)}`;
+      } else {
+        url = res.verification_url;
+      }
+      if (isAllowedVerificationUrl(url)) {
         try {
           const { open } = await import('@tauri-apps/plugin-shell');
-          await open(res.verification_url);
+          await open(url);
         } catch {
           // If shell plugin fails, the user_code is already displayed for manual entry
         }
@@ -266,7 +277,7 @@ function TauriLoginFlow() {
           <button
             type="button"
             class="btn btn-primary w-full tracking-wider uppercase"
-            onClick={handleLogin}
+            onClick={() => handleLogin()}
             disabled={busy}
           >
             {state.step === 'starting'
@@ -278,19 +289,11 @@ function TauriLoginFlow() {
 
       <p class="text-center text-muted">
         <a
-          href={
-            redirectTo === '/'
-              ? '/register'
-              : `/register?redirect=${encodeURIComponent(redirectTo)}`
-          }
+          href="/register"
           class="link"
           onClick={(e: MouseEvent) => {
             e.preventDefault();
-            navigate(
-              redirectTo === '/'
-                ? '/register'
-                : `/register?redirect=${encodeURIComponent(redirectTo)}`,
-            );
+            handleLogin('register');
           }}
         >
           Register a New Account
