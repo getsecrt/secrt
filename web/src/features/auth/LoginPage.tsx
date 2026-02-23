@@ -92,7 +92,9 @@ function TauriLoginFlow() {
         // ECDH generation failure is non-fatal — proceed without AMK transfer
       }
 
+      console.info('[AMK transfer] Starting app login, ecdhPubKey:', ecdhPubKeyB64 ? 'present' : 'MISSING');
       const res = await appLoginStart(ecdhPubKeyB64);
+      console.info('[AMK transfer] Verification URL:', res.verification_url);
       setState({
         step: 'polling',
         appCode: res.app_code,
@@ -124,6 +126,7 @@ function TauriLoginFlow() {
               controller.signal,
             );
             if (pollRes.status === 'complete') {
+              console.info('[AMK transfer] Poll complete, has amk_transfer:', !!pollRes.amk_transfer, 'has privKey:', !!ecdhPrivateKeyRef.current);
               if (
                 pollRes.session_token &&
                 pollRes.user_id &&

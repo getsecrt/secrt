@@ -96,6 +96,11 @@ export function AppLoginPage() {
       let amkTransfer: AmkTransferData | undefined;
 
       try {
+        if (!ecdhPeerKey) {
+          console.warn('[AMK transfer] No ek (ECDH public key) in URL — app did not request AMK transfer');
+        } else if (!auth.userId) {
+          console.warn('[AMK transfer] No userId in auth context');
+        }
         if (ecdhPeerKey && auth.userId) {
           const amk = await loadAmk(auth.userId);
 
