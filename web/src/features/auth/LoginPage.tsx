@@ -185,7 +185,10 @@ function TauriLoginFlow() {
                       pollRes.user_id,
                       new Uint8Array(amkPt),
                     );
-                    console.info('[AMK transfer] AMK decrypted and stored for user', pollRes.user_id, '— length:', amkPt.byteLength);
+                    console.info('[AMK transfer] AMK decrypted and stored for user', pollRes.user_id, '— length:', amkPt.byteLength, '— isTauri:', isTauri());
+                    // Verify round-trip
+                    const verify = await loadAmk(pollRes.user_id);
+                    console.info('[AMK transfer] Verify round-trip:', verify ? `ok (${verify.byteLength} bytes)` : 'FAILED - null');
                   }
                 } catch (amkErr) {
                   console.warn('[AMK transfer] AMK decryption/storage failed:', amkErr);

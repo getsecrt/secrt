@@ -140,7 +140,7 @@ export function SendPage() {
     loadAmk(auth.userId)
       .then(async (amk) => {
         if (cancelled) return;
-        console.info('[SendPage] loadAmk result:', amk ? `found (${amk.byteLength} bytes)` : 'null');
+        console.info('[SendPage] loadAmk result:', amk ? `found (${amk.byteLength} bytes)` : 'null', '— userId:', auth.userId);
         if (amk) {
           setNoteStatus('available');
           return;
