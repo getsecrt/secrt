@@ -423,15 +423,16 @@
       {
         "id": 34,
         "title": "Add keychain storage for session and default passphrase",
-        "description": "Store session tokens and optional default passphrases in the OS keychain (macOS Keychain, Windows Credential Manager, Linux Secret Service) instead of localStorage. The CLI already has keychain support. Use Tauri's stronghold plugin or a keychain plugin. Also support saving default encryption/decryption passphrases like the CLI config does.",
+        "description": "Store session tokens and optional default passphrases in the OS keychain (macOS Keychain, Windows Credential Manager, Linux Secret Service) instead of localStorage. The CLI already has keychain support. Use Tauri's stronghold plugin or a keychain plugin. Also support saving default encryption/decryption passphrases like the CLI config does. NOTE: The app already has keyring_set/keyring_get/keyring_delete Tauri commands with a file-based fallback for broken macOS Tahoe keychain. This task is about expanding usage to cover session tokens and passphrase storage, plus building the preferences UI (see task #37).",
         "status": "pending",
-        "priority": "low",
+        "priority": "high",
         "dependencies": [],
         "subtasks": [
           {
             "id": 1,
             "title": "Evaluate Tauri keychain/stronghold plugins",
-            "status": "pending"
+            "status": "done",
+            "description": "Already using keyring crate with file-based fallback. Keyring commands (keyring_set/get/delete) already exist in the Tauri backend."
           },
           {
             "id": 2,
@@ -440,38 +441,49 @@
           },
           {
             "id": 3,
-            "title": "Add default passphrase save/load from keychain",
-            "status": "pending"
+            "title": "Store default encryption passphrase in keychain",
+            "status": "pending",
+            "description": "Save a default passphrase (like CLI config 'passphrase') that is auto-applied when sending secrets. Stored via keyring_set with a dedicated key prefix."
           },
           {
             "id": 4,
-            "title": "Add settings UI for managing stored passphrases",
-            "status": "pending"
+            "title": "Store decryption passphrases list in keychain",
+            "status": "pending",
+            "description": "Save a list of passphrases to try automatically when claiming secrets (like CLI config 'decryption_passphrases'). Stored as JSON array via keyring."
           }
         ]
       },
       {
         "id": 35,
         "title": "Customize window chrome for native feel",
-        "description": "Polish the window appearance: custom titlebar or transparent titlebar with traffic light positioning on macOS, proper window title, window menu bar. Consider whether a frameless window with custom drag region looks better than the default chrome.",
+        "description": "The app currently looks like a webpage in a light wrapper. Make it feel like a real native app, starting with macOS. Use Tauri's window configuration for transparent/hidden titlebar, position traffic light buttons within the content area, add a custom drag region at the top of the layout. On Windows, consider custom titlebar or standard chrome (less jarring). May need vibrancy/blur effects on macOS for a polished look. The Nav component and Layout will need adjustments to account for the titlebar area.",
         "status": "pending",
-        "priority": "low",
+        "priority": "high",
         "dependencies": [],
         "subtasks": [
           {
             "id": 1,
-            "title": "Experiment with titlebar styles on macOS and Windows",
-            "status": "pending"
+            "title": "Configure transparent/hidden titlebar on macOS in tauri.conf.json",
+            "status": "pending",
+            "description": "Set titleBarStyle to 'overlay' or 'transparent' and hiddenTitle to true. Test with Tauri 2's macOS window options."
           },
           {
             "id": 2,
-            "title": "Adjust traffic light position if using transparent titlebar",
-            "status": "pending"
+            "title": "Position traffic light buttons and add drag region",
+            "status": "pending",
+            "description": "Use Tauri's trafficLightPosition config. Add data-tauri-drag-region to a top bar element in Layout. Ensure the Nav component has enough top padding to not overlap traffic lights."
           },
           {
             "id": 3,
-            "title": "Add custom drag region if frameless",
-            "status": "pending"
+            "title": "Update Layout/Nav CSS for titlebar-integrated design",
+            "status": "pending",
+            "description": "Add platform-aware top padding. On macOS with hidden titlebar, the content needs ~28-32px top inset. Use Tauri's platform detection or CSS env(titlebar-area-*)."
+          },
+          {
+            "id": 4,
+            "title": "Test on Windows and Linux",
+            "status": "pending",
+            "description": "Ensure standard window chrome works well on Windows/Linux. May keep default decorations there or add a custom titlebar later."
           }
         ]
       },
@@ -532,6 +544,96 @@
             "id": 5,
             "title": "Write recommendation with rationale",
             "status": "pending"
+          }
+        ]
+      },
+      {
+        "id": 37,
+        "title": "Add app preferences page and storage layer",
+        "description": "Create an app-level Preferences page (distinct from /settings which is account-level). This is the UI and storage backbone for local app configuration, mirroring the CLI's config.toml but for the desktop/web app. Store preferences in localStorage (web) or Tauri's store plugin (desktop). Preferences include: default TTL, auto-copy share link toggle, theme preference. The preferences page should be accessible from the Nav (gear icon or menu item). This task does NOT include passphrase management (that's task #38) — it's the foundation that #38 builds on.",
+        "status": "pending",
+        "priority": "high",
+        "dependencies": [],
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "Create preferences store (localStorage + Tauri store plugin)",
+            "status": "pending",
+            "description": "Build a preferences module (e.g., web/src/lib/preferences.ts) with get/set/subscribe. Use localStorage for web, Tauri store plugin for desktop. Keys: default_ttl, auto_copy, theme. Provide React-friendly hook (usePreference)."
+          },
+          {
+            "id": 2,
+            "title": "Create Preferences page UI",
+            "status": "pending",
+            "description": "New route /preferences with sections for: General (default TTL dropdown, auto-copy toggle), Appearance (theme selector). Clean, native-feeling form layout. Distinct from /settings (account management)."
+          },
+          {
+            "id": 3,
+            "title": "Wire default TTL into SendPage",
+            "status": "pending",
+            "description": "SendPage's TTL selector should initialize from the saved default_ttl preference instead of hardcoded default."
+          },
+          {
+            "id": 4,
+            "title": "Add Preferences link to Nav",
+            "status": "pending",
+            "description": "Add gear icon or 'Preferences' menu item to Nav component. On macOS desktop, also respond to Cmd+, shortcut."
+          }
+        ]
+      },
+      {
+        "id": 38,
+        "title": "Add saved passphrases and auto-decryption",
+        "description": "Port the CLI's passphrase management to the app. Two features: (1) Default encryption passphrase — automatically applied when creating secrets (user can override or clear per-secret). (2) Decryption passphrases list — when claiming a secret, automatically try: no passphrase → default passphrase → each saved decryption passphrase → prompt user. This mirrors the CLI's multi-phase auto-decryption from config.toml. Passphrases are stored in the OS keychain via existing keyring_set/get commands (with file fallback on broken macOS). The Preferences page (task #37) provides the management UI.",
+        "status": "pending",
+        "priority": "high",
+        "dependencies": [37, 34],
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "Add passphrase management UI to Preferences page",
+            "status": "pending",
+            "description": "Section in Preferences for: (a) Default encryption passphrase — masked input with show/hide toggle, save/clear buttons. (b) Decryption passphrases — ordered list with add/remove/reorder. All stored via keyring commands."
+          },
+          {
+            "id": 2,
+            "title": "Auto-apply default passphrase on send",
+            "status": "pending",
+            "description": "When SendPage loads, check for a saved default passphrase. If present, pre-populate the passphrase field (or apply silently). Show indicator that default passphrase is active. Allow user to clear/override per-secret. Add a 'no passphrase' toggle to explicitly skip."
+          },
+          {
+            "id": 3,
+            "title": "Implement multi-phase auto-decryption on claim",
+            "status": "pending",
+            "description": "When claiming a secret that requires a passphrase, try in order: (1) no passphrase, (2) default passphrase, (3) each decryption passphrase from the saved list. If all fail, show the passphrase prompt as today. Show a brief status like 'Trying saved passphrases...' during auto-attempts. Don't leak which passphrase worked."
+          },
+          {
+            "id": 4,
+            "title": "Add passphrase import/export for CLI config parity",
+            "status": "pending",
+            "description": "Optional: allow importing passphrases from CLI config.toml or exporting to it, so users who use both CLI and app can share their passphrase lists."
+          }
+        ]
+      },
+      {
+        "id": 39,
+        "title": "Auto-copy share link after secret creation",
+        "description": "After successfully creating a secret, automatically copy the share link to the clipboard using copySensitive (which excludes from clipboard history on all platforms). The CLI does this by default via auto_copy config. Add a preference toggle (auto_copy in task #37's preferences store) so users can disable it. Show a brief toast or visual indicator confirming the copy. Do NOT auto-copy claimed secret text — that stays as a manual CopyButton action.",
+        "status": "pending",
+        "priority": "medium",
+        "dependencies": [37],
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "Auto-copy share link in ShareResult component",
+            "status": "pending",
+            "description": "After the share URL is generated and displayed, automatically call copySensitive(shareUrl). Respect the auto_copy preference. Show a toast or checkmark confirming 'Link copied to clipboard'."
+          },
+          {
+            "id": 2,
+            "title": "Add auto_copy toggle to Preferences",
+            "status": "pending",
+            "description": "Toggle in Preferences page under General section. Default: on. When off, share link is displayed but not auto-copied (user clicks CopyButton manually as today)."
           }
         ]
       }
