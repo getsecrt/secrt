@@ -52,7 +52,35 @@ export function Layout({ children, maxWidth = 'max-w-2xl' }: LayoutProps) {
       </main>
 
       <footer class="mt-auto flex flex-col items-center gap-2 pt-4 pb-[max(1rem,env(safe-area-inset-bottom))] text-xs text-faint">
-        <div>
+        <div class="flex items-center gap-2">
+          <div class="w-26 text-right">
+            &copy; {new Date().getFullYear()} JD Lien
+          </div>
+
+          <span class="text-faint/40">&bull;</span>
+
+          <a
+            href="mailto:security@secrt.ca"
+            class="link-subtle w-26 text-left transition-colors"
+          >
+            security@secrt.ca
+          </a>
+        </div>
+
+        <div class="flex items-center gap-3">
+          <a
+            href="/how-it-works"
+            onClick={(e: MouseEvent) => {
+              e.preventDefault();
+              navigate('/how-it-works');
+            }}
+            class="link-subtle w-20 text-right text-faint hover:text-muted"
+          >
+            How it Works
+          </a>
+
+          <span class="text-faint/40">&bull;</span>
+
           <a
             href="https://github.com/getsecrt/secrt"
             target="_blank"
@@ -62,39 +90,18 @@ export function Layout({ children, maxWidth = 'max-w-2xl' }: LayoutProps) {
           >
             <GitHubIcon class="size-5" aria-hidden="true" />
           </a>
-        </div>
 
-        <div class="flex flex-col items-center gap-2">
-          <div>&copy; {new Date().getFullYear()} JD Lien</div>
-          <a
-            href="mailto:security@secrt.ca"
-            class="link-subtle transition-colors"
-          >
-            security@secrt.ca
-          </a>
-        </div>
+          <span class="text-faint/40">&bull;</span>
 
-        <div class="flex items-center gap-3">
           <a
             href="/privacy"
             onClick={(e: MouseEvent) => {
               e.preventDefault();
               navigate('/privacy');
             }}
-            class="link-subtle w-20 text-faint hover:text-muted"
+            class="link-subtle w-20 text-left text-faint hover:text-muted"
           >
             Privacy Policy
-          </a>
-          <span class="text-faint/40">&bull;</span>
-          <a
-            href="/how-it-works"
-            onClick={(e: MouseEvent) => {
-              e.preventDefault();
-              navigate('/how-it-works');
-            }}
-            class="link-subtle w-20 text-faint hover:text-muted"
-          >
-            How it Works
           </a>
         </div>
       </footer>
