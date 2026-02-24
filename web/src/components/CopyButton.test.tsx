@@ -5,15 +5,18 @@ import { CopyButton } from './CopyButton';
 
 vi.mock('../lib/clipboard', () => ({
   copyToClipboard: vi.fn(),
+  copySensitive: vi.fn(),
 }));
 
-import { copyToClipboard } from '../lib/clipboard';
+import { copyToClipboard, copySensitive } from '../lib/clipboard';
 const mockCopy = vi.mocked(copyToClipboard);
+const mockCopySensitive = vi.mocked(copySensitive);
 
 describe('CopyButton', () => {
   beforeEach(() => {
     vi.useFakeTimers();
     mockCopy.mockReset();
+    mockCopySensitive.mockReset();
   });
 
   afterEach(() => {
@@ -81,5 +84,14 @@ describe('CopyButton', () => {
     );
     expect(screen.getByRole('button').textContent).toContain('Copy');
     expect(screen.getByRole('button').textContent).toContain('Link');
+  });
+
+  it('uses copySensitive when sensitive prop is set', async () => {
+    mockCopySensitive.mockResolvedValue(true);
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+    render(<CopyButton text="secret-data" sensitive />);
+    await user.click(screen.getByRole('button'));
+    expect(mockCopySensitive).toHaveBeenCalledWith('secret-data');
+    expect(mockCopy).not.toHaveBeenCalled();
   });
 });

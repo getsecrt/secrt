@@ -109,6 +109,48 @@ pub fn open_secret_inner(
     })
 }
 
+/// Copy text to the OS clipboard with "exclude from history" flags.
+/// On macOS: sets org.nspasteboard.ConcealedType
+/// On Windows: sets ExcludeClipboardContentFromMonitorProcessing + CanIncludeInClipboardHistory=0
+/// On Linux: sets x-kde-passwordManagerHint
+pub fn copy_sensitive_inner(text: &str) -> Result<(), String> {
+    let mut clipboard = arboard::Clipboard::new().map_err(|e| e.to_string())?;
+
+    #[cfg(target_os = "macos")]
+    {
+        use arboard::SetExtApple;
+        clipboard
+            .set()
+            .exclude_from_history()
+            .text(text)
+            .map_err(|e| e.to_string())?;
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        use arboard::SetExtWindows;
+        clipboard
+            .set()
+            .exclude_from_monitoring()
+            .exclude_from_history()
+            .exclude_from_cloud()
+            .text(text)
+            .map_err(|e| e.to_string())?;
+    }
+
+    #[cfg(target_os = "linux")]
+    {
+        use arboard::SetExtLinux;
+        clipboard
+            .set()
+            .exclude_from_history()
+            .text(text)
+            .map_err(|e| e.to_string())?;
+    }
+
+    Ok(())
+}
+
 pub fn derive_claim_token_inner(url_key_b64: &str) -> Result<String, String> {
     let url_key = URL_SAFE_NO_PAD
         .decode(url_key_b64)
@@ -147,6 +189,11 @@ fn open_secret(
 #[tauri::command]
 fn derive_claim_token(url_key_b64: String) -> Result<String, String> {
     derive_claim_token_inner(&url_key_b64)
+}
+
+#[tauri::command]
+fn copy_sensitive(text: String) -> Result<(), String> {
+    copy_sensitive_inner(&text)
 }
 
 // --- Credential store (OS keychain with file-based fallback) ---
@@ -285,6 +332,22 @@ mod tests {
     use super::*;
 
     #[test]
+    fn copy_sensitive_sets_text() {
+        copy_sensitive_inner("hello-sensitive").expect("copy_sensitive_inner should succeed");
+        let mut clipboard = arboard::Clipboard::new().expect("open clipboard");
+        assert_eq!(
+            clipboard.get_text().expect("read clipboard"),
+            "hello-sensitive"
+        );
+    }
+
+    #[test]
+    fn copy_sensitive_empty_string() {
+        // Should not panic on empty input
+        copy_sensitive_inner("").expect("copy_sensitive_inner should succeed for empty string");
+    }
+
+    #[test]
     fn keyring_probe_detects_broken_keychain() {
         // This test documents the current macOS Tahoe behavior.
         // If the keychain works, probe returns false; if broken, true.
@@ -313,6 +376,7 @@ pub fn run() {
             seal_secret,
             open_secret,
             derive_claim_token,
+            copy_sensitive,
             keyring_set,
             keyring_get,
             keyring_delete,

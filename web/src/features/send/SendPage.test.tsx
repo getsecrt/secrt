@@ -66,6 +66,7 @@ vi.mock('../../lib/url', () => ({
 
 vi.mock('../../lib/clipboard', () => ({
   copyToClipboard: vi.fn().mockResolvedValue(true),
+  copySensitive: vi.fn().mockResolvedValue(true),
 }));
 
 vi.mock('./password-generator', () => ({
@@ -95,7 +96,7 @@ import { checkEnvelopeSize } from '../../lib/envelope-size';
 import { formatShareLink } from '../../lib/url';
 import { buildFrame } from '../../crypto/frame';
 import { ensureCompressor } from '../../crypto/compress';
-import { copyToClipboard } from '../../lib/clipboard';
+import { copySensitive } from '../../lib/clipboard';
 import {
   DEFAULT_PASSWORD_LENGTH,
   generatePassword,
@@ -109,7 +110,7 @@ const mockCheckSize = vi.mocked(checkEnvelopeSize);
 const mockFormatLink = vi.mocked(formatShareLink);
 const mockBuildFrame = vi.mocked(buildFrame);
 const mockEnsureCompressor = vi.mocked(ensureCompressor);
-const mockCopyToClipboard = vi.mocked(copyToClipboard);
+const mockCopySensitive = vi.mocked(copySensitive);
 const mockGeneratePassword = vi.mocked(generatePassword);
 const mockUpdateSecretMeta = vi.mocked(updateSecretMeta);
 const mockEncryptNote = vi.mocked(encryptNote);
@@ -171,7 +172,7 @@ describe('SendPage', () => {
     });
     mockCheckSize.mockReturnValue(null);
     mockFormatLink.mockReturnValue('https://secrt.ca/s/sec_abc#key');
-    mockCopyToClipboard.mockResolvedValue(true);
+    mockCopySensitive.mockResolvedValue(true);
     mockGeneratePassword.mockReturnValue('Aa1!Aa1!Aa1!Aa1!Aa1!');
     mockPreloadPassphraseKdf.mockResolvedValue(undefined);
   });
@@ -214,7 +215,7 @@ describe('SendPage', () => {
         grouped: false,
       });
     });
-    expect(mockCopyToClipboard).toHaveBeenCalledWith('Aa1!Aa1!Aa1!Aa1!Aa1!');
+    expect(mockCopySensitive).toHaveBeenCalledWith('Aa1!Aa1!Aa1!Aa1!Aa1!');
     expect(screen.getByPlaceholderText('Enter your secret or drag a file here...')).toHaveValue(
       'Aa1!Aa1!Aa1!Aa1!Aa1!',
     );
@@ -287,7 +288,7 @@ describe('SendPage', () => {
         grouped: true,
       });
     });
-    expect(mockCopyToClipboard).toHaveBeenCalledWith('Bb2@Bb2@Bb2@Bb2@');
+    expect(mockCopySensitive).toHaveBeenCalledWith('Bb2@Bb2@Bb2@Bb2@');
     expect(
       screen.getByRole('heading', { name: /Generate Password/i }),
     ).toBeInTheDocument();
@@ -305,7 +306,7 @@ describe('SendPage', () => {
         grouped: true,
       });
     });
-    expect(mockCopyToClipboard).toHaveBeenCalledWith('Cc3#Cc3#Cc3#Cc3#');
+    expect(mockCopySensitive).toHaveBeenCalledWith('Cc3#Cc3#Cc3#Cc3#');
     expect(screen.getByLabelText('Password Preview')).toHaveValue(
       'Cc3#Cc3#Cc3#Cc3#',
     );

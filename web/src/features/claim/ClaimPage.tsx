@@ -354,6 +354,7 @@ export function ClaimPage({ id }: ClaimPageProps) {
                 class="btn-primary w-full tracking-wider uppercase"
                 label="Copy secret"
                 icon={<ClipboardIcon class="size-5" />}
+                sensitive
               />
             )}
           </div>

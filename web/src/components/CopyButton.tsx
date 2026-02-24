@@ -1,12 +1,13 @@
 import { useState, useCallback } from 'preact/hooks';
 import type { ComponentChildren } from 'preact';
-import { copyToClipboard } from '../lib/clipboard';
+import { copyToClipboard, copySensitive } from '../lib/clipboard';
 
 interface CopyButtonProps {
   text: string;
   class?: string;
   label?: ComponentChildren;
   icon?: ComponentChildren;
+  sensitive?: boolean;
 }
 
 export function CopyButton({
@@ -14,16 +15,17 @@ export function CopyButton({
   class: className,
   label = 'Copy',
   icon,
+  sensitive,
 }: CopyButtonProps) {
   const [copied, setCopied] = useState(false);
 
   const handleClick = useCallback(async () => {
-    const ok = await copyToClipboard(text);
+    const ok = await (sensitive ? copySensitive : copyToClipboard)(text);
     if (ok) {
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     }
-  }, [text]);
+  }, [text, sensitive]);
 
   return (
     <button

@@ -19,6 +19,7 @@ vi.mock('../../lib/api', () => ({
 
 vi.mock('../../lib/clipboard', () => ({
   copyToClipboard: vi.fn().mockResolvedValue(true),
+  copySensitive: vi.fn().mockResolvedValue(true),
 }));
 
 vi.mock('../../router', async (importOriginal) => {

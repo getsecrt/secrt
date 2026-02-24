@@ -20,7 +20,7 @@ import {
   frameSizeError,
 } from '../../lib/envelope-size';
 import { formatShareLink, parseShareUrl } from '../../lib/url';
-import { copyToClipboard } from '../../lib/clipboard';
+import { copySensitive } from '../../lib/clipboard';
 import { TTL_DEFAULT, isValidTtl } from '../../lib/ttl';
 import {
   getSendPasswordGeneratorSettings,
@@ -380,7 +380,7 @@ export function SendPage() {
         setCachedFrame(null);
         setStatus((prev) => (prev.step === 'error' ? { step: 'input' } : prev));
 
-        const copied = await copyToClipboard(generated);
+        const copied = await copySensitive(generated);
         if (copied) {
           showCopiedFeedback();
         }
