@@ -130,37 +130,38 @@
         "id": 23,
         "title": "Add paste-a-link support for claiming secrets",
         "description": "The Tauri app has no address bar, so users can't navigate to secrt.ca/s/... links directly. Need a way for users to paste a share link and have the app navigate to the claim page. Options: (1) text input field on the home page with a 'Claim' button, (2) global paste handler (Cmd+V when no input focused) that detects secrt URLs, (3) both. Should parse the pasted URL, extract the secret ID and fragment key, and navigate to the claim route internally.",
-        "status": "pending",
+        "status": "done",
         "priority": "high",
         "dependencies": [],
         "subtasks": [
           {
             "id": 1,
             "title": "Add URL input / paste field to SendPage or Nav",
-            "status": "pending"
+            "status": "done"
           },
           {
             "id": 2,
             "title": "Parse pasted URLs and extract ID + fragment key",
-            "status": "pending"
+            "status": "done"
           },
           {
             "id": 3,
             "title": "Navigate to internal claim route with parsed data",
-            "status": "pending"
+            "status": "done"
           },
           {
             "id": 4,
             "title": "Add global Cmd+V paste handler for secrt URLs",
-            "status": "pending"
+            "status": "done",
+            "description": "Intentionally skipped — manual paste into input is more secure than auto-detecting clipboard content"
           }
         ]
       },
       {
         "id": 24,
         "title": "Auto-clear clipboard after copying secrets",
-        "description": "Secrets copied to clipboard should be automatically cleared after a configurable timeout (default 30-60 seconds). Use Tauri's clipboard-manager plugin for native clipboard access. Add a visible countdown or toast so users know when the clipboard will be cleared. Should apply to: share link copies, claimed secret text copies, generated password copies.",
-        "status": "pending",
+        "description": "Secrets copied to clipboard should be automatically cleared after a configurable timeout (default 30-60 seconds). Use Tauri's clipboard-manager plugin for native clipboard access. Add a visible countdown or toast so users know when the clipboard will be cleared. Should apply to: share link copies, claimed secret text copies, generated password copies. DEFERRED: UX frustration concerns outweigh marginal security benefit — if an attacker has clipboard access they likely have screen access too. Revisit if users request it.",
+        "status": "deferred",
         "priority": "high",
         "dependencies": [],
         "subtasks": [

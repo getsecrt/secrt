@@ -109,7 +109,7 @@ describe('DashboardPage', () => {
     // listSecrets returns a promise that never resolves
     vi.mocked(listSecrets).mockReturnValue(new Promise(() => {}));
     render(<DashboardPage />);
-    expect(screen.getByText('Loading...')).toBeInTheDocument();
+    expect(screen.getByText('Loading secrets...')).toBeInTheDocument();
   });
 
   it('shows empty state when API returns zero secrets', async () => {

@@ -38,16 +38,16 @@ describe('formatShareLink', () => {
 describe('parseShareUrl', () => {
   it('parses a valid URL', () => {
     const key = makeUrlKey(42);
-    const link = formatShareLink('my-secret-id', key);
+    const link = formatShareLink('abcdef0123456789', key);
     const result = parseShareUrl(link);
     expect(result).not.toBeNull();
-    expect(result!.id).toBe('my-secret-id');
+    expect(result!.id).toBe('abcdef0123456789');
     expect(result!.urlKey).toEqual(key);
   });
 
   it('round-trips formatShareLink -> parseShareUrl', () => {
     const key = makeUrlKey(99);
-    const id = 'rnd_abc-DEF_123';
+    const id = 'rnd_abc-DEF_12345';
     const link = formatShareLink(id, key);
     const result = parseShareUrl(link);
     expect(result).not.toBeNull();
@@ -83,9 +83,9 @@ describe('parseShareUrl', () => {
   it('handles trailing slash on path', () => {
     const key = makeUrlKey(10);
     const fragment = base64urlEncode(key);
-    const result = parseShareUrl(`https://secrt.ca/s/abc123/#${fragment}`);
+    const result = parseShareUrl(`https://secrt.ca/s/abcdef0123456789/#${fragment}`);
     expect(result).not.toBeNull();
-    expect(result!.id).toBe('abc123');
+    expect(result!.id).toBe('abcdef0123456789');
   });
 
   it('returns null for extra path segments', () => {
@@ -105,26 +105,26 @@ describe('parseShareUrl', () => {
   it('handles URL-safe ID characters (alphanumeric, -, _)', () => {
     const key = makeUrlKey(5);
     const fragment = base64urlEncode(key);
-    const result = parseShareUrl(`https://secrt.ca/s/aB3-z_9#${fragment}`);
+    const result = parseShareUrl(`https://secrt.ca/s/aB3-z_9012345678#${fragment}`);
     expect(result).not.toBeNull();
-    expect(result!.id).toBe('aB3-z_9');
+    expect(result!.id).toBe('aB3-z_9012345678');
   });
 
   it('handles URL with query params', () => {
     const key = makeUrlKey(7);
     const fragment = base64urlEncode(key);
     const result = parseShareUrl(
-      `https://secrt.ca/s/abc123?foo=bar#${fragment}`,
+      `https://secrt.ca/s/abcdef0123456789?foo=bar#${fragment}`,
     );
     expect(result).not.toBeNull();
-    expect(result!.id).toBe('abc123');
+    expect(result!.id).toBe('abcdef0123456789');
   });
 
   it('cross-checks spec vector url_key round-trip', () => {
     // From spec vector 1
     const urlKeyB64 = 'AQIDBAUGBwgJEBESExQVFhcYGSAhIiMkJSYnKCkwMTI';
     const urlKey = base64urlDecode(urlKeyB64);
-    const link = formatShareLink('spec-test', urlKey);
+    const link = formatShareLink('spec-test-vector1', urlKey);
     const result = parseShareUrl(link);
     expect(result).not.toBeNull();
     expect(result!.urlKey).toEqual(urlKey);

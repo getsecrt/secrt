@@ -50,7 +50,7 @@ describe('Nav', () => {
 
   it('renders nav links', () => {
     render(<Nav />);
-    expect(screen.getAllByText('Create').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('Send/Get').length).toBeGreaterThan(0);
     expect(screen.getAllByText('More Information').length).toBeGreaterThan(0);
     expect(screen.getAllByText(/CLI Downloads/).length).toBeGreaterThan(0);
   });
@@ -128,12 +128,12 @@ describe('Nav', () => {
     });
   });
 
-  it('navigates when Create link is clicked', async () => {
+  it('navigates when Send/Get link is clicked', async () => {
     const user = userEvent.setup();
     mockUseRoute.mockReturnValue({ page: 'how-it-works' });
     render(<Nav />);
-    const createLinks = screen.getAllByText('Create');
-    await user.click(createLinks[0]);
+    const sendGetLinks = screen.getAllByText('Send/Get');
+    await user.click(sendGetLinks[0]);
     expect(mockNavigate).toHaveBeenCalledWith('/');
   });
 
