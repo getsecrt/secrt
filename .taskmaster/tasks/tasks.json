@@ -549,51 +549,57 @@
       },
       {
         "id": 37,
-        "title": "Add app preferences page and storage layer",
-        "description": "Create an app-level Preferences page (distinct from /settings which is account-level). This is the UI and storage backbone for local app configuration, mirroring the CLI's config.toml but for the desktop/web app. Store preferences in localStorage (web) or Tauri's store plugin (desktop). Preferences include: default TTL, auto-copy share link toggle, theme preference. The preferences page should be accessible from the Nav (gear icon or menu item). This task does NOT include passphrase management (that's task #38) — it's the foundation that #38 builds on.",
+        "title": "Add app preferences to Settings page",
+        "description": "Add a local Preferences section to the existing /settings page rather than creating a separate page. The /settings page currently requires auth (AuthGuard) — remove the auth gate so all users can access it, but conditionally show sections: Preferences cards (default TTL, auto-copy, theme) are visible to everyone; account cards (API keys, passkeys, display name, account deletion) remain visible only to authenticated users. This keeps navigation simple (one settings page) while letting unauthenticated users configure local preferences.\n\nPreferences are local-only (per-device, not synced to server). Store in localStorage for web; use Tauri store plugin for desktop if available, falling back to localStorage. This task does NOT include passphrase management (that's task #38) — it builds the storage layer and UI foundation that #38 extends.\n\nThe existing Nav already links to /settings for authenticated users. For unauthenticated users, add a gear icon or similar entry point so they can reach preferences without logging in.",
         "status": "pending",
         "priority": "high",
         "dependencies": [],
         "subtasks": [
           {
             "id": 1,
-            "title": "Create preferences store (localStorage + Tauri store plugin)",
+            "title": "Create preferences store module",
             "status": "pending",
-            "description": "Build a preferences module (e.g., web/src/lib/preferences.ts) with get/set/subscribe. Use localStorage for web, Tauri store plugin for desktop. Keys: default_ttl, auto_copy, theme. Provide React-friendly hook (usePreference)."
+            "description": "Build web/src/lib/preferences.ts with get/set/subscribe. Use localStorage (works for both web and Tauri). Keys: default_ttl (string, e.g. '24h'), auto_copy (boolean, default true), theme (string: 'system'|'light'|'dark'). Provide a usePreference(key) hook that returns [value, setValue] and re-renders on change."
           },
           {
             "id": 2,
-            "title": "Create Preferences page UI",
+            "title": "Remove AuthGuard from Settings page, add conditional sections",
             "status": "pending",
-            "description": "New route /preferences with sections for: General (default TTL dropdown, auto-copy toggle), Appearance (theme selector). Clean, native-feeling form layout. Distinct from /settings (account management)."
+            "description": "Remove AuthGuard wrapping from the Settings route. In SettingsPage, render Preferences cards unconditionally at the top. Wrap existing account sections (API keys, passkeys, account management) in an auth check — show them only when logged in, or show a 'Log in to manage your account' prompt."
           },
           {
             "id": 3,
-            "title": "Wire default TTL into SendPage",
+            "title": "Add Preferences card to Settings page",
             "status": "pending",
-            "description": "SendPage's TTL selector should initialize from the saved default_ttl preference instead of hardcoded default."
+            "description": "New card(s) at the top of SettingsPage: General section with default TTL dropdown (matching the TTL options from SendPage's selector) and auto-copy share link toggle. Appearance section with theme selector (system/light/dark — may replace or complement the existing Nav toggle). Use the same card styling as existing settings sections."
           },
           {
             "id": 4,
-            "title": "Add Preferences link to Nav",
+            "title": "Wire default TTL into SendPage",
             "status": "pending",
-            "description": "Add gear icon or 'Preferences' menu item to Nav component. On macOS desktop, also respond to Cmd+, shortcut."
+            "description": "SendPage's TTL selector should initialize from the saved default_ttl preference instead of its hardcoded default. If no preference saved, keep current default behavior."
+          },
+          {
+            "id": 5,
+            "title": "Add Settings link to Nav for unauthenticated users",
+            "status": "pending",
+            "description": "Currently Nav only shows Settings link when logged in (via user menu). Add a gear icon or 'Settings' link visible to all users so they can reach preferences without an account. Logged-in users still see it in their user menu as before."
           }
         ]
       },
       {
         "id": 38,
         "title": "Add saved passphrases and auto-decryption",
-        "description": "Port the CLI's passphrase management to the app. Two features: (1) Default encryption passphrase — automatically applied when creating secrets (user can override or clear per-secret). (2) Decryption passphrases list — when claiming a secret, automatically try: no passphrase → default passphrase → each saved decryption passphrase → prompt user. This mirrors the CLI's multi-phase auto-decryption from config.toml. Passphrases are stored in the OS keychain via existing keyring_set/get commands (with file fallback on broken macOS). The Preferences page (task #37) provides the management UI.",
+        "description": "Port the CLI's passphrase management to the app. Two features: (1) Default encryption passphrase — automatically applied when creating secrets (user can override or clear per-secret). (2) Decryption passphrases list — when claiming a secret, automatically try: no passphrase → default passphrase → each saved decryption passphrase → prompt user. This mirrors the CLI's multi-phase auto-decryption from config.toml. Passphrases are stored in the OS keychain via existing keyring_set/get commands (with file fallback on broken macOS). The Settings page (task #37) provides the management UI as a new Passphrases card in the Preferences section.\n\nNote: saved passphrases are a desktop-only feature (requires Tauri keyring commands). On web, this section should either be hidden or show a message directing users to the desktop app.",
         "status": "pending",
         "priority": "high",
         "dependencies": [37, 34],
         "subtasks": [
           {
             "id": 1,
-            "title": "Add passphrase management UI to Preferences page",
+            "title": "Add passphrase management card to Settings page",
             "status": "pending",
-            "description": "Section in Preferences for: (a) Default encryption passphrase — masked input with show/hide toggle, save/clear buttons. (b) Decryption passphrases — ordered list with add/remove/reorder. All stored via keyring commands."
+            "description": "New 'Passphrases' card in the Preferences section of Settings. Contains: (a) Default encryption passphrase — masked input with show/hide toggle, save/clear buttons. (b) Decryption passphrases — ordered list with add/remove/reorder. All stored via Tauri keyring commands. Desktop-only: hide or show 'desktop app required' on web."
           },
           {
             "id": 2,
@@ -631,9 +637,9 @@
           },
           {
             "id": 2,
-            "title": "Add auto_copy toggle to Preferences",
+            "title": "Add auto_copy toggle to Settings preferences",
             "status": "pending",
-            "description": "Toggle in Preferences page under General section. Default: on. When off, share link is displayed but not auto-copied (user clicks CopyButton manually as today)."
+            "description": "Toggle in the Preferences section of Settings page under General. Default: on. When off, share link is displayed but not auto-copied (user clicks CopyButton manually as today)."
           }
         ]
       }
