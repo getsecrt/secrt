@@ -15,12 +15,12 @@ test.describe('Navigation', () => {
     await page.goto('/how-it-works');
     await expect(page.getByText('How secrt Works')).toBeVisible();
 
-    const createLink = page.getByRole('link', { name: /^Create$/ }).first();
-    if (await createLink.isVisible()) {
-      await createLink.click();
+    const homeLink = page.getByRole('link', { name: /^Send\/Get$/ }).first();
+    if (await homeLink.isVisible()) {
+      await homeLink.click();
     } else {
       await page.getByRole('button', { name: 'Open menu' }).click();
-      await page.getByRole('link', { name: /^Create$/ }).first().click();
+      await page.getByRole('link', { name: /^Send\/Get$/ }).first().click();
     }
 
     await expect(
