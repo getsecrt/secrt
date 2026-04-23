@@ -331,8 +331,13 @@ fn keyring_delete(key: String) -> Result<(), String> {
 mod tests {
     use super::*;
 
+    // The OS clipboard is process-wide global state; tests that touch it must
+    // not run in parallel with each other or they race over its contents.
+    static CLIPBOARD_LOCK: Mutex<()> = Mutex::new(());
+
     #[test]
     fn copy_sensitive_sets_text() {
+        let _guard = CLIPBOARD_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         copy_sensitive_inner("hello-sensitive").expect("copy_sensitive_inner should succeed");
         let mut clipboard = arboard::Clipboard::new().expect("open clipboard");
         assert_eq!(
@@ -343,6 +348,7 @@ mod tests {
 
     #[test]
     fn copy_sensitive_empty_string() {
+        let _guard = CLIPBOARD_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         // Should not panic on empty input
         copy_sensitive_inner("").expect("copy_sensitive_inner should succeed for empty string");
     }
