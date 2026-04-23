@@ -1,9 +1,10 @@
 import { CardHeading } from '../../components/CardHeading';
 import { navigate } from '../../router';
-import { getSecurityEmail } from '../../lib/config';
+import { getSecurityEmail, getInfrastructure } from '../../lib/config';
 
 export function PrivacyPage() {
   const securityEmail = getSecurityEmail();
+  const { provider, country } = getInfrastructure();
   const handleHome = (e: MouseEvent) => {
     e.preventDefault();
     navigate('/');
@@ -145,7 +146,7 @@ export function PrivacyPage() {
         <section class="space-y-2">
           <h2 class="text-xl font-semibold">Infrastructure</h2>
           <p class="leading-relaxed text-muted">
-            <Secrt /> is hosted on DigitalOcean in Canada. All connections use
+            <Secrt /> is hosted on {provider} in {country}. All connections use
             TLS. The server enforces HSTS with preload.
           </p>
         </section>

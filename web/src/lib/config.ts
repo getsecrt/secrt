@@ -28,3 +28,31 @@ export function getSecurityEmail(): string {
   const host = window.location.host.replace(/^www\./, '').split(':')[0];
   return `security@${host || 'secrt.ca'}`;
 }
+
+/** Hosting facts shown on the Privacy page. */
+export interface Infrastructure {
+  /** Hosting provider, e.g. "DigitalOcean". */
+  provider: string;
+  /** Country where the server runs, e.g. "Canada". */
+  country: string;
+}
+
+/**
+ * Hosting infrastructure for the current deployment. Lets the Privacy
+ * page state the truth ("hosted on 1984.hosting in Iceland" vs. "hosted
+ * on DigitalOcean in Canada") instead of one hardcoded answer. New
+ * deployments only need a row here.
+ */
+export function getInfrastructure(): Infrastructure {
+  const host =
+    isTauri() || typeof window === 'undefined'
+      ? 'secrt.ca'
+      : window.location.host.replace(/^www\./, '').split(':')[0];
+  switch (host) {
+    case 'secrt.is':
+      return { provider: '1984.hosting', country: 'Iceland' };
+    case 'secrt.ca':
+    default:
+      return { provider: 'DigitalOcean', country: 'Canada' };
+  }
+}

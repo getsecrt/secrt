@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.14.9 — 2026-04-22
+
+_No CLI changes — version bump only to stay in sync with workspace._
+
 ## 0.14.8 — 2026-04-22
 
 _No CLI changes — version bump only to stay in sync with workspace._

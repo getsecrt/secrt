@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.14.9 — 2026-04-22
+
+### Changed
+
+- **Privacy page Infrastructure section is host-aware:** "hosted on DigitalOcean in Canada" no longer baked into the bundle. A new `getInfrastructure()` helper returns provider/country per host (`secrt.is` → 1984.hosting / Iceland, `secrt.ca` → DigitalOcean / Canada). New deployments add a row.
+
 ## 0.14.8 — 2026-04-22
 
 ### Changed
