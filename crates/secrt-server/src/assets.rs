@@ -78,6 +78,15 @@ pub fn spa_index_html() -> Option<String> {
     std::fs::read_to_string("web/dist/index.html").ok()
 }
 
+/// Like [`spa_index_html`], but substitutes the `__PUBLIC_BASE_URL__`
+/// placeholder (used in OG/Twitter meta tags) with the deployment's
+/// configured base URL. The trailing slash, if any, is stripped so URLs
+/// like `__PUBLIC_BASE_URL__/static/og-image.png` render cleanly.
+pub fn spa_index_html_with_base(base_url: &str) -> Option<String> {
+    let trimmed = base_url.trim_end_matches('/');
+    spa_index_html().map(|html| html.replace("__PUBLIC_BASE_URL__", trimmed))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

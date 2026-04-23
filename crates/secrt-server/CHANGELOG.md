@@ -10,6 +10,7 @@
 
 - **Tauri register page simplified:** the Tauri WebView register page now redirects to the login page where both "Log in via Browser" and "Register a New Account" options are available, replacing the previous dead-end "Open Browser to Register" screen.
 - **AppLoginPage intent fallback:** the `/app-login` page now reads an optional `intent=register` URL parameter and redirects unauthenticated users to `/register` instead of `/login` when present.
+- **Public URLs derive from `PUBLIC_BASE_URL` at runtime:** Open Graph / Twitter card meta tags in the SPA, the `/robots.txt` body, and `/.well-known/security.txt` (including the security contact email — derived from the configured host) no longer hardcode `secrt.ca`. A new `__PUBLIC_BASE_URL__` placeholder in the SPA `index.html` is substituted at request time. Lets a single binary serve any deployment (e.g. `secrt.is`) cleanly.
 
 ## 0.14.6 — 2026-02-22
 

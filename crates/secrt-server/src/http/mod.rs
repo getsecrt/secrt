@@ -3388,8 +3388,9 @@ pub async fn handle_healthz() -> Response {
     )
 }
 
-pub async fn handle_index() -> Response {
-    let html = crate::assets::spa_index_html()
+pub async fn handle_index(State(state): State<Arc<AppState>>) -> Response {
+    let base = &state.cfg.public_base_url;
+    let html = crate::assets::spa_index_html_with_base(base)
         .unwrap_or_else(|| include_str!("../../templates/index.html").to_string());
 
     let mut resp = Html(html).into_response();
@@ -3432,14 +3433,17 @@ pub async fn handle_secret_page(
     State(state): State<Arc<AppState>>,
     Path(id): Path<String>,
 ) -> Response {
-    let base = &state.cfg.public_base_url;
+    let base = state.cfg.public_base_url.trim_end_matches('/');
     let escaped_id = escape_html(&id);
     let secret_url = format!("{base}/s/{escaped_id}");
     let secret_image = format!("{base}/static/og-secret.png");
 
-    let html = match crate::assets::spa_index_html() {
+    let html = match crate::assets::spa_index_html_with_base(base) {
         Some(spa) => {
-            // Rewrite generic OG/Twitter meta tags for secret-specific previews
+            // Rewrite generic OG/Twitter meta tags for secret-specific previews.
+            // The base-URL substitution above turned the SPA's
+            // `__PUBLIC_BASE_URL__` placeholders into `{base}`, so the match
+            // strings below are interpolated with the same value.
             spa.replace(
                 "content=\"secrt — Private One-Time Secret Sharing\"",
                 "content=\"You've been sent a secret\"",
@@ -3449,11 +3453,11 @@ pub async fn handle_secret_page(
                 "content=\"Open to view your secret. It can only be viewed once.\"",
             )
             .replace(
-                "content=\"https://secrt.ca/static/og-image.png\"",
+                &format!("content=\"{base}/static/og-image.png\""),
                 &format!("content=\"{secret_image}\""),
             )
             .replace(
-                "content=\"https://secrt.ca\"",
+                &format!("content=\"{base}\""),
                 &format!("content=\"{secret_url}\""),
             )
             .replace(
@@ -3482,13 +3486,12 @@ pub async fn handle_secret_page(
     resp
 }
 
-pub async fn handle_robots_txt() -> Response {
-    let mut resp = (
-        StatusCode::OK,
-        [(CONTENT_TYPE, "text/plain; charset=utf-8")],
-        "# secrt.ca — end-to-end encrypted secret sharing\n\
+pub async fn handle_robots_txt(State(state): State<Arc<AppState>>) -> Response {
+    let base = state.cfg.public_base_url.trim_end_matches('/');
+    let body = format!(
+        "# secrt — end-to-end encrypted secret sharing\n\
          # Source: https://github.com/getsecrt/secrt\n\
-         # Learn more: https://secrt.ca/how-it-works\n\
+         # Learn more: {base}/how-it-works\n\
          \n\
          User-agent: *\n\
          Allow: /\n\
@@ -3501,22 +3504,38 @@ pub async fn handle_robots_txt() -> Response {
          Disallow: /login\n\
          Disallow: /register\n\
          \n\
-         # Security contact: https://secrt.ca/.well-known/security.txt\n",
+         # Security contact: {base}/.well-known/security.txt\n"
+    );
+    let mut resp = (
+        StatusCode::OK,
+        [(CONTENT_TYPE, "text/plain; charset=utf-8")],
+        body,
     )
         .into_response();
     insert_header(resp.headers_mut(), "cache-control", "no-store");
     resp
 }
 
-pub async fn handle_security_txt() -> Response {
+pub async fn handle_security_txt(State(state): State<Arc<AppState>>) -> Response {
+    let base = state.cfg.public_base_url.trim_end_matches('/');
+    let host = url::Url::parse(base)
+        .ok()
+        .and_then(|u| {
+            u.host_str()
+                .map(|h| h.trim_start_matches("www.").to_string())
+        })
+        .unwrap_or_else(|| "secrt.is".to_string());
+    let body = format!(
+        "Contact: mailto:security@{host}\n\
+         Expires: 2027-02-17T00:00:00.000Z\n\
+         Preferred-Languages: en\n\
+         Canonical: {base}/.well-known/security.txt\n\
+         Policy: https://github.com/getsecrt/secrt/blob/main/SECURITY.md\n"
+    );
     let mut resp = (
         StatusCode::OK,
         [(CONTENT_TYPE, "text/plain; charset=utf-8")],
-        "Contact: mailto:security@secrt.ca\n\
-         Expires: 2027-02-17T00:00:00.000Z\n\
-         Preferred-Languages: en\n\
-         Canonical: https://secrt.ca/.well-known/security.txt\n\
-         Policy: https://github.com/getsecrt/secrt/blob/main/SECURITY.md\n",
+        body,
     )
         .into_response();
     insert_header(resp.headers_mut(), "cache-control", "public, max-age=86400");
@@ -4883,7 +4902,7 @@ mod tests {
 
     #[tokio::test]
     async fn security_txt_contains_required_fields() {
-        let resp = handle_security_txt().await;
+        let resp = handle_security_txt(State(test_state())).await;
         assert_eq!(resp.status(), StatusCode::OK);
         assert_eq!(
             resp.headers()
@@ -4893,10 +4912,10 @@ mod tests {
         );
         let body = response_text(resp).await;
 
-        // RFC 9116 required fields
+        // RFC 9116 required fields — email derives from PUBLIC_BASE_URL host
         assert!(
-            body.contains("Contact: mailto:security@secrt.ca"),
-            "must include Contact field"
+            body.contains("Contact: mailto:security@example.com"),
+            "Contact email must derive from PUBLIC_BASE_URL host: {body}"
         );
         assert!(
             body.contains("Expires:"),
@@ -4909,8 +4928,8 @@ mod tests {
             "should link to SECURITY.md"
         );
         assert!(
-            body.contains("Canonical: https://secrt.ca/.well-known/security.txt"),
-            "should include canonical URL"
+            body.contains("Canonical: https://example.com/.well-known/security.txt"),
+            "Canonical URL must use PUBLIC_BASE_URL: {body}"
         );
         assert!(
             body.contains("Preferred-Languages: en"),
@@ -4920,7 +4939,7 @@ mod tests {
 
     #[tokio::test]
     async fn robots_txt_allows_public_pages_and_blocks_secrets() {
-        let resp = handle_robots_txt().await;
+        let resp = handle_robots_txt(State(test_state())).await;
         assert_eq!(resp.status(), StatusCode::OK);
         assert_eq!(
             resp.headers()
