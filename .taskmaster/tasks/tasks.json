@@ -593,7 +593,10 @@
         "description": "Port the CLI's passphrase management to the app. Two features: (1) Default encryption passphrase — automatically applied when creating secrets (user can override or clear per-secret). (2) Decryption passphrases list — when claiming a secret, automatically try: no passphrase → default passphrase → each saved decryption passphrase → prompt user. This mirrors the CLI's multi-phase auto-decryption from config.toml. Passphrases are stored in the OS keychain via existing keyring_set/get commands (with file fallback on broken macOS). The Settings page (task #37) provides the management UI as a new Passphrases card in the Preferences section.\n\nNote: saved passphrases are a desktop-only feature (requires Tauri keyring commands). On web, this section should either be hidden or show a message directing users to the desktop app.",
         "status": "pending",
         "priority": "high",
-        "dependencies": [37, 34],
+        "dependencies": [
+          37,
+          34
+        ],
         "subtasks": [
           {
             "id": 1,
@@ -627,7 +630,9 @@
         "description": "After successfully creating a secret, automatically copy the share link to the clipboard using copySensitive (which excludes from clipboard history on all platforms). The CLI does this by default via auto_copy config. Add a preference toggle (auto_copy in task #37's preferences store) so users can disable it. Show a brief toast or visual indicator confirming the copy. Do NOT auto-copy claimed secret text — that stays as a manual CopyButton action.",
         "status": "pending",
         "priority": "medium",
-        "dependencies": [37],
+        "dependencies": [
+          37
+        ],
         "subtasks": [
           {
             "id": 1,
@@ -640,6 +645,37 @@
             "title": "Add auto_copy toggle to Settings preferences",
             "status": "pending",
             "description": "Toggle in the Preferences section of Settings page under General. Default: on. When off, share link is displayed but not auto-copied (user clicks CopyButton manually as today)."
+          }
+        ]
+      },
+      {
+        "id": 40,
+        "title": "Add Icelandic localization (is-IS)",
+        "description": "Localize the SPA to Icelandic for the secrt.is deployment. Wire up i18n (currently English-only), externalize all UI strings, and translate. Out of scope: server-emitted strings (robots.txt comments, error responses) which are already English. Consider host-aware default locale (secrt.is → is-IS, secrt.ca → en-CA) with a manual override. Driven by the new secrt.is presence in Iceland.",
+        "status": "pending",
+        "priority": "low",
+        "dependencies": [],
+        "subtasks": []
+      },
+      {
+        "id": 41,
+        "title": "Document jurisdiction choices (Iceland + Canada)",
+        "description": "Explain why secrt operates from these two jurisdictions specifically. Iceland: among the strongest privacy regimes in the world (IMMI legacy, strong data protection, free-expression precedent, lower MLAT-on-demand exposure). Canada: rule of law plus data residency for Canadian-regulated businesses (PIPEDA-aligned, hosted in-country). Frame as both a privacy story and a B2B residency story.",
+        "status": "pending",
+        "priority": "medium",
+        "dependencies": [],
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "Add jurisdiction section to How it Works",
+            "description": "Plain-language version on web/src/features/trust/HowItWorksPage.tsx — 3-5 sentences for casual users. Cover: two deployments because jurisdiction matters to the threat model; Iceland for strongest privacy regime; Canada for data residency + working with Canadian-regulated businesses. Link to the whitepaper for depth.",
+            "status": "pending"
+          },
+          {
+            "id": 2,
+            "title": "Add jurisdiction section to whitepaper",
+            "description": "Citations-backed treatment in docs/whitepaper.md. Specific statutes (Icelandic Act on the Protection of Privacy 90/2018, PIPEDA, Charter), MLAT exposure analysis, why Iceland and Canada were chosen over US/UK/EU. Aimed at security researchers and B2B procurement reviewers.",
+            "status": "pending"
           }
         ]
       }
