@@ -78,9 +78,12 @@ if (!HTMLElement.prototype.togglePopover) {
   };
 }
 
-HTMLElement.prototype.matches = function patchedMatches(selector: string) {
+HTMLElement.prototype.matches = function patchedMatches(
+  this: HTMLElement,
+  selector: string,
+) {
   if (selector === ':popover-open') {
     return this.hasAttribute(POPOVER_OPEN_ATTR);
   }
   return nativeMatches.call(this, selector);
-};
+} as typeof HTMLElement.prototype.matches;

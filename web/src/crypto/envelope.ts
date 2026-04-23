@@ -373,7 +373,7 @@ async function hkdfDerive(
 }
 
 function cryptoRng(b: Uint8Array): void {
-  crypto.getRandomValues(b);
+  crypto.getRandomValues(b as Uint8Array<ArrayBuffer>);
 }
 
 // ── Bridge exports: dispatch to native (Tauri) or web crypto ──

@@ -15,7 +15,7 @@ export interface PasswordGeneratorOptions {
 type FillRandomBytes = (buffer: Uint8Array) => void;
 
 function defaultFillRandomBytes(buffer: Uint8Array): void {
-  crypto.getRandomValues(buffer);
+  crypto.getRandomValues(buffer as Uint8Array<ArrayBuffer>);
 }
 
 function randomUsize(range: number, fillRandomBytes: FillRandomBytes): number {
