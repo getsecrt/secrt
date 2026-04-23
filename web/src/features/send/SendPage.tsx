@@ -21,6 +21,7 @@ import {
 } from '../../lib/envelope-size';
 import { formatShareLink, parseShareUrl } from '../../lib/url';
 import { copySensitive } from '../../lib/clipboard';
+import { getCanonicalHost } from '../../lib/config';
 import { TTL_DEFAULT, isValidTtl } from '../../lib/ttl';
 import {
   getSendPasswordGeneratorSettings,
@@ -67,13 +68,12 @@ type SendStatus =
 function GetSecretForm() {
   const [getUrl, setGetUrl] = useState('');
   const [getError, setGetError] = useState('');
+  const exampleShareUrl = `https://${getCanonicalHost()}/s/abc123#...`;
 
   const handleGet = useCallback(() => {
     const parsed = parseShareUrl(getUrl.trim());
     if (!parsed) {
-      setGetError(
-        'Please enter a valid secrt link (e.g. https://secrt.ca/s/abc123#key)',
-      );
+      setGetError(`Please enter a valid secrt link (e.g. ${exampleShareUrl})`);
       return;
     }
     setGetError('');
@@ -106,7 +106,7 @@ function GetSecretForm() {
           id="get-url"
           type="text"
           class={`input ${getError ? 'input-error' : ''}`}
-          placeholder="https://secrt.ca/s/abc123#..."
+          placeholder={exampleShareUrl}
           value={getUrl}
           onInput={(e) => {
             setGetUrl((e.target as HTMLInputElement).value);

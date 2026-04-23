@@ -15,18 +15,24 @@ export function getApiBase(): string {
 }
 
 /**
+ * The canonical host for the current deployment, with `www.` and any port
+ * stripped. The Tauri desktop app — loaded from local files and lacking a
+ * meaningful host — falls back to the primary deployment.
+ */
+export function getCanonicalHost(): string {
+  if (isTauri() || typeof window === 'undefined') {
+    return 'secrt.ca';
+  }
+  return window.location.host.replace(/^www\./, '').split(':')[0] || 'secrt.ca';
+}
+
+/**
  * Security contact address. Derived from the current host so the same
  * SPA bundle serves any deployment (e.g. secrt.is → security@secrt.is,
- * secrt.ca → security@secrt.ca). The Tauri desktop app — which is loaded
- * from local files and has no meaningful host — falls back to the
- * primary deployment.
+ * secrt.ca → security@secrt.ca).
  */
 export function getSecurityEmail(): string {
-  if (isTauri() || typeof window === 'undefined') {
-    return 'security@secrt.ca';
-  }
-  const host = window.location.host.replace(/^www\./, '').split(':')[0];
-  return `security@${host || 'secrt.ca'}`;
+  return `security@${getCanonicalHost()}`;
 }
 
 /** Hosting facts shown on the Privacy page. */
@@ -44,11 +50,7 @@ export interface Infrastructure {
  * deployments only need a row here.
  */
 export function getInfrastructure(): Infrastructure {
-  const host =
-    isTauri() || typeof window === 'undefined'
-      ? 'secrt.ca'
-      : window.location.host.replace(/^www\./, '').split(':')[0];
-  switch (host) {
+  switch (getCanonicalHost()) {
     case 'secrt.is':
       return { provider: '1984.hosting', country: 'Iceland' };
     case 'secrt.ca':
