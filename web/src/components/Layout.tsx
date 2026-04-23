@@ -4,6 +4,7 @@ import { Nav } from './Nav';
 import { GitHubIcon } from './Icons';
 import { navigate } from '../router';
 import { useOnline } from '../hooks/useOnline';
+import { getSecurityEmail } from '../lib/config';
 
 interface LayoutProps {
   children: ComponentChildren;
@@ -12,6 +13,7 @@ interface LayoutProps {
 
 export function Layout({ children, maxWidth = 'max-w-2xl' }: LayoutProps) {
   const online = useOnline();
+  const securityEmail = getSecurityEmail();
 
   const handleLogoClick = (e: MouseEvent) => {
     e.preventDefault();
@@ -60,10 +62,10 @@ export function Layout({ children, maxWidth = 'max-w-2xl' }: LayoutProps) {
           <span class="text-faint/40">&bull;</span>
 
           <a
-            href="mailto:security@secrt.ca"
+            href={`mailto:${securityEmail}`}
             class="link-subtle w-26 text-left transition-colors"
           >
-            security@secrt.ca
+            {securityEmail}
           </a>
         </div>
 

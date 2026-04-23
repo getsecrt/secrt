@@ -22,9 +22,7 @@ describe('PrivacyPage', () => {
 
   it('renders all major sections', () => {
     render(<PrivacyPage />);
-    expect(
-      screen.getByText('Zero-Knowledge Architecture'),
-    ).toBeInTheDocument();
+    expect(screen.getByText('Zero-Knowledge Architecture')).toBeInTheDocument();
     expect(screen.getByText('What We Store')).toBeInTheDocument();
     expect(screen.getByText("What We Don't Store")).toBeInTheDocument();
     expect(screen.getByText('IP Address Privacy')).toBeInTheDocument();
@@ -34,10 +32,13 @@ describe('PrivacyPage', () => {
     expect(screen.getByText('Contact Us')).toBeInTheDocument();
   });
 
-  it('contains contact email link', () => {
+  it('contains contact email link derived from current host', () => {
+    // happy-dom default host is "localhost" — assert the helper renders it
+    // and wires up the mailto: with the same value.
     render(<PrivacyPage />);
-    const emailLink = screen.getByText('security@secrt.ca');
-    expect(emailLink).toHaveAttribute('href', 'mailto:security@secrt.ca');
+    const expected = `security@${window.location.host.replace(/^www\./, '').split(':')[0]}`;
+    const emailLink = screen.getByText(expected);
+    expect(emailLink).toHaveAttribute('href', `mailto:${expected}`);
   });
 
   it('navigates home via back link', async () => {

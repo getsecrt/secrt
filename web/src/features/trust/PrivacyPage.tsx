@@ -1,7 +1,9 @@
 import { CardHeading } from '../../components/CardHeading';
 import { navigate } from '../../router';
+import { getSecurityEmail } from '../../lib/config';
 
 export function PrivacyPage() {
+  const securityEmail = getSecurityEmail();
   const handleHome = (e: MouseEvent) => {
     e.preventDefault();
     navigate('/');
@@ -91,11 +93,10 @@ export function PrivacyPage() {
                 Coarse activity date (accounts only):
               </strong>{' '}
               We record the month you last logged in — not the day, hour, or
-              second. This is stored as a plain date rounded to the first of
-              the month, so it cannot be correlated with individual actions.
-              Its sole purpose is identifying accounts that have been inactive
-              for years so we can clean up unused data — itself a privacy
-              benefit.
+              second. This is stored as a plain date rounded to the first of the
+              month, so it cannot be correlated with individual actions. Its
+              sole purpose is identifying accounts that have been inactive for
+              years so we can clean up unused data — itself a privacy benefit.
             </li>
           </ul>
         </section>
@@ -171,8 +172,8 @@ export function PrivacyPage() {
           <h2 class="text-xl font-semibold">Contact Us</h2>
           <p class="leading-relaxed text-muted">
             Questions or concerns:{' '}
-            <a href="mailto:security@secrt.ca" class="link">
-              security@secrt.ca
+            <a href={`mailto:${securityEmail}`} class="link">
+              {securityEmail}
             </a>
           </p>
           <p class="leading-relaxed text-muted">

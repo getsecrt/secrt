@@ -13,3 +13,18 @@ export function getApiBase(): string {
   // In production Tauri builds, there's no proxy — use absolute URL.
   return import.meta.env.DEV ? '' : 'https://secrt.ca';
 }
+
+/**
+ * Security contact address. Derived from the current host so the same
+ * SPA bundle serves any deployment (e.g. secrt.is → security@secrt.is,
+ * secrt.ca → security@secrt.ca). The Tauri desktop app — which is loaded
+ * from local files and has no meaningful host — falls back to the
+ * primary deployment.
+ */
+export function getSecurityEmail(): string {
+  if (isTauri() || typeof window === 'undefined') {
+    return 'security@secrt.ca';
+  }
+  const host = window.location.host.replace(/^www\./, '').split(':')[0];
+  return `security@${host || 'secrt.ca'}`;
+}

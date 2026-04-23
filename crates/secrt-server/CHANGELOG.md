@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.14.8 — 2026-04-22
+
+### Changed
+
+- **Footer + Privacy contact email derive from current host:** `Layout.tsx` (footer) and `PrivacyPage.tsx` ("Contact Us" section) now compute the security email at runtime via `getSecurityEmail()`, which reads `window.location.host`. So `secrt.is` renders `security@secrt.is`, `secrt.ca` renders `security@secrt.ca`. Tauri builds and SSR-less environments fall back to `security@secrt.ca`.
+
 ## 0.14.7 — 2026-02-22
 
 ### Added
