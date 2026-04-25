@@ -68,13 +68,32 @@ pub fn derive_amk_wrap_key(root_key: &[u8]) -> Result<Vec<u8>, ApiKeyError> {
 }
 
 /// Build domain-tagged AAD for AMK wrapping.
-/// AAD = "secrt-amk-wrap-v1" || user_id || key_prefix || version (BE u16)
-pub fn build_wrap_aad(user_id: &str, key_prefix: &str, version: u16) -> Vec<u8> {
+///
+/// Layout (all integers big-endian):
+/// ```text
+/// info                    // "secrt-amk-wrap-v1" (UTF-8, 17 bytes)
+/// user_id_uuid            // raw 16 bytes (UUIDv7)
+/// u16 len(key_prefix)
+/// key_prefix              // UTF-8
+/// u16 version
+/// ```
+///
+/// Convention: fixed-size protocol primitives (UUIDs, the version field)
+/// are included verbatim with no length prefix. Variable-length fields
+/// (key_prefix, and future wrap-path-specific fields) are prefixed with
+/// a u16 big-endian byte length so the concatenation is unambiguous.
+///
+/// This convention matches the PRF wrap path
+/// (`crates/secrt-server/docs/prf-amk-wrapping.md` §3.2) so that both
+/// AMK wrap layers follow one rule.
+pub fn build_wrap_aad(user_id_uuid: &[u8; 16], key_prefix: &str, version: u16) -> Vec<u8> {
+    let key_prefix_bytes = key_prefix.as_bytes();
     let mut aad =
-        Vec::with_capacity(HKDF_INFO_AMK_WRAP.len() + user_id.len() + key_prefix.len() + 2);
+        Vec::with_capacity(HKDF_INFO_AMK_WRAP.len() + 16 + 2 + key_prefix_bytes.len() + 2);
     aad.extend_from_slice(HKDF_INFO_AMK_WRAP.as_bytes());
-    aad.extend_from_slice(user_id.as_bytes());
-    aad.extend_from_slice(key_prefix.as_bytes());
+    aad.extend_from_slice(user_id_uuid);
+    aad.extend_from_slice(&(key_prefix_bytes.len() as u16).to_be_bytes());
+    aad.extend_from_slice(key_prefix_bytes);
     aad.extend_from_slice(&version.to_be_bytes());
     aad
 }
@@ -354,31 +373,39 @@ mod tests {
 
     // ── build_wrap_aad ──────────────────────────────────────────────
 
+    const UID1: [u8; 16] = [1u8; 16];
+    const UID2: [u8; 16] = [2u8; 16];
+    /// Canonical UUID used by the `wrap_unwrap` entry in `spec/v1/amk.vectors.json`.
+    const TEST_UID: [u8; 16] = [
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x01,
+    ];
+
     #[test]
     fn wrap_aad_is_deterministic() {
-        let a1 = build_wrap_aad("user-1", "prefix1", 1);
-        let a2 = build_wrap_aad("user-1", "prefix1", 1);
+        let a1 = build_wrap_aad(&UID1, "prefix1", 1);
+        let a2 = build_wrap_aad(&UID1, "prefix1", 1);
         assert_eq!(a1, a2);
     }
 
     #[test]
     fn wrap_aad_differs_by_user() {
-        let a1 = build_wrap_aad("user-1", "prefix1", 1);
-        let a2 = build_wrap_aad("user-2", "prefix1", 1);
+        let a1 = build_wrap_aad(&UID1, "prefix1", 1);
+        let a2 = build_wrap_aad(&UID2, "prefix1", 1);
         assert_ne!(a1, a2);
     }
 
     #[test]
     fn wrap_aad_differs_by_prefix() {
-        let a1 = build_wrap_aad("user-1", "prefix1", 1);
-        let a2 = build_wrap_aad("user-1", "prefix2", 1);
+        let a1 = build_wrap_aad(&UID1, "prefix1", 1);
+        let a2 = build_wrap_aad(&UID1, "prefix2", 1);
         assert_ne!(a1, a2);
     }
 
     #[test]
     fn wrap_aad_differs_by_version() {
-        let a1 = build_wrap_aad("user-1", "prefix1", 1);
-        let a2 = build_wrap_aad("user-1", "prefix1", 2);
+        let a1 = build_wrap_aad(&UID1, "prefix1", 1);
+        let a2 = build_wrap_aad(&UID1, "prefix1", 2);
         assert_ne!(a1, a2);
     }
 
@@ -432,7 +459,7 @@ mod tests {
     fn wrap_unwrap_round_trip() {
         let amk = [0xAA; AMK_LEN];
         let wrap_key = [0xBB; WRAP_KEY_LEN];
-        let aad = build_wrap_aad("user-1", "prefix1", 1);
+        let aad = build_wrap_aad(&UID1, "prefix1", 1);
 
         let wrapped = wrap_amk(&amk, &wrap_key, &aad, &real_rand).unwrap();
         assert_eq!(wrapped.ct.len(), AMK_LEN + GCM_TAG_LEN);
@@ -448,7 +475,7 @@ mod tests {
         let amk = [0xAA; AMK_LEN];
         let wrap_key = [0xBB; WRAP_KEY_LEN];
         let bad_key = [0xCC; WRAP_KEY_LEN];
-        let aad = build_wrap_aad("user-1", "prefix1", 1);
+        let aad = build_wrap_aad(&UID1, "prefix1", 1);
 
         let wrapped = wrap_amk(&amk, &wrap_key, &aad, &real_rand).unwrap();
         assert!(unwrap_amk(&wrapped, &bad_key, &aad).is_err());
@@ -458,8 +485,8 @@ mod tests {
     fn unwrap_wrong_aad_fails() {
         let amk = [0xAA; AMK_LEN];
         let wrap_key = [0xBB; WRAP_KEY_LEN];
-        let aad1 = build_wrap_aad("user-1", "prefix1", 1);
-        let aad2 = build_wrap_aad("user-2", "prefix1", 1);
+        let aad1 = build_wrap_aad(&UID1, "prefix1", 1);
+        let aad2 = build_wrap_aad(&UID2, "prefix1", 1);
 
         let wrapped = wrap_amk(&amk, &wrap_key, &aad1, &real_rand).unwrap();
         assert!(unwrap_amk(&wrapped, &wrap_key, &aad2).is_err());
@@ -467,7 +494,7 @@ mod tests {
 
     #[test]
     fn wrap_rejects_short_amk() {
-        let aad = build_wrap_aad("user-1", "prefix1", 1);
+        let aad = build_wrap_aad(&UID1, "prefix1", 1);
         assert!(wrap_amk(&[0u8; 16], &[0u8; 32], &aad, &real_rand).is_err());
     }
 
@@ -476,7 +503,7 @@ mod tests {
         let root_key = [42u8; 32];
         let amk = [0xDD; AMK_LEN];
         let wrap_key = derive_amk_wrap_key(&root_key).unwrap();
-        let aad = build_wrap_aad("user-abc", "abcdef", 1);
+        let aad = build_wrap_aad(&[0xAB; 16], "abcdef", 1);
 
         let wrapped = wrap_amk(&amk, &wrap_key, &aad, &real_rand).unwrap();
         let unwrapped = unwrap_amk(&wrapped, &wrap_key, &aad).unwrap();
@@ -618,7 +645,7 @@ mod tests {
     fn wrap_unwrap_deterministic() {
         let amk = [0x11; AMK_LEN];
         let wrap_key = [0x22; WRAP_KEY_LEN];
-        let aad = build_wrap_aad("user-test", "abcdef", 1);
+        let aad = build_wrap_aad(&TEST_UID, "abcdef", 1);
 
         let wrapped = wrap_amk(&amk, &wrap_key, &aad, &fixed_rand(0x33)).unwrap();
         // Nonce should be all 0x33

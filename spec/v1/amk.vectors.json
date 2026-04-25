@@ -17,15 +17,16 @@
     },
     "wrap_unwrap": {
       "description": "AMK wrap via AES-256-GCM with derived wrap key and domain-tagged AAD",
+      "_aad_layout": "info || user_id_uuid(16B) || u16be(len(key_prefix)) || key_prefix || u16be(version)",
       "amk_hex": "1111111111111111111111111111111111111111111111111111111111111111",
       "root_key_hex": "2222222222222222222222222222222222222222222222222222222222222222",
-      "user_id": "user-test",
+      "user_id": "00000000-0000-0000-0000-0000000000ab",
       "key_prefix": "abcdef",
       "version": 1,
       "nonce_fill_byte": "0x33",
       "wrap_key_hex": "ac194b4338dbb1ab846f98050de808b0c0dddbf25fcae527db28c628f3a6fefd",
-      "aad_hex": "73656372742d616d6b2d777261702d7631757365722d746573746162636465660001",
-      "ct_b64url": "P4eQZMY_ZR1vJB5GWHKF64fqMmzxP2cfJZ6FjjYGiQ9Atj-msm6kVHNSBNVNTsT0",
+      "aad_hex": "73656372742d616d6b2d777261702d7631000000000000000000000000000000ab00066162636465660001",
+      "ct_b64url": "P4eQZMY_ZR1vJB5GWHKF64fqMmzxP2cfJZ6FjjYGiQ86-DUjLPSRbVADZXXM0rqL",
       "nonce_b64url": "MzMzMzMzMzMzMzMz"
     },
     "note_encrypt_decrypt": {

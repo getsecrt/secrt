@@ -141,7 +141,7 @@ describe('AMK unit tests', () => {
     amk.fill(0xaa);
     const wrapKey = new Uint8Array(WRAP_KEY_LEN);
     wrapKey.fill(0xbb);
-    const aad = buildWrapAad('user-1', 'prefix1', 1);
+    const aad = buildWrapAad('00000000-0000-0000-0000-000000000001', 'prefix1', 1);
 
     const wrapped = await wrapAmk(amk, wrapKey, aad);
     expect(wrapped.version).toBe(1);
@@ -157,7 +157,7 @@ describe('AMK unit tests', () => {
     wrapKey.fill(0xbb);
     const badKey = new Uint8Array(WRAP_KEY_LEN);
     badKey.fill(0xcc);
-    const aad = buildWrapAad('user-1', 'prefix1', 1);
+    const aad = buildWrapAad('00000000-0000-0000-0000-000000000001', 'prefix1', 1);
 
     const wrapped = await wrapAmk(amk, wrapKey, aad);
     await expect(unwrapAmk(wrapped, badKey, aad)).rejects.toThrow();

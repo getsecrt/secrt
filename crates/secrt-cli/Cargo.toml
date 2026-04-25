@@ -19,10 +19,11 @@ serde_json.workspace = true
 base64.workspace = true
 is-terminal = "0.4"
 rpassword = "7"
-toml = "0.8"
+toml = "1"
 dirs = "6"
 keyring = { version = "3", optional = true, features = ["apple-native", "linux-native", "windows-native"] }
 qrcode.workspace = true
+uuid.workspace = true
 
 [features]
 default = ["keychain"]

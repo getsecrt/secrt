@@ -96,7 +96,7 @@ fn sync_rejects_share_url_without_claiming() {
 fn mock_info_response() -> InfoResponse {
     InfoResponse {
         authenticated: true,
-        user_id: Some("test-user-123".into()),
+        user_id: Some("00000000-0000-0000-0000-0000000000ab".into()),
         ttl: InfoTTL {
             default_seconds: 86400,
             max_seconds: 31536000,

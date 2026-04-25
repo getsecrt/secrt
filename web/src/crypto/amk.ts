@@ -158,22 +158,52 @@ export async function deriveAmkWrapKey(
 
 /**
  * Build domain-tagged AAD for AMK wrapping.
- * AAD = "secrt-amk-wrap-v1" || user_id || key_prefix || version (BE u16)
+ *
+ * Layout (all integers big-endian):
+ *   info                    // "secrt-amk-wrap-v1" (UTF-8, 17 bytes)
+ *   user_id_uuid            // raw 16 bytes (UUIDv7)
+ *   u16 len(key_prefix)
+ *   key_prefix              // UTF-8
+ *   u16 version
+ *
+ * Convention: fixed-size protocol primitives (UUIDs, version) are
+ * included verbatim with no length prefix. Variable-length fields
+ * get a u16 big-endian byte-length prefix. Matches the PRF wrap
+ * path (`crates/secrt-server/docs/prf-amk-wrapping.md` §3.2).
  */
 export function buildWrapAad(
   userId: string,
   keyPrefix: string,
   version: number,
 ): Uint8Array {
-  const versionBytes = new Uint8Array(2);
-  versionBytes[0] = (version >> 8) & 0xff;
-  versionBytes[1] = version & 0xff;
+  const userIdBytes = uuidStringToBytes(userId);
+  const keyPrefixBytes = utf8Encode(keyPrefix);
+  const u16 = (n: number): Uint8Array => {
+    const out = new Uint8Array(2);
+    out[0] = (n >> 8) & 0xff;
+    out[1] = n & 0xff;
+    return out;
+  };
   return concatBytes(
     utf8Encode(HKDF_INFO_AMK_WRAP),
-    utf8Encode(userId),
-    utf8Encode(keyPrefix),
-    versionBytes,
+    userIdBytes,
+    u16(keyPrefixBytes.length),
+    keyPrefixBytes,
+    u16(version),
   );
+}
+
+/** Parse a canonical UUID string ("xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx") into 16 raw bytes. */
+function uuidStringToBytes(uuid: string): Uint8Array {
+  const hex = uuid.replace(/-/g, '');
+  if (hex.length !== 32 || !/^[0-9a-fA-F]{32}$/.test(hex)) {
+    throw new Error(`invalid UUID: ${uuid}`);
+  }
+  const out = new Uint8Array(16);
+  for (let i = 0; i < 16; i += 1) {
+    out[i] = parseInt(hex.slice(2 * i, 2 * i + 2), 16);
+  }
+  return out;
 }
 
 // ── AMK Wrap / Unwrap ───────────────────────────────────────────────

@@ -37,8 +37,11 @@ pub(crate) fn import_amk(
     let user_id = info.user_id.ok_or_else(|| {
         "server did not return user_id (API key may not be linked to a user)".to_string()
     })?;
+    let user_id_bytes = uuid::Uuid::parse_str(&user_id)
+        .map_err(|e| format!("server returned invalid user_id UUID: {}", e))?
+        .into_bytes();
 
-    let aad = amk::build_wrap_aad(&user_id, &local_key.prefix, 1);
+    let aad = amk::build_wrap_aad(&user_id_bytes, &local_key.prefix, 1);
     let wrapped = amk::wrap_amk(amk_bytes, &wrap_key, &aad, &|buf| {
         ring::rand::SystemRandom::new()
             .fill(buf)

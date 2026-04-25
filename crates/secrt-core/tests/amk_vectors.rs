@@ -158,8 +158,19 @@ fn wrap_unwrap_vector() {
     let wrap_key = derive_amk_wrap_key(&root_key).expect("derive wrap key");
     assert_eq!(wrap_key, expected_wrap_key, "wrap_key derivation mismatch");
 
-    // Verify AAD construction
-    let aad = build_wrap_aad(&v.user_id, &v.key_prefix, v.version);
+    // Verify AAD construction. user_id is a UUID string in the vector;
+    // build_wrap_aad consumes raw 16 bytes.
+    let user_id_bytes: [u8; 16] = {
+        let raw = v.user_id.replace('-', "");
+        assert_eq!(raw.len(), 32, "user_id must be a canonical UUID string");
+        let mut out = [0u8; 16];
+        for (i, out_byte) in out.iter_mut().enumerate() {
+            *out_byte = u8::from_str_radix(&raw[2 * i..2 * i + 2], 16)
+                .expect("valid hex digits in user_id UUID");
+        }
+        out
+    };
+    let aad = build_wrap_aad(&user_id_bytes, &v.key_prefix, v.version);
     assert_eq!(aad, expected_aad, "AAD mismatch");
 
     // Verify wrap produces expected ciphertext

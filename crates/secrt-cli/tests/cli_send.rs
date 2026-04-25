@@ -889,8 +889,9 @@ fn send_note_success_attaches_note() {
     let api_key = format!("sk2_{}.{}", prefix, URL_SAFE_NO_PAD.encode(root_key));
 
     let wrap_key = amk::derive_amk_wrap_key(&root_key).unwrap();
-    let user_id = "test-user-123";
-    let aad = amk::build_wrap_aad(user_id, prefix, 1);
+    let user_id = "00000000-0000-0000-0000-0000000000ab";
+    let user_id_bytes = uuid::Uuid::parse_str(user_id).unwrap().into_bytes();
+    let aad = amk::build_wrap_aad(&user_id_bytes, prefix, 1);
     let det_rng = |buf: &mut [u8]| -> Result<(), EnvelopeError> {
         buf.fill(0x42);
         Ok(())

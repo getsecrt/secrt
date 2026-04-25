@@ -457,7 +457,19 @@ fn handle_amk_transfer(
         }
     };
 
-    let aad = amk::build_wrap_aad(&user_id, prefix, 1);
+    let user_id_bytes = match uuid::Uuid::parse_str(&user_id) {
+        Ok(u) => u.into_bytes(),
+        Err(e) => {
+            let _ = writeln!(
+                deps.stderr,
+                "  {} notes key transfer: server returned invalid user_id UUID: {}",
+                c(WARN, "warning:"),
+                e
+            );
+            return;
+        }
+    };
+    let aad = amk::build_wrap_aad(&user_id_bytes, prefix, 1);
     let wrapped = match amk::wrap_amk(&amk_bytes, &wrap_key, &aad, &|buf| {
         use ring::rand::SecureRandom;
         SystemRandom::new()

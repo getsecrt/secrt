@@ -380,9 +380,12 @@ pub(crate) fn resolve_amk(
         .decode(&wrapper_resp.nonce)
         .map_err(|e| format!("decode nonce: {}", e))?;
 
-    // Build AAD using user_id from the wrapper response
+    // Build AAD using user_id from the wrapper response (parsed to raw 16 bytes)
+    let user_id_bytes = uuid::Uuid::parse_str(&wrapper_resp.user_id)
+        .map_err(|e| format!("server returned invalid user_id UUID: {}", e))?
+        .into_bytes();
     let aad = build_wrap_aad(
-        &wrapper_resp.user_id,
+        &user_id_bytes,
         &local_key.prefix,
         wrapper_resp.version as u16,
     );
