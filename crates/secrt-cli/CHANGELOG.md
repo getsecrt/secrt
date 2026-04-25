@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.15.0 — 2026-04-25
+
+### Changed
+
+- **BREAKING — AMK wrapper AAD format change.** All call sites that wrap or unwrap an AMK (`sync`, `send` notes resolve, `auth login` AMK transfer) now parse the server-returned `user_id` UUID string into 16 raw bytes before building the AAD. Wrappers stored under the prior format will fail to unwrap and must be regenerated. See `secrt-core` 0.15.0 for the format details.
+
+### Added
+
+- **Sync command tightened.** `secrt sync` now MUST reject `/s/<id>` share URLs before calling claim (preventing accidental burn of unrelated secrets), MUST require the API key be linked to a user account (`/api/v1/info` returns `user_id`), and MUST verify the decrypted plaintext is exactly 32 bytes before uploading.
+
+### Dependencies
+
+- Bumped `toml` `0.8` → `1` (no behavioral change for our `from_str::<Config>` usage).
+- Added `uuid` workspace dep for parsing the `user_id` string returned by `/api/v1/info`.
+
 ## 0.14.9 — 2026-04-22
 
 _No CLI changes — version bump only to stay in sync with workspace._

@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.15.0 — 2026-04-25
+
+_No server runtime changes — the server stores AMK wrappers as opaque blobs and is unaffected by the client-side AAD format change in `secrt-core` 0.15.0. Pre-launch deployments must `TRUNCATE amk_wrappers, amk_accounts;` once before serving the new client builds, since existing wrappers were generated under the prior AAD format and will fail to unwrap._
+
 ## 0.14.9 — 2026-04-22
 
 ### Changed

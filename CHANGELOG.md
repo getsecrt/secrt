@@ -6,6 +6,29 @@ All notable changes to the secrt monorepo are documented here. Individual crate 
 - [secrt-core](crates/secrt-core/CHANGELOG.md)
 - [secrt-server](crates/secrt-server/CHANGELOG.md)
 
+## 0.15.0 — 2026-04-25
+
+### Changed
+
+- **BREAKING — AMK wrapper AAD format aligned with the PRF wrap path.** The `secrt-amk-wrap-v1` AAD now uses raw 16-byte UUIDs for `user_id` (no length prefix) and length-prefixes the variable-length `key_prefix`: `info || user_id_uuid(16) || u16be(len(key_prefix)) || key_prefix || u16be(version)`. The convention — fixed-size primitives verbatim, variable-length fields with `u16be` length prefixes — applies to every AMK wrap path including the upcoming PRF transport. Wrappers stored under the prior `0.14.x` format are not decryptable by `0.15.x` clients; pre-launch deployments must `TRUNCATE amk_wrappers, amk_accounts;` once before serving the new builds.
+
+### Added
+
+- **Specification: AMK wrapping crypto, transport, and sync flow.** New `### Account Master Key (AMK)` section in `spec/v1/api.md` defines the byte-exact wrap format (constants, AAD, derivation, sealing, commitment, wire format), the four v1 transport mechanisms (API-key root, sync link, ECDH on device-auth/app-login with SAS, future PRF), the sync-secret create/consume flow, the threat model for sync URLs as bearer tokens, and the explicit non-goals (no AMK rotation in v1).
+- **Specification: sync flow tightened.** `spec/v1/cli.md § sync` documents the safety invariants (reject `/s/<id>` URLs before claim, verify 32-byte plaintext, fetch `user_id` from `/api/v1/info`). `spec/v1/server.md` annotates `/sync/{id}` as a SPA marker route.
+- **Specification: navigation and TOC.** `spec/README.md` and `spec/v1/README.md` rewritten as indexed tables of contents with reading orders for client and server reimplementers. Pointer to the in-progress PRF design doc.
+- **Specification: missing CLI surface documented.** `spec/v1/cli.md` adds `--qr`/`-Q`, `--no-copy`, the `auto_copy` config key, the bare `secrt config` show subcommand, and explicit API-key prefix validation rules (`≥6 chars`, `[A-Za-z0-9_-]`).
+- **Specification: server route list completed.** `spec/v1/server.md §5` adds `/about`, `/sync/{id}`, `/sw.js`, and corrects `/static/*` → `/static/{*path}`.
+
+### Removed
+
+- **Standalone `getsecrt/spec` repository archived.** The spec lives canonically in this monorepo at `spec/`. The previous mirror at `github.com/getsecrt/spec` has been archived; the local stale clone and the abandoned `secrt-cli` and `secrt-server` standalone repos have been removed.
+
+### Dependencies
+
+- `toml` `0.8` → `1` (CLI). No behavioral change for our `from_str::<Config>` usage.
+- New: `uuid` workspace dep is now a regular dep of `secrt-cli` (used to parse the `user_id` UUID returned by `/api/v1/info` before constructing the wrap AAD).
+
 ## 0.14.0 — 2026-02-20
 
 ### Added

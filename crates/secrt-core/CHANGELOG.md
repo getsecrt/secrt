@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.15.0 — 2026-04-25
+
+### Changed
+
+- **BREAKING — AMK wrapper AAD format aligned with PRF wrap path.** `build_wrap_aad` now takes `user_id_uuid: &[u8; 16]` (raw UUIDv7 bytes) instead of `user_id: &str`, and the layout drops the implicit ordering for a length-prefixed format: `info || user_id_uuid(16) || u16be(len(key_prefix)) || key_prefix || u16be(version)`. Convention: fixed-size protocol primitives (UUIDs, version) are included verbatim with no length prefix; variable-length fields get a u16 big-endian byte-length prefix. This matches the in-progress PRF wrap path (`crates/secrt-server/docs/prf-amk-wrapping.md` §3.2) so both AMK wrap layers follow one rule. Wrappers stored under the prior 0.14.x AAD format will fail AEAD authentication and must be regenerated; pre-launch deployments should `TRUNCATE amk_wrappers, amk_accounts;` before deploying 0.15.0.
+
 ## 0.14.0 — 2026-02-20
 
 _No secrt-core changes — version bump only to stay in sync with workspace._
