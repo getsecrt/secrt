@@ -54,7 +54,7 @@ Built-in commands:
 - `secrt --help` or `secrt help`: print top-level usage and exit.
 - `secrt <command> --help` or `secrt help <command>`: print command-specific usage and exit.
 - `secrt completion <shell>`: emit shell completion script (see Shell Completions below).
-- `secrt config`: show effective settings (resolved from all sources).
+- `secrt config` (no subcommand): print effective settings resolved across flag/env/keychain/config-file/built-in default. Secret-bearing values MUST be masked in the output (e.g., `sk2_abcdef.••••••••`).
 - `secrt config init [--force]`: create a template config file.
 - `secrt config path`: print the config file path.
 - `secrt config set-passphrase`: store default passphrase in OS keychain.
@@ -129,6 +129,7 @@ Supported keys:
 | `decryption_passphrases` | string[] | Additional passphrases to try when claiming (tried in order) |
 | `show_input` | bool | Show secret input as typed (default: `false`) |
 | `use_keychain` | bool | Enable OS keychain lookups for credentials (default: `false`) |
+| `auto_copy` | bool | Auto-copy share link to clipboard on `send` when stdout is a TTY (default: `true` if implementation supports it). `--no-copy` always overrides. |
 
 `default_ttl` precedence: `--ttl` flag > config `default_ttl` > none (server decides).
 
@@ -230,12 +231,12 @@ Supplying `--api-key` is RECOMMENDED for automation and high-volume usage.
 
 Credential handling rules:
 
-1. CLI accepts local keys in `sk2_<prefix>.<root_b64>` format.
+1. CLI accepts local keys in `sk2_<prefix>.<root_b64>` format. The `<prefix>` MUST be at least 6 ASCII characters from the set `[A-Za-z0-9_-]`. The `<root_b64>` MUST decode as base64url (no padding) to exactly 32 bytes.
 2. For authenticated requests, CLI derives:
    - `ROOT_SALT = SHA256("secrt-apikey-v2-root-salt")`
    - `auth_token = HKDF-SHA256(root_key, ROOT_SALT, "secrt-auth", 32)`
-3. CLI sends wire credentials as `ak2_<prefix>.<auth_b64>` in `X-API-Key` / bearer headers.
-4. Malformed `sk2_` values MUST fail fast with a clear user-facing error.
+3. CLI sends wire credentials as `ak2_<prefix>.<auth_b64>` in `X-API-Key` / bearer headers, where `<auth_b64>` is the base64url (no padding) encoding of `auth_token`.
+4. Malformed `sk2_` values (wrong prefix, invalid prefix charset/length, invalid base64url, or wrong decoded length) MUST fail fast with a clear user-facing error.
 
 Authenticated mode enables:
 
@@ -292,6 +293,7 @@ secrt send [--ttl <ttl>] [--api-key <key>] [--base-url <url>] [--json] [--silent
            [-n | --no-passphrase]
            [-p | --passphrase-prompt | --passphrase-env <name> | --passphrase-file <path>]
            [--note <text>]
+           [-Q | --qr] [--no-copy]
 ```
 
 Behavior:
@@ -337,6 +339,15 @@ Encrypted notes:
 - `--note <text>` attaches an encrypted note to the secret after creation. Requires authentication (`--api-key` or stored key) and an established AMK.
 - The note is encrypted client-side using a key derived from the AMK, then sent via `PUT /api/v1/secrets/{id}/meta`.
 - If no AMK is available, `--note` MUST fail with a clear error directing the user to set up an AMK (e.g., via `secrt auth login`).
+
+QR code output:
+
+- `-Q` / `--qr` prints the share link as a Unicode block QR code on stderr after the share link itself. Implementations SHOULD only render the QR code when stderr is a TTY; for non-TTY stderr the flag SHOULD be a no-op (the share link still goes to stdout as normal).
+
+Clipboard behavior:
+
+- Implementations MAY auto-copy the share link to the system clipboard after a successful `send` when stdout is a TTY. When supported, this behavior SHOULD be on by default and disabled by `--no-copy`. The `auto_copy` config key (boolean) sets the default; `--no-copy` always overrides.
+- When stdout is piped or redirected, implementations MUST NOT touch the clipboard (the user is composing a pipeline, not consuming the link interactively).
 
 ## `get`
 
@@ -457,13 +468,17 @@ secrt sync <url> [--api-key <key>] [--base-url <url>] [--json] [--silent]
 Behavior:
 
 1. Parse the sync URL to extract `<id>` and `url_key` from the fragment.
-2. Require API key authentication.
-3. Derive `claim_token` and claim the sync secret from the server.
-4. Decrypt the envelope to obtain raw AMK bytes.
-5. Wrap the AMK with a key derived from the local API key's `root_key`.
-6. Upload the wrapped AMK via `PUT /api/v1/amk/wrapper`.
+   - The URL path component MUST be `/sync/<id>`. Bare ID format (`<id>#<key>`) is allowed and treated as a sync URL in this command.
+   - A share URL with `/s/<id>` path MUST be rejected **before** calling claim. Claiming a share URL is destructive (the secret is burned on the single claim), so the CLI MUST NOT attempt it. Emit a clear error directing the user to use `secrt get` instead.
+2. Require API key authentication. If no API key is resolved, fail with a clear error.
+3. Derive `claim_token` and claim the sync secret from the server via `POST /api/v1/secrets/{id}/claim`.
+4. Decrypt the envelope. The decrypted plaintext MUST be exactly 32 bytes (the AMK). Any other length is a protocol violation and MUST cause the CLI to fail without uploading.
+5. Resolve the caller's `user_id` by calling `GET /api/v1/info` with the API key. If the response does not include a `user_id` (i.e., the API key is not linked to a user account), fail with a clear error; the wrapping step requires the UUID.
+6. Wrap the AMK with a key derived from the local API key's `root_key`, using the AAD and byte layout defined in `spec/v1/api.md § AMK wrapping`.
+7. Compute `amk_commit` per the same section.
+8. Upload the wrapped blob via `PUT /api/v1/amk/wrapper`. A `409` response indicates the account already committed a different AMK — surface this as a distinct error and do not retry.
 
-Both `/sync/{id}#key` and `/s/{id}#key` URL formats are accepted. The base URL is derived from the sync URL when `--base-url` is not set and `SECRET_BASE_URL` is not present.
+The base URL is derived from the sync URL when `--base-url` is not set and `SECRET_BASE_URL` is not present.
 
 The `get` command auto-detects sync URLs (paths containing `/sync/`) and delegates to the sync handler, so `secrt https://secrt.ca/sync/abc#key` works without an explicit `sync` subcommand.
 

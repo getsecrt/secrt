@@ -147,16 +147,19 @@ The header is an internal signal between the reverse proxy and the application a
 
 - `GET /healthz`
 - `GET /`
+- `GET /sw.js`
 - `GET /s/{id}`
+- `GET /sync/{id}` (SPA marker route; serves the same index.html as `/s/{id}`. The server makes no protocol-level distinction between share and sync secrets — both are created and claimed via the standard secret endpoints. The path differs only so clients can route UI and trigger the sync consume flow. See `api.md § Sync secrets`.)
 - `GET /login`
 - `GET /register`
 - `GET /how-it-works`
 - `GET /privacy`
 - `GET /dashboard`
 - `GET /settings`
+- `GET /about`
 - `GET /robots.txt`
 - `GET /.well-known/security.txt`
-- `GET /static/*` (embedded or filesystem assets)
+- `GET /static/{*path}` (embedded or filesystem assets)
 - `GET /api/v1/info`
 - `POST /api/v1/public/secrets`
 - `GET /api/v1/secrets/check`
