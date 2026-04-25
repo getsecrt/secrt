@@ -2,13 +2,13 @@
 
 **Zero-Knowledge One-Time Secret Sharing**
 
-Version 1.1 — February 2026
+Version 1.2 — April 2026
 
 ---
 
 ## Abstract
 
-secrt is a zero-knowledge, one-time secret sharing service that allows individuals and organizations to share passwords, API keys, credentials, files, and other sensitive information through links that self-destruct after a single use. All encryption happens on the sender's device — in the browser or on the command line — before any data reaches the server. The server stores only opaque ciphertext that it cannot decrypt, and never sees plaintext, encryption keys, passphrases, or even filenames.
+secrt is a zero-knowledge, one-time secret sharing service that allows individuals and organizations to share passwords, API keys, credentials, files, and other sensitive information through links that self-destruct after a single use or after an elapsed time. All encryption happens on the sender's device — in the browser or on the command line — before any data reaches the server. The server stores only opaque ciphertext that it cannot decrypt, and never sees plaintext, encryption keys, passphrases, or even filenames.
 
 The project is fully open source, built on a rigorous versioned [specification](https://github.com/getsecrt/secrt/tree/main/spec/v1) with mandatory test vectors, and uses only industry-standard cryptographic primitives (AES-256-GCM, HKDF-SHA-256, Argon2id). It offers signed CLI binaries for macOS and Windows, a web application, passkey-based authentication (no passwords), and a self-hostable architecture where the zero-knowledge property means operators get the same security guarantees as the hosted service.
 
@@ -44,7 +44,7 @@ This white paper describes the threat model, cryptographic architecture, server 
     - [Web Application](#web-application)
 12. [Specification & Test Vectors](#specification--test-vectors)
 13. [Self-Hosting](#self-hosting)
-14. [Data Residency](#data-residency)
+14. [Data Residency & Hosting Regions](#data-residency--hosting-regions)
 15. [FAQ](#faq)
 16. [Contact & Responsible Disclosure](#contact--responsible-disclosure)
 17. [Appendices](#appendices)
@@ -53,11 +53,11 @@ This white paper describes the threat model, cryptographic architecture, server 
 
 ## Problem Statement
 
-Every day, teams share credentials through channels never designed for secrets: Slack messages, email threads, SMS, sticky notes, shared documents. These channels persist data indefinitely, are searchable, are backed up to third-party servers, and are routinely accessed by administrators, compliance tools, and — in breach scenarios — attackers.
+Every day, people share credentials through channels never designed for secrets: Slack messages, email threads, SMS, and shared documents. These channels persist data indefinitely, are searchable, are backed up to third-party servers, and are routinely accessed by administrators, compliance tools, and — in breach scenarios — attackers.
 
 The consequences are well-documented. Credential exposure through messaging platforms is a leading vector in data breaches. A password shared in a Slack DM six months ago is still sitting in Slack's search index, in the company's Slack export archive, and on every device that synced that conversation. The sender has no way to revoke it.
 
-The problem is not that people are careless — it's that the tools they reach for are optimized for convenience, not security. Sharing a database password should be as easy as sending a message, but the result should be ephemeral, encrypted, and verifiable.
+The problem is that communication tools people reach for are optimized for convenience, not security. Sharing a database password should be as easy as sending a message, but the result should be ephemeral, encrypted, and verifiable.
 
 Existing solutions fall short in various ways: some encrypt server-side (the server sees your plaintext), some lack a formal specification (making independent auditing difficult), some require complex infrastructure to self-host, and most lack the supply chain integrity of signed, verifiable binaries.
 
@@ -84,18 +84,18 @@ An optional passphrase adds a second factor: even if the link is intercepted, th
 
 Several tools address secret sharing. Here is how secrt compares:
 
-| Feature | secrt | OneTimeSecret | Yopass | PrivateBin | HashiCorp Vault |
-|---------|-------|---------------|--------|------------|-----------------|
-| Zero-knowledge (client-side encryption) | ✅ | ❌ Server-side | ✅ | ✅ | ❌ Server-managed |
-| One-time retrieval | ✅ | ✅ | ✅ (configurable) | Optional | N/A |
-| Open specification with test vectors | ✅ | ❌ | ❌ | ❌ | ❌ |
-| Signed binary CLI | ✅ (macOS notarized, Windows signed) | ❌ | CLI available (unsigned) | ❌ | ✅ |
-| Passkey auth (no passwords) | ✅ | ❌ (email/password) | ❌ (no accounts) | ❌ (no accounts) | ❌ (tokens/LDAP/etc.) |
-| File sharing | ✅ | ❌ | ✅ | ✅ | N/A |
-| Self-hostable | ✅ | ✅ | ✅ | ✅ | ✅ |
-| Passphrase protection | ✅ (Argon2id) | ✅ | ❌ | ✅ (password) | N/A |
+| Feature                                 | secrt         | OneTimeSecret | Yopass                   | PrivateBin       |
+| --------------------------------------- | ------------- | ------------- | ------------------------ | ---------------- |
+| Zero-knowledge (client-side encryption) | ✅            | ❌            | ✅                       | ✅               |
+| One-time retrieval                      | ✅            | ✅            | ✅ (configurable)        | Optional         |
+| Open specification with test vectors    | ✅            | ❌            | ❌                       | ❌               |
+| Signed binary CLI                       | ✅            | ❌            | CLI available (unsigned) | ❌               |
+| Passkey auth (no passwords)             | ✅            | ❌            | ❌ (no accounts)         | ❌ (no accounts) |
+| File sharing                            | ✅            | ❌            | ✅                       | ✅               |
+| Self-hostable                           | ✅            | ✅            | ✅                       | ✅               |
+| Passphrase protection                   | ✅ (Argon2id) | ✅            | ❌                       | ✅ (password)    |
 
-<!-- TODO: Verify OneTimeSecret still lacks client-side encryption — the GitHub issue #190 from 2020 requested it but it may have been added since. -->
+<!-- TODO: Verify OneTimeSecret still lacks client-side encryption — the GitHub issue #190 from 2020 requested it, but it may have been added since. -->
 <!-- TODO: Verify Yopass doesn't support passphrase protection — their docs mention "encryption key" but it may function differently. -->
 
 **What makes secrt different:**
@@ -105,8 +105,6 @@ Several tools address secret sharing. Here is how secrt compares:
 - **Passkey authentication.** No passwords are stored or transmitted. Authentication uses WebAuthn/FIDO2, which is phishing-resistant by design.
 - **Zero-knowledge with metadata encryption.** Filenames, MIME types, and content type indicators are encrypted inside the payload. The server doesn't know if you shared text or a file.
 - **No password storage at all.** API keys use a derived-key architecture where the server stores only an HMAC hash — even database access cannot reconstruct the original key.
-
-HashiCorp Vault is included for context but serves a fundamentally different purpose: it is an infrastructure secrets management system for machines, not a tool for humans to share one-time secrets with each other.
 
 ---
 
@@ -136,14 +134,14 @@ secrt is designed to protect shared secrets against:
 
 secrt uses a single, well-defined cryptographic suite identified as `v1-argon2id-hkdf-aes256gcm-sealed-payload`. Cryptographic operations use audited libraries: [`ring`](https://github.com/briansmith/ring) and [`argon2`](https://crates.io/crates/argon2) in Rust, and WebCrypto plus [hash-wasm](https://github.com/Daninet/hash-wasm) in the browser. No custom cryptography is used.
 
-| Primitive | Algorithm | Library |
-|-----------|-----------|---------|
-| Authenticated encryption | AES-256-GCM | ring / WebCrypto |
-| Key derivation | HKDF-SHA-256 | ring / WebCrypto |
-| Passphrase stretching | Argon2id (v=19, m=19456, t=2, p=1) | argon2 crate / hash-wasm |
-| Hashing | SHA-256 | ring / WebCrypto |
-| Compression | zstd (level 3) | zstd crate / [@bokuweb/zstd-wasm](https://github.com/bokuweb/zstd-wasm) |
-| Encoding | base64url (no padding, RFC 4648) | base64 crate / browser btoa |
+| Primitive                | Algorithm                          | Library                                                                 |
+| ------------------------ | ---------------------------------- | ----------------------------------------------------------------------- |
+| Authenticated encryption | AES-256-GCM                        | ring / WebCrypto                                                        |
+| Key derivation           | HKDF-SHA-256                       | ring / WebCrypto                                                        |
+| Passphrase stretching    | Argon2id (v=19, m=19456, t=2, p=1) | argon2 crate / hash-wasm                                                |
+| Hashing                  | SHA-256                            | ring / WebCrypto                                                        |
+| Compression              | zstd (level 3)                     | zstd crate / [@bokuweb/zstd-wasm](https://github.com/bokuweb/zstd-wasm) |
+| Encoding                 | base64url (no padding, RFC 4648)   | base64 crate / browser btoa                                             |
 
 Key constants are defined in [`crates/secrt-core/src/types.rs`](https://github.com/getsecrt/secrt/blob/main/crates/secrt-core/src/types.rs). See [Appendix A](#appendix-a-key-constants) for the full table.
 
@@ -208,7 +206,7 @@ This means intercepting the share link is not enough — the attacker must also 
 
 PBKDF2 is widely available through WebCrypto and is easy to deploy, but it is primarily CPU-hard. Modern GPU/ASIC attackers can evaluate PBKDF2 guesses very efficiently at scale. Argon2id is memory-hard, which raises attacker cost by forcing each guess to consume substantial memory bandwidth, not just CPU cycles.
 
-secrt uses Argon2id for passphrase-based protection to make offline guessing materially more expensive when ciphertext is captured. We still use WebCrypto for AES-256-GCM, HKDF, and SHA-256, but for passphrase KDF we intentionally load Argon2id via WASM in the browser so the web client matches the Rust/CLI cryptographic suite and test vectors.
+secrt uses Argon2id for passphrase-based protection to make offline guessing materially more expensive when ciphertext is captured. We still use WebCrypto for AES-256-GCM, HKDF, and SHA-256, but for passphrase KDF, we intentionally load Argon2id via WASM in the browser so the web client matches the Rust/CLI cryptographic suite and test vectors.
 
 ### Claim Token Derivation
 
@@ -330,22 +328,22 @@ See: [`docs/caddy-privacy-logging.md`](https://github.com/getsecrt/secrt/blob/ma
 
 Rate limiting uses in-memory token buckets with HMAC-hashed keys (raw IPs never stored):
 
-| Endpoint | Rate | Burst | Key |
-|----------|------|-------|-----|
-| Public secret creation | 0.5 rps | 6 | HMAC(client IP) |
-| Secret claiming | 1.0 rps | 10 | HMAC(client IP) |
-| Authenticated creation | 2.0 rps | 20 | `user:<uuid>` (session) or `apikey:<prefix>` (API key) |
-| API key registration | 0.5 rps | 6 | HMAC(client IP) |
+| Endpoint               | Rate    | Burst | Key                                                    |
+| ---------------------- | ------- | ----- | ------------------------------------------------------ |
+| Public secret creation | 0.5 rps | 6     | HMAC(client IP)                                        |
+| Secret claiming        | 1.0 rps | 10    | HMAC(client IP)                                        |
+| Authenticated creation | 2.0 rps | 20    | `user:<uuid>` (session) or `apikey:<prefix>` (API key) |
+| API key registration   | 0.5 rps | 6     | HMAC(client IP)                                        |
 
 All rate limits are configurable per deployment.
 
 ### Per-Owner Quotas
 
-| Limit | Anonymous | Authenticated |
-|-------|-----------|---------------|
-| Max active secrets | 10 | 1,000 |
-| Max active bytes (total) | 2 MiB | 20 MiB |
-| Max single envelope | 256 KiB | 1 MiB |
+| Limit                    | Anonymous | Authenticated |
+| ------------------------ | --------- | ------------- |
+| Max active secrets       | 10        | 1,000         |
+| Max active bytes (total) | 2 MiB     | 20 MiB        |
+| Max single envelope      | 256 KiB   | 1 MiB         |
 
 Quota checks are enforced atomically within a PostgreSQL transaction using advisory locks to prevent TOCTOU race conditions. API key registration has additional rolling-window quotas: 5 keys per hour and 20 per day.
 
@@ -367,14 +365,14 @@ See: [`spec/v1/api.md`](https://github.com/getsecrt/secrt/blob/main/spec/v1/api.
 secrt allows creating and sharing secrets without any account. The account system exists for three specific reasons:
 
 1. **API key management.** Accounts allow users to generate API keys for automated workflows, CI/CD pipelines, and CLI usage with higher limits.
-2. **Higher quotas.** Authenticated users get significantly higher storage limits (1,000 secrets / 20 MiB vs. 10 secrets / 2 MiB).
-3. **Secret management.** Authenticated users can burn (destroy) their own secrets before they are claimed, and view a dashboard of active secrets.
+2. **Higher quotas.** Authenticated users get significantly higher storage limits (1,000 secrets / 20 MiB vs. 10 secrets / 2 MiB). These limits can be customized on each server instance.
+3. **Secret management.** Authenticated users can burn (destroy) their own secrets before they are claimed, and view a dashboard of active secrets, which allows users to determine if any secrets are yet unclaimed.
 
 Accounts do not unlock any decryption capability — the zero-knowledge property holds regardless of authentication status.
 
 ### Account Activity & Data Minimization
 
-To support stale-account cleanup, the server records the month a user last logged in — stored as a plain `DATE` field rounded to the 1st of the month. This is intentionally coarse: it tells us "this user was active sometime in March 2026," not when or what they did. The `DATE` column type makes sub-day precision structurally impossible at the database level, not just a policy choice.
+To support stale-account cleanup, the server records the month a user last logged in — stored as a plain `DATE` field rounded to the 1st of the month. This is intentionally coarse: it tells us "this user was active sometime in March 2026," not precisely when or what they did. The `DATE` column type makes sub-day precision structurally impossible at the database level, not just a policy choice.
 
 This enables a privacy-positive operation: accounts that have been inactive for an extended period (e.g., two years) with no active secrets can be purged, reducing the data the server holds. The coarse granularity ensures the activity date cannot be correlated with specific secret creation or retrieval events.
 
@@ -389,7 +387,7 @@ secrt uses [WebAuthn passkeys](https://passkeys.dev/) exclusively for authentica
 
 ### Privacy-Friendly Nicknames
 
-No email, phone number, or real name is required. secrt auto-generates random, friendly display names from an adjective-animal combination (e.g., "Swift Falcon", "Quiet Otter") with approximately 2,500 unique combinations.
+No email, phone number, or real name is required. To encourage anonymity, secrt auto-generates random, friendly display names by default, although one can enter any name as desired. These names are only used to help users differentiate passkeys and identify which account is logged in. Nicknames are not shown to others, such as a person claiming a secret.
 
 ### API Key v2 Architecture
 
@@ -403,25 +401,27 @@ See [Appendix E](#appendix-e-api-key-v2-derivation) for the full derivation and 
 
 ### Policy Tiers
 
-| Capability | Anonymous | Authenticated |
-|------------|-----------|---------------|
-| Create secrets | Yes | Yes |
-| Claim secrets | Yes | Yes |
-| Burn secrets | No | Yes (own secrets) |
-| Max single secret | 256 KiB | 1 MiB |
-| Max active secrets | 10 | 1,000 |
-| Max active storage | 2 MiB | 20 MiB |
-| Create rate | 0.5 rps (burst 6) | 2.0 rps (burst 20) |
+| Capability         | Anonymous         | Authenticated      |
+| ------------------ | ----------------- | ------------------ |
+| Create secrets     | Yes               | Yes                |
+| Claim secrets      | Yes               | Yes                |
+| Burn secrets       | No†               | Yes (own secrets)  |
+| Max single secret  | 256 KiB           | 1 MiB              |
+| Max active secrets | 10                | 1,000              |
+| Max active storage | 2 MiB             | 20 MiB             |
+| Create rate        | 0.5 rps (burst 6) | 2.0 rps (burst 20) |
 
 All limits are configurable per deployment.
+
+†Secrets can be 'burned' by visiting the URL of a secret, but unauthenticated users do not have single place to list and easily burn issued secrets.
 
 ---
 
 ## Encrypted Notes (Account Master Key)
 
-Secrets are ephemeral by design — once claimed, the ciphertext is gone. But users with accounts often want to remember *what* they shared: "AWS prod key for Bob", "database password for staging migration", "Wi-Fi credentials for the Toronto office". These private annotations are visible only to the sender on their dashboard.
+Secrets are ephemeral by design — once claimed, the ciphertext is gone. But users with accounts often want to remember _what_ they shared: "AWS prod key for Bob", "database password for staging migration", "Wi-Fi credentials for the Toronto office". These private annotations are visible only to the sender on their dashboard.
 
-The obvious implementation would be to store notes in plaintext on the server, scoped to the user's account. That would be easy, and for most applications it would be fine. But secrt's zero-knowledge property is absolute — the server must never see any user content, not even metadata *about* secrets. A plaintext note reading "root password for prod-db-07.internal" is a targeting guide if the database is ever compromised.
+The obvious implementation would be to store notes in plaintext on the server, scoped to the user's account. That would be easy, and for most applications it would be fine. But secrt's zero-knowledge property is absolute — the server must never see any user content, not even metadata _about_ secrets. A plaintext note reading "root password for prod-db-07.internal" is a targeting guide if the database is ever compromised.
 
 So secrt does what any reasonable project would do: it introduces a new symmetric key hierarchy, a commitment protocol, per-API-key key wrapping, IndexedDB persistence, a cross-device sync mechanism that tunnels through the existing one-time secret infrastructure, ECDH key agreement scaffolding for future real-time sync, and five new API endpoints — all to protect "AWS prod key for Bob."
 
@@ -483,17 +483,26 @@ The AMK lives in IndexedDB, which is local to a single browser on a single devic
 To solve this, the AMK is **wrapped** (encrypted) per API key and stored on the server. When a user creates an API key, the client:
 
 1. **Derives a wrap key** from the API key's root secret (which is already stored locally):
+
    ```
    root_salt = SHA-256("secrt-apikey-v2-root-salt")
    wrap_key  = HKDF-SHA-256(root_key, root_salt, "secrt-amk-wrap-v1", 32)
    ```
 
 2. **Builds domain-tagged AAD** to prevent cross-key and cross-user substitution:
+
    ```
-   AAD = "secrt-amk-wrap-v1" || user_id || key_prefix || version_be16
+   AAD = "secrt-amk-wrap-v1"
+       || user_id_uuid                  // raw 16 bytes
+       || u16be(len(key_prefix))
+       || key_prefix                    // UTF-8
+       || u16be(version)
    ```
 
+   Convention: fixed-size protocol primitives (UUIDs, the version field) are included verbatim with no length prefix. Variable-length fields are prefixed with their byte length as a big-endian `u16`. The same convention applies to the upcoming PRF wrap path so both AMK wrap layers follow one rule.
+
 3. **Wraps the AMK** with AES-256-GCM:
+
    ```
    wrapped_amk = AES-256-GCM(wrap_key, random_nonce, AAD, AMK)
    ```
@@ -537,7 +546,7 @@ The ECDH transfer is non-fatal — if it fails (no AMK in the browser, key gener
 
 ### Commitment Protocol
 
-A subtle problem arises with multi-device AMK recovery: what prevents a second device from generating a *different* AMK and uploading it, effectively forking the user's note encryption into two incompatible key lineages?
+A subtle problem arises with multi-device AMK recovery: what prevents a second device from generating a _different_ AMK and uploading it, effectively forking the user's note encryption into two incompatible key lineages?
 
 The answer is a **commitment protocol**. When the first device generates an AMK, it computes a blinded commitment hash and uploads it:
 
@@ -598,7 +607,7 @@ See: [`.github/workflows/release-cli.yml`](https://github.com/getsecrt/secrt/blo
 
 ### Web Application
 
-The web frontend is built with [Preact](https://preactjs.com/) + TypeScript, bundled by [Vite](https://vitejs.dev/), styled with [Tailwind CSS](https://tailwindcss.com/). AES/HKDF/SHA operations use the browser's native [WebCrypto API](https://developer.mozilla.org/en-US/docs/Web/API/Web_Crypto_API). Passphrase KDF uses Argon2id via [hash-wasm](https://github.com/Daninet/hash-wasm), lazy-loaded only when needed, because WebCrypto does not currently provide Argon2 and we standardize on Argon2id instead of PBKDF2. Compression uses zstd via a [WebAssembly module](https://github.com/bokuweb/zstd-wasm) that runs entirely in the browser.
+The web frontend is built with [Preact](https://preactjs.com/) + TypeScript, bundled by [Vite](https://vitejs.dev/), styled with [Tailwind CSS](https://tailwindcss.com/). AES/HKDF/SHA operations use the browser's native [WebCrypto API](https://developer.mozilla.org/en-US/docs/Web/API/Web_Crypto_API). Passphrase KDF, uses Argon2id via [hash-wasm](https://github.com/Daninet/hash-wasm), lazy-loaded only when needed, because WebCrypto does not currently provide Argon2 and we standardize on Argon2id instead of PBKDF2. Compression uses zstd via a [WebAssembly module](https://github.com/bokuweb/zstd-wasm) that runs entirely in the browser.
 
 The encryption and decryption flow is identical to the CLI: the same envelope format, the same key derivation, the same compression policy. A secret created in the browser can be decrypted by the CLI and vice versa.
 
@@ -610,19 +619,20 @@ Source: [`web/`](https://github.com/getsecrt/secrt/tree/main/web)
 
 The protocol is defined by a versioned specification at [`spec/v1/`](https://github.com/getsecrt/secrt/tree/main/spec/v1):
 
-| Document | Purpose |
-|----------|---------|
-| [`envelope.md`](https://github.com/getsecrt/secrt/blob/main/spec/v1/envelope.md) | Client-side crypto workflow, key derivation, payload framing, compression |
-| [`api.md`](https://github.com/getsecrt/secrt/blob/main/spec/v1/api.md) | HTTP API contract, endpoints, authentication, error semantics, policy tiers |
-| [`server.md`](https://github.com/getsecrt/secrt/blob/main/spec/v1/server.md) | Server runtime behavior, middleware, storage, reaper, rate limiting |
-| [`cli.md`](https://github.com/getsecrt/secrt/blob/main/spec/v1/cli.md) | CLI interface contract, commands, TTL grammar, output discipline |
-| [`openapi.yaml`](https://github.com/getsecrt/secrt/blob/main/spec/v1/openapi.yaml) | OpenAPI 3.1 machine-readable schema |
+| Document                                                                           | Purpose                                                                     |
+| ---------------------------------------------------------------------------------- | --------------------------------------------------------------------------- |
+| [`envelope.md`](https://github.com/getsecrt/secrt/blob/main/spec/v1/envelope.md)   | Client-side crypto workflow, key derivation, payload framing, compression   |
+| [`api.md`](https://github.com/getsecrt/secrt/blob/main/spec/v1/api.md)             | HTTP API contract, endpoints, authentication, error semantics, policy tiers |
+| [`server.md`](https://github.com/getsecrt/secrt/blob/main/spec/v1/server.md)       | Server runtime behavior, middleware, storage, reaper, rate limiting         |
+| [`cli.md`](https://github.com/getsecrt/secrt/blob/main/spec/v1/cli.md)             | CLI interface contract, commands, TTL grammar, output discipline            |
+| [`openapi.yaml`](https://github.com/getsecrt/secrt/blob/main/spec/v1/openapi.yaml) | OpenAPI 3.1 machine-readable schema                                         |
 
 **Test vectors are mandatory.** The specification includes:
 
 - **5 cryptographic test vectors** ([`envelope.vectors.json`](https://github.com/getsecrt/secrt/blob/main/spec/v1/envelope.vectors.json)) covering text with and without passphrase, file metadata encryption, compression, and pre-compressed file detection.
 - **35 TTL parsing vectors** ([`cli.vectors.json`](https://github.com/getsecrt/secrt/blob/main/spec/v1/cli.vectors.json)) — 17 valid and 18 invalid inputs.
 - **API key derivation vectors** ([`apikey.vectors.json`](https://github.com/getsecrt/secrt/blob/main/spec/v1/apikey.vectors.json)) for v2 key format.
+- **AMK crypto vectors** ([`amk.vectors.json`](https://github.com/getsecrt/secrt/blob/main/spec/v1/amk.vectors.json)) covering AMK wrap/unwrap with the length-prefixed AAD, per-secret note encryption with secret-id binding, the blinded commitment hash, ECDH transfer-key derivation, and the 6-digit SAS computation.
 
 Every implementation — Rust CLI, Rust server, TypeScript web client — must pass all test vectors. When spec and code disagree, code is fixed to match the spec (or the spec is updated first with rationale, then code is updated in the same changeset).
 
@@ -643,13 +653,54 @@ Because of the zero-knowledge architecture, self-hosting provides the same secur
 
 ---
 
-## Data Residency
+## Data Residency & Hosting Regions
 
-secrt's production infrastructure is hosted in **Toronto, Canada** on [DigitalOcean](https://www.digitalocean.com/).
+secrt operates public servers in two regions, each chosen for a different jurisdictional and operational profile. Both regions run identical code from the same monorepo and obey the same specification — the difference is _where the ciphertext lives_ and _whose laws govern access to it_.
 
-Canada has strong privacy protections under [PIPEDA](https://laws-lois.justice.gc.ca/eng/acts/p-8.6/) and the [Privacy Act](https://laws-lois.justice.gc.ca/eng/acts/p-21/). Canadian privacy law is generally considered more protective than US law — Canadian law enforcement access to data generally requires a warrant, and Canada is not subject to US laws like the PATRIOT Act or CLOUD Act.
+The zero-knowledge architecture is the foundational protection: even with lawful access to either database, no plaintext can be recovered. Region selection therefore primarily affects **metadata residency** (timestamps, opaque IDs, account records, IP-derived owner-key hashes) rather than the secrecy of shared content. Region choice matters if it is important to minimize the ability for governmental or law-enforcement agencies to compel disclosure of metadata or coerce hosting providers.
 
-That said, secrt's zero-knowledge architecture means that even with lawful access to the database, no plaintext can be recovered.
+### secrt.is — Reykjavík, Iceland (1984.hosting)
+
+[secrt.is](https://secrt.is) is hosted by [1984.hosting](https://1984.is/) in Reykjavík, Iceland. The provider was chosen for an explicit privacy-forward operating philosophy — the company name itself is a deliberate reference to George Orwell's _1984_, and the company's mission centres on minimizing data retention and resisting surveillance overreach.
+
+**Why Iceland:**
+
+- **Outside the Five/Nine/Fourteen Eyes intelligence-sharing alliances.** Iceland is not a participant in any of the major Anglosphere or European signals-intelligence-sharing arrangements. Data hosted in Iceland is not subject to routine bulk-collection sharing with allied agencies in the way that data hosted in the US, UK, Canada, Australia, or New Zealand can be.
+- **Strong constitutional privacy protections.** Article 71 of the Icelandic Constitution guarantees the right to privacy, with court oversight required for surveillance.
+- **Modern data-protection law.** Iceland is part of the European Economic Area and applies the [GDPR](https://gdpr.eu/) via the [Icelandic Data Protection Act (Act No. 90/2018)](https://www.personuvernd.is/personuvernd-en/the-data-protection-act). This is a substantively stricter regime than US federal privacy law.
+- **The Icelandic Modern Media Initiative (IMMI).** A 2010 parliamentary resolution that directed the government to position Iceland as a jurisdiction with strong source-protection, anti-SLAPP, and intermediary-liability protections — building on a tradition that includes the Icelandic parliament's formal objection in 2011 to US Department of Justice subpoenas seeking Twitter records of an Icelandic MP.
+- **Geographic and infrastructural separation.** Iceland's internet links and physical data centres are outside the immediate orbit of major surveillance hubs, with renewable geothermal and hydroelectric power as a side benefit for environmentally-conscious operators.
+
+**Why 1984.hosting specifically:** the provider operates with a stated minimal-logging policy and a published commitment to refusing customer-data requests beyond what Icelandic law strictly compels. They are a small, ideologically-motivated operation rather than a hyperscaler — appropriate for users whose threat model includes provider co-operation as a risk vector.
+
+`secrt.is` is the recommended region for users prioritizing maximum jurisdictional distance from Anglosphere intelligence-sharing arrangements, journalists, activists, and anyone whose work makes provider-level coercion a plausible concern.
+
+### secrt.ca — Toronto, Canada ([DigitalOcean](https://www.digitalocean.com/))
+
+[secrt.ca](https://secrt.ca) is hosted in Toronto on DigitalOcean. Canada is the project maintainer's home country and the original launch region.
+
+**Why Canada:**
+
+- **Federal privacy law.** [PIPEDA](https://laws-lois.justice.gc.ca/eng/acts/p-8.6/) governs private-sector handling of personal information; the [Privacy Act](https://laws-lois.justice.gc.ca/eng/acts/p-21/) governs federal-government handling. Both are substantively more protective than US federal privacy law.
+- **Provincial reinforcement.** Provinces add further protections — Ontario's [PHIPA](https://www.ontario.ca/laws/statute/04p03) for health information, [Quebec's Law 25](https://www.cai.gouv.qc.ca/english) (modeled on GDPR) for any data about Quebec residents, and similar private-sector laws in BC and Alberta.
+- **Canadian legal process for Canadian access.** Canadian law-enforcement access to stored data generally requires judicial authorization. Caveat: DigitalOcean, the operator of the Toronto datacenter, is US-incorporated, so US authorities can attempt to compel disclosure of data stored abroad under the CLOUD Act; Canadian courts can intervene where this would conflict with PIPEDA, but the legal contest exists. For threat models that include US legal process at the corporate-entity level, `secrt.is` — where both the data centre and the operating company are Icelandic — is the cleaner choice.
+- **Data residency for Canadian institutions.** Many Canadian public-sector, healthcare, financial, and educational organizations are required to keep data within Canada. `secrt.ca` is the appropriate region for those use cases.
+
+**Caveat:** Canada _is_ a member of the Five Eyes intelligence-sharing alliance. For threat models that explicitly include allied-intelligence sharing as a concern, `secrt.is` is the better fit. For most users — and especially for Canadian institutions with statutory data-residency requirements — Canadian hosting is materially better than US hosting.
+
+### Self-hosted Installations
+
+For users who want full control, the entire stack is open source and self-hostable. See [Self-Hosting](#self-hosting). Because of the zero-knowledge property, self-hosting provides the same content-protection guarantees as either hosted region — the difference is who controls the metadata and the operational infrastructure.
+
+### How to choose
+
+| If you're…                                                               | Use                  |
+| ------------------------------------------------------------------------ | -------------------- |
+| A Canadian institution with data-residency requirements                  | `secrt.ca`           |
+| A journalist, activist, or anyone with provider-coercion risk            | `secrt.is`           |
+| Anyone who wants maximum jurisdictional distance from Anglosphere SIGINT | `secrt.is`           |
+| An organization with strict internal-network or audit requirements       | Self-host            |
+| Everyone else                                                            | Either region works  |
 
 ---
 
@@ -709,24 +760,24 @@ For general questions and feature requests, please open an issue on [GitHub](htt
 
 Constants defined in [`crates/secrt-core/src/types.rs`](https://github.com/getsecrt/secrt/blob/main/crates/secrt-core/src/types.rs):
 
-| Constant | Value | Purpose |
-|----------|-------|---------|
-| `URL_KEY_LEN` | 32 bytes | Random master key in URL fragment |
-| `HKDF_SALT_LEN` | 32 bytes | Random per-secret HKDF salt |
-| `HKDF_LEN` | 32 bytes | Derived encryption key length |
-| `GCM_NONCE_LEN` | 12 bytes | AES-GCM nonce |
-| `KDF_SALT_LEN` | 16 bytes minimum | Argon2id salt |
-| `ARGON2_VERSION` | 19 | Argon2 version (`v=19`) |
-| `ARGON2_M_COST_DEFAULT` | 19,456 KiB | Argon2id memory cost default |
-| `ARGON2_T_COST_DEFAULT` | 2 | Argon2id iterations default |
-| `ARGON2_P_COST_DEFAULT` | 1 | Argon2id parallelism default |
-| `ARGON2_M_COST_MAX` | 65,536 KiB | Argon2id max memory cost |
-| `ARGON2_T_COST_MAX` | 10 | Argon2id max iterations |
-| `ARGON2_P_COST_MAX` | 4 | Argon2id max parallelism |
-| `AAD` | `secrt.ca/envelope/v1-sealed-payload` | AES-GCM additional authenticated data |
-| `HKDF_INFO_ENC` | `secrt:v1:enc:sealed-payload` | HKDF info for encryption key |
-| `HKDF_INFO_CLAIM` | `secrt:v1:claim:sealed-payload` | HKDF info for claim token |
-| `CLAIM_SALT_LABEL` | `secrt-envelope-v1-claim-salt` | Label for deriving the claim salt |
+| Constant                | Value                                 | Purpose                               |
+| ----------------------- | ------------------------------------- | ------------------------------------- |
+| `URL_KEY_LEN`           | 32 bytes                              | Random master key in URL fragment     |
+| `HKDF_SALT_LEN`         | 32 bytes                              | Random per-secret HKDF salt           |
+| `HKDF_LEN`              | 32 bytes                              | Derived encryption key length         |
+| `GCM_NONCE_LEN`         | 12 bytes                              | AES-GCM nonce                         |
+| `KDF_SALT_LEN`          | 16 bytes minimum                      | Argon2id salt                         |
+| `ARGON2_VERSION`        | 19                                    | Argon2 version (`v=19`)               |
+| `ARGON2_M_COST_DEFAULT` | 19,456 KiB                            | Argon2id memory cost default          |
+| `ARGON2_T_COST_DEFAULT` | 2                                     | Argon2id iterations default           |
+| `ARGON2_P_COST_DEFAULT` | 1                                     | Argon2id parallelism default          |
+| `ARGON2_M_COST_MAX`     | 65,536 KiB                            | Argon2id max memory cost              |
+| `ARGON2_T_COST_MAX`     | 10                                    | Argon2id max iterations               |
+| `ARGON2_P_COST_MAX`     | 4                                     | Argon2id max parallelism              |
+| `AAD`                   | `secrt.ca/envelope/v1-sealed-payload` | AES-GCM additional authenticated data |
+| `HKDF_INFO_ENC`         | `secrt:v1:enc:sealed-payload`         | HKDF info for encryption key          |
+| `HKDF_INFO_CLAIM`       | `secrt:v1:claim:sealed-payload`       | HKDF info for claim token             |
+| `CLAIM_SALT_LABEL`      | `secrt-envelope-v1-claim-salt`        | Label for deriving the claim salt     |
 
 ### Appendix B: Payload Frame Format
 
@@ -799,16 +850,16 @@ See: [`crates/secrt-server/migrations/001_initial.sql`](https://github.com/getse
 
 **`secrets`** — Ciphertext storage
 
-| Column | Type | Purpose |
-|--------|------|---------|
-| `id` | TEXT (PK) | Random 12-character alphanumeric ID |
-| `claim_hash` | TEXT | `base64url(SHA-256(claim_token))` — never the token itself |
-| `envelope` | JSONB | Opaque ciphertext blob — server does not inspect contents |
-| `expires_at` | TIMESTAMPTZ | When the secret expires |
-| `created_at` | TIMESTAMPTZ | Creation timestamp |
-| `owner_key` | TEXT | `ip:<hmac_hash>` or `apikey:<prefix>` — for quota enforcement only |
-| `meta_key_version` | SMALLINT | Reserved for future encrypted metadata key versioning (nullable) |
-| `enc_meta` | JSONB | Reserved for future encrypted metadata (nullable) |
+| Column             | Type        | Purpose                                                                                                                   |
+| ------------------ | ----------- | ------------------------------------------------------------------------------------------------------------------------- |
+| `id`               | TEXT (PK)   | Random 12-character alphanumeric ID                                                                                       |
+| `claim_hash`       | TEXT        | `base64url(SHA-256(claim_token))` — never the token itself                                                                |
+| `envelope`         | JSONB       | Opaque ciphertext blob — server does not inspect contents                                                                 |
+| `expires_at`       | TIMESTAMPTZ | When the secret expires                                                                                                   |
+| `created_at`       | TIMESTAMPTZ | Creation timestamp                                                                                                        |
+| `owner_key`        | TEXT        | `ip:<hmac_hash>` or `apikey:<prefix>` — for quota enforcement only                                                        |
+| `meta_key_version` | SMALLINT    | AMK version that encrypted the attached note (currently always `1`)                                                       |
+| `enc_meta`         | JSONB       | Encrypted note blob attached by the secret's owner (nullable; see [Encrypted Notes](#encrypted-notes-account-master-key)) |
 
 **`users`** — Minimal account records (id, display_name, created_at, last_active_at). No PII collected. The `last_active_at` column is a plain `DATE` (not a timestamp) rounded to the first of the month, used solely for identifying long-inactive accounts for cleanup. The `DATE` type makes sub-day precision structurally impossible, preventing correlation with individual secret operations.
 
@@ -842,22 +893,22 @@ See: [`crates/secrt-server/migrations/002_amk_wrappers.sql`](https://github.com/
 
 **`amk_accounts`** — AMK commitment anchor (one per user, first-writer-wins)
 
-| Column | Type | Purpose |
-|--------|------|---------|
-| `user_id` | UUID (PK, FK → users) | One commitment per user |
-| `amk_commit` | BYTEA (32 bytes) | `SHA-256("secrt-amk-commit-v1" \|\| AMK)` — blinded commitment |
-| `created_at` | TIMESTAMPTZ | When the commitment was first established |
+| Column       | Type                  | Purpose                                                        |
+| ------------ | --------------------- | -------------------------------------------------------------- |
+| `user_id`    | UUID (PK, FK → users) | One commitment per user                                        |
+| `amk_commit` | BYTEA (32 bytes)      | `SHA-256("secrt-amk-commit-v1" \|\| AMK)` — blinded commitment |
+| `created_at` | TIMESTAMPTZ           | When the commitment was first established                      |
 
 **`amk_wrappers`** — Per-API-key wrapped AMK blobs
 
-| Column | Type | Purpose |
-|--------|------|---------|
-| `id` | BIGSERIAL (PK) | Auto-increment ID |
-| `user_id` | UUID (FK → users, amk_accounts) | Owner |
-| `key_prefix` | TEXT (UNIQUE with user_id) | API key prefix this wrapper is encrypted for |
-| `wrapped_amk` | BYTEA (48 bytes) | AES-256-GCM ciphertext + 16-byte tag |
-| `nonce` | BYTEA (12 bytes) | GCM nonce |
-| `version` | SMALLINT | Wrapper format version (currently 1) |
-| `created_at` | TIMESTAMPTZ | When this wrapper was created or last updated |
+| Column        | Type                            | Purpose                                       |
+| ------------- | ------------------------------- | --------------------------------------------- |
+| `id`          | BIGSERIAL (PK)                  | Auto-increment ID                             |
+| `user_id`     | UUID (FK → users, amk_accounts) | Owner                                         |
+| `key_prefix`  | TEXT (UNIQUE with user_id)      | API key prefix this wrapper is encrypted for  |
+| `wrapped_amk` | BYTEA (48 bytes)                | AES-256-GCM ciphertext + 16-byte tag          |
+| `nonce`       | BYTEA (12 bytes)                | GCM nonce                                     |
+| `version`     | SMALLINT                        | Wrapper format version (currently 1)          |
+| `created_at`  | TIMESTAMPTZ                     | When this wrapper was created or last updated |
 
 The `amk_wrappers.user_id` foreign key references `amk_accounts(user_id)` (not `users` directly), ensuring a wrapper cannot exist without a corresponding commitment. Both tables cascade on user deletion.
