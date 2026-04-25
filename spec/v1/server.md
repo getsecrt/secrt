@@ -533,9 +533,13 @@ Properties:
 - Session users can burn/list/check secrets for their user owner key and their unrevoked API key owner keys.
 - Missing ID and wrong owner are indistinguishable to clients (`404`).
 
-## 13. Background Expired-Secret Reaper
+## 13. Background Tasks
 
-A best-effort cleanup Tokio task runs every 5 minutes:
+The server runs a small set of background Tokio tasks. Each task is best-effort; failures are logged and ignored. Each task accepts a `oneshot::Receiver<()>` for graceful shutdown coordinated by the runtime.
+
+### 13.1. Expired-Secret Reaper
+
+A cleanup task runs every 5 minutes:
 
 - Calls storage `delete_expired(nowUTC)` with a 10s timeout.
 - Deletes:
@@ -546,8 +550,62 @@ A best-effort cleanup Tokio task runs every 5 minutes:
 
 Important:
 
-- Reaper is not required for correctness of one-time claim behavior.
-- Reaper failures are logged and ignored (best-effort housekeeping).
+- The reaper is not required for correctness of one-time claim behavior.
+- Reaper failures are logged and ignored.
+
+### 13.2. GitHub Releases Version Cache
+
+A polling task fetches the latest CLI release tag from GitHub Releases and caches it in memory for serving via `/api/v1/info`.
+
+Cadence and configuration:
+
+- Default poll interval: 60 minutes. Configurable per deployment via `GITHUB_POLL_INTERVAL_SECONDS`. Implementations SHOULD enforce a sensible minimum (e.g., 300 seconds) when the value is positive.
+- **Setting `GITHUB_POLL_INTERVAL_SECONDS=0` disables polling entirely.** The task is not spawned, the cache stays empty, and `/api/v1/info` returns the `latest_cli_version*` fields as absent. Use this on air-gapped self-hosted deployments. Clients of such servers fall back to their own local cache or to GitHub-direct on explicit `secrt update --check`.
+- Repository to poll: configurable via `GITHUB_REPO` (default `getsecrt/secrt`).
+- Authentication: when `GITHUB_TOKEN` is set, the task SHOULD send it as a bearer token to raise the per-IP rate limit from 60 req/hr to 5,000 req/hr.
+
+Implementations SHOULD wrap the HTTP fetch behind a small trait or function boundary so tests do not depend on real GitHub. A reference shape:
+
+```rust
+#[async_trait]
+pub trait ReleaseFetcher: Send + Sync {
+    async fn fetch(&self, etag: Option<&str>) -> Result<FetchOutcome, FetchError>;
+}
+```
+
+Polling protocol:
+
+- Endpoint: `GET https://api.github.com/repos/<owner>/<repo>/releases?per_page=30`.
+- The task MUST use conditional requests (`If-None-Match: <etag>`) on every poll after the first successful response. A `304 Not Modified` does NOT count against the GitHub primary rate limit and MUST be treated as a successful refresh of the freshness timestamp without changing the cached version.
+- The task MUST filter the response to non-draft, non-prerelease entries with tags matching `^cli/v\d+\.\d+\.\d+$`, then pick the highest semver as the cached `latest_cli_version`.
+
+Failure handling (fail-soft):
+
+- On any non-success response (`5xx`, `429`, `403` rate-limited, network error, parse error), the task MUST NOT clear the cache. The previously-cached value continues to be served indefinitely.
+- The task MUST log the failure internally but MUST NOT surface it to clients.
+- Implementations MAY back off on persistent failures (e.g., to a 6-hour interval) until the rate-limit window resets.
+
+Cold start:
+
+- On server startup, `latest_cli_version` and `latest_cli_version_checked_at` are absent until the first successful poll. The CLI handles absence gracefully (falls back to its own local cache or to a direct GitHub query for explicit user actions).
+- Implementations MAY persist last-known-good across restarts (e.g., to a small JSON file or DB row), but this is not required.
+
+Minimum supported CLI version (`min_supported_cli_version`):
+
+- A constant baked into the server build. Implementations SHOULD bump it whenever a server release introduces a wire-format change that breaks older CLIs. The v0.15.0 AAD format break is the canonical example.
+- Always present in `/api/v1/info` responses, regardless of poller state.
+
+### 13.3. CLI Version Advisory Response Headers
+
+In addition to exposing CLI version information through `/api/v1/info`, conforming servers SHOULD attach three advisory response headers to **every** outbound response (authenticated and public, including `/healthz`, error responses, and binary payloads). The headers mirror the corresponding `/api/v1/info` body fields and let CLI clients refresh their update-check cache as a side effect of any normal request.
+
+| Header | Source | Presence |
+|---|---|---|
+| `X-Secrt-Latest-Cli-Version` | `latest_cli_version` from the cache | Omitted when the cache is cold |
+| `X-Secrt-Latest-Cli-Version-Checked-At` | `latest_cli_version_checked_at` from the cache (RFC 3339) | Omitted when the cache is cold |
+| `X-Secrt-Min-Cli-Version` | `MIN_SUPPORTED_CLI_VERSION` constant | Always present |
+
+Implementations SHOULD attach these headers via shared middleware so the behavior is uniform across handlers. The values are public; there is no privacy issue with emitting them on unauthenticated responses. The middleware MUST NOT add the headers to upstream responses passed through (e.g., `502 Bad Gateway` from a reverse proxy chain) where their presence would be incorrect; for the standard handler chain this is a non-issue.
 
 ## 14. Error Mapping (Current)
 

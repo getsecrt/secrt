@@ -11,5 +11,6 @@ This directory is the versioned contract for client/server interoperability. See
 | [openapi.yaml](openapi.yaml) | OpenAPI 3.1 schema |
 | [envelope.vectors.json](envelope.vectors.json) | Crypto interop test vectors |
 | [cli.vectors.json](cli.vectors.json) | TTL parsing test vectors |
+| [update.vectors.json](update.vectors.json) | CLI update-check semver comparison, release tag filtering, banner suppression matrix |
 | [apikey.vectors.json](apikey.vectors.json) | API key v2 derivation test vectors |
 | [amk.vectors.json](amk.vectors.json) | AMK derivation/wrapping test vectors |

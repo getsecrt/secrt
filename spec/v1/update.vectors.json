@@ -1,0 +1,70 @@
+{
+  "_description": "Test vectors for the CLI update-check semver comparison and tag filtering. Generated from spec/v1/cli.md § Update Check and Self-Update.",
+  "_spec": "spec/v1/cli.md",
+  "semver_compare": {
+    "_description": "should_update is true when latest > current. Both inputs are bare semver strings (no leading 'v', no 'cli/v' prefix).",
+    "valid": [
+      { "current": "0.15.0",  "latest": "0.15.1",  "should_update": true,  "description": "patch bump" },
+      { "current": "0.15.0",  "latest": "0.16.0",  "should_update": true,  "description": "minor bump" },
+      { "current": "0.15.0",  "latest": "1.0.0",   "should_update": true,  "description": "major bump" },
+      { "current": "0.15.0",  "latest": "0.15.0",  "should_update": false, "description": "equal versions" },
+      { "current": "0.16.0",  "latest": "0.15.0",  "should_update": false, "description": "ahead of latest" },
+      { "current": "0.14.10", "latest": "0.15.0",  "should_update": true,  "description": "double-digit patch should not be greater than minor bump" },
+      { "current": "0.14.9",  "latest": "0.14.10", "should_update": true,  "description": "double-digit patch is greater than single-digit" },
+      { "current": "1.9.9",   "latest": "1.10.0",  "should_update": true,  "description": "double-digit minor is greater than single-digit" },
+      { "current": "0.15.0-rc.1", "latest": "0.15.0", "should_update": true, "description": "stable is greater than its rc" },
+      { "current": "0.15.0",  "latest": "0.15.0-rc.1", "should_update": false, "description": "rc is not greater than its stable" }
+    ],
+    "invalid": [
+      { "input": "v0.15.0",   "reason": "leading 'v' prefix not allowed in bare semver string" },
+      { "input": "0.15",      "reason": "missing patch component" },
+      { "input": "0.15.0.0",  "reason": "four components" },
+      { "input": "",          "reason": "empty string" },
+      { "input": "0.15.x",    "reason": "non-numeric component" },
+      { "input": "0.15.0+build", "reason": "build metadata not supported in this revision" }
+    ]
+  },
+  "release_tag_filter": {
+    "_description": "Which GitHub release tags the CLI's GitHub-direct fallback (and the server poller) should accept. Tags MUST match ^cli/v\\d+\\.\\d+\\.\\d+$ exactly. Drafts and prereleases are skipped. Server-tagged releases are skipped.",
+    "valid": [
+      { "tag": "cli/v0.15.0",  "is_prerelease": false, "is_draft": false, "accepted": true,  "extracted_semver": "0.15.0" },
+      { "tag": "cli/v0.16.0",  "is_prerelease": false, "is_draft": false, "accepted": true,  "extracted_semver": "0.16.0" },
+      { "tag": "cli/v1.0.0",   "is_prerelease": false, "is_draft": false, "accepted": true,  "extracted_semver": "1.0.0" },
+      { "tag": "cli/v0.15.0",  "is_prerelease": true,  "is_draft": false, "accepted": false, "reason": "is_prerelease" },
+      { "tag": "cli/v0.15.0",  "is_prerelease": false, "is_draft": true,  "accepted": false, "reason": "is_draft" },
+      { "tag": "cli/v0.15.0-rc.1", "is_prerelease": false, "is_draft": false, "accepted": false, "reason": "tag does not match strict semver pattern (no -suffix allowed)" },
+      { "tag": "server/v0.15.0", "is_prerelease": false, "is_draft": false, "accepted": false, "reason": "wrong prefix" },
+      { "tag": "v0.15.0",      "is_prerelease": false, "is_draft": false, "accepted": false, "reason": "missing cli/ prefix" },
+      { "tag": "cli/0.15.0",   "is_prerelease": false, "is_draft": false, "accepted": false, "reason": "missing 'v' between prefix and version" }
+    ]
+  },
+  "banner_suppression": {
+    "_description": "Conditions under which the implicit update-check banner MUST be suppressed. expected_banner is true if the banner SHOULD be emitted, false if suppressed.",
+    "cases": [
+      { "scenario": "default, update available",                                                  "expected_banner": true  },
+      { "scenario": "no update available (current >= latest)",                                    "expected_banner": false },
+      { "scenario": "--silent set",                                                               "expected_banner": false },
+      { "scenario": "--no-update-check set",                                                      "expected_banner": false },
+      { "scenario": "config update_check = false",                                                "expected_banner": false },
+      { "scenario": "SECRET_NO_UPDATE_CHECK=1 in env",                                            "expected_banner": false },
+      { "scenario": "--json set",                                                                 "expected_banner": false },
+      { "scenario": "current command is 'secrt update'",                                          "expected_banner": false },
+      { "scenario": "stdout is binary data piped to non-TTY (e.g. secrt get -o -)",               "expected_banner": false },
+      { "scenario": "stderr is not a TTY (redirected to file, captured by CI logger, piped)",     "expected_banner": false },
+      { "scenario": "server returned latest_cli_version: null and local cache is empty",          "expected_banner": false },
+      { "scenario": "server below min_supported_cli_version (banner replaced with stronger msg)", "expected_banner": true  }
+    ]
+  },
+  "channel_reservation": {
+    "_description": "The --channel flag and update_channel config key are reserved in this revision. Implementations MUST parse them for forward compatibility but MUST NOT change behavior beyond the documented stable-only policy.",
+    "valid": [
+      { "input": "--channel stable",       "behavior": "no-op; same as default" },
+      { "input": "update_channel = \"stable\"",   "behavior": "no-op; same as default" }
+    ],
+    "invalid": [
+      { "input": "--channel prerelease",   "reason": "reserved-not-implemented; CLI MUST hard-error in this revision" },
+      { "input": "--channel beta",         "reason": "unrecognized channel name" },
+      { "input": "update_channel = \"prerelease\"", "reason": "reserved-not-implemented; CLI MUST hard-error or treat as stable in this revision" }
+    ]
+  }
+}

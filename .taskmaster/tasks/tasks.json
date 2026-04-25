@@ -1040,6 +1040,36 @@
             "status": "pending"
           }
         ]
+      },
+      {
+        "id": 53,
+        "title": "Sign self-update artifacts with Sigstore/cosign keyless signing",
+        "description": "Closes the supply-chain trust gap acknowledged in spec/v1/cli.md Trust Root and Supply-Chain Notes. Currently, secrt update verifies SHA-256 against a checksum file fetched from the same release - this protects against transport tampering but not against compromise of the GitHub release publishing pipeline. Sigstore/cosign keyless signing closes this: the release-cli.yml workflow signs each artifact and the checksum file with an ephemeral certificate tied to the GitHub Actions OIDC identity of the workflow. Signatures and cert chains are pushed to the public Rekor transparency log. The CLI verifies the signature against the Sigstore trust root plus a workflow identity (the secrt repo's release-cli.yml at a specific tag) before installing.\n\nWhy keyless: no long-lived signing key to manage, rotate, or accidentally expose. The trust root is GitHub Actions OIDC plus the public Rekor log.\n\nScope:\n1. Add cosign signing steps to .github/workflows/release-cli.yml. Sign each raw binary, each archive, and the secrt-checksums-sha256.txt file. Push signatures to the corresponding GitHub Release.\n2. Add Rust verifier to the secrt CLI's update flow. Use sigstore-rs or shell out to a bundled cosign binary. Verify signature before SHA-256 (transparency log assurance is stronger).\n3. Document the verification workflow in the README so users can manually verify a downloaded artifact.\n4. Decide policy: refuse install on signature failure (recommended) vs warn-and-continue (weaker but more recoverable). Refuse is the right call for a security-sensitive tool.\n\nReferences:\n- https://docs.sigstore.dev/cosign/keyless/\n- https://github.com/sigstore/sigstore-rs\n- https://docs.github.com/en/actions/deployment/security-hardening-your-deployments/about-security-hardening-with-openid-connect\n\nLand this PR before secrt has many users.",
+        "status": "pending",
+        "priority": "medium",
+        "dependencies": [
+          46
+        ],
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "Add cosign signing to release-cli.yml",
+            "description": "Sign raw binaries, archives, and the checksum file with cosign in keyless mode. Upload .sig files alongside artifacts.",
+            "status": "pending"
+          },
+          {
+            "id": 2,
+            "title": "Add signature verification to secrt update",
+            "description": "Verify the artifact signature against Sigstore trust root and secrt's GitHub Actions workflow identity before installing. Fail closed on mismatch.",
+            "status": "pending"
+          },
+          {
+            "id": 3,
+            "title": "Document manual verification in README",
+            "description": "Add a short README section showing how a user can manually verify a release artifact with cosign verify-blob.",
+            "status": "pending"
+          }
+        ]
       }
     ]
   }

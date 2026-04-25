@@ -119,7 +119,7 @@ Quota and size failures:
 
 `GET /api/v1/info`
 
-Returns server defaults and per-tier limits. Authentication is optional; if a valid API key is provided, `authenticated` is `true`.
+Returns server defaults, per-tier limits, and CLI version metadata. Authentication is optional; if a valid API key is provided, `authenticated` is `true`.
 
 Caching: `Cache-Control: public, max-age=300`
 
@@ -129,6 +129,22 @@ Policy notes:
 - Invalid API key is not an error; `authenticated` is `false`.
 - Both tiers are always returned regardless of authentication status.
 - Rate-limited via the claim limiter (1 rps, burst 10).
+
+CLI version fields (advisory; see `spec/v1/cli.md § Update Check and Self-Update` and `spec/v1/server.md § 13.2`):
+
+- `latest_cli_version` (optional, string): the highest non-prerelease CLI semver the server has observed in GitHub Releases. Omitted when the server has not yet completed a successful poll.
+- `latest_cli_version_checked_at` (optional, string, RFC 3339): timestamp of the last successful poll. Omitted when never polled successfully. Allows the CLI to distinguish "I have never tried" (both fields absent) from "I tried but the value is stale" (both fields present, timestamp far in the past).
+- `min_supported_cli_version` (string, always present): the lowest CLI semver this server is known to be compatible with. Bumped only when a server release introduces a wire-format change. Clients SHOULD warn users running below this version, but MUST NOT block — zero-knowledge claim flows must continue to work for users who received share URLs before they upgraded.
+
+### CLI Version Advisory Response Headers
+
+To let CLI clients keep their update-check cache warm without dedicated `/api/v1/info` round-trips, conforming servers SHOULD include the same advisory information as response headers on **every** response (authenticated and public, including `/healthz`, error responses, and binary payloads):
+
+- `X-Secrt-Latest-Cli-Version: <semver>` — omitted when the server has not yet completed a successful poll.
+- `X-Secrt-Latest-Cli-Version-Checked-At: <RFC 3339>` — omitted when never polled successfully.
+- `X-Secrt-Min-Cli-Version: <semver>` — always present (mirrors the `min_supported_cli_version` constant baked into the server build).
+
+The header values mirror the corresponding `/api/v1/info` body fields exactly. The values are public — there is nothing sensitive about emitting them on unauthenticated responses.
 
 ### Create (public / anonymous)
 

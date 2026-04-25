@@ -1,5 +1,27 @@
 # Changelog
 
+## Unreleased
+
+### Spec
+
+- **New section in `spec/v1/cli.md`: "Update Check and Self-Update".** Defines the contract for the in-CLI update banner and the `secrt update` self-upgrade command:
+  - **Cache-only implicit banner**: never makes a dedicated network call; refreshes opportunistically from existing `/api/v1/info` calls and from advisory response headers.
+  - **Self-update fetches raw per-platform binaries** (`secrt-linux-amd64`, `secrt-darwin-arm64`, `secrt-windows-amd64.exe`, …), not archives. Archives stay published for `install.sh` / brew / human downloads.
+  - **Suppression matrix**: `--silent`, `--no-update-check`, `update_check = false`, `SECRET_NO_UPDATE_CHECK=1`, `--json`, current command is `secrt update`, stdout used for binary data, **stderr is not a TTY**.
+  - **Exit codes**: 0 success, 1 generic, 2 SHA-256 mismatch, 3 managed install refused, 4 permission denied, 5 lock contention.
+  - **Managed-install detection** with manager-specific upgrade messages for Homebrew (Cellar), asdf, mise, Nix store, cargo (`~/.cargo/bin` → `cargo install --force secrt-cli`), and a generic-symlink fallback.
+  - **Reserved**: `--channel <stable|prerelease>` flag and `update_channel` config key for future opt-in beta selection.
+- **`User-Agent: secrt/<version>`** required on all CLI HTTP requests (in `spec/v1/cli.md § HTTP Client Behavior`).
+- **New `update_check` config key and `--no-update-check` global flag** documented in `spec/v1/cli.md`. Default is on; opt-outs layered (flag → config → `SECRET_NO_UPDATE_CHECK=1` env).
+- **Three new `/api/v1/info` body fields** documented in `spec/v1/api.md` and `spec/v1/openapi.yaml`: `latest_cli_version`, `latest_cli_version_checked_at` (advisory, server-polled from GitHub Releases), `min_supported_cli_version` (hardcoded constant in server build, always present).
+- **Three new advisory response headers** on every server response: `X-Secrt-Latest-Cli-Version`, `X-Secrt-Latest-Cli-Version-Checked-At`, `X-Secrt-Min-Cli-Version`. Mirror the body fields and let CLI clients refresh their update-check cache as a side effect of any request.
+- **Restructured `spec/v1/server.md` § 13** as "Background Tasks" with three subsections: § 13.1 expired-secret reaper, § 13.2 GitHub Releases version cache (60-min default, `If-None-Match`/ETag, fail-soft, **`GITHUB_POLL_INTERVAL_SECONDS=0` disables polling entirely** for air-gapped self-hosters), § 13.3 advisory response headers.
+- **New test vector file `spec/v1/update.vectors.json`** covering semver comparison, GitHub release tag filtering, banner suppression matrix, and channel reservation behavior.
+
+### Internal / Tracking
+
+- Added `.taskmaster` task #53 (Sigstore/cosign keyless signing) as a deferred follow-up to close the supply-chain trust gap.
+
 ## 0.15.0 — 2026-04-25
 
 ### Changed

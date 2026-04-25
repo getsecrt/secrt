@@ -1233,6 +1233,36 @@ components:
       description: Unique request identifier for tracing (auto-generated if not provided by client)
       schema:
         type: string
+    X-Secrt-Latest-Cli-Version:
+      description: |
+        Highest non-prerelease CLI semver observed by the server in GitHub Releases.
+        Advisory hint for the CLI's update-check cache. Omitted when the server has
+        not yet completed a successful poll (cold start). Mirrors
+        `InfoResponse.latest_cli_version`. Sent on every response.
+      required: false
+      schema:
+        type: string
+        example: "0.16.0"
+    X-Secrt-Latest-Cli-Version-Checked-At:
+      description: |
+        RFC 3339 timestamp of the last successful GitHub Releases poll. Omitted
+        when never polled successfully. Mirrors `InfoResponse.latest_cli_version_checked_at`.
+        Sent on every response when known.
+      required: false
+      schema:
+        type: string
+        format: date-time
+        example: "2026-04-25T09:08:07Z"
+    X-Secrt-Min-Cli-Version:
+      description: |
+        Lowest CLI semver this server is known to be wire-compatible with.
+        Always present. Hardcoded constant in the server build, bumped only when
+        a server release introduces a wire-format change. Mirrors
+        `InfoResponse.min_supported_cli_version`. Sent on every response.
+      required: true
+      schema:
+        type: string
+        example: "0.15.0"
 
   schemas:
     CreateSecretRequest:
@@ -1863,6 +1893,8 @@ components:
 
     InfoResponse:
       type: object
+      required:
+        - min_supported_cli_version
       properties:
         authenticated:
           type: boolean
@@ -1897,6 +1929,33 @@ components:
               $ref: "#/components/schemas/InfoTier"
         claim_rate:
           $ref: "#/components/schemas/InfoRate"
+        latest_cli_version:
+          type: string
+          nullable: true
+          description: |
+            Highest non-prerelease CLI semver (e.g., "0.16.0") observed by the
+            server in GitHub Releases. Populated by a background poll task; absent
+            until the first successful poll.
+          example: "0.16.0"
+        latest_cli_version_checked_at:
+          type: string
+          format: date-time
+          nullable: true
+          description: |
+            RFC 3339 timestamp of the last successful GitHub Releases poll.
+            Absent until the first successful poll. Allows clients to distinguish
+            "never fetched" (absent) from "fetched but stale" (timestamp present
+            but old).
+          example: "2026-04-25T09:08:07Z"
+        min_supported_cli_version:
+          type: string
+          description: |
+            Lowest CLI semver this server is known to be wire-compatible with.
+            Always present. Hardcoded constant in the server build, bumped only
+            when a server release introduces a wire-format change. Clients SHOULD
+            warn users below this version but MUST NOT block: zero-knowledge claim
+            flows must continue to work for already-issued share URLs.
+          example: "0.15.0"
 
     InfoTier:
       type: object

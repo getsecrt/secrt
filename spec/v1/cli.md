@@ -59,6 +59,7 @@ Built-in commands:
 - `secrt config path`: print the config file path.
 - `secrt config set-passphrase`: store default passphrase in OS keychain.
 - `secrt config delete-passphrase`: remove passphrase from OS keychain.
+- `secrt update [--check] [--force] [--version <X.Y.Z>] [--install-dir <path>]`: in-place self-upgrade. See `Update Check and Self-Update` below.
 
 ### Implicit `get` from Share URL
 
@@ -88,6 +89,7 @@ All commands SHOULD support:
 - `--api-key <key>`: local API key (`sk2_<prefix>.<root_b64>`) for authenticated API endpoints.
 - `--json`: machine-readable output mode.
 - `--silent`: suppress non-essential stderr output (prompts, status, labels). Errors are never suppressed.
+- `--no-update-check`: suppress the implicit update-check banner for this invocation. Equivalent to setting `SECRET_NO_UPDATE_CHECK=1`. See `Update Check and Self-Update` below.
 - `--help`, `-h`: print usage for current command and exit.
 - `--version`, `-v`: print version string and exit (top-level only).
 
@@ -101,6 +103,7 @@ Environment variable fallbacks are RECOMMENDED:
 
 - `SECRET_BASE_URL`
 - `SECRET_API_KEY`
+- `SECRET_NO_UPDATE_CHECK` (`1` to suppress the implicit update-check banner)
 
 Configuration precedence (RECOMMENDED):
 
@@ -130,6 +133,8 @@ Supported keys:
 | `show_input` | bool | Show secret input as typed (default: `false`) |
 | `use_keychain` | bool | Enable OS keychain lookups for credentials (default: `false`) |
 | `auto_copy` | bool | Auto-copy share link to clipboard on `send` when stdout is a TTY (default: `true` if implementation supports it). `--no-copy` always overrides. |
+| `update_check` | bool | Enable the implicit update-check banner (default: `true`). See `Update Check and Self-Update` below. |
+| `update_channel` | string | **Reserved.** `"stable"` (default) or `"prerelease"`. The `"prerelease"` value MAY be parsed but MUST NOT change behavior in this revision; reserved for a future PR. |
 
 `default_ttl` precedence: `--ttl` flag > config `default_ttl` > none (server decides).
 
@@ -684,6 +689,156 @@ Implementation note: given the small command surface, completion scripts SHOULD 
 - Default request timeout: 30 seconds. Implementations MAY allow override via `--timeout` in a future version.
 - The CLI SHOULD respect standard proxy environment variables (`HTTP_PROXY`, `HTTPS_PROXY`, `NO_PROXY`) via the runtime's default HTTP transport.
 - TLS certificate verification MUST NOT be skippable. No `--insecure` flag — this is a security-sensitive tool.
+- Every CLI HTTP request MUST set `User-Agent: secrt/<version>` (e.g., `User-Agent: secrt/0.16.0`). This applies to both API calls and update-check fetches. The version is the CLI's own `CARGO_PKG_VERSION`, not the server's.
+
+## Update Check and Self-Update
+
+Implementations SHOULD provide an update-check mechanism that informs users when a newer CLI version is available, and SHOULD provide a `secrt update` subcommand that performs an in-place self-upgrade.
+
+### Sources of Truth
+
+The CLI consumes two pieces of version information from `/api/v1/info`:
+
+- **Latest available version** (advisory): the `latest_cli_version` field, populated by the server polling GitHub Releases on a cadence (see `spec/v1/server.md` §13.2). The accompanying `latest_cli_version_checked_at` field carries an RFC 3339 timestamp of the last successful poll. When `latest_cli_version` is absent or null (server has not yet polled, server is air-gapped, etc.), the CLI MAY fall back to querying the GitHub Releases API directly — but ONLY for explicit user actions (`secrt update --check`, `secrt update`), NEVER for the implicit banner.
+- **Minimum supported version** (advisory hard floor): the `min_supported_cli_version` field. The server provides this as a constant baked into the server build; it is bumped only when a server release introduces a wire-format change that breaks older CLIs. The CLI SHOULD surface this to the user when running below the floor, but MUST NOT block on it: zero-knowledge claim flows must continue to work for users who received share URLs before they upgraded.
+
+### Local Cache
+
+The CLI SHOULD cache update-check results locally to avoid repeated network calls.
+
+- Location: `$XDG_CACHE_HOME/secrt/update-check.json`, falling back to `~/.cache/secrt/update-check.json` if `XDG_CACHE_HOME` is unset.
+- TTL: 24 hours. Older entries are treated as stale and re-fetched on next implicit check.
+- Format (JSON):
+
+  ```json
+  {
+    "checked_at": "2026-04-25T09:08:07Z",
+    "latest": "0.16.0",
+    "current": "0.15.0"
+  }
+  ```
+
+- Cache writes are best-effort. If the cache file or its directory is not writable, the CLI MUST NOT fail — it simply skips caching for that invocation.
+- Corrupted cache files (truncated JSON, missing fields, invalid timestamps) MUST be silently ignored and re-fetched.
+- Clock-skew protection: a `checked_at` timestamp in the future relative to the local clock MUST be treated as stale and re-fetched.
+
+### Implicit Banner
+
+After every command's primary work completes, the CLI SHOULD perform an update check and emit a banner on stderr if a newer version is available.
+
+- The banner MUST be exactly one line.
+- Recommended wording: `secrt 0.16.0 is available (you have 0.15.0). Run 'secrt update' to upgrade.`
+- The banner SHOULD be styled in DIM when stderr is a TTY; when stderr is not a TTY, color codes MUST be omitted (the line is still emitted so that pipelines grepping stderr for warnings continue to see it).
+- The banner MUST be emitted at most once per CLI invocation, even if the command made multiple `/api/v1/info` calls.
+- **The implicit banner is cache-only.** It MUST NOT initiate a network request. The cache is opportunistically refreshed by:
+  - Commands that already call `/api/v1/info` for their primary work (e.g., `secrt info`, `secrt sync`, `secrt list`, `secrt config`).
+  - Advisory response headers (`X-Secrt-Latest-Cli-Version`, `X-Secrt-Latest-Cli-Version-Checked-At`, `X-Secrt-Min-Cli-Version`) on any server response — see § Advisory Response Headers below.
+  - Explicit `secrt update --check` and `secrt update`, which then write back to the local cache.
+- This rule keeps fully offline commands (`secrt --version`, `secrt help`, `secrt completion`, `secrt gen`) truly offline.
+
+The banner MUST be suppressed when any of the following hold:
+
+- `--silent` is set.
+- `--no-update-check` is set.
+- `update_check = false` is configured in the config file.
+- `SECRET_NO_UPDATE_CHECK=1` is set in the environment.
+- `--json` is set (machine-readable output mode).
+- The current command is `secrt update` itself.
+- Stdout is being used to emit binary data to a non-TTY pipe (e.g., `secrt get -o -` piped to a file or another process).
+- **Stderr is not a TTY** (e.g., redirected to a file, captured by a CI logger, piped to another process). Anyone needing the banner in piped contexts can use `secrt update --check`.
+
+When the running CLI is below the server's `min_supported_cli_version`, the banner MUST be replaced with a stronger message: `warning: secrt <current> may not be compatible with this server. Run 'secrt update' to upgrade.` This stronger message follows the same suppression rules as the regular banner.
+
+### Advisory Response Headers
+
+To let the CLI keep its update-check cache warm without dedicated round-trips, conforming servers SHOULD include three advisory headers on **every** response (authenticated and public, including `/healthz`, error responses, and binary payload responses):
+
+- `X-Secrt-Latest-Cli-Version: <semver>` — omitted when the server has not yet completed a successful poll.
+- `X-Secrt-Latest-Cli-Version-Checked-At: <RFC 3339>` — omitted when never polled successfully.
+- `X-Secrt-Min-Cli-Version: <semver>` — always present.
+
+The CLI's HTTP client SHOULD parse these headers from any successful response and update the local update-check cache when the values are newer than what is cached. The values are public; there is nothing sensitive about emitting them on unauthenticated responses.
+
+### `secrt update` Subcommand
+
+Usage:
+
+```bash
+secrt update [--check] [--force] [--version <X.Y.Z>] [--install-dir <path>] [--channel <stable|prerelease>]
+```
+
+Options:
+
+- `--check`: print whether an update is available; do not download or install.
+- `--force`: re-download and install even if already on the latest version. Always re-verifies the SHA-256 against the published checksum.
+- `--version <X.Y.Z>`: install a specific version (useful for downgrades during incident response). MUST be a strict semver of the form `\d+\.\d+\.\d+` (no prerelease suffix in this revision).
+- `--install-dir <path>`: install to a directory other than the running binary's directory.
+- `--channel <stable|prerelease>`: **Reserved for a future revision.** The flag MUST be parsed for forward compatibility but `--channel prerelease` MUST NOT yet alter the production policy of skipping prereleases. Implementations MAY hard-error on `--channel prerelease` with `error: prerelease channel is reserved but not implemented in this version`. Once implemented, prerelease channel selection will use a tag-pattern such as `^cli/v\d+\.\d+\.\d+-(rc|beta|alpha)\.\d+$` and a documented resolution algorithm. The corresponding `update_channel = "stable"|"prerelease"` config key is similarly reserved; default `stable`.
+
+Behavior:
+
+1. Resolve the running binary path via `current_exe()` and canonicalize it (`fs::canonicalize`).
+2. Detect managed installs and refuse with a manager-specific message. Pattern-match the canonical path in this order; the first match wins:
+
+   | Pattern in canonical path | Manager | Refuse message |
+   |---|---|---|
+   | contains `/Cellar/` | Homebrew | `Run: brew upgrade secrt` |
+   | contains `/.asdf/installs/` | asdf | `Run: asdf install secrt latest && asdf global secrt latest` |
+   | contains `/.local/share/mise/installs/` | mise | `Run: mise upgrade secrt` |
+   | contains `/nix/store/` | Nix | `Run: nix profile upgrade secrt (or update your flake)` |
+   | parent directory is `~/.cargo/bin` | cargo | `Run: cargo install --force secrt-cli` (the package name is `secrt-cli`; binary name is `secrt`. If installed via `--git`, use the same `--git` invocation with `--force`.) |
+   | canonical path differs from `current_exe()` (other symlink) | unknown | generic refuse-and-redirect |
+
+   Refusal exits with code 3.
+3. Determine the latest version: read `latest_cli_version` from `/api/v1/info`, falling back to `https://api.github.com/repos/getsecrt/secrt/releases?per_page=30` filtered to non-draft non-prerelease entries with tags matching `^cli/v\d+\.\d+\.\d+$`, picking the highest semver.
+4. Determine the asset filename for the current OS and architecture. **`secrt update` fetches a raw per-platform binary, not an archive** — this avoids a class of archive-extraction vulnerabilities and keeps the CLI dep graph small. The release pipeline publishes both raw binaries (for self-update) and `.tar.gz` / `.zip` / `.pkg` archives (for `install.sh`, brew, and human downloads).
+
+   | OS, arch | Self-update raw binary | Human-install archive |
+   |---|---|---|
+   | linux, x86_64 | `secrt-linux-amd64` | `secrt-linux-amd64.tar.gz` |
+   | linux, aarch64 | `secrt-linux-arm64` | `secrt-linux-arm64.tar.gz` |
+   | macos, x86_64 | `secrt-darwin-amd64` | `secrt-macos.pkg`, `secrt-macos-amd64.tar.gz` |
+   | macos, aarch64 | `secrt-darwin-arm64` | `secrt-macos.pkg`, `secrt-macos-arm64.tar.gz` |
+   | windows, x86_64 | `secrt-windows-amd64.exe` | `secrt-windows-amd64.zip` |
+   | windows, aarch64 | `secrt-windows-arm64.exe` | `secrt-windows-arm64.zip` |
+
+5. Fetch the published checksum file `secrt-checksums-sha256.txt` from the same release.
+6. Fetch the raw binary, compute SHA-256, and compare against the published checksum. **A mismatch MUST halt the install loudly**: print both expected and actual hashes, exit with code 2, and do not write any binary.
+7. Stage the new binary in the same directory as the install target with a deterministic temp name (e.g., `secrt.new` on Unix, `secrt.exe.new` on Windows). `chmod 0755` on Unix. `fsync` the staged file before atomic replace.
+8. Atomic install:
+   - **Unix**: `rename(2)` the new binary over the running binary. The kernel keeps the running process's inode alive after rename.
+   - **Windows**: rename `secrt.exe` to `secrt.exe.old`, place the new binary at `secrt.exe`. On next launch, the new `secrt` cleans up `secrt.exe.old` silently (via a hidden `--cleanup` startup hook). If even the rename-self-aside step fails (antivirus has the file open), implementations MAY fall back to `MoveFileEx(MOVEFILE_DELAY_UNTIL_REBOOT)` and inform the user the upgrade lands on next reboot.
+
+Implementations SHOULD acquire an exclusive lock (e.g., `flock(2)` on Unix, `LockFileEx` on Windows) on a small lockfile in the install directory before any write, so two concurrent `secrt update` invocations cannot interleave.
+
+Exit codes:
+
+- `0`: success, or `--check` ran successfully (whether or not an update is available).
+- `1`: generic error (network, parse, etc.).
+- `2`: SHA-256 verification failure.
+- `3`: managed install detected; refused.
+- `4`: permission denied writing to install dir.
+- `5`: install lock contention (another `secrt update` is in progress).
+
+Permission-denied error message MUST suggest `--install-dir` rather than `sudo secrt update` (running self-update with elevated privileges is hostile to least-privilege practice and surprising on user-level installs).
+
+### Opt-out
+
+The opt-outs are layered to fit different audiences:
+
+- `--no-update-check` flag: one-off, per-invocation.
+- `update_check = false` config key: durable per-user.
+- `SECRET_NO_UPDATE_CHECK=1` environment variable: scriptable for CI contexts.
+
+These opt-outs suppress only the implicit banner and implicit check during other commands. The `secrt update` subcommand itself is unaffected.
+
+### Trust Root and Supply-Chain Notes
+
+The trust root for `secrt update` is whoever can push tags matching `cli/v*` to `github.com/getsecrt/secrt`. SHA-256 verification against the published checksum file protects against transport tampering and mirror corruption, but **not** against compromise of the GitHub release publishing pipeline — both the binary and the checksum are fetched from the same release. The planned mitigation is Sigstore/cosign keyless signing of release artifacts, tracked as a separate task; it is not in scope for this spec revision but should land before secrt has many users. Until then, this trust gap is acknowledged and documented in the `README.md`.
+
+### Reserved Future Behavior
+
+- Pre-release tags (e.g., `cli/v0.16.0-rc.1`) MUST be skipped by both the server poller and the CLI's GitHub-direct fallback in this spec revision. The `--channel` flag and `update_channel` config key are reserved for opt-in prerelease selection in a future revision; their shapes are documented above so implementations can parse them forward-compatibly.
 
 ## Input Visibility
 
