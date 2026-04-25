@@ -56,6 +56,10 @@ fn cfg() -> Config {
         apikey_register_ip_max_per_hour: 5,
         apikey_register_ip_max_per_day: 20,
         encrypted_notes_enabled: false,
+
+        github_poll_interval_seconds: 0,
+        github_repo: "getsecrt/secrt".into(),
+        github_token: None,
     }
 }
 

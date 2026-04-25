@@ -1,5 +1,18 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- **GitHub Releases version cache.** A new background task in `release_poller.rs` polls `https://api.github.com/repos/<repo>/releases` every 60 minutes (configurable via `GITHUB_POLL_INTERVAL_SECONDS`; set to `0` to disable polling entirely on air-gapped deployments). The poller uses `If-None-Match`/ETag to avoid burning rate limit on unchanged data, fails soft on 403/429/5xx/timeout/parse errors (last-known-good is preserved), filters tags to `cli/v\d+\.\d+\.\d+` (drafts and prereleases skipped), and picks the highest semver. Optional `GITHUB_TOKEN` lifts the unauthenticated rate limit. Configurable repo via `GITHUB_REPO` (default `getsecrt/secrt`).
+- **Three new `/api/v1/info` body fields**: `latest_cli_version` and `latest_cli_version_checked_at` (omitted while the cache is cold), and `min_supported_cli_version` (always present, sourced from the new `MIN_SUPPORTED_CLI_VERSION` constant in `secrt_server`).
+- **Three new advisory response headers** added on every response (authenticated and public, including `/healthz`): `X-Secrt-Latest-Cli-Version`, `X-Secrt-Latest-Cli-Version-Checked-At`, `X-Secrt-Min-Cli-Version`. Mirror the body fields so CLI clients can refresh their update-check cache opportunistically.
+- **`MIN_SUPPORTED_CLI_VERSION` constant** in `crates/secrt-server/src/lib.rs`. Bump when a server release contains a wire-format change that breaks older CLIs (the v0.15.0 AAD format break is the canonical example). Documented in the release-process section of `secrt/AGENTS.md`.
+
+### Dependencies
+
+- Added `reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"] }` for the GitHub poller. JSON is parsed with the existing `serde_json` workspace dep; the `json` reqwest feature is intentionally not enabled.
+
 ## 0.15.0 — 2026-04-25
 
 _No server runtime changes — the server stores AMK wrappers as opaque blobs and is unaffected by the client-side AAD format change in `secrt-core` 0.15.0. Pre-launch deployments must `TRUNCATE amk_wrappers, amk_accounts;` once before serving the new client builds, since existing wrappers were generated under the prior AAD format and will fail to unwrap._

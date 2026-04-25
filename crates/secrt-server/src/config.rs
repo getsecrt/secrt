@@ -43,6 +43,15 @@ pub struct Config {
 
     /// Feature flags
     pub encrypted_notes_enabled: bool,
+
+    /// GitHub Releases poll cadence, in seconds. `0` disables polling entirely
+    /// (the task is not spawned and `/api/v1/info` returns the version fields
+    /// as absent). Air-gapped self-hosters should set this to `0`.
+    pub github_poll_interval_seconds: u64,
+    /// `owner/repo` pair to poll for CLI release tags.
+    pub github_repo: String,
+    /// Optional GitHub token, used to lift the unauthenticated rate limit.
+    pub github_token: Option<String>,
 }
 
 #[derive(Debug, Error)]
@@ -156,6 +165,13 @@ impl Config {
             ),
 
             encrypted_notes_enabled: getenv_bool_default("ENCRYPTED_NOTES_ENABLED", true),
+
+            github_poll_interval_seconds: getenv_u64_default("GITHUB_POLL_INTERVAL_SECONDS", 3600),
+            github_repo: getenv_default("GITHUB_REPO", "getsecrt/secrt"),
+            github_token: env::var("GITHUB_TOKEN")
+                .ok()
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty()),
         })
     }
 
@@ -220,6 +236,13 @@ fn getenv_usize_default(key: &str, default: usize) -> usize {
     env::var(key)
         .ok()
         .and_then(|v| v.trim().parse::<usize>().ok())
+        .unwrap_or(default)
+}
+
+fn getenv_u64_default(key: &str, default: u64) -> u64 {
+    env::var(key)
+        .ok()
+        .and_then(|v| v.trim().parse::<u64>().ok())
         .unwrap_or(default)
 }
 

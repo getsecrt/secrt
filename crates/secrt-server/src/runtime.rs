@@ -21,6 +21,7 @@ use tracing::{error, info};
 use crate::config::{Config, ConfigError};
 use crate::http::{build_router, parse_socket_addr, AppState};
 use crate::reaper::start_expiry_reaper;
+use crate::release_poller::{start_release_poller, PollerConfig, ReleaseFetcher, ReqwestFetcher};
 use crate::storage::migrations::migrate;
 use crate::storage::postgres::PgStore;
 use crate::storage::{AmkStore, ApiKeysStore, SecretsStore, StorageError};
@@ -100,6 +101,24 @@ where
 
     let reaper_stop = start_expiry_reaper(secrets);
 
+    let release_poller_stop =
+        match ReqwestFetcher::new(cfg.github_repo.clone(), cfg.github_token.clone()) {
+            Ok(fetcher) => {
+                let fetcher: Arc<dyn ReleaseFetcher> = Arc::new(fetcher);
+                start_release_poller(
+                    state.release_cache.clone(),
+                    fetcher,
+                    PollerConfig {
+                        interval: Duration::from_secs(cfg.github_poll_interval_seconds),
+                    },
+                )
+            }
+            Err(err) => {
+                error!(err = %err, "release poller: failed to build HTTP client; polling disabled");
+                None
+            }
+        };
+
     let timeouts = PRODUCTION_HTTP_TIMEOUTS;
     let app = build_router(state.clone()).layer(TimeoutLayer::with_status_code(
         StatusCode::REQUEST_TIMEOUT,
@@ -114,6 +133,9 @@ where
     let result = serve_with_timeouts(listener, app, shutdown, timeouts).await;
 
     let _ = reaper_stop.send(());
+    if let Some(stop) = release_poller_stop {
+        let _ = stop.send(());
+    }
     state.stop_limiter_gc();
 
     if let Err(err) = result {

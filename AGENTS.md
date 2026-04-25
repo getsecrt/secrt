@@ -192,10 +192,11 @@ There are **two separate release pipelines** — one for the CLI and one for the
 1. Update `version` in the workspace `Cargo.toml`
 2. Update `secrt-core` version in `crates/secrt-cli/Cargo.toml` and `crates/secrt-server/Cargo.toml` dependencies
 3. Add changelog entries in `crates/secrt-cli/CHANGELOG.md` and `crates/secrt-server/CHANGELOG.md`
-4. Commit: `chore: bump version to X.Y.Z`
-5. Tag **both** releases: `git tag cli/vX.Y.Z && git tag server/vX.Y.Z`
-6. Push: `git push origin main --tags`
-7. After the release workflows finish, update both GitHub Releases with notes matching the CHANGELOG entries, and explicitly set release titles to match the exact tag names:
+4. **If this server release contains a wire-format change that breaks older CLIs**, bump `MIN_SUPPORTED_CLI_VERSION` in `crates/secrt-server/src/lib.rs` to the new floor in the same commit. The CLI surfaces this value via `/api/v1/info` and the `X-Secrt-Min-Cli-Version` advisory header to nudge users to upgrade. The v0.15.0 AAD format break is the canonical example.
+5. Commit: `chore: bump version to X.Y.Z`
+6. Tag **both** releases: `git tag cli/vX.Y.Z && git tag server/vX.Y.Z`
+7. Push: `git push origin main --tags`
+8. After the release workflows finish, update both GitHub Releases with notes matching the CHANGELOG entries, and explicitly set release titles to match the exact tag names:
    ```sh
    gh release edit cli/vX.Y.Z --title "cli/vX.Y.Z" --notes "$(cat <<'EOF'
    ## What's Changed
@@ -204,13 +205,13 @@ There are **two separate release pipelines** — one for the CLI and one for the
    )"
    ```
    Repeat for `server/vX.Y.Z` with `--title "server/vX.Y.Z"`. Include all Added/Changed/Fixed/Removed sections from the changelog.
-8. Verify both tags and releases resolve correctly:
+9. Verify both tags and releases resolve correctly:
    ```sh
    git ls-remote --tags origin cli/vX.Y.Z server/vX.Y.Z
    gh release view cli/vX.Y.Z --json tagName,name,publishedAt,url
    gh release view server/vX.Y.Z --json tagName,name,publishedAt,url
    ```
-9. **Do not use** `releases/latest` for server artifact selection. GitHub "latest" is repo-wide and may point to a CLI release.
+10. **Do not use** `releases/latest` for server artifact selection. GitHub "latest" is repo-wide and may point to a CLI release.
    - For server downloads, always use tag-pinned URLs (`/releases/download/server%2FvX.Y.Z/...`).
    - If automation needs "latest server tag", query and filter by tag prefix:
      ```sh

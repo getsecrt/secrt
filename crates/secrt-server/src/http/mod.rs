@@ -4,6 +4,8 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
+use tokio::sync::RwLock;
+
 use axum::body::to_bytes;
 use axum::extract::{ConnectInfo, Path, Query, Request, State};
 use axum::http::header::{AUTHORIZATION, CACHE_CONTROL, CONTENT_LENGTH, CONTENT_TYPE};
@@ -31,11 +33,13 @@ use crate::domain::limiter::Limiter;
 use crate::domain::secret_rules::{
     format_bytes, generate_id, validate_envelope, OwnerHasher, SecretRuleError,
 };
+use crate::release_poller::ReleaseCache;
 use crate::storage::{
     AmkStore, AmkUpsertResult, AmkWrapperRecord, ApiKeyRecord, ApiKeyRegistrationLimits,
     ApiKeysStore, AuthStore, SecretQuotaLimits, SecretRecord, SecretsStore, SessionRecord,
     StorageError, UserId,
 };
+use crate::MIN_SUPPORTED_CLI_VERSION;
 
 #[derive(Clone)]
 pub struct AppState {
@@ -51,6 +55,12 @@ pub struct AppState {
     pub apikey_register_limiter: Limiter,
     pub owner_hasher: OwnerHasher,
     pub privacy_checked: Arc<AtomicBool>,
+    /// Snapshot of the latest known CLI release, refreshed by the GitHub
+    /// releases poller. Read by `/api/v1/info` and the advisory headers
+    /// middleware. Cold (`latest`/`checked_at` both `None`) until the first
+    /// successful poll completes — and stays cold forever when polling is
+    /// disabled (`GITHUB_POLL_INTERVAL_SECONDS=0`).
+    pub release_cache: Arc<RwLock<ReleaseCache>>,
 }
 
 impl AppState {
@@ -77,6 +87,7 @@ impl AppState {
             cfg,
             secrets,
             api_keys,
+            release_cache: Arc::new(RwLock::new(ReleaseCache::default())),
         }
     }
 
@@ -144,6 +155,19 @@ struct InfoResponse {
     limits: InfoLimits,
     claim_rate: InfoRate,
     features: InfoFeatures,
+    /// Newest CLI release the server has observed on GitHub. Absent until the
+    /// first successful poll completes (or always absent when polling is
+    /// disabled).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    latest_cli_version: Option<String>,
+    /// RFC 3339 timestamp of the most recent successful GitHub poll. Absent
+    /// in the same conditions as `latest_cli_version`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    latest_cli_version_checked_at: Option<String>,
+    /// Hard floor for CLI compatibility with this server. Always present.
+    /// Advisory: the server does not refuse old clients, but clients display
+    /// an upgrade-required notice when their version is below this.
+    min_supported_cli_version: String,
 }
 
 #[derive(Serialize)]
@@ -741,6 +765,27 @@ async fn request_middleware(
     insert_header(resp.headers_mut(), "x-content-type-options", "nosniff");
     insert_header(resp.headers_mut(), "referrer-policy", "no-referrer");
     insert_header(resp.headers_mut(), "x-frame-options", "DENY");
+
+    // Advisory CLI-version headers — let any CLI client refresh its
+    // update-check cache from any response, no extra round trip.
+    {
+        let cache = state.release_cache.read().await;
+        if let Some(latest) = cache.latest.as_deref() {
+            insert_header(resp.headers_mut(), "x-secrt-latest-cli-version", latest);
+        }
+        if let Some(checked_at) = cache.checked_at {
+            insert_header(
+                resp.headers_mut(),
+                "x-secrt-latest-cli-version-checked-at",
+                &checked_at.to_rfc3339(),
+            );
+        }
+    }
+    insert_header(
+        resp.headers_mut(),
+        "x-secrt-min-cli-version",
+        MIN_SUPPORTED_CLI_VERSION,
+    );
 
     let bytes = response_bytes(&resp);
     let status = resp.status().as_u16();
@@ -3330,6 +3375,14 @@ pub async fn handle_info_entry(State(state): State<Arc<AppState>>, req: Request)
         (false, None)
     };
 
+    let (latest_cli_version, latest_cli_version_checked_at) = {
+        let cache = state.release_cache.read().await;
+        (
+            cache.latest.clone(),
+            cache.checked_at.map(|t| t.to_rfc3339()),
+        )
+    };
+
     let mut resp = json_response(
         StatusCode::OK,
         InfoResponse {
@@ -3366,6 +3419,9 @@ pub async fn handle_info_entry(State(state): State<Arc<AppState>>, req: Request)
             features: InfoFeatures {
                 encrypted_notes: state.cfg.encrypted_notes_enabled,
             },
+            latest_cli_version,
+            latest_cli_version_checked_at,
+            min_supported_cli_version: MIN_SUPPORTED_CLI_VERSION.to_string(),
         },
     );
 
@@ -4849,6 +4905,10 @@ mod tests {
             apikey_register_ip_max_per_hour: 5,
             apikey_register_ip_max_per_day: 20,
             encrypted_notes_enabled: false,
+
+            github_poll_interval_seconds: 0,
+            github_repo: "getsecrt/secrt".into(),
+            github_token: None,
         };
         let store = Arc::new(MemStore::default());
         let secrets: Arc<dyn SecretsStore> = store.clone();
@@ -6913,6 +6973,118 @@ mod tests {
         assert_eq!(
             body["total"], 1,
             "secret created via API key should be visible via session"
+        );
+    }
+
+    #[tokio::test]
+    async fn info_response_omits_cli_version_fields_when_cache_cold() {
+        let state = test_state();
+        let req = Request::builder()
+            .method("GET")
+            .uri("/api/v1/info")
+            .body(Body::empty())
+            .expect("request");
+        let resp = handle_info_entry(State(state), req).await;
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body: serde_json::Value =
+            serde_json::from_str(&response_text(resp).await).expect("json");
+        assert!(
+            body.get("latest_cli_version").is_none(),
+            "latest_cli_version should be absent when cache is cold"
+        );
+        assert!(
+            body.get("latest_cli_version_checked_at").is_none(),
+            "latest_cli_version_checked_at should be absent when cache is cold"
+        );
+        assert_eq!(
+            body["min_supported_cli_version"],
+            crate::MIN_SUPPORTED_CLI_VERSION,
+            "min_supported_cli_version is always present"
+        );
+    }
+
+    #[tokio::test]
+    async fn info_response_includes_cli_version_fields_when_cache_populated() {
+        let state = test_state();
+        {
+            let mut cache = state.release_cache.write().await;
+            cache.latest = Some("0.16.0".to_string());
+            cache.checked_at = Some(Utc::now());
+        }
+        let req = Request::builder()
+            .method("GET")
+            .uri("/api/v1/info")
+            .body(Body::empty())
+            .expect("request");
+        let resp = handle_info_entry(State(state), req).await;
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body: serde_json::Value =
+            serde_json::from_str(&response_text(resp).await).expect("json");
+        assert_eq!(body["latest_cli_version"], "0.16.0");
+        assert!(
+            body.get("latest_cli_version_checked_at")
+                .and_then(|v| v.as_str())
+                .is_some(),
+            "checked_at should serialize as RFC 3339 string"
+        );
+        assert_eq!(
+            body["min_supported_cli_version"],
+            crate::MIN_SUPPORTED_CLI_VERSION
+        );
+    }
+
+    #[tokio::test]
+    async fn advisory_cli_version_headers_present_on_every_response() {
+        // Cold cache: only `x-secrt-min-cli-version` is set.
+        let state = test_state();
+        let app = build_router(state.clone());
+        let req = Request::builder()
+            .method("GET")
+            .uri("/healthz")
+            .body(Body::empty())
+            .expect("request");
+        let resp = app.oneshot(req).await.expect("response");
+        assert_eq!(resp.status(), StatusCode::OK);
+        assert_eq!(
+            resp.headers()
+                .get("x-secrt-min-cli-version")
+                .and_then(|v| v.to_str().ok()),
+            Some(crate::MIN_SUPPORTED_CLI_VERSION)
+        );
+        assert!(resp.headers().get("x-secrt-latest-cli-version").is_none());
+        assert!(resp
+            .headers()
+            .get("x-secrt-latest-cli-version-checked-at")
+            .is_none());
+
+        // Populated cache: all three headers are set.
+        {
+            let mut cache = state.release_cache.write().await;
+            cache.latest = Some("0.16.0".to_string());
+            cache.checked_at = Some(Utc::now());
+        }
+        let app = build_router(state);
+        let req = Request::builder()
+            .method("GET")
+            .uri("/healthz")
+            .body(Body::empty())
+            .expect("request");
+        let resp = app.oneshot(req).await.expect("response");
+        assert_eq!(
+            resp.headers()
+                .get("x-secrt-latest-cli-version")
+                .and_then(|v| v.to_str().ok()),
+            Some("0.16.0")
+        );
+        assert!(resp
+            .headers()
+            .get("x-secrt-latest-cli-version-checked-at")
+            .is_some());
+        assert_eq!(
+            resp.headers()
+                .get("x-secrt-min-cli-version")
+                .and_then(|v| v.to_str().ok()),
+            Some(crate::MIN_SUPPORTED_CLI_VERSION)
         );
     }
 }
