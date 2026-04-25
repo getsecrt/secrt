@@ -1096,4 +1096,155 @@ mod tests {
         assert!(err.contains("forbidden"));
         server_bad.join().expect("server join");
     }
+
+    // ---- HTTP-client behavior tests ----
+    //
+    // The CLI's HTTP client behavior is specified in `spec/v1/cli.md
+    // § HTTP Client Behavior`: every outbound request MUST include the
+    // `User-Agent: secrt/<version>` header, and every server response
+    // MUST be observed for advisory `X-Secrt-*` headers so the
+    // implicit-banner cache stays warm without an extra round-trip.
+
+    #[test]
+    fn outbound_requests_include_user_agent() {
+        let (base_url, server) = spawn_one_shot_server(|req| {
+            let req_l = req.to_ascii_lowercase();
+            assert!(
+                req_l.contains(&format!(
+                    "user-agent: {}\r\n",
+                    USER_AGENT.to_ascii_lowercase()
+                )),
+                "expected User-Agent header in request, got:\n{}",
+                req
+            );
+            json_response(
+                "201 Created",
+                r#"{"id":"s1","share_url":"https://example.com/s/s1","expires_at":"2026-01-01T00:00:00Z"}"#,
+            )
+        });
+        let client = ApiClient {
+            base_url,
+            api_key: String::new(),
+        };
+        client.create(sample_create_request()).expect("create");
+        server.join().expect("server join");
+    }
+
+    /// Tests that mutate process env vars (XDG_CACHE_HOME) must serialize
+    /// to avoid stomping on each other or on other test threads.
+    static ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    /// Best-effort RAII guard that restores `XDG_CACHE_HOME` on drop. Used
+    /// by the advisory-header observer test below — process env is global,
+    /// so we restore it and serialize via `ENV_LOCK`.
+    struct CacheHomeGuard {
+        prev: Option<String>,
+    }
+    impl CacheHomeGuard {
+        fn set(path: &str) -> Self {
+            let prev = std::env::var("XDG_CACHE_HOME").ok();
+            std::env::set_var("XDG_CACHE_HOME", path);
+            Self { prev }
+        }
+    }
+    impl Drop for CacheHomeGuard {
+        fn drop(&mut self) {
+            match &self.prev {
+                Some(v) => std::env::set_var("XDG_CACHE_HOME", v),
+                None => std::env::remove_var("XDG_CACHE_HOME"),
+            }
+        }
+    }
+
+    #[test]
+    fn observe_response_writes_advisory_headers_to_cache() {
+        let _g = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let dir = std::env::temp_dir().join(format!(
+            "secrt_observe_test_{}_{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&dir).expect("create temp");
+        let _env = CacheHomeGuard::set(dir.to_str().unwrap());
+
+        // 201 + advisory headers — observe_response runs unconditionally
+        // on the response path.
+        let (base_url, server) = spawn_one_shot_server(|_req| {
+            let body = r#"{"id":"s1","share_url":"https://example.com/s/s1","expires_at":"2026-01-01T00:00:00Z"}"#;
+            format!(
+                "HTTP/1.1 201 Created\r\nContent-Type: application/json\r\nContent-Length: {}\r\nX-Secrt-Latest-Cli-Version: 99.0.0\r\nX-Secrt-Latest-Cli-Version-Checked-At: 2026-04-25T09:00:00Z\r\nX-Secrt-Min-Cli-Version: 0.15.0\r\nConnection: close\r\n\r\n{}",
+                body.len(),
+                body
+            ).into_bytes()
+        });
+        let client = ApiClient {
+            base_url,
+            api_key: String::new(),
+        };
+        client.create(sample_create_request()).expect("create");
+        server.join().expect("server join");
+
+        // The cache file should now reflect the advisory headers.
+        let cache_path = dir.join("secrt").join("update-check.json");
+        let bytes = std::fs::read(&cache_path).expect("cache file written");
+        let body = String::from_utf8(bytes).expect("utf8");
+        assert!(
+            body.contains("\"latest\":\"99.0.0\""),
+            "cache should record latest version: {}",
+            body
+        );
+        assert!(
+            body.contains("\"min_supported\":\"0.15.0\""),
+            "cache should record min_supported: {}",
+            body
+        );
+        assert!(
+            body.contains("2026-04-25T09:00:00Z"),
+            "cache should preserve checked_at from header: {}",
+            body
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn observe_response_silent_when_no_advisory_headers() {
+        let _g = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let dir = std::env::temp_dir().join(format!(
+            "secrt_observe_silent_{}_{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&dir).expect("create temp");
+        let _env = CacheHomeGuard::set(dir.to_str().unwrap());
+
+        // Plain 201 response — no X-Secrt-* headers. observe_response
+        // must not write a cache file (the early return when all three
+        // header values are absent guards against stamping a hollow
+        // entry).
+        let (base_url, server) = spawn_one_shot_server(|_req| {
+            json_response(
+                "201 Created",
+                r#"{"id":"s1","share_url":"https://example.com/s/s1","expires_at":"2026-01-01T00:00:00Z"}"#,
+            )
+        });
+        let client = ApiClient {
+            base_url,
+            api_key: String::new(),
+        };
+        client.create(sample_create_request()).expect("create");
+        server.join().expect("server join");
+
+        let cache_path = dir.join("secrt").join("update-check.json");
+        assert!(
+            !cache_path.exists(),
+            "cache file must not be created when no advisory headers"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }

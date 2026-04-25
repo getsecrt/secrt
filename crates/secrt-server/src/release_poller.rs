@@ -63,15 +63,32 @@ pub trait ReleaseFetcher: Send + Sync {
     async fn fetch(&self, etag: Option<&str>) -> Result<FetchOutcome, FetchError>;
 }
 
+/// Default base URL for the GitHub API. Overridable via
+/// [`ReqwestFetcher::with_base_url`] for end-to-end tests against a local
+/// mock server.
+pub const DEFAULT_GITHUB_API_BASE: &str = "https://api.github.com";
+
 /// Production fetcher that talks to the real GitHub API over HTTPS.
 pub struct ReqwestFetcher {
     client: reqwest::Client,
+    base_url: String,
     repo: String,
     token: Option<String>,
 }
 
 impl ReqwestFetcher {
     pub fn new(repo: String, token: Option<String>) -> Result<Self, FetchError> {
+        Self::with_base_url(DEFAULT_GITHUB_API_BASE.to_string(), repo, token)
+    }
+
+    /// Construct a fetcher pointed at a non-default base URL. Used by
+    /// integration tests to drive the production wire format against a
+    /// local HTTP listener.
+    pub fn with_base_url(
+        base_url: String,
+        repo: String,
+        token: Option<String>,
+    ) -> Result<Self, FetchError> {
         let client = reqwest::Client::builder()
             .timeout(FETCH_TIMEOUT)
             .user_agent(concat!("secrt-server/", env!("CARGO_PKG_VERSION")))
@@ -79,6 +96,7 @@ impl ReqwestFetcher {
             .map_err(|e| FetchError::Transport(e.to_string()))?;
         Ok(Self {
             client,
+            base_url: base_url.trim_end_matches('/').to_string(),
             repo,
             token,
         })
@@ -89,8 +107,8 @@ impl ReqwestFetcher {
 impl ReleaseFetcher for ReqwestFetcher {
     async fn fetch(&self, etag: Option<&str>) -> Result<FetchOutcome, FetchError> {
         let url = format!(
-            "https://api.github.com/repos/{}/releases?per_page={}",
-            self.repo, RELEASES_PER_PAGE
+            "{}/repos/{}/releases?per_page={}",
+            self.base_url, self.repo, RELEASES_PER_PAGE
         );
         let mut req = self
             .client
@@ -555,5 +573,247 @@ mod tests {
         assert_eq!(fetcher.calls.load(Ordering::SeqCst), 1);
 
         let _ = stop.unwrap().send(());
+    }
+
+    // ----------------------------------------------------------------
+    // ReqwestFetcher wire-format tests
+    //
+    // The trait-based MockFetcher tests above prove that policy logic
+    // (cache merge, semver picking, ETag round-trip, fail-soft) is
+    // correct. Those tests bypass `ReqwestFetcher` entirely. The tests
+    // below exercise the production HTTP path end-to-end against a
+    // bring-your-own-bytes mock server, so wire-format regressions
+    // (header names, JSON shape, ETag emission, Bearer auth, status
+    // dispatch) surface in CI without requiring a live network.
+    // ----------------------------------------------------------------
+
+    /// Recorded request line + headers from the mock server. Body is
+    /// unused for GETs but kept for symmetry.
+    #[derive(Debug, Default)]
+    struct CapturedRequest {
+        request_line: String,
+        headers: std::collections::HashMap<String, String>,
+    }
+
+    /// Spin up a one-shot HTTP listener that accepts a single connection,
+    /// records the request, and writes a canned response. Returns the
+    /// `http://127.0.0.1:PORT` base and a future that resolves to the
+    /// captured request once the connection closes.
+    async fn spawn_one_shot_http(
+        canned_response: Vec<u8>,
+    ) -> (String, tokio::task::JoinHandle<CapturedRequest>) {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        use tokio::net::TcpListener;
+
+        let listener = TcpListener::bind("127.0.0.1:0").await.expect("bind");
+        let port = listener.local_addr().expect("local_addr").port();
+        let base = format!("http://127.0.0.1:{port}");
+
+        let handle = tokio::spawn(async move {
+            let (mut stream, _) = listener.accept().await.expect("accept");
+            let mut buf = Vec::with_capacity(4096);
+            let mut tmp = [0u8; 1024];
+            // Read until we see end-of-headers. GET requests have no body
+            // so this is sufficient.
+            loop {
+                let n = stream.read(&mut tmp).await.expect("read");
+                if n == 0 {
+                    break;
+                }
+                buf.extend_from_slice(&tmp[..n]);
+                if buf.windows(4).any(|w| w == b"\r\n\r\n") {
+                    break;
+                }
+            }
+            let raw = String::from_utf8_lossy(&buf).into_owned();
+            let mut lines = raw.lines();
+            let request_line = lines.next().unwrap_or("").to_string();
+            let mut headers = std::collections::HashMap::new();
+            for line in lines {
+                if line.is_empty() {
+                    break;
+                }
+                if let Some((k, v)) = line.split_once(':') {
+                    headers.insert(k.trim().to_ascii_lowercase(), v.trim().to_string());
+                }
+            }
+            let _ = stream.write_all(&canned_response).await;
+            let _ = stream.shutdown().await;
+            CapturedRequest {
+                request_line,
+                headers,
+            }
+        });
+
+        (base, handle)
+    }
+
+    fn http_response(status: &str, headers: &[(&str, &str)], body: &str) -> Vec<u8> {
+        let mut s = format!("HTTP/1.1 {status}\r\n");
+        s.push_str(&format!("Content-Length: {}\r\n", body.len()));
+        for (k, v) in headers {
+            s.push_str(&format!("{k}: {v}\r\n"));
+        }
+        s.push_str("Connection: close\r\n\r\n");
+        s.push_str(body);
+        s.into_bytes()
+    }
+
+    #[tokio::test]
+    async fn reqwest_fetcher_200_returns_modified_with_etag() {
+        let body = serde_json::to_string(&serde_json::json!([
+            { "tag_name": "cli/v0.15.0", "draft": false, "prerelease": false },
+            { "tag_name": "cli/v0.16.0", "draft": false, "prerelease": false },
+            { "tag_name": "server/v9.9.9", "draft": false, "prerelease": false }
+        ]))
+        .unwrap();
+        let resp = http_response(
+            "200 OK",
+            &[
+                ("Content-Type", "application/json"),
+                ("ETag", "\"deadbeef\""),
+            ],
+            &body,
+        );
+
+        let (base, handle) = spawn_one_shot_http(resp).await;
+        let fetcher = ReqwestFetcher::with_base_url(base, "owner/repo".to_string(), None).unwrap();
+        let outcome = fetcher.fetch(None).await.expect("fetch ok");
+        match outcome {
+            FetchOutcome::Modified { releases, etag } => {
+                assert_eq!(etag.as_deref(), Some("\"deadbeef\""));
+                assert_eq!(releases.len(), 3);
+                assert_eq!(
+                    pick_latest_cli_version(&releases).as_deref(),
+                    Some("0.16.0")
+                );
+            }
+            FetchOutcome::NotModified => panic!("expected Modified"),
+        }
+
+        let captured = handle.await.expect("server task");
+        assert!(
+            captured.request_line.contains("/repos/owner/repo/releases"),
+            "request line should target the configured repo: {}",
+            captured.request_line
+        );
+        // User-Agent is set centrally on the client, must reach the wire.
+        assert!(
+            captured
+                .headers
+                .get("user-agent")
+                .map(|v| v.starts_with("secrt-server/"))
+                .unwrap_or(false),
+            "User-Agent should identify secrt-server: {:?}",
+            captured.headers.get("user-agent")
+        );
+        assert_eq!(
+            captured.headers.get("accept").map(String::as_str),
+            Some("application/vnd.github+json")
+        );
+        // No If-None-Match on first call.
+        assert!(captured.headers.get("if-none-match").is_none());
+    }
+
+    #[tokio::test]
+    async fn reqwest_fetcher_304_returns_not_modified_and_round_trips_etag() {
+        let resp = http_response("304 Not Modified", &[], "");
+        let (base, handle) = spawn_one_shot_http(resp).await;
+        let fetcher = ReqwestFetcher::with_base_url(base, "owner/repo".to_string(), None).unwrap();
+        let outcome = fetcher
+            .fetch(Some("\"prev-etag\""))
+            .await
+            .expect("fetch ok");
+        assert!(matches!(outcome, FetchOutcome::NotModified));
+
+        let captured = handle.await.expect("server task");
+        assert_eq!(
+            captured.headers.get("if-none-match").map(String::as_str),
+            Some("\"prev-etag\"")
+        );
+    }
+
+    #[tokio::test]
+    async fn reqwest_fetcher_403_maps_to_forbidden_error() {
+        let resp = http_response(
+            "403 Forbidden",
+            &[("Content-Type", "application/json")],
+            r#"{"message":"API rate limit exceeded"}"#,
+        );
+        let (base, _handle) = spawn_one_shot_http(resp).await;
+        let fetcher = ReqwestFetcher::with_base_url(base, "owner/repo".to_string(), None).unwrap();
+        let err = fetcher.fetch(None).await.expect_err("expected err");
+        assert!(
+            matches!(err, FetchError::Forbidden),
+            "expected Forbidden, got {err:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn reqwest_fetcher_429_maps_to_rate_limited_error() {
+        let resp = http_response("429 Too Many Requests", &[], "");
+        let (base, _handle) = spawn_one_shot_http(resp).await;
+        let fetcher = ReqwestFetcher::with_base_url(base, "owner/repo".to_string(), None).unwrap();
+        let err = fetcher.fetch(None).await.expect_err("expected err");
+        assert!(matches!(err, FetchError::RateLimited));
+    }
+
+    #[tokio::test]
+    async fn reqwest_fetcher_5xx_maps_to_server_error() {
+        let resp = http_response("502 Bad Gateway", &[], "");
+        let (base, _handle) = spawn_one_shot_http(resp).await;
+        let fetcher = ReqwestFetcher::with_base_url(base, "owner/repo".to_string(), None).unwrap();
+        let err = fetcher.fetch(None).await.expect_err("expected err");
+        assert!(
+            matches!(err, FetchError::ServerError { status: 502 }),
+            "expected ServerError(502), got {err:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn reqwest_fetcher_garbage_body_maps_to_parse_error() {
+        let resp = http_response(
+            "200 OK",
+            &[("Content-Type", "application/json")],
+            "not json at all",
+        );
+        let (base, _handle) = spawn_one_shot_http(resp).await;
+        let fetcher = ReqwestFetcher::with_base_url(base, "owner/repo".to_string(), None).unwrap();
+        let err = fetcher.fetch(None).await.expect_err("expected err");
+        assert!(
+            matches!(err, FetchError::Parse(_)),
+            "expected Parse, got {err:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn reqwest_fetcher_sends_bearer_when_token_set() {
+        let resp = http_response("200 OK", &[("Content-Type", "application/json")], "[]");
+        let (base, handle) = spawn_one_shot_http(resp).await;
+        let fetcher = ReqwestFetcher::with_base_url(
+            base,
+            "owner/repo".to_string(),
+            Some("ghp_secret".to_string()),
+        )
+        .unwrap();
+        let _ = fetcher.fetch(None).await;
+        let captured = handle.await.expect("server task");
+        assert_eq!(
+            captured.headers.get("authorization").map(String::as_str),
+            Some("Bearer ghp_secret")
+        );
+    }
+
+    #[tokio::test]
+    async fn reqwest_fetcher_omits_bearer_when_token_absent() {
+        let resp = http_response("200 OK", &[("Content-Type", "application/json")], "[]");
+        let (base, handle) = spawn_one_shot_http(resp).await;
+        let fetcher = ReqwestFetcher::with_base_url(base, "owner/repo".to_string(), None).unwrap();
+        let _ = fetcher.fetch(None).await;
+        let captured = handle.await.expect("server task");
+        assert!(
+            captured.headers.get("authorization").is_none(),
+            "no Authorization header when token absent"
+        );
     }
 }

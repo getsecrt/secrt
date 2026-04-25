@@ -253,25 +253,48 @@ pub fn format_banner_line(info: &BannerInfo, stderr_is_tty: bool) -> String {
     }
 }
 
-/// Compare two semver-ish strings (`X.Y.Z`). Inputs that fail to parse compare
-/// as Equal — callers treat that as "no upgrade signal".
+/// Compare two semver-ish strings (`X.Y.Z`, optionally with a `-prerelease`
+/// suffix). Inputs that fail to parse compare as Equal — callers treat that
+/// as "no upgrade signal" so we never falsely advertise an upgrade.
+///
+/// Prerelease ordering follows the bits of semver.org we actually use:
+/// a stable version always sorts above any prerelease of the same triplet,
+/// and two prereleases of the same triplet compare lexicographically on the
+/// suffix string. That's enough to satisfy `spec/v1/update.vectors.json`
+/// (e.g. `0.15.0-rc.1 < 0.15.0`) without a full SemVer 2.0 implementation.
 pub fn compare_semver(a: &str, b: &str) -> std::cmp::Ordering {
-    let pa = parse_semver(a);
-    let pb = parse_semver(b);
+    use std::cmp::Ordering;
+    let pa = parse_semver_relaxed(a);
+    let pb = parse_semver_relaxed(b);
     match (pa, pb) {
-        (Some(x), Some(y)) => x.cmp(&y),
-        _ => std::cmp::Ordering::Equal,
+        (Some((maj_a, min_a, pat_a, pre_a)), Some((maj_b, min_b, pat_b, pre_b))) => {
+            match (maj_a, min_a, pat_a).cmp(&(maj_b, min_b, pat_b)) {
+                Ordering::Equal => match (pre_a.as_ref(), pre_b.as_ref()) {
+                    (None, None) => Ordering::Equal,
+                    (None, Some(_)) => Ordering::Greater, // stable > prerelease
+                    (Some(_), None) => Ordering::Less,
+                    (Some(x), Some(y)) => x.cmp(y),
+                },
+                other => other,
+            }
+        }
+        _ => Ordering::Equal,
     }
 }
 
+/// Strict validity check used at cache-write boundaries: rejects prereleases,
+/// build metadata, and anything that isn't `\d+\.\d+\.\d+`. Per
+/// `spec/v1/cli.md § Reserved Future Behavior`, prerelease tags MUST be
+/// skipped by both the server poller and the CLI's GitHub-direct fallback,
+/// so we refuse to cache prerelease values even if a future server emits
+/// them.
 fn is_valid_semver(s: &str) -> bool {
-    parse_semver(s).is_some()
+    parse_semver_strict(s).is_some()
 }
 
 /// Parse a strict `X.Y.Z` triplet. Rejects prerelease (`-rc.1`) and build
-/// (`+sha`) suffixes — those are deferred to a future spec revision per
-/// `spec/v1/cli.md § Reserved Future Behavior`.
-fn parse_semver(s: &str) -> Option<(u64, u64, u64)> {
+/// (`+sha`) suffixes.
+fn parse_semver_strict(s: &str) -> Option<(u64, u64, u64)> {
     let mut parts = s.split('.');
     let major = parts.next()?.parse::<u64>().ok()?;
     let minor = parts.next()?.parse::<u64>().ok()?;
@@ -283,6 +306,21 @@ fn parse_semver(s: &str) -> Option<(u64, u64, u64)> {
         return None;
     }
     Some((major, minor, patch.parse::<u64>().ok()?))
+}
+
+/// Parse a `X.Y.Z` triplet with an optional `-prerelease` suffix. Returns
+/// `(major, minor, patch, prerelease)`. Build metadata (`+sha…`) is rejected.
+fn parse_semver_relaxed(s: &str) -> Option<(u64, u64, u64, Option<String>)> {
+    if s.contains('+') {
+        return None;
+    }
+    let (head, prerelease) = match s.split_once('-') {
+        Some((h, p)) if !p.is_empty() => (h, Some(p.to_string())),
+        Some(_) => return None, // trailing '-' with empty prerelease
+        None => (s, None),
+    };
+    let (maj, min, pat) = parse_semver_strict(head)?;
+    Some((maj, min, pat, prerelease))
 }
 
 /// Format a `SystemTime` as `YYYY-MM-DDTHH:MM:SSZ` (UTC). Inverse of
@@ -362,13 +400,27 @@ mod tests {
     }
 
     #[test]
-    fn parse_semver_strict() {
-        assert_eq!(parse_semver("0.15.0"), Some((0, 15, 0)));
-        assert_eq!(parse_semver("1.2.3"), Some((1, 2, 3)));
-        assert_eq!(parse_semver("0.15.0-rc.1"), None);
-        assert_eq!(parse_semver("0.15"), None);
-        assert_eq!(parse_semver("0.15.0.1"), None);
-        assert_eq!(parse_semver(""), None);
+    fn parse_semver_strict_form() {
+        assert_eq!(parse_semver_strict("0.15.0"), Some((0, 15, 0)));
+        assert_eq!(parse_semver_strict("1.2.3"), Some((1, 2, 3)));
+        assert_eq!(parse_semver_strict("0.15.0-rc.1"), None);
+        assert_eq!(parse_semver_strict("0.15"), None);
+        assert_eq!(parse_semver_strict("0.15.0.1"), None);
+        assert_eq!(parse_semver_strict(""), None);
+    }
+
+    #[test]
+    fn parse_semver_relaxed_accepts_prereleases() {
+        assert_eq!(
+            parse_semver_relaxed("0.15.0-rc.1"),
+            Some((0, 15, 0, Some("rc.1".into())))
+        );
+        assert_eq!(parse_semver_relaxed("0.15.0"), Some((0, 15, 0, None)));
+        // Trailing `-` with empty prerelease is invalid.
+        assert_eq!(parse_semver_relaxed("0.15.0-"), None);
+        // Build metadata is rejected per spec.
+        assert_eq!(parse_semver_relaxed("0.15.0+abc"), None);
+        assert_eq!(parse_semver_relaxed("0.15.0-rc.1+abc"), None);
     }
 
     #[test]
@@ -380,6 +432,28 @@ mod tests {
         assert_eq!(compare_semver("0.15.10", "0.15.2"), Greater);
         // Bad inputs collapse to Equal so we never falsely claim an upgrade.
         assert_eq!(compare_semver("garbage", "0.15.0"), Equal);
+    }
+
+    #[test]
+    fn compare_semver_prerelease_ordering() {
+        use std::cmp::Ordering::*;
+        // Stable always greater than its own prerelease.
+        assert_eq!(compare_semver("0.15.0-rc.1", "0.15.0"), Less);
+        assert_eq!(compare_semver("0.15.0", "0.15.0-rc.1"), Greater);
+        // Two prereleases of the same triplet — lexicographic.
+        assert_eq!(compare_semver("0.15.0-rc.1", "0.15.0-rc.2"), Less);
+        assert_eq!(compare_semver("0.15.0-alpha.1", "0.15.0-rc.1"), Less);
+        // Triplet ordering still wins over prerelease semantics.
+        assert_eq!(compare_semver("0.15.0-rc.99", "0.16.0-alpha.1"), Less);
+    }
+
+    #[test]
+    fn is_valid_semver_rejects_prereleases() {
+        // Cache-write boundary stays strict — prerelease values published
+        // by a server are still skipped.
+        assert!(!is_valid_semver("0.15.0-rc.1"));
+        assert!(!is_valid_semver("0.15.0+sha"));
+        assert!(is_valid_semver("0.15.0"));
     }
 
     #[test]
