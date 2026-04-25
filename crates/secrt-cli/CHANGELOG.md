@@ -2,6 +2,22 @@
 
 ## Unreleased
 
+### Added
+
+- **Implicit update-check banner.** After every command, the CLI now reads `$XDG_CACHE_HOME/secrt/update-check.json` (24h TTL) and prints a one-line stderr banner when a newer version is available — `secrt 0.16.0 is available (you have 0.15.0). Run 'secrt update' to upgrade.` The banner is **cache-only and never initiates a network request**. The cache refreshes opportunistically from `/api/v1/info` body fields (any command that calls it) and from `X-Secrt-Latest-Cli-Version*` / `X-Secrt-Min-Cli-Version` response headers on every other server response.
+- **`--no-update-check` global flag** plus `update_check = false` config key plus `SECRET_NO_UPDATE_CHECK=1` env var, all of which suppress the banner. The matrix also suppresses on `--silent`, `--json`, `secrt update` itself, stdout-binary-to-pipe, and **stderr-not-a-TTY** (CI logs and redirected stderr stay clean by default).
+- **`User-Agent: secrt/<version>`** is now sent on every CLI HTTP request, so servers can correlate usage by version and trigger version-specific incident remediation.
+- **Min-supported-version awareness.** When the running CLI is below the server's `min_supported_cli_version`, the banner is replaced with a stronger `warning: secrt <version> may not be compatible with this server.` notice.
+
+### Changed
+
+- **`secrt config show`** lists the new `update_check` key with its resolved source (env / config / default).
+- **`InfoResponse` (in `secrt-core`)** gains three optional fields (`latest_cli_version`, `latest_cli_version_checked_at`, `min_supported_cli_version`) — all `#[serde(default)]` so older servers continue to deserialize cleanly.
+
+### Fixed
+
+- **Keychain string-vs-bool config bug (GH#42).** `set_config_key("use_keychain", "true")` used to write `use_keychain = "true"` (string-quoted), which then broke TOML parsing on next load and silently disabled keychain integration. Bool-typed keys (`use_keychain`, `show_input`, `auto_copy`, `update_check`) are now written as bare bool literals, and existing corrupted configs are silently migrated on load.
+
 ### Spec
 
 - **New section in `spec/v1/cli.md`: "Update Check and Self-Update".** Defines the contract for the in-CLI update banner and the `secrt update` self-upgrade command:

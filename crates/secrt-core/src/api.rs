@@ -49,6 +49,18 @@ pub struct InfoResponse {
     pub ttl: InfoTTL,
     pub limits: InfoLimits,
     pub claim_rate: InfoRate,
+    /// Newest CLI release the server has observed via its GitHub Releases
+    /// poll. Absent until the first successful poll, or always absent on
+    /// air-gapped servers (`GITHUB_POLL_INTERVAL_SECONDS=0`).
+    #[serde(default)]
+    pub latest_cli_version: Option<String>,
+    /// RFC 3339 timestamp of the most recent successful poll.
+    #[serde(default)]
+    pub latest_cli_version_checked_at: Option<String>,
+    /// Hard floor for CLI compatibility with this server. Always present;
+    /// older servers that pre-date the field will deserialize as `None`.
+    #[serde(default)]
+    pub min_supported_cli_version: Option<String>,
 }
 
 #[derive(Clone, Deserialize)]
@@ -164,4 +176,72 @@ pub struct AmkWrapperResponse {
     pub wrapped_amk: String,
     pub nonce: String,
     pub version: i16,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn info_response_parses_without_cli_version_fields() {
+        // Older server (or future field-less response) still deserializes.
+        let body = r#"{
+            "authenticated": false,
+            "ttl": {"default_seconds": 3600, "max_seconds": 86400},
+            "limits": {
+                "public": {"max_envelope_bytes": 1, "max_secrets": 1, "max_total_bytes": 1, "rate": {"requests_per_second": 1.0, "burst": 1}},
+                "authed": {"max_envelope_bytes": 1, "max_secrets": 1, "max_total_bytes": 1, "rate": {"requests_per_second": 1.0, "burst": 1}}
+            },
+            "claim_rate": {"requests_per_second": 1.0, "burst": 1}
+        }"#;
+        let info: InfoResponse = serde_json::from_str(body).expect("parse");
+        assert!(info.latest_cli_version.is_none());
+        assert!(info.latest_cli_version_checked_at.is_none());
+        assert!(info.min_supported_cli_version.is_none());
+    }
+
+    #[test]
+    fn info_response_parses_all_cli_version_fields() {
+        let body = r#"{
+            "authenticated": false,
+            "ttl": {"default_seconds": 3600, "max_seconds": 86400},
+            "limits": {
+                "public": {"max_envelope_bytes": 1, "max_secrets": 1, "max_total_bytes": 1, "rate": {"requests_per_second": 1.0, "burst": 1}},
+                "authed": {"max_envelope_bytes": 1, "max_secrets": 1, "max_total_bytes": 1, "rate": {"requests_per_second": 1.0, "burst": 1}}
+            },
+            "claim_rate": {"requests_per_second": 1.0, "burst": 1},
+            "latest_cli_version": "0.16.0",
+            "latest_cli_version_checked_at": "2026-04-25T09:08:07Z",
+            "min_supported_cli_version": "0.15.0"
+        }"#;
+        let info: InfoResponse = serde_json::from_str(body).expect("parse");
+        assert_eq!(info.latest_cli_version.as_deref(), Some("0.16.0"));
+        assert_eq!(
+            info.latest_cli_version_checked_at.as_deref(),
+            Some("2026-04-25T09:08:07Z")
+        );
+        assert_eq!(info.min_supported_cli_version.as_deref(), Some("0.15.0"));
+    }
+
+    #[test]
+    fn info_response_parses_with_only_min_supported() {
+        // Server pre-poll: latest fields absent, min always present.
+        let body = r#"{
+            "authenticated": true,
+            "user_id": "user-1",
+            "ttl": {"default_seconds": 3600, "max_seconds": 86400},
+            "limits": {
+                "public": {"max_envelope_bytes": 1, "max_secrets": 1, "max_total_bytes": 1, "rate": {"requests_per_second": 1.0, "burst": 1}},
+                "authed": {"max_envelope_bytes": 1, "max_secrets": 1, "max_total_bytes": 1, "rate": {"requests_per_second": 1.0, "burst": 1}}
+            },
+            "claim_rate": {"requests_per_second": 1.0, "burst": 1},
+            "min_supported_cli_version": "0.15.0",
+            "future_unknown_field": "ignored"
+        }"#;
+        let info: InfoResponse = serde_json::from_str(body).expect("parse");
+        assert!(info.latest_cli_version.is_none());
+        assert!(info.latest_cli_version_checked_at.is_none());
+        assert_eq!(info.min_supported_cli_version.as_deref(), Some("0.15.0"));
+        assert!(info.authenticated);
+    }
 }

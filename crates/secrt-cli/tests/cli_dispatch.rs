@@ -682,6 +682,9 @@ fn mock_info_response(authenticated: bool) -> InfoResponse {
             requests_per_second: 1.0,
             burst: 10,
         },
+        latest_cli_version: None,
+        latest_cli_version_checked_at: None,
+        min_supported_cli_version: None,
     }
 }
 

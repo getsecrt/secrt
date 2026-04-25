@@ -1,7 +1,13 @@
 use serde::Deserialize;
-use std::time::Duration;
+use std::time::{Duration, SystemTime};
 
 pub use secrt_core::api::*;
+
+/// `User-Agent` value sent on every CLI HTTP request. The CLI's HTTP client
+/// behavior (`spec/v1/cli.md § HTTP Client Behavior`) requires every
+/// outbound request to identify itself this way, so the server can correlate
+/// usage by version and trigger version-specific incident remediation.
+pub const USER_AGENT: &str = concat!("secrt/", env!("CARGO_PKG_VERSION"));
 
 /// HTTP API client for secrt.
 pub struct ApiClient {
@@ -26,8 +32,35 @@ impl ApiClient {
             ureq::config::Config::builder()
                 .timeout_global(Some(Duration::from_secs(30)))
                 .http_status_as_error(false)
+                .user_agent(USER_AGENT)
                 .build(),
         )
+    }
+
+    /// Read the three advisory CLI-version headers off any successful or
+    /// failed server response and feed them into the shared update-check
+    /// cache. Best-effort: never fails, never blocks the caller.
+    fn observe_response<B>(resp: &ureq::http::Response<B>) {
+        let h = resp.headers();
+        let latest = h
+            .get("x-secrt-latest-cli-version")
+            .and_then(|v| v.to_str().ok());
+        let checked_at = h
+            .get("x-secrt-latest-cli-version-checked-at")
+            .and_then(|v| v.to_str().ok());
+        let min = h
+            .get("x-secrt-min-cli-version")
+            .and_then(|v| v.to_str().ok());
+        if latest.is_none() && checked_at.is_none() && min.is_none() {
+            return;
+        }
+        crate::update_check::ingest_advisory_headers(
+            latest,
+            checked_at,
+            min,
+            &|k| std::env::var(k).ok(),
+            SystemTime::now(),
+        );
     }
 
     fn handle_ureq_error(&self, err: ureq::Error) -> String {
@@ -47,6 +80,7 @@ impl ApiClient {
 
     fn read_api_error_from_response(&self, resp: ureq::http::Response<ureq::Body>) -> String {
         let status = resp.status().as_u16();
+        Self::observe_response(&resp);
         let body = resp.into_body().read_to_string().unwrap_or_default();
         format_api_error(status, &body)
     }
@@ -150,6 +184,7 @@ impl ApiClient {
             .header("Content-Type", "application/json")
             .send(&body_bytes[..])
             .map_err(|e| self.handle_ureq_error(e))?;
+        Self::observe_response(&resp);
 
         let status = resp.status().as_u16();
         if status != 200 {
@@ -184,6 +219,7 @@ impl ApiClient {
             .header("Content-Type", "application/json")
             .send(&body_bytes[..])
             .map_err(|e| self.handle_ureq_error(e))?;
+        Self::observe_response(&resp);
 
         if resp.status().as_u16() != 200 {
             return Err(self.read_api_error_from_response(resp));
@@ -220,6 +256,7 @@ impl SecretApi for ApiClient {
         let resp = request
             .send(&body[..])
             .map_err(|e| self.handle_ureq_error(e))?;
+        Self::observe_response(&resp);
 
         if resp.status().as_u16() != 201 {
             return Err(self.read_api_error_from_response(resp));
@@ -247,6 +284,7 @@ impl SecretApi for ApiClient {
             .header("Content-Type", "application/json")
             .send(&body[..])
             .map_err(|e| self.handle_ureq_error(e))?;
+        Self::observe_response(&resp);
 
         if resp.status().as_u16() != 200 {
             return Err(self.read_api_error_from_response(resp));
@@ -278,6 +316,7 @@ impl SecretApi for ApiClient {
         let resp = request
             .send(&[][..])
             .map_err(|e| self.handle_ureq_error(e))?;
+        Self::observe_response(&resp);
 
         if resp.status().as_u16() != 200 {
             return Err(self.read_api_error_from_response(resp));
@@ -306,6 +345,7 @@ impl SecretApi for ApiClient {
         }
 
         let resp = request.call().map_err(|e| self.handle_ureq_error(e))?;
+        Self::observe_response(&resp);
 
         if resp.status().as_u16() != 200 {
             return Err(self.read_api_error_from_response(resp));
@@ -328,6 +368,7 @@ impl SecretApi for ApiClient {
         }
 
         let resp = request.call().map_err(|e| self.handle_ureq_error(e))?;
+        Self::observe_response(&resp);
 
         if resp.status().as_u16() != 200 {
             return Err(self.read_api_error_from_response(resp));
@@ -367,6 +408,7 @@ impl SecretApi for ApiClient {
         let resp = request
             .send(&body_bytes[..])
             .map_err(|e| self.handle_ureq_error(e))?;
+        Self::observe_response(&resp);
 
         if resp.status().as_u16() != 200 {
             return Err(self.read_api_error_from_response(resp));
@@ -386,6 +428,7 @@ impl SecretApi for ApiClient {
             .header("X-API-Key", &wire_api_key)
             .call()
             .map_err(|e| self.handle_ureq_error(e))?;
+        Self::observe_response(&resp);
 
         let status = resp.status().as_u16();
         if status == 404 {
@@ -434,6 +477,7 @@ impl SecretApi for ApiClient {
             .header("X-API-Key", &wire_api_key)
             .send(&body_bytes[..])
             .map_err(|e| self.handle_ureq_error(e))?;
+        Self::observe_response(&resp);
 
         let status = resp.status().as_u16();
         if status == 409 {
@@ -455,6 +499,7 @@ impl SecretApi for ApiClient {
             ureq::config::Config::builder()
                 .timeout_global(Some(Duration::from_secs(2)))
                 .http_status_as_error(false)
+                .user_agent(USER_AGENT)
                 .build(),
         );
 
@@ -465,6 +510,7 @@ impl SecretApi for ApiClient {
         }
 
         let resp = request.call().map_err(|e| self.handle_ureq_error(e))?;
+        Self::observe_response(&resp);
 
         if resp.status().as_u16() != 200 {
             return Err(self.read_api_error_from_response(resp));
@@ -476,6 +522,15 @@ impl SecretApi for ApiClient {
             .map_err(|e| format!("decode response: {}", e))?;
         let result: InfoResponse =
             serde_json::from_str(&body_str).map_err(|e| format!("decode response: {}", e))?;
+
+        // Refresh the local update-check cache from the typed body fields,
+        // covering the path where advisory headers may have been stripped
+        // by an intermediary proxy.
+        crate::update_check::ingest_info_response(
+            &result,
+            &|k| std::env::var(k).ok(),
+            SystemTime::now(),
+        );
 
         Ok(result)
     }

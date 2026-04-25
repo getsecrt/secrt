@@ -14,6 +14,10 @@ pub struct Config {
     pub show_input: Option<bool>,
     pub use_keychain: Option<bool>,
     pub auto_copy: Option<bool>,
+    /// Implicit update-check banner. `Some(false)` suppresses; absent or
+    /// `Some(true)` enables (default). Layered with `--no-update-check` and
+    /// `SECRET_NO_UPDATE_CHECK=1`.
+    pub update_check: Option<bool>,
     #[serde(default)]
     pub decryption_passphrases: Vec<String>,
 }
@@ -89,18 +93,93 @@ fn load_config_filtered(path: &PathBuf, stderr: &mut dyn Write) -> Config {
 /// Parse the TOML file at the given path.
 fn load_config_from_path(path: &PathBuf, stderr: &mut dyn Write) -> Config {
     match fs::read_to_string(path) {
-        Ok(contents) => match toml::from_str::<Config>(&contents) {
-            Ok(config) => config,
-            Err(e) => {
-                let _ = writeln!(stderr, "warning: failed to parse {}: {}", path.display(), e);
-                Config::default()
+        Ok(contents) => {
+            // Migrate older configs corrupted by a writer bug that quoted bool keys
+            // (e.g. `use_keychain = "true"`). Silently rewrite to bool literal so
+            // affected users recover keychain integration on first run after upgrade.
+            let (sanitized, changed) = sanitize_string_bools(&contents);
+            if changed {
+                let _ = fs::write(path, &sanitized);
             }
-        },
+            match toml::from_str::<Config>(&sanitized) {
+                Ok(config) => config,
+                Err(e) => {
+                    let _ = writeln!(stderr, "warning: failed to parse {}: {}", path.display(), e);
+                    Config::default()
+                }
+            }
+        }
         Err(e) => {
             let _ = writeln!(stderr, "warning: failed to read {}: {}", path.display(), e);
             Config::default()
         }
     }
+}
+
+/// Config keys whose TOML value MUST be a bool literal (not a quoted string).
+const BOOL_CONFIG_KEYS: &[&str] = &["use_keychain", "show_input", "auto_copy", "update_check"];
+
+/// Format a value for `key = ...`. Bool-typed keys get bool literals; everything
+/// else is emitted as a TOML string.
+fn format_config_value(key: &str, value: &str) -> String {
+    if BOOL_CONFIG_KEYS.contains(&key) {
+        match value {
+            "true" => return "true".to_string(),
+            "false" => return "false".to_string(),
+            _ => {} // unexpected; fall through to string form (will surface on load)
+        }
+    }
+    format!("\"{}\"", value.replace('\\', "\\\\").replace('"', "\\\""))
+}
+
+/// Rewrite lines of form `<bool_key> = "true"` / `"false"` (string-quoted) to a
+/// bare bool literal. Returns `(new_contents, changed)`. Used to recover from a
+/// writer bug in <= 0.15.0 that quoted `use_keychain = true`, which then made
+/// the entire config fail to parse.
+fn sanitize_string_bools(contents: &str) -> (String, bool) {
+    let mut changed = false;
+    let new_lines: Vec<String> = contents
+        .lines()
+        .map(|line| {
+            let trimmed = line.trim_start();
+            for &key in BOOL_CONFIG_KEYS {
+                for &value in &["true", "false"] {
+                    if line_is_string_bool_for(trimmed, key, value) {
+                        changed = true;
+                        let indent_len = line.len() - trimmed.len();
+                        let indent = &line[..indent_len];
+                        return format!("{}{} = {}", indent, key, value);
+                    }
+                }
+            }
+            line.to_string()
+        })
+        .collect();
+    let mut result = new_lines.join("\n");
+    if contents.ends_with('\n') && !result.ends_with('\n') {
+        result.push('\n');
+    }
+    (result, changed)
+}
+
+/// Does `trimmed` start with `<key> = "<value>"` (with optional whitespace
+/// around `=` and an optional trailing comment)?
+fn line_is_string_bool_for(trimmed: &str, key: &str, value: &str) -> bool {
+    let rest = match trimmed.strip_prefix(key) {
+        Some(r) => r,
+        None => return false,
+    };
+    let rest = rest.trim_start();
+    let rest = match rest.strip_prefix('=') {
+        Some(r) => r.trim_start(),
+        None => return false,
+    };
+    let needle = format!("\"{}\"", value);
+    let after = match rest.strip_prefix(&needle) {
+        Some(r) => r.trim_start(),
+        None => return false,
+    };
+    after.is_empty() || after.starts_with('#')
 }
 
 /// Template content for a new config file.
@@ -133,6 +212,10 @@ pub const CONFIG_TEMPLATE: &str = "\
 # (macOS Keychain, Linux keyutils, Windows Credential Manager).
 # Requires building with --features keychain. Default: false.
 # use_keychain = false
+
+# Show a one-line banner on stderr when a newer secrt version is available
+# (default: true). Layered with --no-update-check and SECRET_NO_UPDATE_CHECK=1.
+# update_check = true
 ";
 
 /// Create a config file from the template. Returns Ok(path) on success.
@@ -222,8 +305,8 @@ pub fn set_config_key(
     let contents = fs::read_to_string(&path)
         .map_err(|e| format!("failed to read {}: {}", path.display(), e))?;
 
-    let escaped_value = format!("\"{}\"", value.replace('\\', "\\\\").replace('"', "\\\""));
-    let new_line = format!("{} = {}", key, escaped_value);
+    let formatted_value = format_config_value(key, value);
+    let new_line = format!("{} = {}", key, formatted_value);
 
     let mut found = false;
     let mut lines: Vec<String> = contents
@@ -651,6 +734,148 @@ mod tests {
             "should fall back to ~/.config: {:?}",
             path
         );
+    }
+
+    #[test]
+    fn set_bool_config_keys_are_unquoted() {
+        // Regression for GH#42: `set_config_key("use_keychain", "true")` used to
+        // write `use_keychain = "true"` (string), which then broke TOML parsing
+        // on next load and silently disabled keychain integration.
+        let dir = std::env::temp_dir().join(format!(
+            "secrt_config_set_bool_{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let dir_str = dir.to_str().unwrap().to_string();
+        let getenv = move |key: &str| -> Option<String> {
+            if key == "XDG_CONFIG_HOME" {
+                Some(dir_str.clone())
+            } else {
+                None
+            }
+        };
+
+        for key in ["use_keychain", "show_input", "auto_copy"] {
+            for value in ["true", "false"] {
+                set_config_key(&getenv, key, value).unwrap();
+                let contents = fs::read_to_string(dir.join("secrt").join("config.toml")).unwrap();
+                let needle = format!("{} = {}", key, value);
+                assert!(
+                    contents.contains(&needle),
+                    "expected `{}` (bare bool) in config, got:\n{}",
+                    needle,
+                    contents
+                );
+                let bad = format!("{} = \"{}\"", key, value);
+                assert!(
+                    !contents.contains(&bad),
+                    "found quoted bool `{}` — should be bare literal",
+                    bad
+                );
+                // And it must round-trip through the loader.
+                let config = load_config_with(&getenv, &mut Vec::new());
+                let actual: Option<bool> = match key {
+                    "use_keychain" => config.use_keychain,
+                    "show_input" => config.show_input,
+                    "auto_copy" => config.auto_copy,
+                    _ => unreachable!(),
+                };
+                assert_eq!(actual, Some(value == "true"));
+            }
+        }
+
+        // String keys still get quoted.
+        set_config_key(&getenv, "base_url", "https://example.com").unwrap();
+        let contents = fs::read_to_string(dir.join("secrt").join("config.toml")).unwrap();
+        assert!(contents.contains("base_url = \"https://example.com\""));
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn load_migrates_string_form_bool_silently() {
+        // Existing users hit by GH#42 already have a corrupted config. On load,
+        // we accept the string form, rewrite the file, and parse successfully.
+        let dir = std::env::temp_dir().join(format!(
+            "secrt_config_migrate_{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let secrt_dir = dir.join("secrt");
+        let _ = fs::create_dir_all(&secrt_dir);
+        let path = secrt_dir.join("config.toml");
+        fs::write(
+            &path,
+            "api_key = \"sk2_x\"\nuse_keychain = \"true\"\nauto_copy = \"false\"\n",
+        )
+        .unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let _ = fs::set_permissions(&path, fs::Permissions::from_mode(0o600));
+        }
+        let dir_str = dir.to_str().unwrap().to_string();
+        let getenv = move |key: &str| -> Option<String> {
+            if key == "XDG_CONFIG_HOME" {
+                Some(dir_str.clone())
+            } else {
+                None
+            }
+        };
+        let mut stderr = Vec::new();
+        let config = load_config_with(&getenv, &mut stderr);
+
+        assert_eq!(
+            config.use_keychain,
+            Some(true),
+            "should parse migrated bool"
+        );
+        assert_eq!(config.auto_copy, Some(false));
+        assert_eq!(config.api_key.as_deref(), Some("sk2_x"));
+
+        let warning = String::from_utf8(stderr).unwrap();
+        assert!(
+            !warning.contains("warning:"),
+            "migration should be silent, got: {}",
+            warning
+        );
+
+        let on_disk = fs::read_to_string(&path).unwrap();
+        assert!(
+            on_disk.contains("use_keychain = true"),
+            "file should be rewritten with bool literal:\n{}",
+            on_disk
+        );
+        assert!(on_disk.contains("auto_copy = false"));
+        assert!(!on_disk.contains("\"true\""));
+        assert!(!on_disk.contains("\"false\""));
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn sanitize_preserves_unrelated_lines() {
+        let input = "# comment\napi_key = \"sk2_x\"\nuse_keychain = \"true\"  # ok\nbase_url = \"https://x\"\n";
+        let (out, changed) = sanitize_string_bools(input);
+        assert!(changed);
+        assert!(out.contains("# comment"));
+        assert!(out.contains("api_key = \"sk2_x\""));
+        assert!(out.contains("use_keychain = true"));
+        assert!(out.contains("base_url = \"https://x\""));
+        // Trailing newline preserved.
+        assert!(out.ends_with('\n'));
+    }
+
+    #[test]
+    fn sanitize_does_not_touch_correct_files() {
+        let input = "use_keychain = true\nshow_input = false\n";
+        let (out, changed) = sanitize_string_bools(input);
+        assert!(!changed);
+        assert_eq!(out, input);
     }
 
     #[test]

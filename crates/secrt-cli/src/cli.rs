@@ -1,4 +1,5 @@
 use std::io::{self, Read, Write};
+use std::time::SystemTime;
 
 use crate::burn::run_burn;
 use crate::client::SecretApi;
@@ -8,6 +9,7 @@ use crate::gen::run_gen;
 use crate::get::run_get;
 use crate::list::run_list;
 use crate::send::run_send;
+use crate::update_check;
 
 const DEFAULT_BASE_URL: &str = "https://secrt.ca";
 const VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -31,6 +33,10 @@ pub struct Deps {
     pub stderr: Box<dyn Write>,
     pub is_tty: Box<dyn Fn() -> bool>,
     pub is_stdout_tty: Box<dyn Fn() -> bool>,
+    /// Whether stderr is a TTY. Used by the implicit update-check banner:
+    /// the banner is suppressed entirely when stderr is not a TTY (e.g.,
+    /// CI logs, redirected stderr) so machine-readable streams stay clean.
+    pub is_stderr_tty: Box<dyn Fn() -> bool>,
     pub getenv: GetenvFn,
     pub rand_bytes: RandBytesFn,
     pub read_pass: ReadPassFn,
@@ -42,6 +48,8 @@ pub struct Deps {
     pub open_browser: OpenBrowserFn,
     pub copy_to_clipboard: CopyToClipboardFn,
     pub sleep: SleepFn,
+    /// Wall-clock injection for cache TTL checks and `checked_at` stamps.
+    pub now: Box<dyn Fn() -> SystemTime>,
 }
 
 /// Parsed global and command-specific flags.
@@ -68,6 +76,8 @@ pub struct ParsedArgs {
 
     // Global
     pub silent: bool,
+    /// One-off opt-out for the implicit update-check banner.
+    pub no_update_check: bool,
 
     // Send
     pub qr: bool,
@@ -113,6 +123,12 @@ pub enum CliError {
 
 /// Main entry point. Returns exit code.
 pub fn run(args: &[String], deps: &mut Deps) -> i32 {
+    let exit = dispatch(args, deps);
+    maybe_emit_update_banner(args, deps);
+    exit
+}
+
+fn dispatch(args: &[String], deps: &mut Deps) -> i32 {
     if args.len() < 2 {
         print_usage(deps);
         return 2;
@@ -159,6 +175,91 @@ pub fn run(args: &[String], deps: &mut Deps) -> i32 {
             2
         }
     }
+}
+
+/// Cache-only post-command banner. Reads `~/.cache/secrt/update-check.json`
+/// (no network call) and emits one stderr line when the running CLI is
+/// behind. Suppression matrix in `spec/v1/cli.md § Implicit Banner`.
+fn maybe_emit_update_banner(args: &[String], deps: &mut Deps) {
+    if banner_suppressed(args, deps) {
+        return;
+    }
+    let getenv_fn: &dyn Fn(&str) -> Option<String> = &*deps.getenv;
+    let Some(info) = update_check::check_cache(getenv_fn, (deps.now)()) else {
+        return;
+    };
+    let stderr_tty = (deps.is_stderr_tty)();
+    update_check::emit_banner(&mut deps.stderr, &info, stderr_tty);
+}
+
+fn banner_suppressed(args: &[String], deps: &Deps) -> bool {
+    // `secrt update` itself never emits the banner — it's the upgrade path.
+    if args.len() >= 2 && args[1] == "update" {
+        return true;
+    }
+    // Stderr-not-TTY suppresses by default; piped/CI streams stay clean.
+    if !(deps.is_stderr_tty)() {
+        return true;
+    }
+    // Env-var opt-out (per `SECRET_NO_UPDATE_CHECK=1` in cli.md).
+    if let Some(v) = (deps.getenv)("SECRET_NO_UPDATE_CHECK") {
+        if matches!(v.trim(), "1" | "true" | "yes") {
+            return true;
+        }
+    }
+    // Config-file opt-out resolves only after we know XDG_CONFIG_HOME, but
+    // we already consult the same getenv that `load_config_with` does, so a
+    // direct call is correct.
+    let mut sink: Vec<u8> = Vec::new();
+    let cfg = crate::config::load_config_with(&*deps.getenv, &mut sink);
+    if cfg.update_check == Some(false) {
+        return true;
+    }
+    // Per-invocation flag suppressions: scan raw args. Only positional
+    // flags are inspected — these are the same names parsed by
+    // `parse_flags`.
+    if scan_flag(args, &["--no-update-check"]) {
+        return true;
+    }
+    if scan_flag(args, &["--silent"]) {
+        return true;
+    }
+    if scan_flag(args, &["--json"]) {
+        return true;
+    }
+    // `secrt get -o -` to a non-TTY stdout: binary on stdout pipe.
+    if !(deps.is_stdout_tty)() && stdout_is_dash(args) {
+        return true;
+    }
+    false
+}
+
+/// Match a flag in raw args. Accepts both `--flag` and `--flag=value` (the
+/// latter only when an exact match was requested via the value being part
+/// of the literal).
+fn scan_flag(args: &[String], names: &[&str]) -> bool {
+    args.iter().any(|a| {
+        names
+            .iter()
+            .any(|&n| a == n || a.starts_with(&format!("{}=", n)))
+    })
+}
+
+/// Detect `-o -`, `--output -`, or `--output=-` in args.
+fn stdout_is_dash(args: &[String]) -> bool {
+    let mut iter = args.iter();
+    while let Some(a) = iter.next() {
+        match a.as_str() {
+            "-o" | "--output" => {
+                if iter.next().map(|s| s.as_str()) == Some("-") {
+                    return true;
+                }
+            }
+            "--output=-" | "-o=-" | "-o-" => return true,
+            _ => {}
+        }
+    }
+    false
 }
 
 /// Detect whether a string looks like a share URL (contains `#` followed by
@@ -324,6 +425,7 @@ pub fn parse_flags(args: &[String]) -> Result<ParsedArgs, CliError> {
             "--show" | "-s" => pa.show = true,
             "--hidden" => pa.hidden = true,
             "--silent" => pa.silent = true,
+            "--no-update-check" => pa.no_update_check = true,
             "--qr" | "-Q" => pa.qr = true,
             "--no-copy" => pa.no_copy = true,
             "--note" => pa.note = next_val!("--note"),
@@ -845,6 +947,28 @@ fn run_config_show(deps: &mut Deps) -> i32 {
         c(OPT, "show_input"),
         show_val,
         c(DIM, &format!("({})", show_src)),
+    );
+
+    // update_check: env / config / default
+    let (uc_val, uc_src) = if let Some(env) = (deps.getenv)("SECRET_NO_UPDATE_CHECK") {
+        if matches!(env.trim(), "1" | "true" | "yes") {
+            ("false".into(), "env SECRET_NO_UPDATE_CHECK")
+        } else if let Some(v) = config.update_check {
+            (v.to_string(), "config file")
+        } else {
+            ("true".into(), "default")
+        }
+    } else if let Some(v) = config.update_check {
+        (v.to_string(), "config file")
+    } else {
+        ("true".into(), "default")
+    };
+    let _ = writeln!(
+        deps.stderr,
+        "  {}: {} {}",
+        c(OPT, "update_check"),
+        uc_val,
+        c(DIM, &format!("({})", uc_src)),
     );
 
     // decryption_passphrases: keychain/config/both/none
@@ -2083,6 +2207,7 @@ mod tests {
             stderr: Box::new(Capture(std::rc::Rc::clone(&buf))),
             is_tty: Box::new(|| false),
             is_stdout_tty: Box::new(|| false),
+            is_stderr_tty: Box::new(|| false),
             getenv: Box::new(|_: &str| None),
             rand_bytes: Box::new(|_: &mut [u8]| Ok(())),
             read_pass: Box::new(|_: &str, _: &mut dyn Write| {
@@ -2101,6 +2226,7 @@ mod tests {
             open_browser: Box::new(|_: &str| Err("unused".into())),
             copy_to_clipboard: Box::new(|_: &str| Ok(())),
             sleep: Box::new(|_: std::time::Duration| {}),
+            now: Box::new(std::time::SystemTime::now),
         };
         f(&mut deps);
         drop(deps);
@@ -2147,6 +2273,7 @@ mod tests {
             stderr: Box::new(Vec::new()),
             is_tty: Box::new(|| false),
             is_stdout_tty: Box::new(|| false),
+            is_stderr_tty: Box::new(|| false),
             getenv: Box::new(move |key: &str| env.get(key).cloned()),
             rand_bytes: Box::new(|_buf: &mut [u8]| Ok(())),
             read_pass: Box::new(|_prompt: &str, _w: &mut dyn Write| {
@@ -2165,6 +2292,7 @@ mod tests {
             open_browser: Box::new(|_: &str| Err("unused".into())),
             copy_to_clipboard: Box::new(|_: &str| Ok(())),
             sleep: Box::new(|_: std::time::Duration| {}),
+            now: Box::new(std::time::SystemTime::now),
         }
     }
 

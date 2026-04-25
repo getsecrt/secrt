@@ -1,0 +1,733 @@
+//! Update-check infrastructure: cache management, semver comparison, banner
+//! formatting, and opportunistic refresh paths from server responses.
+//!
+//! The implicit banner is **cache-only** — none of the read paths in this
+//! module make a network call. The cache is opportunistically refreshed by:
+//!
+//! 1. Commands that already call `/api/v1/info` → [`ingest_info_response`].
+//! 2. Advisory `X-Secrt-*` response headers from any other server response
+//!    → [`ingest_advisory_headers`].
+//! 3. Explicit `secrt update --check` / `secrt update` (PR4, not in this
+//!    revision) — those bypass the local cache for the *read* and write back.
+
+use std::fs;
+use std::io::Write;
+use std::path::PathBuf;
+use std::sync::OnceLock;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
+
+use serde::{Deserialize, Serialize};
+
+use crate::send::parse_iso_to_epoch;
+
+/// Current CLI version, baked in at compile time.
+pub const CURRENT_VERSION: &str = env!("CARGO_PKG_VERSION");
+
+/// Cache freshness window. Entries older than this are treated as stale and
+/// trigger a re-fetch on the next command path that already hits the server.
+pub const CACHE_TTL: Duration = Duration::from_secs(24 * 60 * 60);
+
+/// On-disk cache shape per `spec/v1/cli.md § Local Cache`. Extra fields are
+/// tolerated for forward compatibility.
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+pub struct UpdateCheckCache {
+    /// RFC 3339 timestamp of when the cache was last refreshed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub checked_at: Option<String>,
+    /// Newest version observed at refresh time.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub latest: Option<String>,
+    /// CLI version that wrote the cache. Used to invalidate the cache when
+    /// the user upgrades the CLI itself (so a stale "you are out of date"
+    /// banner doesn't follow them past the upgrade).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub current: Option<String>,
+    /// Server's hard-floor minimum supported version, if known. Optional in
+    /// the cache (older versions of the cache won't have it). Drives the
+    /// stronger "may not be compatible" banner when the running CLI is below
+    /// this floor.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub min_supported: Option<String>,
+}
+
+/// Result of a successful banner-eligibility check.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct BannerInfo {
+    pub current: String,
+    pub latest: String,
+    /// True when the running CLI is below the server's hard floor — the CLI
+    /// SHOULD render a stronger "may not be compatible" message in that case.
+    pub below_min_supported: bool,
+}
+
+/// Resolve the cache file path: `$XDG_CACHE_HOME/secrt/update-check.json` or
+/// `~/.cache/secrt/update-check.json`. Returns `None` when neither env var
+/// nor home dir is resolvable (e.g., very minimal CI environment).
+pub fn cache_path(getenv: &dyn Fn(&str) -> Option<String>) -> Option<PathBuf> {
+    let cache_dir = getenv("XDG_CACHE_HOME")
+        .filter(|s| !s.is_empty())
+        .map(PathBuf::from)
+        .or_else(|| dirs::home_dir().map(|h| h.join(".cache")));
+    cache_dir.map(|d| d.join("secrt").join("update-check.json"))
+}
+
+/// Read the cache file; tolerate missing files, corrupted JSON, and IO
+/// errors. Never panics. Never returns a `Result` because every error mode
+/// collapses to "cold cache".
+fn read_cache(getenv: &dyn Fn(&str) -> Option<String>) -> UpdateCheckCache {
+    let Some(path) = cache_path(getenv) else {
+        return UpdateCheckCache::default();
+    };
+    let Ok(bytes) = fs::read(&path) else {
+        return UpdateCheckCache::default();
+    };
+    serde_json::from_slice::<UpdateCheckCache>(&bytes).unwrap_or_default()
+}
+
+/// Best-effort cache write. Permission errors, missing parent dirs, and IO
+/// failures are silently ignored — caching is an optimization, not a
+/// correctness guarantee.
+fn write_cache(getenv: &dyn Fn(&str) -> Option<String>, cache: &UpdateCheckCache) {
+    let Some(path) = cache_path(getenv) else {
+        return;
+    };
+    if let Some(parent) = path.parent() {
+        let _ = fs::create_dir_all(parent);
+    }
+    let Ok(bytes) = serde_json::to_vec(cache) else {
+        return;
+    };
+    let _ = fs::write(&path, bytes);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let _ = fs::set_permissions(&path, fs::Permissions::from_mode(0o600));
+    }
+}
+
+/// Read the cache and decide whether the running CLI should display the
+/// banner. Returns `None` when the cache is cold, stale, corrupted, in the
+/// future (clock skew), the running CLI version differs from the version
+/// that wrote the cache, or `latest` is not strictly greater than
+/// `current_version`.
+///
+/// **No network call. Ever.** This is the implicit banner read path.
+pub fn check_cache(getenv: &dyn Fn(&str) -> Option<String>, now: SystemTime) -> Option<BannerInfo> {
+    let cache = read_cache(getenv);
+    let latest = cache.latest.as_deref()?;
+    let cached_current = cache.current.as_deref();
+    let checked_at = cache.checked_at.as_deref()?;
+
+    // Invalidate when the user upgraded since the last cache write.
+    if let Some(prev) = cached_current {
+        if prev != CURRENT_VERSION {
+            return None;
+        }
+    } else {
+        // No `current` recorded — treat as untrusted, just like a corrupt
+        // cache.
+        return None;
+    }
+
+    let cached_epoch = parse_iso_to_epoch(checked_at)?;
+    let now_epoch = now.duration_since(UNIX_EPOCH).ok()?.as_secs();
+
+    // Clock skew: a future timestamp is treated as stale.
+    if cached_epoch > now_epoch {
+        return None;
+    }
+    if now_epoch.saturating_sub(cached_epoch) > CACHE_TTL.as_secs() {
+        return None;
+    }
+
+    let below_min_supported = cache
+        .min_supported
+        .as_deref()
+        .map(|m| compare_semver(CURRENT_VERSION, m) == std::cmp::Ordering::Less)
+        .unwrap_or(false);
+
+    let needs_banner =
+        compare_semver(CURRENT_VERSION, latest) == std::cmp::Ordering::Less || below_min_supported;
+    if !needs_banner {
+        return None;
+    }
+
+    Some(BannerInfo {
+        current: CURRENT_VERSION.to_string(),
+        latest: latest.to_string(),
+        below_min_supported,
+    })
+}
+
+/// Refresh the cache from advisory `X-Secrt-*` response headers. Any subset
+/// of the three values may be absent; present values are merged into the
+/// cache. Best-effort: errors are silently ignored.
+pub fn ingest_advisory_headers(
+    latest: Option<&str>,
+    checked_at: Option<&str>,
+    min_supported: Option<&str>,
+    getenv: &dyn Fn(&str) -> Option<String>,
+    now: SystemTime,
+) {
+    if latest.is_none() && checked_at.is_none() && min_supported.is_none() {
+        return;
+    }
+    let mut cache = read_cache(getenv);
+    if let Some(v) = latest {
+        if is_valid_semver(v) {
+            cache.latest = Some(v.to_string());
+        }
+    }
+    if let Some(v) = checked_at {
+        if parse_iso_to_epoch(v).is_some() {
+            cache.checked_at = Some(v.to_string());
+        }
+    } else if latest.is_some() {
+        // Caller gave us a new `latest` without a server-side `checked_at`
+        // (synthetic value, e.g., pulled from a body field that omitted the
+        // timestamp). Stamp our local clock so `check_cache` doesn't reject
+        // the entry as stale.
+        cache.checked_at = Some(format_rfc3339(now));
+    }
+    if let Some(v) = min_supported {
+        if is_valid_semver(v) {
+            cache.min_supported = Some(v.to_string());
+        }
+    }
+    cache.current = Some(CURRENT_VERSION.to_string());
+    write_cache(getenv, &cache);
+}
+
+/// Refresh the cache from a parsed `/api/v1/info` body. Mirrors
+/// [`ingest_advisory_headers`] but reads the typed body fields.
+pub fn ingest_info_response(
+    info: &secrt_core::api::InfoResponse,
+    getenv: &dyn Fn(&str) -> Option<String>,
+    now: SystemTime,
+) {
+    ingest_advisory_headers(
+        info.latest_cli_version.as_deref(),
+        info.latest_cli_version_checked_at.as_deref(),
+        info.min_supported_cli_version.as_deref(),
+        getenv,
+        now,
+    );
+}
+
+/// Per-process gate so the implicit banner fires at most once per
+/// invocation, even if multiple commands or library calls trigger an
+/// `ingest_*` followed by a banner check.
+static BANNER_EMITTED: OnceLock<()> = OnceLock::new();
+
+/// Emit the banner to `stderr` if appropriate. `stderr_is_tty` controls
+/// color styling (DIM when true, plain otherwise). Returns whether the
+/// banner was emitted.
+pub fn emit_banner(stderr: &mut dyn Write, info: &BannerInfo, stderr_is_tty: bool) -> bool {
+    if BANNER_EMITTED.set(()).is_err() {
+        return false;
+    }
+    let line = format_banner_line(info, stderr_is_tty);
+    let _ = writeln!(stderr, "{}", line);
+    true
+}
+
+/// Build the banner line. Public for tests; main path goes through
+/// [`emit_banner`].
+pub fn format_banner_line(info: &BannerInfo, stderr_is_tty: bool) -> String {
+    let body = if info.below_min_supported {
+        format!(
+            "warning: secrt {} may not be compatible with this server. Run 'secrt update' to upgrade.",
+            info.current
+        )
+    } else {
+        format!(
+            "secrt {} is available (you have {}). Run 'secrt update' to upgrade.",
+            info.latest, info.current
+        )
+    };
+    if stderr_is_tty {
+        // Match `crate::color::DIM` (ANSI 2 = dim, 0 = reset).
+        format!("\x1b[2m{}\x1b[0m", body)
+    } else {
+        body
+    }
+}
+
+/// Compare two semver-ish strings (`X.Y.Z`). Inputs that fail to parse compare
+/// as Equal — callers treat that as "no upgrade signal".
+pub fn compare_semver(a: &str, b: &str) -> std::cmp::Ordering {
+    let pa = parse_semver(a);
+    let pb = parse_semver(b);
+    match (pa, pb) {
+        (Some(x), Some(y)) => x.cmp(&y),
+        _ => std::cmp::Ordering::Equal,
+    }
+}
+
+fn is_valid_semver(s: &str) -> bool {
+    parse_semver(s).is_some()
+}
+
+/// Parse a strict `X.Y.Z` triplet. Rejects prerelease (`-rc.1`) and build
+/// (`+sha`) suffixes — those are deferred to a future spec revision per
+/// `spec/v1/cli.md § Reserved Future Behavior`.
+fn parse_semver(s: &str) -> Option<(u64, u64, u64)> {
+    let mut parts = s.split('.');
+    let major = parts.next()?.parse::<u64>().ok()?;
+    let minor = parts.next()?.parse::<u64>().ok()?;
+    let patch = parts.next()?;
+    if parts.next().is_some() {
+        return None;
+    }
+    if !patch.chars().all(|c| c.is_ascii_digit()) {
+        return None;
+    }
+    Some((major, minor, patch.parse::<u64>().ok()?))
+}
+
+/// Format a `SystemTime` as `YYYY-MM-DDTHH:MM:SSZ` (UTC). Inverse of
+/// [`parse_iso_to_epoch`].
+fn format_rfc3339(t: SystemTime) -> String {
+    let secs = t
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    let (year, month, day) = epoch_to_civil(secs / 86400);
+    let h = (secs % 86400) / 3600;
+    let m = (secs % 3600) / 60;
+    let s = secs % 60;
+    format!(
+        "{:04}-{:02}-{:02}T{:02}:{:02}:{:02}Z",
+        year, month, day, h, m, s
+    )
+}
+
+/// Convert days from Unix epoch to civil `(year, month, day)`. Inverse of
+/// the algorithm in `crate::send::parse_iso_to_epoch`. Howard Hinnant's
+/// civil_from_days algorithm.
+fn epoch_to_civil(days: u64) -> (i64, u32, u32) {
+    let z = days as i64 + 719468;
+    let era = if z >= 0 { z } else { z - 146096 } / 146097;
+    let doe = (z - era * 146097) as u64; // [0, 146096]
+    let yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365; // [0, 399]
+    let y = yoe as i64 + era * 400;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100); // [0, 365]
+    let mp = (5 * doy + 2) / 153; // [0, 11]
+    let d = (doy - (153 * mp + 2) / 5 + 1) as u32;
+    let m = (if mp < 10 { mp + 3 } else { mp - 9 }) as u32;
+    let year = if m <= 2 { y + 1 } else { y };
+    (year, m, d)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::Mutex;
+
+    /// Each test stages its own temp dir under XDG_CACHE_HOME so reads/
+    /// writes don't bleed across tests or pick up the developer's real
+    /// cache.
+    fn isolated_dir() -> PathBuf {
+        let p = std::env::temp_dir().join(format!(
+            "secrt_update_check_{}_{:?}_{}",
+            std::process::id(),
+            std::thread::current().id(),
+            std::time::SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let _ = fs::create_dir_all(&p);
+        p
+    }
+
+    fn getenv_for(dir: &PathBuf) -> impl Fn(&str) -> Option<String> + '_ {
+        |k: &str| {
+            if k == "XDG_CACHE_HOME" {
+                Some(dir.to_string_lossy().to_string())
+            } else {
+                None
+            }
+        }
+    }
+
+    fn write_raw_cache(dir: &PathBuf, contents: &str) {
+        let cache_dir = dir.join("secrt");
+        fs::create_dir_all(&cache_dir).unwrap();
+        fs::write(cache_dir.join("update-check.json"), contents).unwrap();
+    }
+
+    fn epoch(s: u64) -> SystemTime {
+        UNIX_EPOCH + Duration::from_secs(s)
+    }
+
+    #[test]
+    fn parse_semver_strict() {
+        assert_eq!(parse_semver("0.15.0"), Some((0, 15, 0)));
+        assert_eq!(parse_semver("1.2.3"), Some((1, 2, 3)));
+        assert_eq!(parse_semver("0.15.0-rc.1"), None);
+        assert_eq!(parse_semver("0.15"), None);
+        assert_eq!(parse_semver("0.15.0.1"), None);
+        assert_eq!(parse_semver(""), None);
+    }
+
+    #[test]
+    fn compare_semver_orderings() {
+        use std::cmp::Ordering::*;
+        assert_eq!(compare_semver("0.15.0", "0.16.0"), Less);
+        assert_eq!(compare_semver("0.16.0", "0.15.0"), Greater);
+        assert_eq!(compare_semver("0.15.0", "0.15.0"), Equal);
+        assert_eq!(compare_semver("0.15.10", "0.15.2"), Greater);
+        // Bad inputs collapse to Equal so we never falsely claim an upgrade.
+        assert_eq!(compare_semver("garbage", "0.15.0"), Equal);
+    }
+
+    #[test]
+    fn rfc3339_round_trip() {
+        let t = epoch(1_745_578_087); // 2025-04-25T08:48:07Z
+        let formatted = format_rfc3339(t);
+        let parsed = parse_iso_to_epoch(&formatted).unwrap();
+        assert_eq!(parsed, 1_745_578_087);
+    }
+
+    #[test]
+    fn rfc3339_format_known_dates() {
+        assert_eq!(format_rfc3339(epoch(0)), "1970-01-01T00:00:00Z");
+        // 2026-04-25T12:38:57Z -> precomputed:
+        // From Unix epoch days: 2026-04-25 is day 20568 since 1970-01-01.
+        let t = epoch(20568 * 86400 + 12 * 3600 + 38 * 60 + 57);
+        assert_eq!(format_rfc3339(t), "2026-04-25T12:38:57Z");
+    }
+
+    #[test]
+    fn check_cache_returns_none_when_missing() {
+        let dir = isolated_dir();
+        let getenv = getenv_for(&dir);
+        assert!(check_cache(&getenv, SystemTime::now()).is_none());
+    }
+
+    #[test]
+    fn check_cache_returns_none_when_corrupted() {
+        let dir = isolated_dir();
+        write_raw_cache(&dir, "{not valid json");
+        let getenv = getenv_for(&dir);
+        assert!(check_cache(&getenv, SystemTime::now()).is_none());
+    }
+
+    #[test]
+    fn check_cache_returns_none_when_stale() {
+        let dir = isolated_dir();
+        let now_epoch = 1_745_578_000_u64;
+        let stale_epoch = now_epoch - (25 * 60 * 60); // 25h ago
+        let stale_iso = format_rfc3339(epoch(stale_epoch));
+        write_raw_cache(
+            &dir,
+            &format!(
+                r#"{{"checked_at":"{stale_iso}","latest":"99.0.0","current":"{cur}"}}"#,
+                cur = CURRENT_VERSION
+            ),
+        );
+        let getenv = getenv_for(&dir);
+        assert!(check_cache(&getenv, epoch(now_epoch)).is_none());
+    }
+
+    #[test]
+    fn check_cache_returns_none_when_clock_skew() {
+        let dir = isolated_dir();
+        let now_epoch = 1_745_578_000_u64;
+        let future_iso = format_rfc3339(epoch(now_epoch + 60 * 60));
+        write_raw_cache(
+            &dir,
+            &format!(
+                r#"{{"checked_at":"{future_iso}","latest":"99.0.0","current":"{cur}"}}"#,
+                cur = CURRENT_VERSION
+            ),
+        );
+        let getenv = getenv_for(&dir);
+        assert!(check_cache(&getenv, epoch(now_epoch)).is_none());
+    }
+
+    #[test]
+    fn check_cache_returns_none_when_current_version_changed() {
+        // User upgraded since last cache write — we ignore the entry so a
+        // stale "you are out of date" banner doesn't follow them.
+        let dir = isolated_dir();
+        let now_epoch = 1_745_578_000_u64;
+        let iso = format_rfc3339(epoch(now_epoch));
+        write_raw_cache(
+            &dir,
+            &format!(r#"{{"checked_at":"{iso}","latest":"99.0.0","current":"0.0.1-different"}}"#),
+        );
+        let getenv = getenv_for(&dir);
+        assert!(check_cache(&getenv, epoch(now_epoch)).is_none());
+    }
+
+    #[test]
+    fn check_cache_returns_some_when_upgrade_available() {
+        let dir = isolated_dir();
+        let now_epoch = 1_745_578_000_u64;
+        let iso = format_rfc3339(epoch(now_epoch));
+        write_raw_cache(
+            &dir,
+            &format!(
+                r#"{{"checked_at":"{iso}","latest":"99.0.0","current":"{cur}"}}"#,
+                cur = CURRENT_VERSION
+            ),
+        );
+        let getenv = getenv_for(&dir);
+        let info = check_cache(&getenv, epoch(now_epoch)).expect("banner info");
+        assert_eq!(info.latest, "99.0.0");
+        assert_eq!(info.current, CURRENT_VERSION);
+        assert!(!info.below_min_supported);
+    }
+
+    #[test]
+    fn check_cache_flags_below_min_supported() {
+        let dir = isolated_dir();
+        let now_epoch = 1_745_578_000_u64;
+        let iso = format_rfc3339(epoch(now_epoch));
+        // latest equal to current (no version-up banner) but min_supported
+        // is in the future — the stronger banner should fire.
+        write_raw_cache(
+            &dir,
+            &format!(
+                r#"{{"checked_at":"{iso}","latest":"{cur}","current":"{cur}","min_supported":"99.0.0"}}"#,
+                cur = CURRENT_VERSION
+            ),
+        );
+        let getenv = getenv_for(&dir);
+        let info = check_cache(&getenv, epoch(now_epoch)).expect("banner info");
+        assert!(info.below_min_supported);
+    }
+
+    #[test]
+    fn ingest_advisory_headers_writes_cache() {
+        let dir = isolated_dir();
+        let getenv = getenv_for(&dir);
+        ingest_advisory_headers(
+            Some("0.16.0"),
+            Some("2026-04-25T09:00:00Z"),
+            Some("0.15.0"),
+            &getenv,
+            SystemTime::now(),
+        );
+        let cache = read_cache(&getenv);
+        assert_eq!(cache.latest.as_deref(), Some("0.16.0"));
+        assert_eq!(cache.checked_at.as_deref(), Some("2026-04-25T09:00:00Z"));
+        assert_eq!(cache.min_supported.as_deref(), Some("0.15.0"));
+        assert_eq!(cache.current.as_deref(), Some(CURRENT_VERSION));
+    }
+
+    #[test]
+    fn ingest_advisory_headers_min_only_keeps_latest() {
+        // First call: populate latest.
+        let dir = isolated_dir();
+        let getenv = getenv_for(&dir);
+        ingest_advisory_headers(
+            Some("0.16.0"),
+            Some("2026-04-25T09:00:00Z"),
+            None,
+            &getenv,
+            SystemTime::now(),
+        );
+        // Second call: only min_supported present (e.g., a response from a
+        // server whose poll cache is cold). Latest must persist.
+        ingest_advisory_headers(None, None, Some("0.15.0"), &getenv, SystemTime::now());
+        let cache = read_cache(&getenv);
+        assert_eq!(cache.latest.as_deref(), Some("0.16.0"));
+        assert_eq!(cache.min_supported.as_deref(), Some("0.15.0"));
+    }
+
+    #[test]
+    fn ingest_advisory_headers_rejects_invalid_semver() {
+        let dir = isolated_dir();
+        let getenv = getenv_for(&dir);
+        ingest_advisory_headers(
+            Some("not-a-semver"),
+            Some("2026-04-25T09:00:00Z"),
+            Some("0.16.0-rc.1"),
+            &getenv,
+            SystemTime::now(),
+        );
+        let cache = read_cache(&getenv);
+        assert!(cache.latest.is_none());
+        assert!(cache.min_supported.is_none());
+        // checked_at is still updated — that's fine, we just don't believe
+        // the version values.
+        assert_eq!(cache.checked_at.as_deref(), Some("2026-04-25T09:00:00Z"));
+    }
+
+    #[test]
+    fn ingest_advisory_headers_no_op_when_all_absent() {
+        let dir = isolated_dir();
+        let getenv = getenv_for(&dir);
+        ingest_advisory_headers(None, None, None, &getenv, SystemTime::now());
+        // No file should have been written.
+        assert!(!cache_path(&getenv).unwrap().exists());
+    }
+
+    #[test]
+    fn ingest_advisory_headers_synthesizes_checked_at_when_missing() {
+        // E.g., a synthetic feed from a body that doesn't carry checked_at
+        // but does carry latest. We stamp local time so check_cache treats
+        // the entry as fresh.
+        let dir = isolated_dir();
+        let getenv = getenv_for(&dir);
+        let now = epoch(1_745_578_000);
+        ingest_advisory_headers(Some("0.16.0"), None, None, &getenv, now);
+        let cache = read_cache(&getenv);
+        assert_eq!(cache.latest.as_deref(), Some("0.16.0"));
+        assert_eq!(
+            cache.checked_at.as_deref(),
+            Some(format_rfc3339(now)).as_deref()
+        );
+    }
+
+    #[test]
+    fn ingest_info_response_round_trip() {
+        let dir = isolated_dir();
+        let getenv = getenv_for(&dir);
+        let info = secrt_core::api::InfoResponse {
+            authenticated: false,
+            user_id: None,
+            ttl: secrt_core::api::InfoTTL {
+                default_seconds: 0,
+                max_seconds: 0,
+            },
+            limits: secrt_core::api::InfoLimits {
+                public: secrt_core::api::InfoTier {
+                    max_envelope_bytes: 0,
+                    max_secrets: 0,
+                    max_total_bytes: 0,
+                    rate: secrt_core::api::InfoRate {
+                        requests_per_second: 0.0,
+                        burst: 0,
+                    },
+                },
+                authed: secrt_core::api::InfoTier {
+                    max_envelope_bytes: 0,
+                    max_secrets: 0,
+                    max_total_bytes: 0,
+                    rate: secrt_core::api::InfoRate {
+                        requests_per_second: 0.0,
+                        burst: 0,
+                    },
+                },
+            },
+            claim_rate: secrt_core::api::InfoRate {
+                requests_per_second: 0.0,
+                burst: 0,
+            },
+            latest_cli_version: Some("0.16.0".into()),
+            latest_cli_version_checked_at: Some("2026-04-25T09:00:00Z".into()),
+            min_supported_cli_version: Some("0.15.0".into()),
+        };
+        ingest_info_response(&info, &getenv, SystemTime::now());
+        let cache = read_cache(&getenv);
+        assert_eq!(cache.latest.as_deref(), Some("0.16.0"));
+        assert_eq!(cache.min_supported.as_deref(), Some("0.15.0"));
+    }
+
+    #[test]
+    fn cache_write_in_unwritable_dir_does_not_panic() {
+        // A path under a non-existent root can't have its parent created
+        // (or it can, depending on permissions, but write fails). We just
+        // require that the call returns rather than panicking.
+        let getenv = |k: &str| {
+            if k == "XDG_CACHE_HOME" {
+                // Path under a normal user-temp dir but with restricted
+                // access on Unix.
+                #[cfg(unix)]
+                {
+                    Some("/dev/null/not-a-dir".to_string())
+                }
+                #[cfg(not(unix))]
+                {
+                    Some("/secrt-impossible-test-path".to_string())
+                }
+            } else {
+                None
+            }
+        };
+        ingest_advisory_headers(
+            Some("0.16.0"),
+            Some("2026-04-25T09:00:00Z"),
+            Some("0.15.0"),
+            &getenv,
+            SystemTime::now(),
+        );
+        // Reading an unwritable cache returns the default (cold) state.
+        assert!(read_cache(&getenv).latest.is_none());
+    }
+
+    #[test]
+    fn banner_line_dim_when_tty() {
+        let info = BannerInfo {
+            current: "0.15.0".into(),
+            latest: "0.16.0".into(),
+            below_min_supported: false,
+        };
+        let line = format_banner_line(&info, true);
+        assert!(line.starts_with("\x1b[2m"));
+        assert!(line.ends_with("\x1b[0m"));
+        assert!(line.contains("0.16.0 is available"));
+    }
+
+    #[test]
+    fn banner_line_plain_when_not_tty() {
+        let info = BannerInfo {
+            current: "0.15.0".into(),
+            latest: "0.16.0".into(),
+            below_min_supported: false,
+        };
+        let line = format_banner_line(&info, false);
+        assert!(!line.contains("\x1b["));
+        assert_eq!(
+            line,
+            "secrt 0.16.0 is available (you have 0.15.0). Run 'secrt update' to upgrade."
+        );
+    }
+
+    #[test]
+    fn banner_line_below_min_supported() {
+        let info = BannerInfo {
+            current: "0.14.0".into(),
+            latest: "0.14.0".into(),
+            below_min_supported: true,
+        };
+        let line = format_banner_line(&info, false);
+        assert_eq!(
+            line,
+            "warning: secrt 0.14.0 may not be compatible with this server. Run 'secrt update' to upgrade."
+        );
+    }
+
+    /// Serialize banner-emit tests so the once-per-process gate doesn't
+    /// produce flaky cross-test interaction. The gate is intentionally
+    /// process-global; tests that exercise it must run sequentially within
+    /// this module.
+    static EMIT_LOCK: Mutex<()> = Mutex::new(());
+
+    #[test]
+    fn emit_banner_fires_once_per_process() {
+        let _g = EMIT_LOCK.lock().unwrap();
+        let info = BannerInfo {
+            current: "0.15.0".into(),
+            latest: "0.16.0".into(),
+            below_min_supported: false,
+        };
+        let mut buf = Vec::new();
+        let first = emit_banner(&mut buf, &info, false);
+        let second = emit_banner(&mut buf, &info, false);
+        // First call may or may not be the first across the entire test
+        // process (other tests share the gate). What we *can* assert is
+        // that the second call returned `false` after a successful first
+        // *and* did not double-write — at most one banner line is in the
+        // buffer.
+        if first {
+            assert!(!second, "second emit should be suppressed");
+            let s = String::from_utf8(buf).unwrap();
+            assert_eq!(s.matches("is available").count(), 1);
+        }
+    }
+}

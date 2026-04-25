@@ -180,6 +180,7 @@ pub struct TestDepsBuilder {
     stdin_data: Vec<u8>,
     is_tty: bool,
     is_stdout_tty: bool,
+    is_stderr_tty: bool,
     env: HashMap<String, String>,
     read_pass_responses: Vec<String>,
     read_pass_error: Option<String>,
@@ -187,6 +188,7 @@ pub struct TestDepsBuilder {
     keychain_secrets: HashMap<String, String>,
     keychain_secret_lists: HashMap<String, Vec<String>>,
     copy_to_clipboard_fn: Option<Box<dyn Fn(&str) -> Result<(), String>>>,
+    now: Option<std::time::SystemTime>,
 }
 
 impl TestDepsBuilder {
@@ -208,6 +210,7 @@ impl TestDepsBuilder {
             stdin_data: Vec::new(),
             is_tty: false,
             is_stdout_tty: false,
+            is_stderr_tty: false,
             env,
             read_pass_responses: Vec::new(),
             read_pass_error: None,
@@ -215,6 +218,7 @@ impl TestDepsBuilder {
             keychain_secrets: HashMap::new(),
             keychain_secret_lists: HashMap::new(),
             copy_to_clipboard_fn: None,
+            now: None,
         }
     }
 
@@ -231,6 +235,18 @@ impl TestDepsBuilder {
     #[allow(dead_code)]
     pub fn is_stdout_tty(mut self, v: bool) -> Self {
         self.is_stdout_tty = v;
+        self
+    }
+
+    #[allow(dead_code)]
+    pub fn is_stderr_tty(mut self, v: bool) -> Self {
+        self.is_stderr_tty = v;
+        self
+    }
+
+    #[allow(dead_code)]
+    pub fn now(mut self, t: std::time::SystemTime) -> Self {
+        self.now = Some(t);
         self
     }
 
@@ -345,6 +361,8 @@ impl TestDepsBuilder {
 
         let is_tty = self.is_tty;
         let is_stdout_tty = self.is_stdout_tty;
+        let is_stderr_tty = self.is_stderr_tty;
+        let now_fixed = self.now;
         let env = self.env;
 
         let read_pass_responses = Arc::new(Mutex::new(self.read_pass_responses));
@@ -356,6 +374,7 @@ impl TestDepsBuilder {
             stderr: Box::new(stderr_clone),
             is_tty: Box::new(move || is_tty),
             is_stdout_tty: Box::new(move || is_stdout_tty),
+            is_stderr_tty: Box::new(move || is_stderr_tty),
             getenv: Box::new(move |key: &str| env.get(key).cloned()),
             rand_bytes: Box::new(|buf: &mut [u8]| {
                 use ring::rand::{SecureRandom, SystemRandom};
@@ -392,6 +411,7 @@ impl TestDepsBuilder {
                 None => Box::new(|_: &str| Ok(())),
             },
             sleep: Box::new(|_: std::time::Duration| {}),
+            now: Box::new(move || now_fixed.unwrap_or_else(std::time::SystemTime::now)),
             make_api: if let Some(mock_responses) = self.mock_responses {
                 Box::new(move |_base_url: &str, _api_key: &str| {
                     Box::new(MockApi::new(mock_responses.clone())) as Box<dyn SecretApi>

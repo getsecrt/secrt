@@ -11,6 +11,7 @@ fn main() {
         stderr: Box::new(io::stderr()),
         is_tty: Box::new(|| is_terminal::is_terminal(io::stdin())),
         is_stdout_tty: Box::new(|| is_terminal::is_terminal(io::stdout())),
+        is_stderr_tty: Box::new(|| is_terminal::is_terminal(io::stderr())),
         getenv: Box::new(|key: &str| std::env::var(key).ok()),
         rand_bytes: Box::new(|buf: &mut [u8]| {
             use ring::rand::{SecureRandom, SystemRandom};
@@ -121,6 +122,7 @@ fn main() {
             }
         }),
         sleep: Box::new(|d: std::time::Duration| std::thread::sleep(d)),
+        now: Box::new(std::time::SystemTime::now),
     };
 
     let args: Vec<String> = std::env::args().collect();

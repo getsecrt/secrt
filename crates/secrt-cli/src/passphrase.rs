@@ -152,6 +152,7 @@ mod tests {
             stderr: Box::new(Vec::new()),
             is_tty: Box::new(|| false),
             is_stdout_tty: Box::new(|| false),
+            is_stderr_tty: Box::new(|| false),
             getenv: Box::new(move |key: &str| env.get(key).cloned()),
             rand_bytes: Box::new(|_buf: &mut [u8]| Ok(())),
             read_pass: Box::new(move |_prompt: &str, _w: &mut dyn Write| {
@@ -178,6 +179,7 @@ mod tests {
             open_browser: Box::new(|_: &str| Err("unused".into())),
             copy_to_clipboard: Box::new(|_: &str| Ok(())),
             sleep: Box::new(|_: std::time::Duration| {}),
+            now: Box::new(std::time::SystemTime::now),
         }
     }
 
