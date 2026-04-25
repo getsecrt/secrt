@@ -131,6 +131,18 @@
       "title": "Investigate dropdown menu wider than username button",
       "status": "done",
       "priority": "medium"
+    },
+    {
+      "id": 23,
+      "title": "Add paste-a-link support for claiming secrets",
+      "status": "done",
+      "priority": "high"
+    },
+    {
+      "id": 29,
+      "title": "Add offline state detection and messaging",
+      "status": "done",
+      "priority": "medium"
     }
   ]
 }

@@ -4,7 +4,7 @@
       {
         "id": 6,
         "title": "Linux and cross-platform distribution",
-        "description": "Linux binaries don't need code signing per se, but proper distribution channels need their own packaging and trust mechanisms. Musl builds and SHA-256 checksums are done via CI. Remaining: GPG signatures, Homebrew tap, crates.io, Linux package repos.",
+        "description": "Linux binaries don't need code signing per se, but proper distribution channels need their own packaging and trust mechanisms. Musl builds and SHA-256 checksums are done via CI. Remaining: GPG signatures, Homebrew tap, crates.io, Linux package repos.\n\nTracking: GitHub issue https://github.com/getsecrt/secrt/issues/3 (broader scope — Homebrew, crates.io, AUR, Scoop, WinGet, npm).",
         "status": "pending",
         "priority": "medium",
         "dependencies": [],
@@ -127,40 +127,9 @@
         ]
       },
       {
-        "id": 23,
-        "title": "Add paste-a-link support for claiming secrets",
-        "description": "The Tauri app has no address bar, so users can't navigate to secrt.ca/s/... links directly. Need a way for users to paste a share link and have the app navigate to the claim page. Options: (1) text input field on the home page with a 'Claim' button, (2) global paste handler (Cmd+V when no input focused) that detects secrt URLs, (3) both. Should parse the pasted URL, extract the secret ID and fragment key, and navigate to the claim route internally.",
-        "status": "done",
-        "priority": "high",
-        "dependencies": [],
-        "subtasks": [
-          {
-            "id": 1,
-            "title": "Add URL input / paste field to SendPage or Nav",
-            "status": "done"
-          },
-          {
-            "id": 2,
-            "title": "Parse pasted URLs and extract ID + fragment key",
-            "status": "done"
-          },
-          {
-            "id": 3,
-            "title": "Navigate to internal claim route with parsed data",
-            "status": "done"
-          },
-          {
-            "id": 4,
-            "title": "Add global Cmd+V paste handler for secrt URLs",
-            "status": "done",
-            "description": "Intentionally skipped — manual paste into input is more secure than auto-detecting clipboard content"
-          }
-        ]
-      },
-      {
         "id": 24,
         "title": "Auto-clear clipboard after copying secrets",
-        "description": "Secrets copied to clipboard should be automatically cleared after a configurable timeout (default 30-60 seconds). Use Tauri's clipboard-manager plugin for native clipboard access. Add a visible countdown or toast so users know when the clipboard will be cleared. Should apply to: share link copies, claimed secret text copies, generated password copies. DEFERRED: UX frustration concerns outweigh marginal security benefit — if an attacker has clipboard access they likely have screen access too. Revisit if users request it.",
+        "description": "Secrets copied to clipboard should be automatically cleared after a configurable timeout (default 30-60 seconds). Use Tauri's clipboard-manager plugin for native clipboard access. Add a visible countdown or toast so users know when the clipboard will be cleared. Should apply to: share link copies, claimed secret text copies, generated password copies. DEFERRED: UX frustration concerns outweigh marginal security benefit — if an attacker has clipboard access they likely have screen access too. Revisit if users request it.\n\nTracking: GitHub issue https://github.com/getsecrt/secrt/issues/27 (open). Was deferred internally; consider re-activating to align with the public roadmap.",
         "status": "deferred",
         "priority": "high",
         "dependencies": [],
@@ -227,7 +196,7 @@
       {
         "id": 27,
         "title": "Register deep links for secrt.ca URLs",
-        "description": "Register the app to handle secrt.ca URLs and/or a secrt:// custom protocol so clicking a share link opens the desktop app instead of the browser. Tauri 2 has a deep-link plugin. macOS Universal Links require an apple-app-site-association file on the server. Windows uses URI protocol handlers. Linux uses .desktop file handlers. Consider also registering for secrt:// as a fallback protocol.",
+        "description": "Register the app to handle secrt.ca URLs and/or a secrt:// custom protocol so clicking a share link opens the desktop app instead of the browser. Tauri 2 has a deep-link plugin. macOS Universal Links require an apple-app-site-association file on the server. Windows uses URI protocol handlers. Linux uses .desktop file handlers. Consider also registering for secrt:// as a fallback protocol.\n\nTracking: GitHub issue https://github.com/getsecrt/secrt/issues/30.",
         "status": "pending",
         "priority": "medium",
         "dependencies": [
@@ -288,31 +257,6 @@
             "id": 4,
             "title": "Test shortcuts on macOS and Windows",
             "status": "pending"
-          }
-        ]
-      },
-      {
-        "id": 29,
-        "title": "Add offline state detection and messaging",
-        "description": "The app requires network to create or claim secrets. Add graceful offline detection using navigator.onLine and online/offline events. Show a clear banner or toast when offline. Disable create/claim actions with explanation. Re-enable automatically when connectivity returns.",
-        "status": "done",
-        "priority": "medium",
-        "dependencies": [],
-        "subtasks": [
-          {
-            "id": 1,
-            "title": "Add online/offline event listeners",
-            "status": "done"
-          },
-          {
-            "id": 2,
-            "title": "Show offline banner in Layout",
-            "status": "done"
-          },
-          {
-            "id": 3,
-            "title": "Disable form submissions when offline",
-            "status": "done"
           }
         ]
       },
@@ -423,7 +367,7 @@
       {
         "id": 34,
         "title": "Add keychain storage for session and default passphrase",
-        "description": "Store session tokens and optional default passphrases in the OS keychain (macOS Keychain, Windows Credential Manager, Linux Secret Service) instead of localStorage. The CLI already has keychain support. Use Tauri's stronghold plugin or a keychain plugin. Also support saving default encryption/decryption passphrases like the CLI config does. NOTE: The app already has keyring_set/keyring_get/keyring_delete Tauri commands with a file-based fallback for broken macOS Tahoe keychain. This task is about expanding usage to cover session tokens and passphrase storage, plus building the preferences UI (see task #37).",
+        "description": "Store session tokens and optional default passphrases in the OS keychain (macOS Keychain, Windows Credential Manager, Linux Secret Service) instead of localStorage. The CLI already has keychain support. Use Tauri's stronghold plugin or a keychain plugin. Also support saving default encryption/decryption passphrases like the CLI config does. NOTE: The app already has keyring_set/keyring_get/keyring_delete Tauri commands with a file-based fallback for broken macOS Tahoe keychain. This task is about expanding usage to cover session tokens and passphrase storage, plus building the preferences UI (see task #37).\n\nTracking: GitHub issue https://github.com/getsecrt/secrt/issues/28 (this task covers the keychain-storage half; the auto-decrypt UX half lives in task #38).",
         "status": "pending",
         "priority": "high",
         "dependencies": [],
@@ -570,7 +514,7 @@
       {
         "id": 38,
         "title": "Add saved passphrases and auto-decryption",
-        "description": "Port the CLI's passphrase management to the app. Two features: (1) Default encryption passphrase — automatically applied when creating secrets (user can override or clear per-secret). (2) Decryption passphrases list — when claiming a secret, automatically try: no passphrase → default passphrase → each saved decryption passphrase → prompt user. This mirrors the CLI's multi-phase auto-decryption from config.toml. Passphrases are stored in the OS keychain via existing keyring_set/get commands (with file fallback on broken macOS). The Settings page (task #37) provides the management UI as a new Passphrases card in the Preferences section.\n\nNote: saved passphrases are a desktop-only feature (requires Tauri keyring commands). On web, this section should either be hidden or show a message directing users to the desktop app.",
+        "description": "Port the CLI's passphrase management to the app. Two features: (1) Default encryption passphrase — automatically applied when creating secrets (user can override or clear per-secret). (2) Decryption passphrases list — when claiming a secret, automatically try: no passphrase → default passphrase → each saved decryption passphrase → prompt user. This mirrors the CLI's multi-phase auto-decryption from config.toml. Passphrases are stored in the OS keychain via existing keyring_set/get commands (with file fallback on broken macOS). The Settings page (task #37) provides the management UI as a new Passphrases card in the Preferences section.\n\nNote: saved passphrases are a desktop-only feature (requires Tauri keyring commands). On web, this section should either be hidden or show a message directing users to the desktop app.\n\nTracking: GitHub issue https://github.com/getsecrt/secrt/issues/28 (this task covers the saved-passphrases UX half; the keychain-storage primitive lives in task #34).",
         "status": "pending",
         "priority": "high",
         "dependencies": [
@@ -913,6 +857,186 @@
             "id": 8,
             "title": "Tests + spec vectors for the update flow",
             "description": "Coverage targets: (a) update-check module: cache hit, cache miss, network error, GitHub rate-limit (403), invalid JSON, semver comparison edge cases (0.14.10 vs 0.15.0, 0.15.0 vs 0.15.0-rc.1), tag-prefix mismatch, drafts and prereleases skipped. (b) Banner suppression matrix: --silent, --no-update-check, SECRT_NO_UPDATE_CHECK=1, --json, current command is secrt update, stderr is not a TTY. Each as its own table-driven test row. (c) Self-update: SHA-256 mismatch refuses installation, atomic rename works on Unix, the Windows path tries the deferred-rename fallback (gate behind cfg(windows)), --version pinning resolves to the exact release tag. (d) Optional: a CI job that builds a known-good 0.15.0-test artifact, runs secrt update --version 0.15.0-test --install-dir /tmp/test-bin, and asserts the installed binary's --version output matches. Real GitHub API hits should be gated behind the same e2e ignore pattern the existing CLI tests use.",
+            "status": "pending"
+          }
+        ]
+      },
+      {
+        "id": 47,
+        "title": "iOS App Clip for secret claiming",
+        "description": "Lightweight App Clip target for receiving and decrypting secrets on iOS without installing the full app. Triggered from URLs, QR codes, NFC tags, and iMessage links — the core claim UX (tap link → enter passphrase → see secret) is a perfect fit for the <15MB App Clip format. Prerequisite: a SwiftUI iOS app exists in some form (currently no SwiftUI codebase in the monorepo). Until that lands this task is blocked. Tracking: GitHub issue https://github.com/getsecrt/secrt/issues/11.",
+        "status": "pending",
+        "priority": "low",
+        "dependencies": [],
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "Bootstrap a SwiftUI iOS app target (prerequisite)",
+            "description": "An App Clip can only exist as a sub-target of an iOS app. Decide whether to start the iOS app from scratch or share a Rust core via UniFFI. Spec the minimum viable iOS app surface (claim flow only) so the App Clip can be carved out of it.",
+            "status": "pending"
+          },
+          {
+            "id": 2,
+            "title": "Carve the claim flow into a separate App Clip target",
+            "description": "Configure the iOS Xcode project with the App Clip target. Limit the App Clip to the claim/decrypt views — ~15MB cap. Verify no transitive imports pull in unneeded dependencies.",
+            "status": "pending"
+          },
+          {
+            "id": 3,
+            "title": "Configure App Clip URL invocation and Smart Banner support",
+            "description": "Universal Links and the apple-app-site-association file on the secrt.ca and secrt.is hosts. iMessage card configuration. Test invocation from QR, NFC, and Safari Smart Banner.",
+            "status": "pending"
+          }
+        ]
+      },
+      {
+        "id": 48,
+        "title": "Unauthenticated secret existence check before claiming",
+        "description": "The claim page now shows a confirmation screen ('Someone Sent You a Secret') before consuming the secret. If the secret has already been claimed or expired, the user only finds out after clicking 'View Secret' — the secret is consumed by the claim attempt and the error surfaces too late. Add a lightweight non-consuming endpoint (e.g. HEAD /api/v1/secrets/{id} or a GET that returns a tiny existence/expiry status without requiring the claim token) so the client can pre-flight and show a clear 'unavailable' state if the secret is already gone. Must avoid leaking information beyond what's already implied by a 404 from the claim endpoint. Tracking: GitHub issue https://github.com/getsecrt/secrt/issues/25.",
+        "status": "pending",
+        "priority": "medium",
+        "dependencies": [],
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "Threat-model the existence check",
+            "description": "Document precisely what an attacker can learn from a non-consuming existence check that they can't already learn from the claim endpoint. Today, claim returns 404 for: not-found, expired, already-claimed, wrong-token. The existence check must not leak strictly more than 'a secret with this ID was created at some point and is currently available to be claimed (or not)'. Decide whether rate-limit shape needs to differ from claim.",
+            "status": "pending"
+          },
+          {
+            "id": 2,
+            "title": "Spec the endpoint in spec/v1/api.md and openapi.yaml",
+            "description": "Decide HEAD vs GET, response shape (likely 200 with empty body if exists+not-expired, 404 otherwise), caching (Cache-Control: no-store), rate limiting (likely the claim limiter or its own bucket).",
+            "status": "pending"
+          },
+          {
+            "id": 3,
+            "title": "Implement on the server (Axum handler + Postgres query)",
+            "description": "A read-only check that the row exists and expires_at > now. No claim_hash verification — that would require a token the client doesn't have. Owner_key must not be returned.",
+            "status": "pending"
+          },
+          {
+            "id": 4,
+            "title": "Wire the web client to call the existence check on the claim page",
+            "description": "On page load, hit the existence endpoint. If 404, render the 'Secret unavailable' state immediately and skip the confirmation screen. If 200, proceed as today. Make sure the call is sent from the secrt origin (not from a third-party referrer that might surface the URL).",
+            "status": "pending"
+          }
+        ]
+      },
+      {
+        "id": 49,
+        "title": "Desktop app: custom host configuration for self-hosted instances",
+        "description": "Allow the Tauri desktop app to point at a self-hosted secrt server instead of secrt.ca / secrt.is. Settings UI to configure server URL, login/session persistence per-host, and ideally multiple server profiles so a user with both a personal account on secrt.ca and a corporate self-hosted instance can switch between them without re-login. Where possible the Tauri app and the CLI should share config (the CLI already has base_url + api_key in config.toml). Tracking: GitHub issue https://github.com/getsecrt/secrt/issues/29.",
+        "status": "pending",
+        "priority": "medium",
+        "dependencies": [],
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "Settings UI: server URL field + validation",
+            "description": "Add to the Settings page (also covered by task #37). Validate URL shape, optional 'connection test' button that hits /api/v1/info on the entered host.",
+            "status": "pending"
+          },
+          {
+            "id": 2,
+            "title": "Multi-profile support",
+            "description": "Allow the user to save N labeled profiles (e.g. 'secrt.ca', 'work-self-hosted', 'secrt.is'). Quick-switch UI in the menu bar or a profile picker. Each profile has its own session token and AMK wrapper — keychain entries scoped per profile.",
+            "status": "pending"
+          },
+          {
+            "id": 3,
+            "title": "Share config with the CLI where practical",
+            "description": "Tauri + CLI both have config files. Decide what should be shared (base_url? api_key? passphrase list?) and what stays per-app (window size, etc.). Document the precedence rules.",
+            "status": "pending"
+          }
+        ]
+      },
+      {
+        "id": 50,
+        "title": "Desktop app: native file encryption with streaming",
+        "description": "Leverage the secrt-core Rust crate directly from Tauri commands instead of running encryption through the WebView's WASM path. Removes the browser memory ceiling for large files, eliminates WASM overhead, and unlocks native UX patterns (drag-and-drop onto the app window or dock icon, native file open/save dialogs, progress indicators for long encryptions). Pair with offline-mode support: encrypt locally and queue the upload for when connectivity returns. Tracking: GitHub issue https://github.com/getsecrt/secrt/issues/31.",
+        "status": "pending",
+        "priority": "medium",
+        "dependencies": [],
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "Tauri command: native streaming encrypt",
+            "description": "Expose a Tauri command that takes a file path + envelope params and returns a temp ciphertext file path + envelope JSON. Streaming via secrt-core's seal API on a chunked reader. Verify against the existing envelope test vectors.",
+            "status": "pending"
+          },
+          {
+            "id": 2,
+            "title": "Tauri command: native streaming decrypt",
+            "description": "Inverse of the encrypt command. Take a downloaded ciphertext file + url_key (+ optional passphrase) and write decrypted bytes to a user-chosen path. Stream-decrypt via secrt-core's open API.",
+            "status": "pending"
+          },
+          {
+            "id": 3,
+            "title": "Drag-and-drop on the app window and dock icon",
+            "description": "Tauri supports file-drop events on windows. Macos dock-icon drops route through the OS open-with-files event. Wire both to the send flow.",
+            "status": "pending"
+          },
+          {
+            "id": 4,
+            "title": "Batch operations and progress indicators",
+            "description": "Multi-file selection produces a queue. Each item shows progress, success state, and a copyable share link. Cancellable.",
+            "status": "pending"
+          },
+          {
+            "id": 5,
+            "title": "Offline queue: encrypt locally, upload when connectivity returns",
+            "description": "Persist not-yet-uploaded ciphertext on disk (mode 600). On connectivity restore, drain the queue. Show queued items in the UI so users know what's pending.",
+            "status": "pending"
+          }
+        ]
+      },
+      {
+        "id": 51,
+        "title": "Fix invalid docs URL in CLI config.toml template",
+        "description": "The CLI's config.toml template references https://secrt.ca/docs/config which doesn't resolve. Either point at the README section that documents config, or stand up a real /docs/config page. Lower-stakes fix; visible to every user who runs `secrt config init`. Tracking: GitHub issue https://github.com/getsecrt/secrt/issues/41.",
+        "status": "pending",
+        "priority": "low",
+        "dependencies": [],
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "Decide: README anchor or new docs page",
+            "description": "Cheapest is to point at https://github.com/getsecrt/secrt/blob/main/crates/secrt-cli/README.md#configuration (or wherever the CLI README documents config keys). Alternative: create a docs page on secrt.ca and route to it. Decision drives which fix to apply.",
+            "status": "pending"
+          },
+          {
+            "id": 2,
+            "title": "Patch the template in crates/secrt-cli/src/config.rs",
+            "description": "The CONFIG_TEMPLATE constant in config.rs is the source. Update the URL there. Add a tiny test that asserts the template references a non-empty plausible URL.",
+            "status": "pending"
+          }
+        ]
+      },
+      {
+        "id": 52,
+        "title": "Fix keychain config writes string instead of bool for use_keychain",
+        "description": "Reported on Windows: after answering the 'store API key in keychain?' prompt with yes, the CLI writes `use_keychain = \"true\"` (quoted string) into config.toml instead of `use_keychain = true` (bare bool). On the next CLI invocation, TOML parsing fails with `invalid type: string \"true\", expected a boolean`, the config falls back to defaults, and the keychain integration silently breaks. Real bug — affects every Windows user who opts into keychain via the prompt. Tracking: GitHub issue https://github.com/getsecrt/secrt/issues/42.",
+        "status": "pending",
+        "priority": "high",
+        "dependencies": [],
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "Locate the writer that emits the bad value",
+            "description": "Likely in crates/secrt-cli/src/config.rs — the set_config_key / write-back path. The prompt-acceptance flow probably passes 'true' as a string and the writer escapes it as a TOML string instead of a bool literal.",
+            "status": "pending"
+          },
+          {
+            "id": 2,
+            "title": "Distinguish string keys from bool keys at write time",
+            "description": "Either change set_config_key to take a typed value (Bool/String/Int), or add a small lookup table mapping known bool-typed keys (use_keychain, show_input, auto_copy) to the bool serializer path. Add unit tests covering all bool-typed config keys.",
+            "status": "pending"
+          },
+          {
+            "id": 3,
+            "title": "Migration: silently rewrite an existing string-form value to a bool on next load",
+            "description": "Users already affected have a corrupted config file. On load, if a known-bool key is encountered as the string 'true' or 'false', accept it (don't fail), warn quietly, and rewrite the file with the correct form on the next config write. Don't silently lose user intent.",
             "status": "pending"
           }
         ]
