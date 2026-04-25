@@ -21,7 +21,7 @@ export function PrivacyPage() {
       <div class="card space-y-8 bg-white/20 dark:bg-black/20">
         <CardHeading
           title="Privacy Policy"
-          subtitle="Last updated: February 20, 2026"
+          subtitle="Last updated: April 23, 2026"
           underline
         />
 
