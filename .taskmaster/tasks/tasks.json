@@ -660,7 +660,7 @@
       {
         "id": 41,
         "title": "Document jurisdiction choices (Iceland + Canada)",
-        "description": "Explain why secrt operates from these two jurisdictions specifically. Iceland: among the strongest privacy regimes in the world (IMMI legacy, strong data protection, free-expression precedent, lower MLAT-on-demand exposure). Canada: rule of law plus data residency for Canadian-regulated businesses (PIPEDA-aligned, hosted in-country). Frame as both a privacy story and a B2B residency story.",
+        "description": "Document the operational deployments. **Iceland deployment shipped on 1984 Hosting (secrt.is)**, live since 2026-04-22 — full deployment recipe at /Users/jdlien/code/getsecrt/2026-04-22-21-45_secrt-is-iceland-deployment-guide.md (Ubuntu 24.04 / 1GB / Caddy + Rust binary + Postgres, hardened, Ubuntu Pro + Livepatch). **Canada deployment continues at secrt.ca**. Both deployments consume the same prebuilt Rust binary from GitHub Releases — single codebase, two jurisdictional surfaces. Iceland choice rationale: among the strongest privacy regimes in the world (IMMI legacy, strong data protection, free-expression precedent, lower MLAT-on-demand exposure); 1984 Hosting specifically chosen for ideological alignment and history of resisting law-enforcement pressure. Caveat: 1984 is still IPv4-only; IPv6 has been 'coming soon' for 13+ years and they confirmed by email it remains their current stance. Canada rationale: rule of law plus data residency for Canadian-regulated businesses (PIPEDA-aligned, hosted in-country). Frame as both a privacy story and a B2B residency story.",
         "status": "pending",
         "priority": "medium",
         "dependencies": [],
@@ -674,7 +674,207 @@
           {
             "id": 2,
             "title": "Add jurisdiction section to whitepaper",
-            "description": "Citations-backed treatment in docs/whitepaper.md. Specific statutes (Icelandic Act on the Protection of Privacy 90/2018, PIPEDA, Charter), MLAT exposure analysis, why Iceland and Canada were chosen over US/UK/EU. Aimed at security researchers and B2B procurement reviewers.",
+            "description": "Citations-backed treatment in docs/whitepaper.md. Lift operational details from the secrt.is deployment guide. Specific statutes (Icelandic Act on the Protection of Privacy 90/2018, PIPEDA, Charter), MLAT exposure analysis, why Iceland and Canada were chosen over US/UK/EU, 1984 Hosting's track record. Note the IPv4-only limitation honestly. Aimed at security researchers and B2B procurement reviewers.",
+            "status": "pending"
+          }
+        ]
+      },
+      {
+        "id": 42,
+        "title": "Passkey PRF-based AMK wrapping (zero-knowledge passkey UX)",
+        "description": "**Design doc:** `crates/secrt-server/docs/prf-amk-wrapping.md` — read this first. Contains the exact KDF formulas, AAD layout, wire format, schema migration, HTTP route definitions, flow diagrams, threat model, test-vector template, and open questions. The summary below is a map; the doc is the territory.\n\nAdd WebAuthn PRF extension as an alternative path for deriving the AMK wrap-key, so new devices can recover the AMK by signing in with a passkey instead of scanning a sync-link QR. This is the single biggest UX win available for the zero-knowledge notes product — it replicates the 'walk up, tap passkey, see your stuff' flow that Proton/Standard Notes can't offer because they still require a master password.\n\n## What stays the same\nThe AMK itself (random 32-byte key), AES-256-GCM envelope encryption, note encryption (HKDF(AMK, salt, 'secrt-note-v1')), the amk_wrappers table structure, the commitment hash, the versioning, the AAD binding, envelope encryption, url_key, Argon2id passphrases. This is purely an additive path at the 'how do we derive wrap_key' layer.\n\n## What changes\nCurrent: wrap_key = HKDF(api_key_root, root_salt, 'secrt-amk-wrap-v1', 32), keyed per-API-key.\nNew: wrap_key = HKDF(prf_output, cred_salt, 'secrt-amk-wrap-prf-v1', 32), keyed per-passkey-credential.\nServer adds a new amk_wrappers row variant keyed by credential_id instead of api_key_prefix. Both paths coexist.\n\n## Browser support matrix (as of April 2026)\n- Chrome/Edge on Windows 11 25H2 + Windows Hello: Chrome 147+ (PRF-on-create landed Feb 2026)\n- Safari 18+ on iOS 18.4+ / macOS 15+ with iCloud Keychain: works\n- Chrome on Android + Google Password Manager: PRF-by-default, most mature\n- Firefox 148+: first Firefox with full PRF support (user share still small)\n- External security keys on iOS Safari: broken (hmac-secret returned encrypted) — fall back to sync-link\n\nPRF is an ENHANCEMENT, not a replacement. Keep the existing ECDH/QR sync-link flow for: Firefox ≤147, iOS Safari + external key, account recovery, users who prefer the explicit key-in-hand mental model.\n\n## Key technical gotcha\nThe PRF salt must be STABLE per credential (domain separator, not a nonce). Generate at registration with crypto.getRandomValues(), persist server-side alongside the credential record. Reusing the same salt across devices that sync the same passkey (iCloud Keychain, Google PM) is correct and required for PRF-output determinism across the synced set.\n\n## Affected code\n- web/src/crypto/amk.ts — new deriveAmkWrapKeyFromPrf() alongside existing deriveAmkWrapKey()\n- web/src/features/passkeys/ — registration requests PRF extension; login calls PRF at auth time\n- secrt-core/src/amk.rs — add prf-variant wrap-key derivation path\n- secrt-server migrations — extend amk_wrappers with credential_id column + index\n- secrt-server passkeys routes — store cred_salt at registration; expose wrapped AMK by credential_id\n- spec/v1/server.md — document PRF app-login variant\n- spec/v1/envelope.md — no changes expected (orthogonal concern)",
+        "status": "pending",
+        "priority": "high",
+        "dependencies": [],
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "Research spike: prototype PRF-on-create + PRF-on-get end-to-end",
+            "description": "Standalone HTML/TS prototype in web/ (outside the app shell) that: registers a passkey with PRF extension requested (evaluate: { first: <32-byte random salt> }), stores the salt in localStorage + a mock server blob, then authenticates and derives the same PRF output. Verify on all four target surfaces: Chrome+Windows Hello, Safari+iCloud Keychain (macOS and iOS), Chrome+Android+Google PM. Confirm synced passkey PRF determinism across devices (create on macOS Safari, use on iOS Safari). Document any browser bugs or caveats discovered; update the browser support matrix in the main task description if reality differs.",
+            "status": "pending"
+          },
+          {
+            "id": 2,
+            "title": "Server: extend amk_wrappers + passkey credentials for PRF path",
+            "description": "See `crates/secrt-server/docs/prf-amk-wrapping.md` §3.3 (schema) + §3.5 (HTTP routes) + §8 (implementation plan). Migration: add cred_salt (BYTEA, 32 bytes) and prf_supported (BOOL) to webauthn_credentials (or equivalent table). Extend amk_wrappers to be keyable by either api_key_prefix (existing) or credential_id (new) — likely a discriminator column and a nullable fk pair. Add server routes: PUT /api/v1/auth/passkeys/{cred_id}/amk-wrapper (store a PRF-wrapped AMK after user completes registration and client has computed it), GET /api/v1/auth/passkeys/{cred_id}/amk-wrapper (return the wrapped blob at login time, rate-limited, requires fresh session). Index for lookup by credential_id. Update spec/v1/server.md with new endpoints.",
+            "status": "pending"
+          },
+          {
+            "id": 3,
+            "title": "Client: passkey registration requests PRF extension + persists salt",
+            "description": "In the registration ceremony (features/passkeys/register), add `extensions: { prf: { eval: { first: new Uint8Array(salt32) } } }`. Generate salt32 with crypto.getRandomValues(). POST salt32 to server alongside the credential creation response — stored on webauthn_credentials.cred_salt. Inspect clientExtensionResults.prf to detect PRF support: if prf.enabled is true, mark credential as PRF-capable server-side; if false or undefined, credential is legacy and the user will use sync-link for this credential only. Do NOT fail registration if PRF unsupported — fall through gracefully.",
+            "status": "pending"
+          },
+          {
+            "id": 4,
+            "title": "Client: PRF wrap/unwrap crypto path",
+            "description": "See `crates/secrt-server/docs/prf-amk-wrapping.md` §3.1 (derivation formula), §3.2 (AAD layout), §9 (test vectors — fill in before landing). In web/src/crypto/amk.ts and secrt-core/src/amk.rs, add deriveAmkWrapKeyFromPrf(prfOutput: Uint8Array, credSalt: Uint8Array) -> wrap_key, using HKDF-SHA256 with info='secrt-amk-wrap-prf-v1'. Reuse existing WrappedAmk { ct, nonce, version } structure and AAD format (bind to credential_id instead of api_key_prefix for PRF wrappers). Add unit tests round-tripping wrap→unwrap with known test vectors. Ensure AAD binding prevents cross-credential replay.",
+            "status": "pending"
+          },
+          {
+            "id": 5,
+            "title": "Client: login flow fetches + unwraps PRF-wrapped AMK",
+            "description": "See `crates/secrt-server/docs/prf-amk-wrapping.md` §4.4 (new-device login flow diagram) + §4.5 (upgrade path). After successful passkey authentication that returned a PRF output: fetch GET /api/v1/auth/passkeys/{cred_id}/amk-wrapper, unwrap with the PRF-derived wrap_key, store AMK in IndexedDB via existing storeAmk(). If the credential has no PRF wrapper yet (first login with a new PRF-capable credential), trigger a one-time 'upgrade' flow: derive AMK via the existing path (user may need to sync-link from another device), then create a PRF wrapper for this credential so future logins skip the sync-link step. Handle the 'PRF not supported on this browser today' case by falling through to sync-link.",
+            "status": "pending"
+          },
+          {
+            "id": 6,
+            "title": "Feature detection + fallback UX",
+            "description": "Detect PRF support at page load (PublicKeyCredential.isConditionalMediationAvailable + test PRF extension echo on a dummy assertion). Settings page shows per-credential status: 'Passkey login derives your key automatically' (PRF-enabled) vs 'This credential uses sync-link key transfer' (legacy). Registration flow copy: when PRF supported, 'Your passkey will unlock your notes automatically on new devices.' When PRF not supported: 'You'll use the sync-link flow on new devices until your browser adds passkey-key-derivation support.' Recovery messaging: make it explicit that losing all passkeys means data loss unless user has a sync-link recovery code somewhere.",
+            "status": "pending"
+          },
+          {
+            "id": 7,
+            "title": "Tests + browser matrix CI",
+            "description": "Unit tests for wrap/unwrap round-trip in both Rust and TS. Integration test for register-with-PRF → store wrapper → login on different 'device' (different IndexedDB) → unwrap → verify AMK bytes match. Playwright browser matrix job covering Chrome desktop, Safari desktop, Chrome Android (if feasible). Manual test script for iCloud Keychain sync across macOS+iOS. Document the CI browser matrix in CONTRIBUTING.md.\n\nExplicit scenario — CLI bootstrap with PRF: end-to-end test of `secrt auth login` in a brand-new browser profile (no prior AMK in IndexedDB). Expected: verification-URL page triggers PRF login, unwraps server-stored AMK, user taps Approve, ECDH handoff to CLI succeeds, CLI wraps under api-key-root and stores via `/amk-wrappers`. Today this scenario requires the user to paste an API key or run `sync` first; with PRF it should be single-tap. Covered in design doc §4.6.",
+            "status": "pending"
+          },
+          {
+            "id": 8,
+            "title": "Blog post: 'How we replaced the master password with a passkey without giving up zero-knowledge'",
+            "description": "Technical deep-dive blog post on jdlien's blog (webartisan.info) explaining: the zero-knowledge UX problem, why existing services still use master passwords, how WebAuthn PRF works, the salt design, the fallback strategy, what the final UX looks like. Target audience: privacy-conscious developers who will then try secrt and tell friends. Dovetails with the April 'blog weekly' commitment (FOCUS.md Big Rocks). Draft after Phase 4-5 land so screenshots are real.",
+            "status": "pending"
+          }
+        ]
+      },
+      {
+        "id": 43,
+        "title": "Explore warrant canary for secrt",
+        "description": "Decide whether to ship a warrant canary, and if so, of what kind. The architecture is secrt's primary privacy defense; a canary is auxiliary signal about whether that architecture has been compromised under legal compulsion. Key insight from design conversation (2026-04-24): for a zero-knowledge service whose main threat vector is compelled code modification (NSL/CSIS/CSE order to ship a backdoored client), the most potent canary is release-signed rather than page-published. A README canary tells users 'the server is honest'; a release-signed canary tells users 'this specific binary has not been tampered with under legal compulsion.' That binds the canary to the actual attack surface. Canadian legal ground (Charter s.2(b) vs. s.1 reasonable-limits) is less tested than US First Amendment doctrine — Iceland is friendlier ground. Tie wording to the jurisdiction story established in task 41. Don't auto-update from a cron — signing must require manual action with a key under exclusive control, otherwise the signal is meaningless. Pain to operate, but architecturally honest.\n\n[Updated 2026-04-24] Iceland deployment is now live at secrt.is on 1984 Hosting. Both deployments consume the same signed Rust binary from GitHub Releases, which means **one release-signed canary attests binary integrity across both jurisdictional surfaces** — that's the architectural simplification. Per-instance page canaries (one for secrt.ca, one for secrt.is) remain useful for jurisdiction-specific events (preservation demands, gag orders specific to the host country, 1984 Hosting being compelled by Icelandic authorities). The canary architecture maps cleanly: shared release attestation + per-jurisdiction page canaries.",
+        "status": "pending",
+        "priority": "medium",
+        "dependencies": [
+          41
+        ],
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "Decide canary form: release-signed vs. published-page vs. both",
+            "description": "Evaluate three options. (a) Release-signed: every signed release announcement contains a dated canary clause covering compelled code/key/config changes — binds to the compromise vector but only signals on release cadence. (b) Published-page: signed statement on a /canary URL updated every 14 days — independent of release cadence, more visible, but doesn't bind to binary integrity. (c) Both, with the page canary as the user-facing visible thing and the release canary as the integrity assertion. Recommendation going in: (c), but verify by writing out what each one actually claims and what an adversary would have to compel to defeat it.",
+            "status": "pending"
+          },
+          {
+            "id": 2,
+            "title": "Draft canary statement wording (CA + IS instruments)",
+            "description": "Specific over vague — vague canaries invite the order-issuer to argue 'we didn't compel exactly what the canary denied.' Wording should explicitly cover: National Security Letters / FISA-equivalent orders; CSIS Act s.21 warrants; CSE Act preservation demands; Canadian anti-terrorism framework production orders; Icelandic instruments (Act on Criminal Procedure 88/2008 production orders, telecommunications interception under the Police Act — research the actual list since the surface is much narrower than CA/US); 1984 Hosting being compelled to act against secrt.is specifically; compelled code modification to the shared Rust binary; compelled cryptographic key disclosure; compelled retention beyond stated policy; gag orders preventing canary update. Have a Canadian privacy lawyer review if budget allows; consider an Icelandic counterpart for the IS-specific wording. Model on rsync.net's wording with our jurisdiction-specific additions.",
+            "status": "pending"
+          },
+          {
+            "id": 3,
+            "title": "Operational design — key custody, cadence, lapse policy, bus factor",
+            "description": "Signing key for the canary MUST be under exclusive personal control — not in CI, not in the deployment pipeline, not auto-callable. Cold storage or hardware token. Cadence: every 14 days for the page canary; per-release for the release canary. Lapse policy: published doc says 'a lapse of more than 21 days should be treated as a real signal.' Bus-factor handover: documented procedure for what happens if JD is unreachable (does the canary lapse intentionally? does a co-trustee with a separate key take over? this is the hardest operational question and needs a written answer before launch).",
+            "status": "pending"
+          },
+          {
+            "id": 4,
+            "title": "Legal posture writeup for whitepaper",
+            "description": "Document the legal theory under which canaries are believed to work in each jurisdiction we operate in. Canada: Charter s.2(b) free expression protection vs. s.1 reasonable-limits override; theory is that compelled silence is constitutionally distinct from compelled speech, but not yet tested in court for canaries specifically. Iceland: much more permissive privacy regime, fewer national-security gag instruments to worry about, IMMI legacy. US users (whose data goes to either deployment): note that the canary doesn't protect them from US legal process directed at the host country, only signals compromise of the host. Be honest in the whitepaper that Canadian canary law is unsettled — this is partly an act of legal-theory-making, not just legal-theory-following.",
+            "status": "pending"
+          },
+          {
+            "id": 5,
+            "title": "Ship v1: page canary + release-canary clause + how-to-read-this doc",
+            "description": "Public /canary URL with the signed statement. Release announcement template updated to include the canary clause. Trust-page link to /canary alongside the existing How it Works. 'How to read this canary' explainer for users — covers what it claims, what it doesn't, what a lapse means, where to verify the signature. Link from task 41's jurisdiction docs.",
+            "status": "pending"
+          },
+          {
+            "id": 6,
+            "title": "Optional: blog post on canary design choices",
+            "description": "'Why secrt has a canary, and why most services' canaries are doing the wrong job.' Argument: most canaries protect against the wrong threat (server-side data compulsion) for services whose actual exposure is client-side code compulsion. Position secrt's release-signed canary as the more honest design. Aligns with the broader public-argument work (FOCUS.md Big Rocks → blog cadence). Not blocking for v1 ship; queue when blog rhythm is reestablished.",
+            "status": "pending"
+          }
+        ]
+      },
+      {
+        "id": 44,
+        "title": "Polish getsecrt GitHub org profile page",
+        "description": "Current state of github.com/getsecrt is bare: org description 'A zero-knowledge secret sharing service' is fine, blog points to secrt.app, location says Canada (out of date once Iceland deployment ships per task 41), only public repos are 'secrt' (Rust monorepo, 2 stars) and 'spec' (protocol spec, no description on the repo level). No org profile README, so the landing page is just a member/repo list. Visitors arriving from a blog post, HN, or word-of-mouth land on something that looks abandoned. A polished org profile is part of the public-argument layer — a serious privacy project has to *look* serious, especially when the architectural posture is the differentiator. This is the GitHub-side counterpart to the secrt.app marketing site. Connects to the April 'Build' Big Rock (FOCUS.md) — making the work visible is half the commitment.\n\n[Updated 2026-04-24] Iceland deployment now live at secrt.is — location field can read 'Distributed (CA + IS)' for real, no more 'once Iceland ships' hedging. secrt.app currently 301-redirects to secrt.ca and is unallocated as a marketing surface. Open product question (see new subtask 7): should secrt.app become a dedicated landing page with download buttons + concise pitch, or redirect to the polished GitHub org profile once shipped? JD's leaning download-buttons + pitch — that's the more user-facing answer if app distribution is part of the product story.",
+        "status": "pending",
+        "priority": "medium",
+        "dependencies": [],
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "Create .github repo with profile/README.md",
+            "description": "GitHub convention: a repo literally named '.github' in the org, containing 'profile/README.md', renders as the org landing page. Create the repo public, add the README, verify it renders on github.com/getsecrt before iterating on content.",
+            "status": "pending"
+          },
+          {
+            "id": 2,
+            "title": "Write the profile README hero content",
+            "description": "The README is the landing pitch. Structure roughly: (1) one-sentence what-it-is — 'Zero-knowledge one-time secret sharing. The server can't read your secrets — by design, not by promise.' (2) The threat model in three bullets — sender-side encryption, ephemeral links, no server-side plaintext access. (3) Jurisdiction story (lift from task 41 once that lands) — Iceland for strongest privacy regime, Canada for residency-required B2B. (4) Links: secrt.app live service, secrt/spec repos, whitepaper, /canary (when task 43 ships). (5) A 'why this exists' paragraph — short version of the privacy-as-moral-claim argument from the Apr 24 conversation. Don't bury the lede in marketing copy; the audience is technical and skeptical.",
+            "status": "pending"
+          },
+          {
+            "id": 3,
+            "title": "Add visual assets — logo, architecture diagram, maybe a screenshot",
+            "description": "GitHub READMEs benefit from one strong above-the-fold visual. Options: (a) the secrt wordmark/logo if there is one, (b) a small architecture diagram showing client-side encryption / server-stores-blob / ephemeral-link flow, (c) a screenshot of the live UI. Probably (b) — most legible to the technical audience. Keep it SVG so it scales and stays crisp on dark/light mode. Host the asset in the .github repo itself so it doesn't break if other repos move.",
+            "status": "pending"
+          },
+          {
+            "id": 4,
+            "title": "Sharpen org-level metadata",
+            "description": "Update org settings: description (current is fine but could be sharper — 'Zero-knowledge one-time secret sharing — the server can't read your secrets by design'); **location should read 'Distributed (CA + IS)' now that secrt.is is live**; blog URL — verify which is the intended canonical (secrt.app, secrt.ca, or secrt.is); add social links if any (Mastodon? Bluesky? Twitter is dead for this audience). Pinned repos: pin 'secrt' and 'spec' so they appear at the top above the .github repo.",
+            "status": "pending"
+          },
+          {
+            "id": 5,
+            "title": "Audit existing repos' READMEs as click-through destinations",
+            "description": "The org page sends visitors to 'secrt' and 'spec'. Both READMEs need to survive the click — same standard as the org page. 'secrt' is a Rust monorepo and probably has a working README, but verify. 'spec' currently has no repo-level description and likely a thin README — the protocol spec deserves a proper landing (one-paragraph what-the-spec-is, table of contents, link to test vectors). Don't let the polish of the org page get undermined by a stub README on the click-through.",
+            "status": "pending"
+          },
+          {
+            "id": 6,
+            "title": "Clean up demo-repository",
+            "description": "Private repo 'demo-repository' with description 'A code repository designed to show the best GitHub has to offer' — almost certainly GitHub-auto-generated boilerplate from when the org was created. Confirm it's not in use, then delete (or archive if there's any reason to keep it). Cosmetic but the public_repos count and any future audit should reflect intent.",
+            "status": "pending"
+          },
+          {
+            "id": 7,
+            "title": "Decide secrt.app's purpose (landing page vs. redirect to org page)",
+            "description": "secrt.app currently 301-redirects to secrt.ca — wasted asset. Two options: (a) Build a marketing landing page with download buttons for the desktop apps, a concise pitch ('zero-knowledge one-time secret sharing — the server can't read your secrets by design'), and links to both jurisdictional instances. (b) Redirect to the polished GitHub org page once it ships. (a) is more user-facing and matches a product that distributes apps; (b) is lower-effort if the org page is doing the work. JD's lean: (a). Decide before doing the work for either, and document the decision so it doesn't have to be re-litigated.",
+            "status": "pending"
+          }
+        ]
+      },
+      {
+        "id": 45,
+        "title": "Design jurisdiction-picker UX (which instance am I using, how do I choose)",
+        "description": "Problem identified by JD on 2026-04-24: with Iceland (secrt.is) and Canada (secrt.ca) both live, users currently land on whichever domain they hit, with no obvious indication that they are operating under different legal jurisdictions with materially different privacy properties. The .is deployment shows the IS TLD in user-facing URLs and uses security@secrt.is, but there's no explicit 'you are using the Iceland instance' surface. The whole point of running a second jurisdiction is to give users a real choice — and right now the choice is invisible. This task is the UX that makes the architectural value legible. Touches the web app, the desktop apps (Tauri), and the marketing surface (secrt.app).",
+        "status": "pending",
+        "priority": "medium",
+        "dependencies": [
+          41
+        ],
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "Define the user model — when does jurisdiction matter, to whom",
+            "description": "Three rough user segments: (1) Casual consumer sharing a quick secret — probably doesn't care, defaults are fine, but should be able to see which instance they're on. (2) Privacy-motivated user — wants explicit control, will pick deliberately. (3) B2B / Canadian-regulated business — *needs* secrt.ca for residency reasons, must not accidentally land on .is. Decide what the default routing is for each, what the explicit choice surface looks like, and whether sign-in remembers the choice. Document before designing UI.",
+            "status": "pending"
+          },
+          {
+            "id": 2,
+            "title": "Prototype the picker UI — settings menu vs. first-visit prompt vs. footer indicator",
+            "description": "Three plausible surfaces: (a) Settings menu — hidden until invoked, good for privacy-motivated users who go looking. (b) First-visit prompt — banner or modal asking 'Iceland or Canada?' with a one-line explanation of why it matters. Explicit but potentially friction-y. (c) Persistent footer indicator — 'You are using secrt.is (Iceland)' with a switch link. Most legible, lowest-friction, doesn't interrupt. Recommendation going in: (c) as the always-visible signal + (a) for explicit control. Avoid (b) for casual users; consider it for B2B account creation.",
+            "status": "pending"
+          },
+          {
+            "id": 3,
+            "title": "Implement instance switching across web + Tauri apps",
+            "description": "Web is straightforward — link/redirect to the other domain. Desktop apps are harder: the Tauri client needs to know which API endpoint to talk to, and the choice needs to persist. Decide whether the Tauri app picks instance at first launch and stores it, or supports per-secret instance selection. The shared Rust core code presumably already abstracts the endpoint — verify and extend if needed.",
+            "status": "pending"
+          },
+          {
+            "id": 4,
+            "title": "Plain-language jurisdiction explainer for the picker",
+            "description": "When a user clicks 'why does this matter,' they should land on a 2-3 paragraph explainer: jurisdictions differ in what legal demands they accept, Iceland has stronger default privacy protections (cite IMMI / 1984 Hosting), Canada offers PIPEDA residency for businesses that need it. Don't overstate the user-visible difference — both deployments share the zero-knowledge architecture, so the *encrypted* content is equivalently safe. The difference is in metadata, host-country legal exposure, and compliance fit. Be honest about what each instance *does* and *doesn't* protect against.",
+            "status": "pending"
+          },
+          {
+            "id": 5,
+            "title": "Iron out URL/email inconsistencies on secrt.is",
+            "description": "JD flagged on 2026-04-24 that 'a couple exceptions' show the wrong TLD or wrong support email on the .is deployment. Audit the codebase for hardcoded secrt.ca references, hardcoded support@ / security@ addresses, hardcoded URLs in emails or in-app strings. Either drive everything from a single per-instance config struct or runtime env, or grep the codebase exhaustively. Lower-priority cleanup but blocks the credibility of the instance-switcher work — if the .is instance still says secrt.ca in three places, the jurisdiction story leaks.",
             "status": "pending"
           }
         ]
