@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Fixed
+
+- **Cross-instance share-link handling in the embedded SPA.** Pasting a `secrt.is` link into the secrt.ca Get-Secret form (or vice versa) used to silently navigate to the current origin and surface a confusing "secret unavailable" 404. The form now recognizes known sibling instances (`secrt.ca`, `secrt.is`, including wildcard subdomains via label-boundary suffix matching) and shows a confirm Modal before crossing origins. Web does a sanitized cross-origin redirect; Tauri hands the link to the OS default browser via `@tauri-apps/plugin-shell` instead of silently switching its API endpoint. Unknown hosts get a high-friction inline error with no offer to navigate. Redirect URLs are rebuilt via `new URL()` from validated parts (drops userinfo, ports, scheme oddities), and `parseShareUrl` now rejects non-HTTPS in production builds (with a localhost dev exemption).
+
 ## 0.16.0 — 2026-04-26
 
 ### Added
