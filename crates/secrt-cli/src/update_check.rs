@@ -420,6 +420,7 @@ fn epoch_to_civil(days: u64) -> (i64, u32, u32) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::path::Path;
     use std::sync::Mutex;
 
     /// Each test stages its own temp dir under XDG_CACHE_HOME so reads/
@@ -439,7 +440,7 @@ mod tests {
         p
     }
 
-    fn getenv_for(dir: &PathBuf) -> impl Fn(&str) -> Option<String> + '_ {
+    fn getenv_for(dir: &Path) -> impl Fn(&str) -> Option<String> + '_ {
         |k: &str| {
             if k == "XDG_CACHE_HOME" {
                 Some(dir.to_string_lossy().to_string())
@@ -449,7 +450,7 @@ mod tests {
         }
     }
 
-    fn write_raw_cache(dir: &PathBuf, contents: &str) {
+    fn write_raw_cache(dir: &Path, contents: &str) {
         let cache_dir = dir.join("secrt");
         fs::create_dir_all(&cache_dir).unwrap();
         fs::write(cache_dir.join("update-check.json"), contents).unwrap();

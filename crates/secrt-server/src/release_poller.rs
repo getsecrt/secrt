@@ -712,7 +712,7 @@ mod tests {
             Some("application/vnd.github+json")
         );
         // No If-None-Match on first call.
-        assert!(captured.headers.get("if-none-match").is_none());
+        assert!(!captured.headers.contains_key("if-none-match"));
     }
 
     #[tokio::test]
@@ -812,7 +812,7 @@ mod tests {
         let _ = fetcher.fetch(None).await;
         let captured = handle.await.expect("server task");
         assert!(
-            captured.headers.get("authorization").is_none(),
+            !captured.headers.contains_key("authorization"),
             "no Authorization header when token absent"
         );
     }

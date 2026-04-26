@@ -153,7 +153,7 @@ impl SecretsStore for MemStore {
             .values()
             .filter(|s| owner_keys.contains(&s.owner_key) && s.expires_at > now)
             .collect();
-        matching.sort_by(|a, b| b.created_at.cmp(&a.created_at));
+        matching.sort_by_key(|s| std::cmp::Reverse(s.created_at));
         Ok(matching
             .into_iter()
             .skip(offset as usize)
@@ -277,7 +277,7 @@ impl ApiKeysStore for MemStore {
             .filter(|k| k.user_id == Some(user_id))
             .cloned()
             .collect();
-        result.sort_by(|a, b| b.created_at.cmp(&a.created_at));
+        result.sort_by_key(|r| std::cmp::Reverse(r.created_at));
         Ok(result)
     }
 

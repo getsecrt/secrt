@@ -134,6 +134,10 @@ pub fn write_error(w: &mut dyn Write, json_mode: bool, is_tty: bool, msg: &str) 
 }
 
 #[cfg(test)]
+#[allow(clippy::field_reassign_with_default)]
+// Tests build up ParsedArgs via post-default field assignment for
+// readability. Rewriting as struct-literals would obscure which field is
+// the focus of each test.
 mod tests {
     use super::*;
     use std::collections::HashMap;

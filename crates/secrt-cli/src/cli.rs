@@ -1693,6 +1693,10 @@ pub fn print_auth_help(deps: &mut Deps) {
 }
 
 #[cfg(test)]
+#[allow(clippy::field_reassign_with_default)]
+// Tests build up ParsedArgs via post-default field assignment for
+// readability. Rewriting as struct-literals would obscure which field is
+// the focus of each test.
 mod tests {
     use super::*;
 
