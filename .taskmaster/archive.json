@@ -143,6 +143,12 @@
       "title": "Add offline state detection and messaging",
       "status": "done",
       "priority": "medium"
+    },
+    {
+      "id": 52,
+      "title": "Fix keychain config writes string instead of bool for use_keychain",
+      "status": "done",
+      "priority": "high"
     }
   ]
 }

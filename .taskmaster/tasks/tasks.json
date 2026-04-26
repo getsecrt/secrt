@@ -1014,34 +1014,6 @@
         ]
       },
       {
-        "id": 52,
-        "title": "Fix keychain config writes string instead of bool for use_keychain",
-        "description": "Reported on Windows: after answering the 'store API key in keychain?' prompt with yes, the CLI writes `use_keychain = \"true\"` (quoted string) into config.toml instead of `use_keychain = true` (bare bool). On the next CLI invocation, TOML parsing fails with `invalid type: string \"true\", expected a boolean`, the config falls back to defaults, and the keychain integration silently breaks. Real bug — affects every Windows user who opts into keychain via the prompt. Tracking: GitHub issue https://github.com/getsecrt/secrt/issues/42.",
-        "status": "pending",
-        "priority": "high",
-        "dependencies": [],
-        "subtasks": [
-          {
-            "id": 1,
-            "title": "Locate the writer that emits the bad value",
-            "description": "Likely in crates/secrt-cli/src/config.rs — the set_config_key / write-back path. The prompt-acceptance flow probably passes 'true' as a string and the writer escapes it as a TOML string instead of a bool literal.",
-            "status": "pending"
-          },
-          {
-            "id": 2,
-            "title": "Distinguish string keys from bool keys at write time",
-            "description": "Either change set_config_key to take a typed value (Bool/String/Int), or add a small lookup table mapping known bool-typed keys (use_keychain, show_input, auto_copy) to the bool serializer path. Add unit tests covering all bool-typed config keys.",
-            "status": "pending"
-          },
-          {
-            "id": 3,
-            "title": "Migration: silently rewrite an existing string-form value to a bool on next load",
-            "description": "Users already affected have a corrupted config file. On load, if a known-bool key is encountered as the string 'true' or 'false', accept it (don't fail), warn quietly, and rewrite the file with the correct form on the next config write. Don't silently lose user intent.",
-            "status": "pending"
-          }
-        ]
-      },
-      {
         "id": 53,
         "title": "Sign self-update artifacts with Sigstore/cosign keyless signing",
         "description": "Closes the supply-chain trust gap acknowledged in spec/v1/cli.md Trust Root and Supply-Chain Notes. Currently, secrt update verifies SHA-256 against a checksum file fetched from the same release - this protects against transport tampering but not against compromise of the GitHub release publishing pipeline. Sigstore/cosign keyless signing closes this: the release-cli.yml workflow signs each artifact and the checksum file with an ephemeral certificate tied to the GitHub Actions OIDC identity of the workflow. Signatures and cert chains are pushed to the public Rekor transparency log. The CLI verifies the signature against the Sigstore trust root plus a workflow identity (the secrt repo's release-cli.yml at a specific tag) before installing.\n\nWhy keyless: no long-lived signing key to manage, rotate, or accidentally expose. The trust root is GitHub Actions OIDC plus the public Rekor log.\n\nScope:\n1. Add cosign signing steps to .github/workflows/release-cli.yml. Sign each raw binary, each archive, and the secrt-checksums-sha256.txt file. Push signatures to the corresponding GitHub Release.\n2. Add Rust verifier to the secrt CLI's update flow. Use sigstore-rs or shell out to a bundled cosign binary. Verify signature before SHA-256 (transparency log assurance is stronger).\n3. Document the verification workflow in the README so users can manually verify a downloaded artifact.\n4. Decide policy: refuse install on signature failure (recommended) vs warn-and-continue (weaker but more recoverable). Refuse is the right call for a security-sensitive tool.\n\nReferences:\n- https://docs.sigstore.dev/cosign/keyless/\n- https://github.com/sigstore/sigstore-rs\n- https://docs.github.com/en/actions/deployment/security-hardening-your-deployments/about-security-hardening-with-openid-connect\n\nLand this PR before secrt has many users.",
