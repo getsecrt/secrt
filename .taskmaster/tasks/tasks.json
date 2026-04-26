@@ -1070,6 +1070,52 @@
             "status": "pending"
           }
         ]
+      },
+      {
+        "id": 54,
+        "title": "Get-Secret form: handle cross-instance links correctly",
+        "description": "Problem identified by JD on 2026-04-25: the 'Get Secret' form on the SendPage parses the pasted URL with parseShareUrl, which returns only {id, urlKey} — the host is silently discarded. The form then navigates to /s/{id}#{key} on the *current* origin, so pasting a secrt.is link into the secrt.ca form claims against secrt.ca, hits 404, and produces a generic 'secret unavailable' error with no clue that the issue is the wrong instance. Same in reverse on .is. The Tauri desktop app is worse: getApiBase() in web/src/lib/config.ts hardcodes https://secrt.ca in production builds, so any non-.ca link silently fails there too.\n\nProduct posture: the web app is the convenience tier and should auto-redirect to the correct origin when it recognizes a known sibling instance — that's the least-surprise behaviour and matches the 'pick whatever, it just works' feel of the web. The Tauri desktop app is the security/control tier; users on the desktop app explicitly opted into a specific endpoint and should not be silently redirected. There the form should detect the foreign host and show a clear notice ('This link is for secrt.is — open it in secrt.is') with an action to either open the foreign instance in a browser or cancel.\n\nRelated: #45 (jurisdiction picker UX) and #49 (desktop custom host). This task is narrower — just the paste-and-claim path — but should slot in cleanly when those land.",
+        "status": "pending",
+        "priority": "medium",
+        "dependencies": [],
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "parseShareUrl: also return the host",
+            "description": "In web/src/lib/url.ts, extend the return type to {id, urlKey, host}. host is parsed.host with any leading 'www.' and trailing port stripped (mirroring getCanonicalHost normalization). Update existing callers — most just destructure {id, urlKey} so this is additive. Add unit tests covering: with protocol, without protocol, with www., with port, with subdomain, malformed input.",
+            "status": "pending"
+          },
+          {
+            "id": 2,
+            "title": "Add a known-instance allowlist in config.ts",
+            "description": "Hardcode a small list of trusted sibling instances next to getInfrastructure() — e.g. KNOWN_INSTANCES = ['secrt.ca', 'secrt.is']. Export an isKnownInstance(host: string): boolean helper. The allowlist matters because anything-goes redirect would let a phisher craft a 'secrt link' that tricks the get form into redirecting to secrt.evil.tld. Future instances are added here. (When task #49 ships custom-host support in the desktop app, that flow will need its own trust model — the web allowlist can stay tight.)",
+            "status": "pending"
+          },
+          {
+            "id": 3,
+            "title": "Web: auto-redirect when pasted link is for a different known instance",
+            "description": "In GetSecretForm.handleGet (web/src/features/send/SendPage.tsx), after parseShareUrl: if parsed.host && parsed.host !== getCanonicalHost() && isKnownInstance(parsed.host), navigate cross-origin via window.location.href = `https://${parsed.host}/s/${parsed.id}#${fragment}`. The other instance handles the claim natively, including auto-claim if the URL preserves the autoClaim signal (note: history.state cannot survive a cross-origin navigation, so autoClaim won't carry — user will see the confirm modal on the other side, which is acceptable). If parsed.host is unknown (not in allowlist) and not the current host, show an inline error: 'This link is for an unknown secrt instance ({host}). Open the link directly in your browser if you trust it.' Do NOT auto-redirect to unknown hosts.",
+            "status": "pending"
+          },
+          {
+            "id": 4,
+            "title": "Tauri: detect foreign host and warn instead of redirecting",
+            "description": "In Tauri builds (isTauri() === true), if parsed.host !== getCanonicalHost() (which is hardcoded 'secrt.ca' for now), do not silently switch endpoints. Show a notice in the form: 'This link is for {host}. The desktop app is configured for {currentHost}. Open this link in a browser, or switch instances in Settings.' (The 'switch instances' action is gated on task #49 and can be deferred — link out to the browser is the v1 fallback.) Even if isKnownInstance(parsed.host) is true, do not auto-redirect inside Tauri.",
+            "status": "pending"
+          },
+          {
+            "id": 5,
+            "title": "Tests: cross-instance paste behaviour",
+            "description": "Add tests to web/src/features/send/ for: (a) pasting a same-host link still works as today; (b) pasting a known-foreign-host link triggers cross-origin redirect (mock window.location); (c) pasting an unknown-host link shows the inline error and does not navigate; (d) Tauri-mode paths show the warning instead of redirecting (mock isTauri() = true). Update parseShareUrl tests for the new host field.",
+            "status": "pending"
+          },
+          {
+            "id": 6,
+            "title": "Update placeholder + helper text",
+            "description": "The current placeholder is `https://${getCanonicalHost()}/s/abc123#...` which subtly trains users to expect only the local host. Once the redirect logic is in place, this is fine — but consider a one-line note under the input: 'Links from any secrt instance work — we'll route you to the right one.' Keep it short; don't surface the jurisdiction question here (#45 is the right place for that).",
+            "status": "pending"
+          }
+        ]
       }
     ]
   }
