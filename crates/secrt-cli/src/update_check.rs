@@ -782,13 +782,21 @@ mod tests {
 
     #[test]
     fn cache_write_in_unwritable_dir_does_not_panic() {
-        // A path under a non-existent root can't have its parent created
-        // (or it can, depending on permissions, but write fails). We just
-        // require that the call returns rather than panicking.
+        // The primary contract: a write that fails for any filesystem reason
+        // must not propagate as a panic.
+        //
+        // On Unix, `/dev/null/not-a-dir` is a stable "guaranteed unwritable"
+        // recipe (you can't make a child of a character device), so we can
+        // additionally verify the cache stays empty.
+        //
+        // On Windows there is no equally clean recipe — `/foo` resolves to
+        // `C:\foo` which is happily writable on the GH Actions runner. NUL
+        // device tricks like `\\?\NUL\sub` are inconsistent across Windows
+        // versions and runner configurations. So we only verify the
+        // no-panic contract on Windows; the cache write may succeed and
+        // that's a legitimate platform difference, not a bug.
         let getenv = |k: &str| {
             if k == "XDG_CACHE_HOME" {
-                // Path under a normal user-temp dir but with restricted
-                // access on Unix.
                 #[cfg(unix)]
                 {
                     Some("/dev/null/not-a-dir".to_string())
@@ -808,7 +816,8 @@ mod tests {
             &getenv,
             SystemTime::now(),
         );
-        // Reading an unwritable cache returns the default (cold) state.
+        // Unix-only: an unwritable cache means read returns the default (cold).
+        #[cfg(unix)]
         assert!(read_cache(&getenv).latest.is_none());
     }
 
