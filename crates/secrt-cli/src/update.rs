@@ -285,6 +285,23 @@ impl InstallKind {
 /// Pattern match order matches `spec/v1/cli.md § secrt update Subcommand`:
 /// the first match wins.
 pub fn classify_install(current: &Path, canonical: &Path, home: Option<&Path>) -> InstallKind {
+    // Windows `fs::canonicalize` prefixes `\\?\` (extended-length form) while
+    // `current_exe()` returns the plain form. Without stripping, every
+    // canonical path differs from `current` lexically and trips the
+    // `GenericSymlink` branch below — leading to a spurious "managed install"
+    // refusal for ordinary Windows binaries. Strip the prefix so the
+    // comparison is semantic, not lexical. Cross-platform tests can pass
+    // synthetic paths with or without the prefix and get the same result.
+    let canonical_owned;
+    let canonical = {
+        let s = canonical.to_string_lossy();
+        if let Some(rest) = s.strip_prefix(r"\\?\") {
+            canonical_owned = std::path::PathBuf::from(rest);
+            canonical_owned.as_path()
+        } else {
+            canonical
+        }
+    };
     let canon_str = canonical.to_string_lossy();
     let canon_norm = canon_str.replace('\\', "/");
 
@@ -1393,6 +1410,20 @@ mod tests {
     fn classify_install_plain() {
         let p = PathBuf::from("/usr/local/bin/secrt");
         let kind = classify_install(&p, &p, Some(&PathBuf::from("/Users/x")));
+        assert_eq!(kind, InstallKind::Plain);
+    }
+
+    #[test]
+    fn classify_install_strips_windows_verbatim_prefix() {
+        // On Windows, fs::canonicalize prefixes paths with `\\?\` (extended
+        // length form) while current_exe() returns the plain form. Without
+        // normalization the lexical comparison wrongly classifies every
+        // Windows binary as a managed install — this regression cost a CI
+        // cycle (#19 follow-up). The classifier must strip the prefix
+        // before comparing.
+        let current = PathBuf::from(r"D:\a\secrt\target\debug\secrt.exe");
+        let canonical = PathBuf::from(r"\\?\D:\a\secrt\target\debug\secrt.exe");
+        let kind = classify_install(&current, &canonical, None);
         assert_eq!(kind, InstallKind::Plain);
     }
 
