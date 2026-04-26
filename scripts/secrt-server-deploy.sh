@@ -8,10 +8,20 @@
 # This file in the secrt repo (scripts/secrt-server-deploy.sh) is the
 # source of truth. Sync to each host after any change here.
 #
-# Live location: /usr/local/bin/secrt-server-deploy on both secrt.is and
-# jdlien.com (which also serves secrt.ca). Each host has a backward-
-# compat symlink at ~jdlien/deploy.sh, and jdlien.com additionally has
-# /var/www/secrt.ca/deploy.sh symlinked for historical reference.
+# ── Intended install path (prescriptive) ─────────────────────────────
+# The canonical location on any secrt server is:
+#
+#     /usr/local/bin/secrt-server-deploy   (root:root, mode 0755)
+#
+# This puts it in PATH for any user, root-owned to match the privilege
+# it elevates to, and named for what it does (no "deploy.sh in someone's
+# home" ambiguity).
+#
+# Currently deployed on: secrt.is, jdlien.com (which also serves
+# secrt.ca). Each host has a backward-compat symlink at ~jdlien/deploy.sh,
+# and jdlien.com additionally has /var/www/secrt.ca/deploy.sh symlinked
+# for historical reference. New hosts SHOULD install at the canonical
+# path and SHOULD NOT recreate the legacy symlinks.
 #
 # ── Install on a new server ──────────────────────────────────────────
 #   scp scripts/secrt-server-deploy.sh <host>:/tmp/secrt-server-deploy
