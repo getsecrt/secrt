@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Fixed
+
+- **`secrt config init` template no longer references a 404'ing docs URL.** The header comment now points at the README's Configuration section on GitHub (`https://github.com/getsecrt/secrt/blob/main/crates/secrt-cli/README.md#configuration`) instead of the dead `https://secrt.ca/docs/config`. Closes GH#41.
+
 ## 0.16.3 — 2026-04-26
 
 No user-facing CLI changes. Workspace version bump only — released alongside `server/v0.16.3` (which adds the `server_version` field to `/api/v1/info` and the `X-Secrt-Server-Version` response header). The matching `secrt-core::InfoResponse::server_version: Option<String>` field is added in this release for forward compatibility, so future CLI features can read it.

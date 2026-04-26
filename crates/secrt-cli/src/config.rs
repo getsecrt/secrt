@@ -185,7 +185,7 @@ fn line_is_string_bool_for(trimmed: &str, key: &str, value: &str) -> bool {
 /// Template content for a new config file.
 pub const CONFIG_TEMPLATE: &str = "\
 # secrt configuration
-# https://secrt.ca/docs/config
+# https://github.com/getsecrt/secrt/blob/main/crates/secrt-cli/README.md#configuration
 
 # Server URL (default: https://secrt.ca)
 # base_url = \"https://secrt.ca\"
