@@ -396,19 +396,6 @@ function MoreInfoMenu({ active }: { active?: boolean }) {
             Privacy Policy
           </a>
           <a
-            href="/about"
-            role="menuitem"
-            class={itemClass}
-            onClick={(e: MouseEvent) => {
-              e.preventDefault();
-              setOpen(false);
-              navigate('/about');
-            }}
-          >
-            <CircleInfoIcon class="size-4" aria-hidden="true" />
-            About secrt
-          </a>
-          <a
             href="https://github.com/getsecrt/secrt/blob/main/SECURITY.md"
             role="menuitem"
             class={itemClass}
@@ -427,6 +414,19 @@ function MoreInfoMenu({ active }: { active?: boolean }) {
           >
             <GitHubIcon class="size-4" aria-hidden="true" />
             GitHub Repo
+          </a>
+          <a
+            href="/about"
+            role="menuitem"
+            class={itemClass}
+            onClick={(e: MouseEvent) => {
+              e.preventDefault();
+              setOpen(false);
+              navigate('/about');
+            }}
+          >
+            <CircleInfoIcon class="size-4" aria-hidden="true" />
+            About secrt
           </a>
         </div>
       )}
@@ -608,16 +608,6 @@ export function Nav() {
                   </span>
                 </NavLink>
                 <NavLink
-                  href="/about"
-                  active={isActive('about')}
-                  class="pl-6"
-                >
-                  <span class={navItemClass}>
-                    <CircleInfoIcon class="size-4" aria-hidden="true" />
-                    About secrt
-                  </span>
-                </NavLink>
-                <NavLink
                   href="https://github.com/getsecrt/secrt/blob/main/SECURITY.md"
                   external
                   class="pl-6"
@@ -635,6 +625,12 @@ export function Nav() {
                   <span class={navItemClass}>
                     <GitHubIcon class="size-4" aria-hidden="true" />
                     GitHub Repository
+                  </span>
+                </NavLink>
+                <NavLink href="/about" active={isActive('about')} class="pl-6">
+                  <span class={navItemClass}>
+                    <CircleInfoIcon class="size-4" aria-hidden="true" />
+                    About secrt
                   </span>
                 </NavLink>
               </div>
