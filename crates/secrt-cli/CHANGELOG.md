@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.16.1 — 2026-04-26
+
 ### Fixed
 
 - **`secrt update --check --version <X>` now validates that `<X>` exists.** Previously the comparison was string-only — `secrt update --check --version 99.99.99` would happily exit 0 with "99.99.99 available!" without ever asking GitHub. Now it fetches the release's checksum file and surfaces a clean error (`exit 1`) when the version doesn't exist, naming the bogus version and pointing at the release URL. The check still runs zero extra network calls when `--version` is omitted (we already round-trip GitHub via the channel resolver).
