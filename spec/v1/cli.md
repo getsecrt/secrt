@@ -833,7 +833,7 @@ Exit codes:
 - `4`: permission denied writing to install dir.
 - `5`: install lock contention (another `secrt update` is in progress).
 
-Permission-denied error message MUST suggest `--install-dir` rather than `sudo secrt update` (running self-update with elevated privileges is hostile to least-privilege practice and surprising on user-level installs).
+Permission-denied error message MUST suggest `--install-dir` first (least-privilege default — keeps user-space installs out of `sudo`). When the failing install directory is a known system path (`/usr/local/bin`, `/usr/bin`, `/usr/local/sbin`, `/usr/sbin`, or `/opt/<segment>/bin`), the message MUST also mention `sudo secrt update` as a second option, because `--install-dir ~/.local/bin` on a deliberately root-owned system install leaves the privileged binary in place at the original location and creates a parallel install whose precedence depends on `PATH` ordering. The sudo hint MUST appear after `--install-dir` in the message and MUST NOT appear on Windows (no `sudo` analog; Windows installs are typically per-user or via MSI).
 
 ### Opt-out
 

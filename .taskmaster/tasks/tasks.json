@@ -1047,7 +1047,7 @@
         "id": 55,
         "title": "secrt update: suggest sudo when system-wide install is detected",
         "description": "When `secrt update` hits a permission-denied error and the binary lives in a known system path (e.g. /usr/local/bin, /usr/bin, /opt/*/bin), the error message should mention `sudo secrt update` alongside the existing `--install-dir` suggestion. The 0.16.0 design (`crates/secrt-cli/src/update.rs:1007,1022`) deliberately omitted sudo because the assumed install location was user-space — but for a deliberately root-owned system install, `--install-dir ~/.local/bin` is actively counterproductive: it leaves the old vulnerable binary at /usr/local/bin and creates a parallel install whose precedence depends on PATH ordering. JD hit this on his dev machine running 0.16.1 (binary at /usr/local/bin/secrt, root-owned). Keep `--install-dir` listed first in the message so the least-privilege default still nudges new installs into user-space; add the sudo hint as a second option only when the heuristic confirms a system install.",
-        "status": "pending",
+        "status": "done",
         "priority": "low",
         "dependencies": [],
         "subtasks": [
@@ -1055,31 +1055,31 @@
             "id": 1,
             "title": "Extract message-formatting into a pure function",
             "description": "Refactor the duplicated permission-denied error string at update.rs:1007 and update.rs:1022 into a single helper, e.g. `fn permission_denied_message(install_dir: &Path, release_url: &str) -> String`. Both call sites then become `writeln!(deps.stderr, \"{}\", permission_denied_message(...))`. Pure function — no IO, fully unit-testable.",
-            "status": "pending"
+            "status": "done"
           },
           {
             "id": 2,
             "title": "Add system-install heuristic",
             "description": "Add `fn looks_like_system_install(install_dir: &Path) -> bool`. True when `install_dir` is one of: `/usr/local/bin`, `/usr/bin`, `/usr/local/sbin`, `/usr/sbin`, or matches `/opt/*/bin`. False otherwise (including ~/ anything, /tmp, cargo bin, brew Cellar, etc — those are either caught by managed-install classification earlier or genuinely user-space). Unix-only behavior; on Windows the heuristic is always false (no privilege-elevation hint there — Windows installs are typically per-user or via installer/MSI).",
-            "status": "pending"
+            "status": "done"
           },
           {
             "id": 3,
             "title": "Wire heuristic into the message",
             "description": "When `looks_like_system_install(install_dir)` is true, the message gains a third line / inline alternative: `or, if you installed system-wide: sudo secrt update`. Keep `--install-dir` first to preserve the user-space default. Manual download stays as fallback. Phrasing must avoid making sudo look like the recommended path.",
-            "status": "pending"
+            "status": "done"
           },
           {
             "id": 4,
             "title": "Tests",
             "description": "Two test groups, both pure-function (no IO, no root): (a) `looks_like_system_install` table-driven across `/usr/local/bin`, `/usr/bin`, `/opt/secrt/bin`, `~/.local/bin`, `~/.cargo/bin`, `/tmp/foo`, on Windows always false. (b) `permission_denied_message` with two cases: user-writable path (current message, no sudo), and system path (message includes the `sudo secrt update` line and still mentions `--install-dir`). Co-locate with the existing update.rs tests near line 1345.",
-            "status": "pending"
+            "status": "done"
           },
           {
             "id": 5,
             "title": "Spec touch-up (optional)",
             "description": "If `spec/v1/cli.md` documents the permission-denied behavior verbatim (it might, given the 0.16.0 update spec section), update the spec to note the new conditional sudo hint. If the spec only documents exit codes, no change needed.",
-            "status": "pending"
+            "status": "done"
           }
         ]
       }

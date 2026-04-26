@@ -1004,9 +1004,8 @@ pub fn run_update_with(args: &[String], deps: &mut Deps, http: &dyn UpdateHttp) 
             if looks_like_permission(&e) {
                 let _ = writeln!(
                     deps.stderr,
-                    "error: cannot write to {}. Try: secrt update --install-dir ~/.local/bin (and add ~/.local/bin to your PATH), or download manually from {}",
-                    install_dir.display(),
-                    release_url
+                    "{}",
+                    permission_denied_message(&install_dir, &release_url)
                 );
                 return exit::PERMISSION_DENIED;
             }
@@ -1019,9 +1018,8 @@ pub fn run_update_with(args: &[String], deps: &mut Deps, http: &dyn UpdateHttp) 
         if looks_like_permission(&e) {
             let _ = writeln!(
                 deps.stderr,
-                "error: cannot write to {}. Try: secrt update --install-dir ~/.local/bin (and add ~/.local/bin to your PATH), or download manually from {}",
-                install_dir.display(),
-                release_url
+                "{}",
+                permission_denied_message(&install_dir, &release_url)
             );
             return exit::PERMISSION_DENIED;
         }
@@ -1050,6 +1048,58 @@ fn default_exe_name() -> &'static str {
 fn looks_like_permission(e: &str) -> bool {
     let s = e.to_ascii_lowercase();
     s.contains("permission denied") || s.contains("access is denied") || s.contains("readonly")
+}
+
+/// True when `install_dir` is a system-managed Unix path that is normally
+/// root-owned (and where suggesting `--install-dir ~/.local/bin` would
+/// leave the privileged binary in place — a real footgun).
+///
+/// Recognises `/usr/local/bin`, `/usr/bin`, `/usr/local/sbin`, `/usr/sbin`,
+/// and the `/opt/<single-segment>/bin` shape. Everything else, including
+/// `~/.local/bin`, `~/.cargo/bin`, `/tmp/*`, Homebrew Cellar, etc., is
+/// genuinely user-space and gets the existing `--install-dir` advice
+/// without a sudo nudge.
+///
+/// Always false on Windows: there's no `sudo` analog and Windows installs
+/// are typically per-user or via MSI/installer.
+fn looks_like_system_install(install_dir: &Path) -> bool {
+    if cfg!(windows) {
+        return false;
+    }
+    let s = install_dir.to_string_lossy();
+    matches!(
+        s.as_ref(),
+        "/usr/local/bin" | "/usr/bin" | "/usr/local/sbin" | "/usr/sbin"
+    ) || matches_opt_segment_bin(&s)
+}
+
+/// Match exactly `/opt/<single segment>/bin` — e.g. `/opt/secrt/bin`. The
+/// middle segment must be non-empty and contain no further `/` so paths
+/// like `/opt/bin` or `/opt/foo/bar/bin` don't match.
+fn matches_opt_segment_bin(s: &str) -> bool {
+    if let Some(rest) = s.strip_prefix("/opt/") {
+        if let Some(middle) = rest.strip_suffix("/bin") {
+            return !middle.is_empty() && !middle.contains('/');
+        }
+    }
+    false
+}
+
+/// Build the user-facing "cannot write" message for permission-denied
+/// install failures. Pure function — no IO. Includes a `sudo secrt update`
+/// hint when `install_dir` looks like a system path. `--install-dir`
+/// stays first so the least-privilege default still nudges new installs
+/// into user-space.
+fn permission_denied_message(install_dir: &Path, release_url: &str) -> String {
+    let mut msg = format!(
+        "error: cannot write to {}. Try: secrt update --install-dir ~/.local/bin (and add ~/.local/bin to your PATH)",
+        install_dir.display()
+    );
+    if looks_like_system_install(install_dir) {
+        msg.push_str(", or, if you installed system-wide: sudo secrt update");
+    }
+    msg.push_str(&format!(", or download manually from {}", release_url));
+    msg
 }
 
 /// Resolve the highest published release for the requested channel via the
@@ -1610,6 +1660,88 @@ short  bad-line
         assert_eq!(
             pick_highest_from_releases_json(body, Channel::Prerelease).as_deref(),
             Some("0.16.0"),
+        );
+    }
+
+    #[test]
+    fn looks_like_system_install_classifies_paths() {
+        // (path, expected_is_system_on_unix)
+        let cases: &[(&str, bool)] = &[
+            ("/usr/local/bin", true),
+            ("/usr/bin", true),
+            ("/usr/local/sbin", true),
+            ("/usr/sbin", true),
+            ("/opt/secrt/bin", true),
+            ("/opt/foo/bin", true),
+            // user-space — never get the sudo hint
+            ("/home/jd/.local/bin", false),
+            ("/home/jd/.cargo/bin", false),
+            ("/Users/jd/.local/bin", false),
+            ("/tmp/foo", false),
+            ("/usr/local/Cellar/secrt/0.16.1/bin", false),
+            // /opt edge cases — must be exactly /opt/<segment>/bin
+            ("/opt/bin", false),
+            ("/opt/foo/bar/bin", false),
+            ("/opt/foo", false),
+            // garbage
+            ("", false),
+            ("/", false),
+        ];
+        for (path, expected_unix) in cases {
+            let got = looks_like_system_install(Path::new(path));
+            // On Windows the heuristic is always false, regardless of input.
+            let expected = if cfg!(windows) { false } else { *expected_unix };
+            assert_eq!(
+                got, expected,
+                "looks_like_system_install({:?}) returned {}, expected {}",
+                path, got, expected
+            );
+        }
+    }
+
+    #[test]
+    fn permission_denied_message_user_writable_path_omits_sudo() {
+        // ~/.local/bin is user-space — current behaviour, no sudo nudge.
+        let msg = permission_denied_message(
+            Path::new("/home/jd/.local/bin"),
+            "https://github.com/getsecrt/secrt/releases/tag/cli/v0.16.1",
+        );
+        assert!(
+            msg.contains("--install-dir ~/.local/bin"),
+            "should still suggest --install-dir: {msg}"
+        );
+        assert!(
+            !msg.contains("sudo secrt update"),
+            "should NOT mention sudo for user-space paths: {msg}"
+        );
+        assert!(
+            msg.contains("download manually from"),
+            "should keep manual download fallback: {msg}"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn permission_denied_message_system_path_adds_sudo_after_install_dir() {
+        let msg = permission_denied_message(
+            Path::new("/usr/local/bin"),
+            "https://github.com/getsecrt/secrt/releases/tag/cli/v0.16.1",
+        );
+        assert!(
+            msg.contains("--install-dir ~/.local/bin"),
+            "system message should still keep --install-dir first: {msg}"
+        );
+        assert!(
+            msg.contains("sudo secrt update"),
+            "system path message should mention sudo: {msg}"
+        );
+        // Ordering matters: --install-dir is the least-privilege default,
+        // sudo is the second option. The message must not lead with sudo.
+        let install_dir_idx = msg.find("--install-dir").unwrap();
+        let sudo_idx = msg.find("sudo").unwrap();
+        assert!(
+            install_dir_idx < sudo_idx,
+            "--install-dir should appear before sudo in the message: {msg}"
         );
     }
 
