@@ -784,9 +784,9 @@ Options:
 
 - `--check`: print whether an update is available; do not download or install.
 - `--force`: re-download and install even if already on the latest version. Always re-verifies the SHA-256 against the published checksum.
-- `--version <X.Y.Z>`: install a specific version (useful for downgrades during incident response). MUST be a strict semver of the form `\d+\.\d+\.\d+` (no prerelease suffix in this revision).
+- `--version <X.Y.Z>`: install a specific version (useful for downgrades during incident response). With `--channel stable` (the default), MUST be a strict semver of the form `\d+\.\d+\.\d+`. With `--channel prerelease`, MAY also include a prerelease suffix matching `-(rc|beta|alpha)\.\d+`.
 - `--install-dir <path>`: install to a directory other than the running binary's directory.
-- `--channel <stable|prerelease>`: **Reserved for a future revision.** The flag MUST be parsed for forward compatibility but `--channel prerelease` MUST NOT yet alter the production policy of skipping prereleases. Implementations MAY hard-error on `--channel prerelease` with `error: prerelease channel is reserved but not implemented in this version`. Once implemented, prerelease channel selection will use a tag-pattern such as `^cli/v\d+\.\d+\.\d+-(rc|beta|alpha)\.\d+$` and a documented resolution algorithm. The corresponding `update_channel = "stable"|"prerelease"` config key is similarly reserved; default `stable`.
+- `--channel <stable|prerelease>`: select which set of releases is eligible for installation. See **§ Update Channels** below.
 
 Behavior:
 
@@ -849,9 +849,18 @@ These opt-outs suppress only the implicit banner and implicit check during other
 
 The trust root for `secrt update` is whoever can push tags matching `cli/v*` to `github.com/getsecrt/secrt`. SHA-256 verification against the published checksum file protects against transport tampering and mirror corruption, but **not** against compromise of the GitHub release publishing pipeline — both the binary and the checksum are fetched from the same release. The planned mitigation is Sigstore/cosign keyless signing of release artifacts, tracked as a separate task; it is not in scope for this spec revision but should land before secrt has many users. Until then, this trust gap is acknowledged and documented in the `README.md`.
 
-### Reserved Future Behavior
+### Update Channels
 
-- Pre-release tags (e.g., `cli/v0.16.0-rc.1`) MUST be skipped by both the server poller and the CLI's GitHub-direct fallback in this spec revision. The `--channel` flag and `update_channel` config key are reserved for opt-in prerelease selection in a future revision; their shapes are documented above so implementations can parse them forward-compatibly.
+Two channels are defined: `stable` (default) and `prerelease`.
+
+- **`stable`**: only tags matching `^cli/v\d+\.\d+\.\d+$` are eligible. `--version` MUST match `\d+\.\d+\.\d+` exactly. Pre-release tags (e.g., `cli/v0.16.0-rc.1`) MUST be skipped by both the server poller and the CLI's GitHub-direct fallback. `--version` with a prerelease suffix MUST be rejected with a usage error pointing at `--channel prerelease`.
+- **`prerelease`**: `--version` MAY match `\d+\.\d+\.\d+(-(rc|beta|alpha)\.\d+)?`. In **this revision**, callers MUST pin via `--version`; if `--channel prerelease` is set without `--version`, implementations MUST exit with a usage error directing the user to pin a specific version. Auto-discovery of the highest matching prerelease tag from the GitHub Releases API is reserved for the next revision and will use the tag pattern `^cli/v\d+\.\d+\.\d+(-(rc|beta|alpha)\.\d+)?$` with the same `(channel_rank, index)` ordering used by the implicit-banner version compare.
+
+Anything other than `stable` or `prerelease` MUST exit with a usage error.
+
+The `update_channel` config key in `[update_check]` is **Reserved.** Its parsed value MUST NOT alter behavior in this revision; the resolver lands alongside auto-discovery in a future revision.
+
+The implicit update-check banner is unaffected by `--channel`: it always considers stable releases only.
 
 ## Input Visibility
 

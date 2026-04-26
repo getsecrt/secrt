@@ -165,18 +165,36 @@ fn version_strictness_rejected_at_parse() {
     let http = MockHttp::default();
     let code = run_update_with(&args(&["--version", "0.16.0-rc.1"])[..], &mut deps, &http);
     assert_eq!(code, exit::USAGE);
-    assert!(stderr.to_string().contains("strict semver"));
+    let err = stderr.to_string();
+    assert!(err.contains("strict semver"), "stderr: {err}");
+    assert!(err.contains("--channel prerelease"), "stderr: {err}");
 }
 
 #[test]
-fn channel_prerelease_is_reserved() {
+fn version_with_prerelease_suffix_requires_channel_prerelease() {
+    // Same surface as `version_strictness_rejected_at_parse` but asserted
+    // against the documented redirect: a prerelease suffix on the default
+    // channel MUST point the user at `--channel prerelease`.
+    let (mut deps, _stdout, stderr) = TestDepsBuilder::new().build();
+    let http = MockHttp::default();
+    let code = run_update_with(&args(&["--version", "0.16.0-beta.3"])[..], &mut deps, &http);
+    assert_eq!(code, exit::USAGE);
+    assert!(
+        stderr.to_string().contains("--channel prerelease"),
+        "stderr: {}",
+        stderr.to_string()
+    );
+}
+
+#[test]
+fn channel_prerelease_without_version_errors() {
     let (mut deps, _stdout, stderr) = TestDepsBuilder::new().build();
     let http = MockHttp::default();
     let code = run_update_with(&args(&["--channel", "prerelease"])[..], &mut deps, &http);
     assert_eq!(code, exit::USAGE);
-    assert!(stderr
-        .to_string()
-        .contains("prerelease channel is reserved"));
+    let err = stderr.to_string();
+    assert!(err.contains("--channel prerelease"), "stderr: {err}");
+    assert!(err.contains("--version"), "stderr: {err}");
 }
 
 #[test]
@@ -298,6 +316,50 @@ fn happy_path_installs_atomically() {
     assert_eq!(mode.mode() & 0o777, 0o755);
     // No `.new` artifact left over.
     assert!(!dir.join("secrt.new").exists());
+}
+
+/// Same shape as `happy_path_installs_atomically` but pinning a prerelease
+/// `--version` under `--channel prerelease`. This is the exact CLI invocation
+/// the rc.1 smoke test in `docs/update-flow-testing.md` exercises against
+/// real GitHub-hosted artifacts.
+#[cfg(unix)]
+#[test]
+fn channel_prerelease_with_version_pin_proceeds() {
+    let dir = tempdir("prerelease_pin");
+    let target = dir.join("secrt");
+    fs::write(&target, b"old version").unwrap();
+
+    let asset = host_asset();
+    let bin = b"\x7fELF prerelease binary contents".to_vec();
+    let hex = sha256_hex(&bin);
+    let base = mock_base_url();
+    let release_url = format!("{}/cli/v9.9.0-rc.1", base);
+    let http = MockHttp::default()
+        .with_text(
+            &format!("{}/{}", release_url, CHECKSUM_FILENAME_PUB),
+            &checksums_file(asset, &hex),
+        )
+        .with_bytes(&format!("{}/{}", release_url, asset), bin.clone());
+
+    let (mut deps, stdout, stderr) = TestDepsBuilder::new().build();
+    let code = run_update_with(
+        &args(&[
+            "--channel",
+            "prerelease",
+            "--version",
+            "9.9.0-rc.1",
+            "--install-dir",
+            &dir.to_string_lossy(),
+            "--release-base-url",
+            base,
+            "--force",
+        ])[..],
+        &mut deps,
+        &http,
+    );
+    assert_eq!(code, exit::OK, "stderr: {}", stderr.to_string());
+    assert!(stdout.to_string().contains("9.9.0-rc.1 installed"));
+    assert_eq!(fs::read(&target).unwrap(), bin);
 }
 
 #[cfg(unix)]

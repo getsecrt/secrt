@@ -58,6 +58,14 @@ const WINDOWS_OLD_SUFFIX: &str = ".old";
 // CLI argument parsing
 // ---------------------------------------------------------------------------
 
+/// Update channel selection per `spec/v1/cli.md § Update Channels`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum Channel {
+    #[default]
+    Stable,
+    Prerelease,
+}
+
 /// Parsed `secrt update` flags.
 #[derive(Debug, Default, PartialEq, Eq)]
 pub struct UpdateArgs {
@@ -65,9 +73,8 @@ pub struct UpdateArgs {
     pub force: bool,
     pub version: Option<String>,
     pub install_dir: Option<PathBuf>,
-    /// Reserved per `spec/v1/cli.md § Reserved Future Behavior`. Parsed for
-    /// forward compatibility; `prerelease` hard-errors in this revision.
-    pub channel: Option<String>,
+    /// Selected channel; defaults to `Stable` when `--channel` is omitted.
+    pub channel: Channel,
     /// Hidden `--release-base-url <url>` test seam. Mirrors
     /// `ReqwestFetcher::with_base_url` from the server poller. Replaces the
     /// GitHub Releases download host so tests can serve canned binaries
@@ -109,33 +116,25 @@ pub fn parse_update_args(args: &[String]) -> Result<UpdateArgs, String> {
             "--check" => out.check = true,
             "--force" => out.force = true,
             "--version" => {
-                let v = take_val("--version")?;
-                if !is_strict_triplet(&v) {
-                    return Err(format!(
-                        "--version must be a strict semver \\d+.\\d+.\\d+, got {:?}",
-                        v
-                    ));
-                }
-                out.version = Some(v);
+                // Defer validation until after the full arg list is parsed:
+                // `--version` validity depends on the selected channel
+                // (`stable` requires a strict triplet; `prerelease` accepts
+                // a `-(rc|beta|alpha).N` suffix).
+                out.version = Some(take_val("--version")?);
             }
             "--install-dir" => out.install_dir = Some(PathBuf::from(take_val("--install-dir")?)),
             "--channel" => {
                 let v = take_val("--channel")?;
-                match v.as_str() {
-                    "stable" => out.channel = Some(v),
-                    "prerelease" => {
-                        return Err(
-                            "prerelease channel is reserved but not implemented in this version"
-                                .to_string(),
-                        );
-                    }
+                out.channel = match v.as_str() {
+                    "stable" => Channel::Stable,
+                    "prerelease" => Channel::Prerelease,
                     _ => {
                         return Err(format!(
                             "--channel must be 'stable' or 'prerelease', got {:?}",
                             v
                         ))
                     }
-                }
+                };
             }
             "--release-base-url" => out.release_base_url = Some(take_val("--release-base-url")?),
             "--cleanup" => out.cleanup = true,
@@ -143,7 +142,51 @@ pub fn parse_update_args(args: &[String]) -> Result<UpdateArgs, String> {
         }
         i += 1;
     }
+    if let Some(v) = out.version.as_deref() {
+        if !is_valid_version_for_channel(v, out.channel) {
+            return match out.channel {
+                Channel::Stable => Err(format!(
+                    "--version must be a strict semver \\d+.\\d+.\\d+, got {:?}. \
+                     Use --channel prerelease to install a prerelease build.",
+                    v
+                )),
+                Channel::Prerelease => Err(format!(
+                    "--version must match \\d+.\\d+.\\d+(-(rc|beta|alpha).\\d+)?, got {:?}",
+                    v
+                )),
+            };
+        }
+    }
     Ok(out)
+}
+
+/// Validate `--version` against the selected channel per
+/// `spec/v1/update.vectors.json#channel_resolution`.
+///
+/// - `stable`: requires strict `\d+.\d+.\d+`.
+/// - `prerelease`: accepts strict triplets and `\d+.\d+.\d+-(rc|beta|alpha).\d+`.
+pub fn is_valid_version_for_channel(s: &str, channel: Channel) -> bool {
+    if is_strict_triplet(s) {
+        return true;
+    }
+    matches!(channel, Channel::Prerelease) && is_pre_release_form(s)
+}
+
+/// Validate the `\d+.\d+.\d+-(rc|beta|alpha).\d+` shape used by prerelease
+/// `--version` pins. Callers gate this on `Channel::Prerelease`.
+fn is_pre_release_form(s: &str) -> bool {
+    let Some((triplet, suffix)) = s.split_once('-') else {
+        return false;
+    };
+    if !is_strict_triplet(triplet) {
+        return false;
+    }
+    let Some((kind, num)) = suffix.split_once('.') else {
+        return false;
+    };
+    matches!(kind, "alpha" | "beta" | "rc")
+        && !num.is_empty()
+        && num.chars().all(|c| c.is_ascii_digit())
 }
 
 /// Strict `\d+.\d+.\d+` validator — no prerelease, no build metadata. Used
@@ -773,13 +816,26 @@ pub fn run_update_with(args: &[String], deps: &mut Deps, http: &dyn UpdateHttp) 
     // GitHub Releases API (or the cached `latest_cli_version` if we want
     // to be cute later — for now, ask GitHub directly so behavior is
     // deterministic regardless of the local cache).
+    //
+    // `--channel prerelease` requires an explicit `--version` pin in this
+    // revision; auto-discovery from the GitHub API is reserved for the
+    // next revision (see `spec/v1/cli.md § Update Channels`).
     let target_version = match parsed.version.clone() {
         Some(v) => v,
-        None => match resolve_latest_version(http) {
-            Ok(v) => v,
-            Err(e) => {
-                let _ = writeln!(deps.stderr, "error: {}", e);
-                return exit::GENERIC;
+        None => match parsed.channel {
+            Channel::Stable => match resolve_latest_version(http) {
+                Ok(v) => v,
+                Err(e) => {
+                    let _ = writeln!(deps.stderr, "error: {}", e);
+                    return exit::GENERIC;
+                }
+            },
+            Channel::Prerelease => {
+                let _ = writeln!(
+                    deps.stderr,
+                    "error: --channel prerelease requires --version <X.Y.Z>-(rc|beta|alpha).<N> in this revision (auto-discovery lands in a follow-up)."
+                );
+                return exit::USAGE;
             }
         },
     };
@@ -972,14 +1028,23 @@ fn resolve_latest_version(http: &dyn UpdateHttp) -> Result<String, String> {
         DEFAULT_GITHUB_API_BASE
     );
     let body = http.fetch_text(&url)?;
-    pick_highest_stable_from_releases_json(&body)
+    pick_highest_from_releases_json(&body, Channel::Stable)
         .ok_or_else(|| format!("no stable cli/v* release found at {}", url))
 }
 
 /// Pure JSON parser for the GitHub Releases response shape we care about.
-/// Skips drafts, prereleases, and tags that don't match
-/// `^cli/v\d+\.\d+\.\d+$`. Returns the highest semver triplet.
-pub fn pick_highest_stable_from_releases_json(body: &str) -> Option<String> {
+/// Skips drafts.
+///
+/// - `Channel::Stable`: skips entries with `prerelease == true` and only
+///   accepts tags matching `^cli/v\d+\.\d+\.\d+$`. This is the production
+///   path for both the implicit banner and `secrt update`.
+/// - `Channel::Prerelease`: accepts both stable and prerelease tags
+///   matching `^cli/v\d+\.\d+\.\d+(-(rc|beta|alpha)\.\d+)?$`, picking the
+///   highest via `update_check::compare_semver`. This function is exposed
+///   for the next revision's auto-discovery work; tonight `run_update_with`
+///   does not invoke it for `Channel::Prerelease` (callers MUST pin
+///   `--version`).
+pub fn pick_highest_from_releases_json(body: &str, channel: Channel) -> Option<String> {
     #[derive(serde::Deserialize)]
     struct Release {
         tag_name: String,
@@ -989,30 +1054,40 @@ pub fn pick_highest_stable_from_releases_json(body: &str) -> Option<String> {
         prerelease: bool,
     }
     let releases: Vec<Release> = serde_json::from_str(body).ok()?;
-    let mut best: Option<(u64, u64, u64, String)> = None;
+    let mut best: Option<String> = None;
     for r in releases {
-        if r.draft || r.prerelease {
+        if r.draft {
+            continue;
+        }
+        if matches!(channel, Channel::Stable) && r.prerelease {
             continue;
         }
         let Some(rest) = r.tag_name.strip_prefix("cli/v") else {
             continue;
         };
-        if !is_strict_triplet(rest) {
+        let acceptable = match channel {
+            Channel::Stable => is_strict_triplet(rest),
+            Channel::Prerelease => is_strict_triplet(rest) || is_pre_release_form(rest),
+        };
+        if !acceptable {
             continue;
         }
-        let mut parts = rest.split('.');
-        let maj: u64 = parts.next()?.parse().ok()?;
-        let min: u64 = parts.next()?.parse().ok()?;
-        let pat: u64 = parts.next()?.parse().ok()?;
-        match best {
-            None => best = Some((maj, min, pat, rest.to_string())),
-            Some((bm, bn, bp, _)) if (maj, min, pat) > (bm, bn, bp) => {
-                best = Some((maj, min, pat, rest.to_string()))
+        match best.as_deref() {
+            None => best = Some(rest.to_string()),
+            Some(current_best) => {
+                if update_check::compare_semver(rest, current_best) == std::cmp::Ordering::Greater {
+                    best = Some(rest.to_string());
+                }
             }
-            _ => {}
         }
     }
-    best.map(|(_, _, _, s)| s)
+    best
+}
+
+/// Back-compat alias kept for any out-of-tree call site; thin wrapper around
+/// [`pick_highest_from_releases_json`] with `Channel::Stable`.
+pub fn pick_highest_stable_from_releases_json(body: &str) -> Option<String> {
+    pick_highest_from_releases_json(body, Channel::Stable)
 }
 
 /// Hidden Windows cleanup: delete `<install_dir>/secrt.exe.old` if present.
@@ -1077,7 +1152,7 @@ pub fn print_update_help(deps: &mut Deps) {
     );
     let _ = writeln!(
         w,
-        "  {}        Install a specific version (strict X.Y.Z).",
+        "  {}        Install a specific version. Stable: X.Y.Z. Prerelease: X.Y.Z[-(rc|beta|alpha).N].",
         c(OPT, "--version <X.Y.Z>")
     );
     let _ = writeln!(
@@ -1087,7 +1162,7 @@ pub fn print_update_help(deps: &mut Deps) {
     );
     let _ = writeln!(
         w,
-        "  {} {}     Reserved for a future revision (default: stable).",
+        "  {} {}     Channel to install from (default: stable). With 'prerelease', --version is required in this revision.",
         c(OPT, "--channel"),
         c(ARG, "<stable|prerelease>")
     );
@@ -1136,9 +1211,14 @@ mod tests {
     }
 
     #[test]
-    fn parse_args_version_rejects_prerelease() {
+    fn parse_args_version_rejects_prerelease_on_stable_channel() {
+        // No --channel flag → defaults to Channel::Stable → reject suffix.
         let args = vec!["--version".into(), "0.16.0-rc.1".into()];
-        assert!(parse_update_args(&args).is_err());
+        let err = parse_update_args(&args).unwrap_err();
+        assert!(
+            err.contains("strict semver") && err.contains("--channel prerelease"),
+            "unexpected error: {err}"
+        );
     }
 
     #[test]
@@ -1148,17 +1228,73 @@ mod tests {
     }
 
     #[test]
-    fn parse_args_channel_prerelease_reserved() {
+    fn parse_args_channel_prerelease_accepted() {
         let args = vec!["--channel".into(), "prerelease".into()];
+        let p = parse_update_args(&args).unwrap();
+        assert_eq!(p.channel, Channel::Prerelease);
+    }
+
+    #[test]
+    fn parse_args_channel_invalid_value_errors() {
+        let args = vec!["--channel".into(), "beta".into()];
         let err = parse_update_args(&args).unwrap_err();
-        assert!(err.contains("prerelease channel is reserved"));
+        assert!(err.contains("must be 'stable' or 'prerelease'"), "{err}");
     }
 
     #[test]
     fn parse_args_channel_stable_ok() {
         let args = vec!["--channel".into(), "stable".into()];
         let p = parse_update_args(&args).unwrap();
-        assert_eq!(p.channel.as_deref(), Some("stable"));
+        assert_eq!(p.channel, Channel::Stable);
+    }
+
+    #[test]
+    fn parse_args_prerelease_with_version_pin() {
+        let args = vec![
+            "--channel".into(),
+            "prerelease".into(),
+            "--version".into(),
+            "0.16.0-rc.1".into(),
+        ];
+        let p = parse_update_args(&args).unwrap();
+        assert_eq!(p.channel, Channel::Prerelease);
+        assert_eq!(p.version.as_deref(), Some("0.16.0-rc.1"));
+    }
+
+    #[test]
+    fn parse_args_prerelease_rejects_bad_suffix() {
+        let args = vec![
+            "--channel".into(),
+            "prerelease".into(),
+            "--version".into(),
+            "0.16.0-pre.1".into(),
+        ];
+        assert!(parse_update_args(&args).is_err());
+    }
+
+    #[test]
+    fn is_valid_version_for_channel_table() {
+        // Mirrors spec/v1/update.vectors.json#channel_resolution.
+        let cases = [
+            (Channel::Stable, "0.16.0", true),
+            (Channel::Stable, "0.16.0-rc.1", false),
+            (Channel::Prerelease, "0.16.0", true),
+            (Channel::Prerelease, "0.16.0-rc.1", true),
+            (Channel::Prerelease, "0.16.0-beta.10", true),
+            (Channel::Prerelease, "0.16.0-alpha.1", true),
+            (Channel::Prerelease, "0.16.0-rc.foo", false),
+            (Channel::Prerelease, "0.16.0-pre.1", false),
+            (Channel::Prerelease, "0.16.0+sha", false),
+        ];
+        for (ch, v, want) in cases {
+            assert_eq!(
+                is_valid_version_for_channel(v, ch),
+                want,
+                "channel={:?} version={:?}",
+                ch,
+                v
+            );
+        }
     }
 
     #[test]
@@ -1351,6 +1487,73 @@ short  bad-line
     #[test]
     fn pick_highest_stable_handles_invalid_json() {
         assert!(pick_highest_stable_from_releases_json("not json").is_none());
+    }
+
+    #[test]
+    fn pick_highest_from_releases_json_stable_matches_legacy() {
+        let body = r#"[
+            {"tag_name":"cli/v0.16.0","draft":false,"prerelease":false},
+            {"tag_name":"cli/v0.17.0-rc.1","draft":false,"prerelease":true},
+            {"tag_name":"cli/v0.18.0","draft":true,"prerelease":false},
+            {"tag_name":"cli/v0.16.0-beta.2","draft":false,"prerelease":false}
+        ]"#;
+        assert_eq!(
+            pick_highest_from_releases_json(body, Channel::Stable).as_deref(),
+            Some("0.16.0"),
+        );
+    }
+
+    #[test]
+    fn pick_highest_from_releases_json_prerelease_picks_higher_across_set() {
+        let body = r#"[
+            {"tag_name":"cli/v0.15.0","draft":false,"prerelease":false},
+            {"tag_name":"cli/v0.16.0-rc.1","draft":false,"prerelease":true},
+            {"tag_name":"cli/v0.16.0-rc.2","draft":false,"prerelease":true},
+            {"tag_name":"cli/v0.16.0-beta.5","draft":false,"prerelease":true},
+            {"tag_name":"cli/v0.18.0-rc.1","draft":true,"prerelease":true}
+        ]"#;
+        assert_eq!(
+            pick_highest_from_releases_json(body, Channel::Prerelease).as_deref(),
+            Some("0.16.0-rc.2"),
+        );
+    }
+
+    #[test]
+    fn pick_highest_from_releases_json_rejects_non_conforming_suffix() {
+        let body = r#"[
+            {"tag_name":"cli/v0.16.0-pre.1","draft":false,"prerelease":true},
+            {"tag_name":"cli/v0.16.0-foo","draft":false,"prerelease":true}
+        ]"#;
+        assert!(pick_highest_from_releases_json(body, Channel::Prerelease).is_none());
+    }
+
+    /// Canonical regression for the `compare_semver` lexicographic bug:
+    /// `rc.10` MUST sort above `rc.2` and the picker MUST surface it.
+    #[test]
+    fn pick_highest_from_releases_json_rc10_beats_rc2() {
+        let body = r#"[
+            {"tag_name":"cli/v0.16.0-rc.2","draft":false,"prerelease":true},
+            {"tag_name":"cli/v0.16.0-rc.10","draft":false,"prerelease":true}
+        ]"#;
+        assert_eq!(
+            pick_highest_from_releases_json(body, Channel::Prerelease).as_deref(),
+            Some("0.16.0-rc.10"),
+        );
+    }
+
+    #[test]
+    fn pick_highest_from_releases_json_prerelease_prefers_stable_over_prerelease() {
+        // A stable and a same-triplet prerelease coexist; prerelease channel
+        // still picks the higher version (stable > its own prerelease per
+        // compare_semver).
+        let body = r#"[
+            {"tag_name":"cli/v0.16.0","draft":false,"prerelease":false},
+            {"tag_name":"cli/v0.16.0-rc.5","draft":false,"prerelease":true}
+        ]"#;
+        assert_eq!(
+            pick_highest_from_releases_json(body, Channel::Prerelease).as_deref(),
+            Some("0.16.0"),
+        );
     }
 
     /// `atomic_install` should write the bytes and overwrite the previous

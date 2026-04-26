@@ -214,6 +214,12 @@ jobs:
         run: |
           VERSION="${GITHUB_REF_NAME#cli/v}"
           if [[ ! "$VERSION" =~ ^[0-9] ]]; then VERSION="0.0.0"; fi
+          # macOS Installer compares CFBundleShortVersionString-style values
+          # numerically and can misorder prerelease strings like "0.16.0-rc.1".
+          # Strip the suffix for the embedded pkg version so an upgrade from
+          # 0.16.0-rc.1 → 0.16.0 still registers as an upgrade. The pkg
+          # *file* name is unchanged.
+          PKG_VERSION="${VERSION%%-*}"
           for pair in "secrt-darwin-universal:secrt-macos" "secrt-darwin-arm64:secrt-macos-arm64" "secrt-darwin-amd64:secrt-macos-amd64"; do
             src="${pair%%:*}"
             pkg_name="${pair##*:}"
@@ -222,7 +228,7 @@ jobs:
             chmod +x pkg-root/usr/local/bin/secrt
             pkgbuild --root pkg-root \
               --identifier ca.secrt.cli \
-              --version "$VERSION" \
+              --version "$PKG_VERSION" \
               --install-location / \
               "${pkg_name}-unsigned.pkg"
             productsign --sign "Developer ID Installer: Joseph Lien (A93Q7MKECL)" \

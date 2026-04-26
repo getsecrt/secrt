@@ -3,15 +3,14 @@
 //! contract for the update-check policy across implementations; this
 //! harness ensures the Rust implementation conforms.
 //!
-//! The `banner_suppression` and `channel_reservation` sections are
-//! covered by `tests/cli_update_check.rs` and are not exercised here
-//! (their entries are descriptive scenarios, not mechanically-checkable
-//! input/output pairs).
+//! The `banner_suppression` section is descriptive scenarios covered by
+//! `tests/cli_update_check.rs` and is not exercised here.
 
 use std::cmp::Ordering;
 use std::fs;
 use std::path::PathBuf;
 
+use secrt_cli::update::{is_valid_version_for_channel, Channel};
 use secrt_cli::update_check;
 use serde::Deserialize;
 
@@ -19,6 +18,8 @@ use serde::Deserialize;
 struct Vectors {
     semver_compare: SemverCompare,
     release_tag_filter: ReleaseTagFilter,
+    channel_resolution: ChannelResolution,
+    prerelease_ordering: PrereleaseOrdering,
 }
 
 #[derive(Deserialize)]
@@ -56,6 +57,32 @@ struct TagCase {
     extracted_semver: Option<String>,
     #[serde(default)]
     reason: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct ChannelResolution {
+    vectors: Vec<ChannelVersionCase>,
+}
+
+#[derive(Deserialize)]
+struct ChannelVersionCase {
+    channel: String,
+    version: String,
+    valid: bool,
+    #[serde(default, rename = "_why")]
+    _why: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct PrereleaseOrdering {
+    cases: Vec<PrereleaseOrderCase>,
+}
+
+#[derive(Deserialize)]
+struct PrereleaseOrderCase {
+    a: String,
+    b: String,
+    expected: String,
 }
 
 fn vectors_path() -> PathBuf {
@@ -168,5 +195,42 @@ fn release_tag_filter_matches_spec() {
             // compare_semver against itself as Equal.
             assert_eq!(compare_semver(expected, expected), Ordering::Equal);
         }
+    }
+}
+
+#[test]
+fn channel_resolution_version_validity() {
+    let v = load_vectors();
+    for case in &v.channel_resolution.vectors {
+        let channel = match case.channel.as_str() {
+            "stable" => Channel::Stable,
+            "prerelease" => Channel::Prerelease,
+            other => panic!("unknown channel in vectors: {:?}", other),
+        };
+        let actual = is_valid_version_for_channel(&case.version, channel);
+        assert_eq!(
+            actual, case.valid,
+            "channel={:?} version={:?}: expected valid={}, got {}",
+            case.channel, case.version, case.valid, actual
+        );
+    }
+}
+
+#[test]
+fn prerelease_ordering_matches_spec() {
+    let v = load_vectors();
+    for case in &v.prerelease_ordering.cases {
+        let expected = match case.expected.as_str() {
+            "Less" => Ordering::Less,
+            "Equal" => Ordering::Equal,
+            "Greater" => Ordering::Greater,
+            other => panic!("unknown ordering in vectors: {:?}", other),
+        };
+        let actual = update_check::compare_semver(&case.a, &case.b);
+        assert_eq!(
+            actual, expected,
+            "compare_semver({:?}, {:?}) = {:?}, expected {:?}",
+            case.a, case.b, actual, expected
+        );
     }
 }

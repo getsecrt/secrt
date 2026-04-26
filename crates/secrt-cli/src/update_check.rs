@@ -292,9 +292,10 @@ pub fn format_banner_line(info: &BannerInfo, ansi: bool) -> String {
 ///
 /// Prerelease ordering follows the bits of semver.org we actually use:
 /// a stable version always sorts above any prerelease of the same triplet,
-/// and two prereleases of the same triplet compare lexicographically on the
-/// suffix string. That's enough to satisfy `spec/v1/update.vectors.json`
-/// (e.g. `0.15.0-rc.1 < 0.15.0`) without a full SemVer 2.0 implementation.
+/// and two prereleases of the same triplet compare structurally on
+/// `(channel_rank, index)` for `(alpha|beta|rc).N`. Tokens that don't match
+/// that shape fall back to lexicographic compare so we still produce a total
+/// order (the picker rejects non-conforming tokens at the tag-pattern level).
 pub fn compare_semver(a: &str, b: &str) -> std::cmp::Ordering {
     use std::cmp::Ordering;
     let pa = parse_semver_relaxed(a);
@@ -306,13 +307,39 @@ pub fn compare_semver(a: &str, b: &str) -> std::cmp::Ordering {
                     (None, None) => Ordering::Equal,
                     (None, Some(_)) => Ordering::Greater, // stable > prerelease
                     (Some(_), None) => Ordering::Less,
-                    (Some(x), Some(y)) => x.cmp(y),
+                    (Some(x), Some(y)) => compare_prerelease(x, y),
                 },
                 other => other,
             }
         }
         _ => Ordering::Equal,
     }
+}
+
+/// Order prerelease tokens of the form `(alpha|beta|rc).N` by
+/// `(channel_rank, index)`. Unrecognized tokens fall back to lexicographic
+/// compare so total ordering is preserved.
+fn compare_prerelease(a: &str, b: &str) -> std::cmp::Ordering {
+    match (parse_pre_token(a), parse_pre_token(b)) {
+        (Some(pa), Some(pb)) => pa.cmp(&pb),
+        _ => a.cmp(b),
+    }
+}
+
+/// Parse a prerelease token of the form `(alpha|beta|rc).N` into
+/// `(channel_rank, index)`. `alpha < beta < rc`.
+fn parse_pre_token(s: &str) -> Option<(u8, u64)> {
+    let (kind, num) = s.split_once('.')?;
+    let rank = match kind {
+        "alpha" => 0,
+        "beta" => 1,
+        "rc" => 2,
+        _ => return None,
+    };
+    if num.is_empty() || !num.chars().all(|c| c.is_ascii_digit()) {
+        return None;
+    }
+    Some((rank, num.parse::<u64>().ok()?))
 }
 
 /// Strict validity check used at cache-write boundaries: rejects prereleases,
@@ -473,11 +500,29 @@ mod tests {
         // Stable always greater than its own prerelease.
         assert_eq!(compare_semver("0.15.0-rc.1", "0.15.0"), Less);
         assert_eq!(compare_semver("0.15.0", "0.15.0-rc.1"), Greater);
-        // Two prereleases of the same triplet — lexicographic.
+        // Two prereleases of the same triplet — numeric on the index.
         assert_eq!(compare_semver("0.15.0-rc.1", "0.15.0-rc.2"), Less);
         assert_eq!(compare_semver("0.15.0-alpha.1", "0.15.0-rc.1"), Less);
         // Triplet ordering still wins over prerelease semantics.
         assert_eq!(compare_semver("0.15.0-rc.99", "0.16.0-alpha.1"), Less);
+    }
+
+    #[test]
+    fn compare_semver_prerelease_numeric_ordering() {
+        use std::cmp::Ordering::*;
+        // Regression: lexicographic compare put rc.10 < rc.2 because '1' < '2'.
+        assert_eq!(compare_semver("0.15.0-rc.10", "0.15.0-rc.2"), Greater);
+        assert_eq!(compare_semver("0.15.0-rc.2", "0.15.0-rc.10"), Less);
+        assert_eq!(compare_semver("0.15.0-beta.10", "0.15.0-beta.2"), Greater);
+        assert_eq!(compare_semver("0.15.0-alpha.10", "0.15.0-alpha.2"), Greater);
+        // Channel rank dominates index: any rc beats any beta/alpha at the
+        // same triplet.
+        assert_eq!(compare_semver("0.15.0-rc.1", "0.15.0-beta.99"), Greater);
+        assert_eq!(compare_semver("0.15.0-beta.1", "0.15.0-alpha.99"), Greater);
+        // Triplet still wins over prerelease channel rank.
+        assert_eq!(compare_semver("0.16.0-alpha.1", "0.15.10-rc.99"), Greater);
+        // Equal prereleases compare Equal.
+        assert_eq!(compare_semver("0.15.0-rc.5", "0.15.0-rc.5"), Equal);
     }
 
     #[test]
@@ -789,7 +834,10 @@ mod tests {
             below_min_supported: false,
         };
         let line = format_banner_line(&info, /* ansi */ false);
-        assert_eq!(line, "secrt 0.16.0 available (current: 0.15.0)\n  secrt update");
+        assert_eq!(
+            line,
+            "secrt 0.16.0 available (current: 0.15.0)\n  secrt update"
+        );
         assert!(!line.contains("\x1b["));
     }
 

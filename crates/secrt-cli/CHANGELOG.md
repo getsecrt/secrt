@@ -5,7 +5,7 @@
 ### Added
 
 - **`secrt update` self-update subcommand.** Downloads the published raw per-platform binary (`secrt-darwin-arm64`, `secrt-linux-amd64`, `secrt-windows-amd64.exe`, etc.) from the matching GitHub release, verifies it against the published `secrt-checksums-sha256.txt`, and atomically replaces the running binary (Unix `rename(2)` over the live inode; Windows rename-self-aside with `MoveFileEx(MOVEFILE_DELAY_UNTIL_REBOOT)` fallback). Acquires an exclusive install lock (`flock(2)` on Unix, `LockFileEx` on Windows) so concurrent invocations cannot interleave.
-  - **Flags:** `--check` (report only), `--force` (re-download even if up to date), `--version <X.Y.Z>` (pin a specific stable triplet — strict `\d+.\d+.\d+`, no prerelease), `--install-dir <path>` (install to a separate dir; binary is named `secrt[.exe]` regardless of how the running binary was named), `--channel <stable|prerelease>` (reserved per spec; `prerelease` hard-errors in this revision), and a hidden `--release-base-url <url>` test seam that mirrors `ReqwestFetcher::with_base_url` from the server poller.
+  - **Flags:** `--check` (report only), `--force` (re-download even if up to date), `--version <X.Y.Z>` (pin a specific version — strict `\d+.\d+.\d+` on `--channel stable`; `\d+.\d+.\d+(-(rc|beta|alpha).\d+)?` on `--channel prerelease`), `--install-dir <path>` (install to a separate dir; binary is named `secrt[.exe]` regardless of how the running binary was named), `--channel <stable|prerelease>` (default `stable`; with `prerelease`, `--version` MUST be supplied — auto-discovery of the highest prerelease tag is reserved for the next revision), and a hidden `--release-base-url <url>` test seam that mirrors `ReqwestFetcher::with_base_url` from the server poller.
   - **Managed-install refusal** (exit 3) for Homebrew Cellar, asdf, mise, Nix store, cargo `~/.cargo/bin`, and a generic-symlink fallback. Each refusal prints the exact upgrade command for that manager (e.g., `Run: brew upgrade secrt`).
   - **Permission-denied messages always suggest `--install-dir`**, never `sudo` (running self-update with elevated privileges is hostile to least-privilege practice).
   - **Hidden `--cleanup` flag** deletes leftover `secrt.exe.old` on Windows; invoked automatically at startup of every `secrt` command (cheap no-op on Unix).
@@ -21,6 +21,7 @@
 - **`--no-update-check` global flag** plus `update_check = false` config key plus `SECRET_NO_UPDATE_CHECK=1` env var, all of which suppress the banner. The matrix also suppresses on `--silent`, `--json`, `secrt update` itself, stdout-binary-to-pipe, and **stderr-not-a-TTY** (CI logs and redirected stderr stay clean by default).
 - **`User-Agent: secrt/<version>`** is now sent on every CLI HTTP request, so servers can correlate usage by version and trigger version-specific incident remediation.
 - **Min-supported-version awareness.** When the running CLI is below the server's `min_supported_cli_version`, the banner is replaced with a stronger `warning: secrt <version> may not be compatible with this server.` notice.
+- **`--channel prerelease` (manual pin only).** `secrt update` now accepts `--channel prerelease`, which relaxes `--version` to also accept tags matching `\d+.\d+.\d+-(rc|beta|alpha).\d+`. In this revision callers MUST pin via `--version`; passing `--channel prerelease` without `--version` exits with a usage error directing the user to pin a specific build. The `update_channel` config key and auto-discovery of the highest prerelease tag from the GitHub Releases API are reserved for the `0.16.1` follow-up. The implicit update-check banner is unaffected and continues to consider stable releases only.
 
 ### Changed
 
@@ -29,6 +30,7 @@
 
 ### Fixed
 
+- **`update_check::compare_semver` prerelease ordering.** Numeric prerelease indices now sort numerically: `rc.10 > rc.2`. The prior implementation used `String::cmp` on the suffix, which ordered `rc.10 < rc.2` lexicographically (`'1' < '2'`). Tokens of the form `(alpha|beta|rc).N` are now compared on `(channel_rank, index)`; unrecognized tokens fall back to lexicographic compare so total ordering is preserved.
 - **Keychain string-vs-bool config bug (GH#42).** `set_config_key("use_keychain", "true")` used to write `use_keychain = "true"` (string-quoted), which then broke TOML parsing on next load and silently disabled keychain integration. Bool-typed keys (`use_keychain`, `show_input`, `auto_copy`, `update_check`) are now written as bare bool literals, and existing corrupted configs are silently migrated on load.
 
 ### Spec
@@ -39,13 +41,13 @@
   - **Suppression matrix**: `--silent`, `--no-update-check`, `update_check = false`, `SECRET_NO_UPDATE_CHECK=1`, `--json`, current command is `secrt update`, stdout used for binary data, **stderr is not a TTY**.
   - **Exit codes**: 0 success, 1 generic, 2 SHA-256 mismatch, 3 managed install refused, 4 permission denied, 5 lock contention.
   - **Managed-install detection** with manager-specific upgrade messages for Homebrew (Cellar), asdf, mise, Nix store, cargo (`~/.cargo/bin` → `cargo install --force secrt-cli`), and a generic-symlink fallback.
-  - **Reserved**: `--channel <stable|prerelease>` flag and `update_channel` config key for future opt-in beta selection.
+  - **`--channel <stable|prerelease>`** is now defined as a real flag (manual `--version` pin only on `prerelease`); auto-discovery and the `update_channel` config key remain reserved for the next revision. The implicit banner stays stable-only.
 - **`User-Agent: secrt/<version>`** required on all CLI HTTP requests (in `spec/v1/cli.md § HTTP Client Behavior`).
 - **New `update_check` config key and `--no-update-check` global flag** documented in `spec/v1/cli.md`. Default is on; opt-outs layered (flag → config → `SECRET_NO_UPDATE_CHECK=1` env).
 - **Three new `/api/v1/info` body fields** documented in `spec/v1/api.md` and `spec/v1/openapi.yaml`: `latest_cli_version`, `latest_cli_version_checked_at` (advisory, server-polled from GitHub Releases), `min_supported_cli_version` (hardcoded constant in server build, always present).
 - **Three new advisory response headers** on every server response: `X-Secrt-Latest-Cli-Version`, `X-Secrt-Latest-Cli-Version-Checked-At`, `X-Secrt-Min-Cli-Version`. Mirror the body fields and let CLI clients refresh their update-check cache as a side effect of any request.
 - **Restructured `spec/v1/server.md` § 13** as "Background Tasks" with three subsections: § 13.1 expired-secret reaper, § 13.2 GitHub Releases version cache (60-min default, `If-None-Match`/ETag, fail-soft, **`GITHUB_POLL_INTERVAL_SECONDS=0` disables polling entirely** for air-gapped self-hosters), § 13.3 advisory response headers.
-- **New test vector file `spec/v1/update.vectors.json`** covering semver comparison, GitHub release tag filtering, banner suppression matrix, and channel reservation behavior.
+- **New test vector file `spec/v1/update.vectors.json`** covering semver comparison, GitHub release tag filtering, banner suppression matrix, channel-driven `--version` validation, and prerelease ordering (the canonical `rc.10 > rc.2` regression).
 
 ### Internal / Tracking
 

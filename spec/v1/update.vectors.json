@@ -55,16 +55,35 @@
       { "scenario": "server below min_supported_cli_version (banner replaced with stronger msg)", "expected_banner": true  }
     ]
   },
-  "channel_reservation": {
-    "_description": "The --channel flag and update_channel config key are reserved in this revision. Implementations MUST parse them for forward compatibility but MUST NOT change behavior beyond the documented stable-only policy.",
-    "valid": [
-      { "input": "--channel stable",       "behavior": "no-op; same as default" },
-      { "input": "update_channel = \"stable\"",   "behavior": "no-op; same as default" }
+  "channel_resolution": {
+    "_description": "Channel-driven --version validation. With --channel stable (default), --version MUST be a strict triplet. With --channel prerelease, --version MAY include a prerelease suffix matching -(rc|beta|alpha).N. Auto-resolution from a release set when --channel prerelease is set without --version is reserved for the next revision; in this revision the CLI MUST exit with a usage error.",
+    "vectors": [
+      { "channel": "stable",     "version": "0.16.0",          "valid": true },
+      { "channel": "stable",     "version": "0.16.0-rc.1",     "valid": false, "_why": "stable rejects prerelease suffix" },
+      { "channel": "prerelease", "version": "0.16.0",          "valid": true,  "_why": "prerelease still accepts plain triplets" },
+      { "channel": "prerelease", "version": "0.16.0-rc.1",     "valid": true },
+      { "channel": "prerelease", "version": "0.16.0-beta.10",  "valid": true },
+      { "channel": "prerelease", "version": "0.16.0-alpha.1",  "valid": true },
+      { "channel": "prerelease", "version": "0.16.0-rc.foo",   "valid": false, "_why": "non-numeric suffix index" },
+      { "channel": "prerelease", "version": "0.16.0-pre.1",    "valid": false, "_why": "channel name not in {alpha,beta,rc}" },
+      { "channel": "prerelease", "version": "0.16.0+sha",      "valid": false, "_why": "build metadata not accepted" }
     ],
-    "invalid": [
-      { "input": "--channel prerelease",   "reason": "reserved-not-implemented; CLI MUST hard-error in this revision" },
-      { "input": "--channel beta",         "reason": "unrecognized channel name" },
-      { "input": "update_channel = \"prerelease\"", "reason": "reserved-not-implemented; CLI MUST hard-error or treat as stable in this revision" }
+    "channel_invalid": [
+      { "input": "--channel beta", "reason": "unrecognized channel name" }
+    ]
+  },
+  "prerelease_ordering": {
+    "_description": "compare_semver MUST order prerelease tokens of the form (alpha|beta|rc).N by (channel_rank, index). alpha < beta < rc. The lexicographic-only implementation that shipped before 0.16.0 ordered rc.10 < rc.2 incorrectly.",
+    "cases": [
+      { "a": "0.15.0-rc.10",   "b": "0.15.0-rc.2",     "expected": "Greater" },
+      { "a": "0.15.0-rc.2",    "b": "0.15.0-rc.10",    "expected": "Less" },
+      { "a": "0.15.0-beta.10", "b": "0.15.0-beta.2",   "expected": "Greater" },
+      { "a": "0.15.0-rc.1",    "b": "0.15.0-beta.99",  "expected": "Greater", "_why": "channel rank dominates index" },
+      { "a": "0.15.0-beta.1",  "b": "0.15.0-alpha.99", "expected": "Greater" },
+      { "a": "0.16.0-alpha.1", "b": "0.15.10-rc.99",   "expected": "Greater", "_why": "triplet still wins over prerelease channel rank" },
+      { "a": "0.15.0-rc.1",    "b": "0.15.0-rc.2",     "expected": "Less" },
+      { "a": "0.15.0-alpha.1", "b": "0.15.0-rc.1",     "expected": "Less" },
+      { "a": "0.15.0-rc.5",    "b": "0.15.0-rc.5",     "expected": "Equal" }
     ]
   }
 }
