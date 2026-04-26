@@ -562,7 +562,7 @@ async fn admin_users_show_detail() {
     let out = admin_cmd_with_db(&db_url)
         .arg("users")
         .arg("show")
-        .arg(&user_id.to_string())
+        .arg(user_id.to_string())
         .output()
         .expect("run users show");
 

@@ -157,11 +157,11 @@ mod tests {
             rand_bytes: Box::new(|_buf: &mut [u8]| Ok(())),
             read_pass: Box::new(move |_prompt: &str, _w: &mut dyn Write| {
                 if let Some(ref msg) = read_pass_err {
-                    return Err(io::Error::new(io::ErrorKind::Other, msg.clone()));
+                    return Err(io::Error::other(msg.clone()));
                 }
                 let mut r = responses.lock().unwrap();
                 if r.is_empty() {
-                    Err(io::Error::new(io::ErrorKind::Other, "no input"))
+                    Err(io::Error::other("no input"))
                 } else {
                     Ok(r.remove(0))
                 }

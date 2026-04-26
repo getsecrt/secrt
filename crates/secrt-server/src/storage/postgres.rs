@@ -424,28 +424,6 @@ impl SecretsStore for PgStore {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::connection_exceeds_max_lifetime;
-
-    #[test]
-    fn connection_max_lifetime_check() {
-        let max = std::time::Duration::from_secs(1800);
-        assert!(!connection_exceeds_max_lifetime(
-            std::time::Duration::from_secs(1799),
-            max
-        ));
-        assert!(connection_exceeds_max_lifetime(
-            std::time::Duration::from_secs(1800),
-            max
-        ));
-        assert!(connection_exceeds_max_lifetime(
-            std::time::Duration::from_secs(1801),
-            max
-        ));
-    }
-}
-
 #[async_trait]
 impl ApiKeysStore for PgStore {
     async fn get_by_prefix(&self, prefix: &str) -> Result<ApiKeyRecord, StorageError> {
@@ -1642,5 +1620,27 @@ impl AdminStore for PgStore {
             });
         }
         Ok(out)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::connection_exceeds_max_lifetime;
+
+    #[test]
+    fn connection_max_lifetime_check() {
+        let max = std::time::Duration::from_secs(1800);
+        assert!(!connection_exceeds_max_lifetime(
+            std::time::Duration::from_secs(1799),
+            max
+        ));
+        assert!(connection_exceeds_max_lifetime(
+            std::time::Duration::from_secs(1800),
+            max
+        ));
+        assert!(connection_exceeds_max_lifetime(
+            std::time::Duration::from_secs(1801),
+            max
+        ));
     }
 }

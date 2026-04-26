@@ -2216,9 +2216,7 @@ mod tests {
             is_stderr_tty: Box::new(|| false),
             getenv: Box::new(|_: &str| None),
             rand_bytes: Box::new(|_: &mut [u8]| Ok(())),
-            read_pass: Box::new(|_: &str, _: &mut dyn Write| {
-                Err(io::Error::new(io::ErrorKind::Other, "unused"))
-            }),
+            read_pass: Box::new(|_: &str, _: &mut dyn Write| Err(io::Error::other("unused"))),
             make_api: Box::new(|base_url: &str, api_key: &str| {
                 Box::new(crate::client::ApiClient {
                     base_url: base_url.to_string(),
@@ -2284,7 +2282,7 @@ mod tests {
             getenv: Box::new(move |key: &str| env.get(key).cloned()),
             rand_bytes: Box::new(|_buf: &mut [u8]| Ok(())),
             read_pass: Box::new(|_prompt: &str, _w: &mut dyn Write| {
-                Err(io::Error::new(io::ErrorKind::Other, "no pass"))
+                Err(io::Error::other("no pass"))
             }),
             make_api: Box::new(|base_url: &str, api_key: &str| {
                 Box::new(crate::client::ApiClient {

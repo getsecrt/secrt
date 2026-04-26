@@ -5977,7 +5977,7 @@ mod tests {
         let body: serde_json::Value =
             serde_json::from_str(&response_text(resp).await).expect("json");
         assert_eq!(body["count"], 2);
-        assert!(body["checksum"].as_str().unwrap().len() > 0);
+        assert!(!body["checksum"].as_str().unwrap().is_empty());
     }
 
     #[tokio::test]
@@ -6768,7 +6768,7 @@ mod tests {
     #[tokio::test]
     async fn device_start_rejects_invalid_ecdh_key() {
         let state = test_state();
-        let auth_token = URL_SAFE_NO_PAD.encode(&[0u8; 32]);
+        let auth_token = URL_SAFE_NO_PAD.encode([0u8; 32]);
         let body = serde_json::json!({
             "auth_token": auth_token,
             "ecdh_public_key": "dGVzdA"  // 4 bytes, not 65
@@ -6784,7 +6784,7 @@ mod tests {
     async fn device_approve_rejects_invalid_amk_transfer() {
         let (state, token, _user_id, _prefix) = test_state_with_session().await;
 
-        let auth_token = URL_SAFE_NO_PAD.encode(&[0u8; 32]);
+        let auth_token = URL_SAFE_NO_PAD.encode([0u8; 32]);
         let start_body = serde_json::json!({ "auth_token": auth_token }).to_string();
         let start_resp =
             handle_device_start_entry(State(state.clone()), post_json("/x", &start_body)).await;

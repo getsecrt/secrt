@@ -146,7 +146,7 @@ fn burn_success_json() {
     assert_eq!(code, 0, "stderr: {}", stderr.to_string());
     let out = stdout.to_string();
     let json: serde_json::Value = serde_json::from_str(out.trim()).expect("invalid JSON output");
-    assert_eq!(json["ok"].as_bool().unwrap(), true);
+    assert!(json["ok"].as_bool().unwrap());
 }
 
 #[test]

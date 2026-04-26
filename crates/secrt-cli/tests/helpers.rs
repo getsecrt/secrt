@@ -15,6 +15,12 @@ use secrt_cli::envelope::EnvelopeError;
 #[derive(Clone)]
 pub struct SharedBuf(pub Arc<Mutex<Vec<u8>>>);
 
+impl Default for SharedBuf {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl SharedBuf {
     pub fn new() -> Self {
         SharedBuf(Arc::new(Mutex::new(Vec::new())))
@@ -38,7 +44,7 @@ impl Write for SharedBuf {
 }
 
 /// Canned responses for MockApi.
-#[derive(Clone)]
+#[derive(Clone, Default)]
 pub struct MockApiResponses {
     pub create: Option<Result<CreateResponse, String>>,
     pub claim: Option<Result<ClaimResponse, String>>,
@@ -49,22 +55,6 @@ pub struct MockApiResponses {
     pub get_amk_wrapper: Option<Result<Option<AmkWrapperResponse>, String>>,
     pub upsert_amk_wrapper: Option<Result<(), String>>,
     pub update_secret_meta: Option<Result<(), String>>,
-}
-
-impl Default for MockApiResponses {
-    fn default() -> Self {
-        MockApiResponses {
-            create: None,
-            claim: None,
-            burn: None,
-            info: None,
-            list: None,
-            get_secret_metadata: None,
-            get_amk_wrapper: None,
-            upsert_amk_wrapper: None,
-            update_secret_meta: None,
-        }
-    }
 }
 
 /// A mock API client for testing.
@@ -194,6 +184,12 @@ pub struct TestDepsBuilder {
     /// processes can never collide. Stored on `Deps._test_drop_handles`
     /// at build time so it lives as long as the test that holds the deps.
     iso_dir: tempfile::TempDir,
+}
+
+impl Default for TestDepsBuilder {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl TestDepsBuilder {
@@ -393,11 +389,11 @@ impl TestDepsBuilder {
                 let _ = w.write_all(prompt.as_bytes());
                 let _ = w.flush();
                 if let Some(ref msg) = read_pass_error {
-                    return Err(io::Error::new(io::ErrorKind::Other, msg.clone()));
+                    return Err(io::Error::other(msg.clone()));
                 }
                 let mut responses = read_pass_responses.lock().unwrap();
                 if responses.is_empty() {
-                    Err(io::Error::new(io::ErrorKind::Other, "no password input"))
+                    Err(io::Error::other("no password input"))
                 } else {
                     Ok(responses.remove(0))
                 }
