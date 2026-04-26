@@ -1082,6 +1082,45 @@
             "status": "done"
           }
         ]
+      },
+      {
+        "id": 56,
+        "title": "Expose server version on /api/v1/info and X-Secrt-Server-Version response header",
+        "description": "/api/v1/info currently broadcasts CLI version info (latest_cli_version, latest_cli_version_checked_at, min_supported_cli_version) but says nothing about the server itself. Add a server_version field and a matching X-Secrt-Server-Version response header so operators can verify deploys without SSH, and so the CLI can record which server version a response came from. Source the value from env!(\"CARGO_PKG_VERSION\") at compile time (same way the CLI surfaces its own version).",
+        "status": "pending",
+        "priority": "low",
+        "dependencies": [],
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "Add server_version to InfoResponse and populate on the server",
+            "description": "Add `pub server_version: Option<String>` to `InfoResponse` in `crates/secrt-core/src/api.rs` (Optional + #[serde(default)] so older CLIs deserialize new responses cleanly, mirroring how latest_cli_version was added in 0.16.0). On the server side, populate it from `env!(\"CARGO_PKG_VERSION\")` in the /info handler. Use `Option<String>` rather than `String` so the field shape matches the existing CLI-version trio and #[serde(default)] alone covers older clients.",
+            "status": "pending"
+          },
+          {
+            "id": 2,
+            "title": "Add X-Secrt-Server-Version response header on every response",
+            "description": "Mirror the existing X-Secrt-Latest-Cli-Version family. Add a middleware-applied response header on every authenticated and public response (including /healthz). Set value from env!(\"CARGO_PKG_VERSION\"). The CLI can then opportunistically record server version from any response without round-tripping /info. Update `crates/secrt-server/src/http/` middleware that already adds the cli-version headers — single new line per header.",
+            "status": "pending"
+          },
+          {
+            "id": 3,
+            "title": "Spec + OpenAPI",
+            "description": "Update spec/v1/api.md to document `server_version` in the InfoResponse section and `X-Secrt-Server-Version` in the headers section. Update spec/v1/openapi.yaml to include the new field (Optional<String>) and the new response header. Match the prose style used for the latest_cli_version trio.",
+            "status": "pending"
+          },
+          {
+            "id": 4,
+            "title": "Tests",
+            "description": "(a) secrt-core: deserialization test confirming InfoResponse parses both with and without server_version (#[serde(default)] semantics — like the existing info_response_parses_without_cli_version_fields test). (b) secrt-server: integration test asserting /api/v1/info returns server_version == env!(\"CARGO_PKG_VERSION\") and that X-Secrt-Server-Version is on the response of an arbitrary endpoint (e.g. /healthz). Both pure tests — no live server, no DB.",
+            "status": "pending"
+          },
+          {
+            "id": 5,
+            "title": "CLI consumption (deferred decision)",
+            "description": "Out of scope for this task: how/whether the CLI surfaces the discovered server version (e.g. in error messages, in `secrt --version` after a successful API call, or in a future min-supported-server-version compatibility check). Implementation choices range from \"silently record in cache for diagnostics\" to \"include in error footers\" to \"compatibility gate\". Punt to a follow-up task once we have a concrete use case; for now the field is exposed and the CLI can adopt at its own pace."
+          }
+        ]
       }
     ]
   }
