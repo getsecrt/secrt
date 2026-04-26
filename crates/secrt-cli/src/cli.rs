@@ -253,11 +253,7 @@ fn stdout_is_dash(args: &[String]) -> bool {
     let mut iter = args.iter();
     while let Some(a) = iter.next() {
         match a.as_str() {
-            "-o" | "--output" => {
-                if iter.next().map(|s| s.as_str()) == Some("-") {
-                    return true;
-                }
-            }
+            "-o" | "--output" if iter.next().map(|s| s.as_str()) == Some("-") => return true,
             "--output=-" | "-o=-" | "-o-" => return true,
             _ => {}
         }
@@ -1120,7 +1116,7 @@ fn run_config_show(deps: &mut Deps) -> i32 {
 use crate::color::ColorFn;
 
 /// Write auto-aligned option rows:  flag [arg]   description
-fn write_option_rows(w: &mut dyn Write, c: &ColorFn, rows: &[(&str, &str, &str)]) {
+pub(crate) fn write_option_rows(w: &mut dyn Write, c: &ColorFn, rows: &[(&str, &str, &str)]) {
     let widths: Vec<usize> = rows
         .iter()
         .map(|(f, a, _)| {
