@@ -281,6 +281,21 @@ Both release workflows trust the `ci.yml` run on the merge commit — they
 do not re-run tests or clippy. The toolchain pin in `rust-toolchain.toml`
 guarantees the release build sees the same Rust version that ci.yml passed.
 
+### Deploying a server release
+
+After a stable `server/v*` release publishes, run `scripts/deploy.sh` on
+each secrt server (e.g., `secrt.is`, `secrt.ca`) to pull the new binaries,
+verify SHA-256, and restart the service. The script autodetects the host
+architecture (`linux-amd64` / `linux-arm64`) and is safe to re-run.
+
+```sh
+ssh secrt.is ~/deploy.sh
+```
+
+The repo copy (`scripts/deploy.sh`) is the canonical version. The live
+copy at `secrt.is:~/deploy.sh` may have local edits — sync the repo copy
+after every production change.
+
 ## Dependency policy
 
 - **Minimize dependencies.** Prefer stdlib and `ring`. The CLI uses `ureq` (blocking HTTP) — no async runtime.
