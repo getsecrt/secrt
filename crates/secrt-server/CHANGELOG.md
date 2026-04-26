@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.16.0 — 2026-04-26
+
 ### Added
 
 - **GitHub Releases version cache.** A new background task in `release_poller.rs` polls `https://api.github.com/repos/<repo>/releases` every 60 minutes (configurable via `GITHUB_POLL_INTERVAL_SECONDS`; set to `0` to disable polling entirely on air-gapped deployments). The poller uses `If-None-Match`/ETag to avoid burning rate limit on unchanged data, fails soft on 403/429/5xx/timeout/parse errors (last-known-good is preserved), filters tags to `cli/v\d+\.\d+\.\d+` (drafts and prereleases skipped), and picks the highest semver. Optional `GITHUB_TOKEN` lifts the unauthenticated rate limit. Configurable repo via `GITHUB_REPO` (default `getsecrt/secrt`).

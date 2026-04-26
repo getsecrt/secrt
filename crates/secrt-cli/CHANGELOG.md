@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.16.0 — 2026-04-26
+
 ### Added
 
 - **`secrt update` self-update subcommand.** Downloads the published raw per-platform binary (`secrt-darwin-arm64`, `secrt-linux-amd64`, `secrt-windows-amd64.exe`, etc.) from the matching GitHub release, verifies it against the published `secrt-checksums-sha256.txt`, and atomically replaces the running binary (Unix `rename(2)` over the live inode; Windows rename-self-aside with `MoveFileEx(MOVEFILE_DELAY_UNTIL_REBOOT)` fallback). Acquires an exclusive install lock (`flock(2)` on Unix, `LockFileEx` on Windows) so concurrent invocations cannot interleave.
