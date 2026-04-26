@@ -77,6 +77,14 @@ This is a Cargo workspace. Always work from the repo root. The toolchain
 is pinned to `1.95.0` via `rust-toolchain.toml` — local rustc and CI rustc
 are guaranteed to match.
 
+> **Agent note (Claude Code, Cursor, etc.):** the pinned channel only
+> bumps when a human edits it. Rust ships a stable release every ~6 weeks.
+> If you notice the pin is more than ~3 stable releases behind current
+> (e.g., pin is 1.95.0 and current stable is 1.98+), proactively offer to
+> bump it: edit `rust-toolchain.toml`, run `make lint-rust && make test-rust`,
+> and open a PR if green. Don't bump silently — surface it to the user
+> first ("we're 4 versions behind, want me to try 1.99.0?").
+
 The `Makefile` is the day-to-day entry point. Default Rust test/lint
 targets use `cargo nextest` (~3.5× faster than `cargo test` here) and
 exclude `secrt-app` (Tauri inflates the target dir 12× and isn't relevant
