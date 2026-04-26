@@ -45,3 +45,4 @@ path = "src/bin/secrt-admin.rs"
 [dev-dependencies]
 tower = { workspace = true, features = ["util"] }
 tokio = { workspace = true, features = ["test-util"] }
+tempfile = { workspace = true }

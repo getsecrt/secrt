@@ -18,13 +18,17 @@ fn test_database_url() -> Option<String> {
 }
 
 fn test_schema_name() -> String {
+    // pid + nanos + atomic counter — pid prevents cross-process collisions
+    // (nextest forks tests into separate processes), counter prevents
+    // within-process collisions when multiple async tasks call this in the
+    // same nanosecond.
     static COUNTER: AtomicU64 = AtomicU64::new(0);
     let nanos = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .expect("time")
         .as_nanos();
     let ctr = COUNTER.fetch_add(1, Ordering::Relaxed);
-    format!("test_{}_{}", nanos, ctr)
+    format!("test_{}_{}_{}", std::process::id(), nanos, ctr)
 }
 
 fn with_search_path(url: &str, schema: &str) -> String {

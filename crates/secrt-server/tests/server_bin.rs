@@ -92,7 +92,8 @@ async fn server_starts_and_stops_gracefully_with_sigterm() {
         return;
     };
     let schema = format!(
-        "test_server_bin_{}",
+        "test_server_bin_{}_{}",
+        std::process::id(),
         std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .expect("time")
@@ -160,7 +161,8 @@ async fn server_sigterm_honors_shutdown_deadline_with_stalled_request_body() {
         return;
     };
     let schema = format!(
-        "test_server_shutdown_deadline_{}",
+        "test_server_shutdown_deadline_{}_{}",
+        std::process::id(),
         std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .expect("time")

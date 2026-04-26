@@ -34,3 +34,4 @@ keychain = ["keyring"]
 
 [dev-dependencies]
 serde = { version = "1", features = ["derive"] }
+tempfile = { workspace = true }

@@ -52,15 +52,15 @@ fn mock_info_response(authenticated: bool) -> InfoResponse {
 }
 
 /// Helper to create a temp config dir with a config.toml containing the given TOML content.
-/// Returns the path to use as XDG_CONFIG_HOME.
-fn setup_config(toml_content: &str) -> std::path::PathBuf {
-    let id = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap()
-        .as_nanos();
-    let dir = std::env::temp_dir().join(format!("secrt_auth_test_{}", id));
-    let secrt_dir = dir.join("secrt");
-    let _ = fs::create_dir_all(&secrt_dir);
+/// Returns a `tempfile::TempDir` whose `.path()` is the dir to use as XDG_CONFIG_HOME.
+/// Auto-cleans on drop.
+fn setup_config(toml_content: &str) -> tempfile::TempDir {
+    let dir = tempfile::Builder::new()
+        .prefix("secrt_auth_test_")
+        .tempdir()
+        .expect("tempdir");
+    let secrt_dir = dir.path().join("secrt");
+    fs::create_dir_all(&secrt_dir).expect("create secrt subdir");
     let config_path = secrt_dir.join("config.toml");
     fs::write(&config_path, toml_content).unwrap();
     #[cfg(unix)]
@@ -123,7 +123,7 @@ fn auth_setup_stores_valid_key() {
     let (mut deps, _stdout, stderr) = TestDepsBuilder::new()
         .read_pass(&[VALID_API_KEY])
         .mock_info(Ok(mock_info_response(true)))
-        .env("XDG_CONFIG_HOME", cfg_dir.to_str().unwrap())
+        .env("XDG_CONFIG_HOME", cfg_dir.path().to_str().unwrap())
         .build();
     let code = cli::run(&args(&["secrt", "auth", "setup"]), &mut deps);
     let err = stderr.to_string();
@@ -133,7 +133,6 @@ fn auth_setup_stores_valid_key() {
         "should show verification or storage success message: {}",
         err
     );
-    let _ = fs::remove_dir_all(&cfg_dir);
 }
 
 #[test]

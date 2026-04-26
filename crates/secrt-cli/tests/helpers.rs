@@ -189,22 +189,28 @@ pub struct TestDepsBuilder {
     keychain_secret_lists: HashMap<String, Vec<String>>,
     copy_to_clipboard_fn: Option<Box<dyn Fn(&str) -> Result<(), String>>>,
     now: Option<std::time::SystemTime>,
+    /// Per-builder isolation directory. `tempfile::TempDir` guarantees a
+    /// unique random name and atomic creation, so two parallel test
+    /// processes can never collide. Stored on `Deps._test_drop_handles`
+    /// at build time so it lives as long as the test that holds the deps.
+    iso_dir: tempfile::TempDir,
 }
 
 impl TestDepsBuilder {
     pub fn new() -> Self {
-        // Default XDG_CONFIG_HOME to a unique temp dir so tests never pick up the
-        // real user config. Tests that need a specific config call `.env("XDG_CONFIG_HOME", ...)`
-        // which will override this default.
-        let iso_dir = std::env::temp_dir().join(format!(
-            "secrt_test_iso_{}_{:?}",
-            std::process::id(),
-            std::thread::current().id()
-        ));
+        // Default XDG_CONFIG_HOME to a fresh, collision-proof temp dir so
+        // tests never pick up the real user config. Tests that need a
+        // specific config call `.env("XDG_CONFIG_HOME", ...)` which will
+        // override this default. The TempDir is moved onto `Deps` at
+        // build time so it cleans up when the test ends.
+        let iso_dir = tempfile::Builder::new()
+            .prefix("secrt_test_iso_")
+            .tempdir()
+            .expect("create iso tempdir");
         let mut env = HashMap::new();
         env.insert(
             "XDG_CONFIG_HOME".to_string(),
-            iso_dir.to_string_lossy().to_string(),
+            iso_dir.path().to_string_lossy().to_string(),
         );
         TestDepsBuilder {
             stdin_data: Vec::new(),
@@ -219,6 +225,7 @@ impl TestDepsBuilder {
             keychain_secret_lists: HashMap::new(),
             copy_to_clipboard_fn: None,
             now: None,
+            iso_dir,
         }
     }
 
@@ -424,6 +431,11 @@ impl TestDepsBuilder {
                     }) as Box<dyn SecretApi>
                 })
             },
+            // Hold the per-builder iso_dir TempDir for the lifetime of Deps
+            // so it cleans up when the test ends. Even tests that override
+            // XDG_CONFIG_HOME via `.env(...)` still pay nothing meaningful
+            // here — the dir is empty and gets removed cheaply.
+            _test_drop_handles: vec![Box::new(self.iso_dir)],
         };
 
         (deps, stdout, stderr)

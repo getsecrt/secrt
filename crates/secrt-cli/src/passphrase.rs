@@ -180,6 +180,7 @@ mod tests {
             copy_to_clipboard: Box::new(|_: &str| Ok(())),
             sleep: Box::new(|_: std::time::Duration| {}),
             now: Box::new(std::time::SystemTime::now),
+            _test_drop_handles: Vec::new(),
         }
     }
 
@@ -242,21 +243,20 @@ mod tests {
 
     #[test]
     fn file_happy() {
-        let dir = std::env::temp_dir();
-        let path = dir.join("secrt_test_pass_happy.txt");
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("pass.txt");
         fs::write(&path, "my-passphrase\n").unwrap();
         let mut deps = default_deps();
         let mut pa = ParsedArgs::default();
         pa.passphrase_file = path.to_str().unwrap().into();
         let result = resolve_passphrase(&pa, &mut deps).unwrap();
         assert_eq!(result, "my-passphrase");
-        let _ = fs::remove_file(&path);
     }
 
     #[test]
     fn file_empty() {
-        let dir = std::env::temp_dir();
-        let path = dir.join("secrt_test_pass_empty.txt");
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("pass.txt");
         fs::write(&path, "").unwrap();
         let mut deps = default_deps();
         let mut pa = ParsedArgs::default();
@@ -264,20 +264,18 @@ mod tests {
         let err = resolve_passphrase(&pa, &mut deps);
         assert!(err.is_err());
         assert!(err.unwrap_err().contains("empty"));
-        let _ = fs::remove_file(&path);
     }
 
     #[test]
     fn file_trims_newlines() {
-        let dir = std::env::temp_dir();
-        let path = dir.join("secrt_test_pass_trim.txt");
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("pass.txt");
         fs::write(&path, "secret\r\n").unwrap();
         let mut deps = default_deps();
         let mut pa = ParsedArgs::default();
         pa.passphrase_file = path.to_str().unwrap().into();
         let result = resolve_passphrase(&pa, &mut deps).unwrap();
         assert_eq!(result, "secret");
-        let _ = fs::remove_file(&path);
     }
 
     #[test]

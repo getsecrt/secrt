@@ -123,6 +123,7 @@ fn main() {
         }),
         sleep: Box::new(|d: std::time::Duration| std::thread::sleep(d)),
         now: Box::new(std::time::SystemTime::now),
+        _test_drop_handles: Vec::new(),
     };
 
     let args: Vec<String> = std::env::args().collect();

@@ -53,8 +53,8 @@ fn send_text_flag() {
 
 #[test]
 fn send_file_flag() {
-    let dir = std::env::temp_dir();
-    let path = dir.join("secrt_test_create_file.txt");
+    let dir = tempfile::tempdir().expect("tempdir");
+    let path = dir.path().join("file.txt");
     std::fs::write(&path, "file content").unwrap();
 
     let (mut deps, _stdout, stderr) = TestDepsBuilder::new()
@@ -65,13 +65,12 @@ fn send_file_flag() {
         &mut deps,
     );
     assert_eq!(code, 1, "stderr: {}", stderr.to_string());
-    let _ = std::fs::remove_file(&path);
 }
 
 #[test]
 fn send_multiple_sources() {
-    let dir = std::env::temp_dir();
-    let path = dir.join("secrt_test_create_multi.txt");
+    let dir = tempfile::tempdir().expect("tempdir");
+    let path = dir.path().join("multi.txt");
     std::fs::write(&path, "data").unwrap();
 
     let (mut deps, _stdout, stderr) = TestDepsBuilder::new().build();
@@ -1080,14 +1079,11 @@ fn send_clipboard_failure_is_graceful() {
 #[test]
 fn send_auto_copy_false_config_skips_clipboard() {
     // Write a config file with auto_copy = false
-    let dir = std::env::temp_dir().join(format!(
-        "secrt_test_autocopy_{}",
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_nanos()
-    ));
-    let secrt_dir = dir.join("secrt");
+    let dir = tempfile::Builder::new()
+        .prefix("secrt_test_autocopy_")
+        .tempdir()
+        .expect("tempdir");
+    let secrt_dir = dir.path().join("secrt");
     std::fs::create_dir_all(&secrt_dir).unwrap();
     let config_path = secrt_dir.join("config.toml");
     std::fs::write(&config_path, "auto_copy = false\n").unwrap();
@@ -1101,7 +1097,7 @@ fn send_auto_copy_false_config_skips_clipboard() {
     let (mut deps, _stdout, stderr) = TestDepsBuilder::new()
         .read_pass(&["my secret"])
         .is_tty(true)
-        .env("XDG_CONFIG_HOME", dir.to_str().unwrap())
+        .env("XDG_CONFIG_HOME", dir.path().to_str().unwrap())
         .mock_create(Ok(mock_send_response()))
         .copy_to_clipboard_fn(clipboard_fn)
         .build();

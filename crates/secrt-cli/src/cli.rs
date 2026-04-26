@@ -51,6 +51,11 @@ pub struct Deps {
     pub sleep: SleepFn,
     /// Wall-clock injection for cache TTL checks and `checked_at` stamps.
     pub now: Box<dyn Fn() -> SystemTime>,
+    /// Test-only escape hatch: opaque drop handles whose lifetime is tied to
+    /// `Deps`. Used by `TestDepsBuilder` to attach a `tempfile::TempDir` so
+    /// the per-test isolation directory is cleaned up when the test ends.
+    /// Production constructors set this to `Vec::new()`.
+    pub _test_drop_handles: Vec<Box<dyn std::any::Any>>,
 }
 
 /// Parsed global and command-specific flags.
@@ -2228,6 +2233,7 @@ mod tests {
             copy_to_clipboard: Box::new(|_: &str| Ok(())),
             sleep: Box::new(|_: std::time::Duration| {}),
             now: Box::new(std::time::SystemTime::now),
+            _test_drop_handles: Vec::new(),
         };
         f(&mut deps);
         drop(deps);
@@ -2294,6 +2300,7 @@ mod tests {
             copy_to_clipboard: Box::new(|_: &str| Ok(())),
             sleep: Box::new(|_: std::time::Duration| {}),
             now: Box::new(std::time::SystemTime::now),
+            _test_drop_handles: Vec::new(),
         }
     }
 

@@ -373,14 +373,10 @@ mod tests {
         let original_existing = std::env::var("EXISTING").ok();
         std::env::set_var("FOO", "before_foo");
         std::env::set_var("EXISTING", "before_existing");
-        let path = std::env::temp_dir()
-            .join(format!(
-                "secrt-dotenv-{}",
-                std::time::SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .expect("time")
-                    .as_nanos()
-            ))
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir
+            .path()
+            .join("secrt-dotenv")
             .to_string_lossy()
             .to_string();
         std::fs::write(
@@ -706,8 +702,10 @@ mod tests {
             }
         };
 
+        // pid + nanos so two parallel nextest processes can't collide on schema name.
         let schema = format!(
-            "test_runtime_{}",
+            "test_runtime_{}_{}",
+            std::process::id(),
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .expect("time")

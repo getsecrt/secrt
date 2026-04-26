@@ -407,9 +407,11 @@ mod tests {
 
     #[test]
     fn load_valid_toml() {
-        let dir = std::env::temp_dir().join("secrt_config_test");
-        let _ = fs::create_dir_all(&dir);
-        let path = dir.join("config.toml");
+        let dir = tempfile::Builder::new()
+            .prefix("secrt_config_test_")
+            .tempdir()
+            .expect("tempdir");
+        let path = dir.path().join("config.toml");
         fs::write(
             &path,
             "api_key = \"sk2_test_123\"\nbase_url = \"https://example.com\"\n",
@@ -419,40 +421,43 @@ mod tests {
         assert_eq!(config.api_key.as_deref(), Some("sk2_test_123"));
         assert_eq!(config.base_url.as_deref(), Some("https://example.com"));
         assert!(config.passphrase.is_none());
-        let _ = fs::remove_dir_all(&dir);
     }
 
     #[test]
     fn load_partial_toml() {
-        let dir = std::env::temp_dir().join("secrt_config_partial");
-        let _ = fs::create_dir_all(&dir);
-        let path = dir.join("config.toml");
+        let dir = tempfile::Builder::new()
+            .prefix("secrt_config_partial_")
+            .tempdir()
+            .expect("tempdir");
+        let path = dir.path().join("config.toml");
         fs::write(&path, "base_url = \"https://my.server\"\n").unwrap();
         let config = load_config_from_path(&path, &mut Vec::new());
         assert!(config.api_key.is_none());
         assert_eq!(config.base_url.as_deref(), Some("https://my.server"));
-        let _ = fs::remove_dir_all(&dir);
     }
 
     #[test]
     fn load_invalid_toml_warns() {
-        let dir = std::env::temp_dir().join("secrt_config_invalid");
-        let _ = fs::create_dir_all(&dir);
-        let path = dir.join("config.toml");
+        let dir = tempfile::Builder::new()
+            .prefix("secrt_config_invalid_")
+            .tempdir()
+            .expect("tempdir");
+        let path = dir.path().join("config.toml");
         fs::write(&path, "not valid [[ toml !!!").unwrap();
         let mut stderr = Vec::new();
         let config = load_config_from_path(&path, &mut stderr);
         assert!(config.api_key.is_none());
         let warning = String::from_utf8(stderr).unwrap();
         assert!(warning.contains("warning: failed to parse"));
-        let _ = fs::remove_dir_all(&dir);
     }
 
     #[test]
     fn filtered_strips_secrets() {
-        let dir = std::env::temp_dir().join("secrt_config_filtered");
-        let _ = fs::create_dir_all(&dir);
-        let path = dir.join("config.toml");
+        let dir = tempfile::Builder::new()
+            .prefix("secrt_config_filtered_")
+            .tempdir()
+            .expect("tempdir");
+        let path = dir.path().join("config.toml");
         fs::write(
             &path,
             "api_key = \"sk2_secret\"\nbase_url = \"https://ok.com\"\npassphrase = \"hunter2\"\n",
@@ -462,7 +467,6 @@ mod tests {
         assert!(config.api_key.is_none(), "api_key should be stripped");
         assert!(config.passphrase.is_none(), "passphrase should be stripped");
         assert_eq!(config.base_url.as_deref(), Some("https://ok.com"));
-        let _ = fs::remove_dir_all(&dir);
     }
 
     #[cfg(unix)]
@@ -470,9 +474,11 @@ mod tests {
     fn permissions_check() {
         use std::os::unix::fs::MetadataExt;
         use std::os::unix::fs::PermissionsExt;
-        let dir = std::env::temp_dir().join("secrt_config_perms");
-        let _ = fs::create_dir_all(&dir);
-        let path = dir.join("config.toml");
+        let dir = tempfile::Builder::new()
+            .prefix("secrt_config_perms_")
+            .tempdir()
+            .expect("tempdir");
+        let path = dir.path().join("config.toml");
         fs::write(
             &path,
             "api_key = \"sk2_secret\"\nbase_url = \"https://ok.com\"\n",
@@ -492,8 +498,6 @@ mod tests {
         let config = load_config_filtered(&path, &mut stderr);
         assert!(config.api_key.is_none());
         assert_eq!(config.base_url.as_deref(), Some("https://ok.com"));
-
-        let _ = fs::remove_dir_all(&dir);
     }
 
     #[test]
@@ -526,20 +530,23 @@ mod tests {
 
     #[test]
     fn load_toml_with_default_ttl() {
-        let dir = std::env::temp_dir().join("secrt_config_ttl");
-        let _ = fs::create_dir_all(&dir);
-        let path = dir.join("config.toml");
+        let dir = tempfile::Builder::new()
+            .prefix("secrt_config_ttl_")
+            .tempdir()
+            .expect("tempdir");
+        let path = dir.path().join("config.toml");
         fs::write(&path, "default_ttl = \"24h\"\n").unwrap();
         let config = load_config_from_path(&path, &mut Vec::new());
         assert_eq!(config.default_ttl.as_deref(), Some("24h"));
-        let _ = fs::remove_dir_all(&dir);
     }
 
     #[test]
     fn load_toml_with_decryption_passphrases() {
-        let dir = std::env::temp_dir().join("secrt_config_dp");
-        let _ = fs::create_dir_all(&dir);
-        let path = dir.join("config.toml");
+        let dir = tempfile::Builder::new()
+            .prefix("secrt_config_dp_")
+            .tempdir()
+            .expect("tempdir");
+        let path = dir.path().join("config.toml");
         fs::write(
             &path,
             "decryption_passphrases = [\"pass1\", \"pass2\", \"pass3\"]\n",
@@ -550,26 +557,28 @@ mod tests {
             config.decryption_passphrases,
             vec!["pass1", "pass2", "pass3"]
         );
-        let _ = fs::remove_dir_all(&dir);
     }
 
     #[test]
     fn load_toml_missing_fields_default() {
-        let dir = std::env::temp_dir().join("secrt_config_defaults");
-        let _ = fs::create_dir_all(&dir);
-        let path = dir.join("config.toml");
+        let dir = tempfile::Builder::new()
+            .prefix("secrt_config_defaults_")
+            .tempdir()
+            .expect("tempdir");
+        let path = dir.path().join("config.toml");
         fs::write(&path, "base_url = \"https://ok.com\"\n").unwrap();
         let config = load_config_from_path(&path, &mut Vec::new());
         assert!(config.default_ttl.is_none());
         assert!(config.decryption_passphrases.is_empty());
-        let _ = fs::remove_dir_all(&dir);
     }
 
     #[test]
     fn filtered_strips_decryption_passphrases() {
-        let dir = std::env::temp_dir().join("secrt_config_filtered_dp");
-        let _ = fs::create_dir_all(&dir);
-        let path = dir.join("config.toml");
+        let dir = tempfile::Builder::new()
+            .prefix("secrt_config_filtered_dp_")
+            .tempdir()
+            .expect("tempdir");
+        let path = dir.path().join("config.toml");
         fs::write(
             &path,
             "base_url = \"https://ok.com\"\ndefault_ttl = \"1h\"\ndecryption_passphrases = [\"secret1\"]\n",
@@ -586,7 +595,6 @@ mod tests {
             "default_ttl should NOT be stripped"
         );
         assert_eq!(config.base_url.as_deref(), Some("https://ok.com"));
-        let _ = fs::remove_dir_all(&dir);
     }
 
     #[test]
@@ -645,15 +653,12 @@ mod tests {
     #[test]
     fn load_config_with_bad_permissions_warns_and_strips() {
         use std::os::unix::fs::PermissionsExt;
-        let dir = std::env::temp_dir().join(format!(
-            "secrt_config_perm_warn_{}",
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_nanos()
-        ));
-        let secrt_dir = dir.join("secrt");
-        let _ = fs::create_dir_all(&secrt_dir);
+        let dir = tempfile::Builder::new()
+            .prefix("secrt_config_perm_warn_")
+            .tempdir()
+            .expect("tempdir");
+        let secrt_dir = dir.path().join("secrt");
+        fs::create_dir_all(&secrt_dir).expect("create secrt subdir");
         let path = secrt_dir.join("config.toml");
         fs::write(
             &path,
@@ -662,7 +667,7 @@ mod tests {
         .unwrap();
         fs::set_permissions(&path, fs::Permissions::from_mode(0o644)).unwrap();
 
-        let dir_str = dir.to_str().unwrap().to_string();
+        let dir_str = dir.path().to_str().unwrap().to_string();
         let getenv = move |key: &str| -> Option<String> {
             if key == "XDG_CONFIG_HOME" {
                 Some(dir_str.clone())
@@ -697,8 +702,6 @@ mod tests {
             Some("https://ok.com"),
             "base_url should not be stripped"
         );
-
-        let _ = fs::remove_dir_all(&dir);
     }
 
     #[test]
@@ -741,14 +744,11 @@ mod tests {
         // Regression for GH#42: `set_config_key("use_keychain", "true")` used to
         // write `use_keychain = "true"` (string), which then broke TOML parsing
         // on next load and silently disabled keychain integration.
-        let dir = std::env::temp_dir().join(format!(
-            "secrt_config_set_bool_{}",
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_nanos()
-        ));
-        let dir_str = dir.to_str().unwrap().to_string();
+        let dir = tempfile::Builder::new()
+            .prefix("secrt_config_set_bool_")
+            .tempdir()
+            .expect("tempdir");
+        let dir_str = dir.path().to_str().unwrap().to_string();
         let getenv = move |key: &str| -> Option<String> {
             if key == "XDG_CONFIG_HOME" {
                 Some(dir_str.clone())
@@ -760,7 +760,8 @@ mod tests {
         for key in ["use_keychain", "show_input", "auto_copy"] {
             for value in ["true", "false"] {
                 set_config_key(&getenv, key, value).unwrap();
-                let contents = fs::read_to_string(dir.join("secrt").join("config.toml")).unwrap();
+                let contents =
+                    fs::read_to_string(dir.path().join("secrt").join("config.toml")).unwrap();
                 let needle = format!("{} = {}", key, value);
                 assert!(
                     contents.contains(&needle),
@@ -788,25 +789,20 @@ mod tests {
 
         // String keys still get quoted.
         set_config_key(&getenv, "base_url", "https://example.com").unwrap();
-        let contents = fs::read_to_string(dir.join("secrt").join("config.toml")).unwrap();
+        let contents = fs::read_to_string(dir.path().join("secrt").join("config.toml")).unwrap();
         assert!(contents.contains("base_url = \"https://example.com\""));
-
-        let _ = fs::remove_dir_all(&dir);
     }
 
     #[test]
     fn load_migrates_string_form_bool_silently() {
         // Existing users hit by GH#42 already have a corrupted config. On load,
         // we accept the string form, rewrite the file, and parse successfully.
-        let dir = std::env::temp_dir().join(format!(
-            "secrt_config_migrate_{}",
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_nanos()
-        ));
-        let secrt_dir = dir.join("secrt");
-        let _ = fs::create_dir_all(&secrt_dir);
+        let dir = tempfile::Builder::new()
+            .prefix("secrt_config_migrate_")
+            .tempdir()
+            .expect("tempdir");
+        let secrt_dir = dir.path().join("secrt");
+        fs::create_dir_all(&secrt_dir).expect("create secrt subdir");
         let path = secrt_dir.join("config.toml");
         fs::write(
             &path,
@@ -818,7 +814,7 @@ mod tests {
             use std::os::unix::fs::PermissionsExt;
             let _ = fs::set_permissions(&path, fs::Permissions::from_mode(0o600));
         }
-        let dir_str = dir.to_str().unwrap().to_string();
+        let dir_str = dir.path().to_str().unwrap().to_string();
         let getenv = move |key: &str| -> Option<String> {
             if key == "XDG_CONFIG_HOME" {
                 Some(dir_str.clone())
@@ -853,8 +849,6 @@ mod tests {
         assert!(on_disk.contains("auto_copy = false"));
         assert!(!on_disk.contains("\"true\""));
         assert!(!on_disk.contains("\"false\""));
-
-        let _ = fs::remove_dir_all(&dir);
     }
 
     #[test]
@@ -880,8 +874,11 @@ mod tests {
 
     #[test]
     fn load_config_with_injectable() {
-        let dir = std::env::temp_dir().join("secrt_config_injectable");
-        let secrt_dir = dir.join("secrt");
+        let dir = tempfile::Builder::new()
+            .prefix("secrt_config_injectable_")
+            .tempdir()
+            .expect("tempdir");
+        let secrt_dir = dir.path().join("secrt");
         let _ = fs::create_dir_all(&secrt_dir);
         let path = secrt_dir.join("config.toml");
         fs::write(&path, "default_ttl = \"2h\"\n").unwrap();
@@ -890,7 +887,7 @@ mod tests {
             use std::os::unix::fs::PermissionsExt;
             let _ = fs::set_permissions(&path, fs::Permissions::from_mode(0o600));
         }
-        let dir_str = dir.to_str().unwrap().to_string();
+        let dir_str = dir.path().to_str().unwrap().to_string();
         let getenv = move |key: &str| -> Option<String> {
             if key == "XDG_CONFIG_HOME" {
                 Some(dir_str.clone())
@@ -900,6 +897,5 @@ mod tests {
         };
         let config = load_config_with(&getenv, &mut Vec::new());
         assert_eq!(config.default_ttl.as_deref(), Some("2h"));
-        let _ = fs::remove_dir_all(&dir);
     }
 }

@@ -1,6 +1,7 @@
 mod helpers;
 
 use std::fs;
+use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
 use helpers::{args, TestDepsBuilder};
@@ -15,6 +16,34 @@ const DEAD_URL: &str = "http://127.0.0.1:19191";
 /// Mutex to serialize tests that change the current working directory.
 /// CWD is process-global, so parallel tests that call set_current_dir race.
 static CWD_LOCK: Mutex<()> = Mutex::new(());
+
+/// RAII guard: snapshots CWD on creation, restores it on Drop, even on panic.
+/// Use this whenever a test changes CWD so a panicking assertion can't leak
+/// a bad CWD into the next test on the same process.
+///
+/// Drop ordering matters when paired with `tempfile::TempDir`:
+/// ```ignore
+/// let dir = tempfile::tempdir().unwrap();
+/// let _cwd = CwdGuard::enter(dir.path()); // _cwd drops first (LIFO),
+///                                         // then dir drops — correct.
+/// ```
+struct CwdGuard {
+    orig: PathBuf,
+}
+
+impl CwdGuard {
+    fn enter(new_dir: &Path) -> Self {
+        let orig = std::env::current_dir().expect("cwd");
+        std::env::set_current_dir(new_dir).expect("set_current_dir");
+        Self { orig }
+    }
+}
+
+impl Drop for CwdGuard {
+    fn drop(&mut self) {
+        let _ = std::env::set_current_dir(&self.orig);
+    }
+}
 
 fn make_share_url(base: &str, id: &str) -> String {
     let key = vec![42u8; 32];
@@ -630,15 +659,15 @@ fn get_passphrase_json_non_tty_error() {
 // --- Decryption passphrase list tests ---
 
 /// Helper to create a temp config dir with a config.toml containing the given TOML content.
-/// Returns the path to use as XDG_CONFIG_HOME.
-fn setup_config(toml_content: &str) -> std::path::PathBuf {
-    let id = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap()
-        .as_nanos();
-    let dir = std::env::temp_dir().join(format!("secrt_test_cfg_{}", id));
-    let secrt_dir = dir.join("secrt");
-    let _ = fs::create_dir_all(&secrt_dir);
+/// Returns a `tempfile::TempDir` whose `.path()` is the dir to use as XDG_CONFIG_HOME.
+/// Auto-cleans on drop.
+fn setup_config(toml_content: &str) -> tempfile::TempDir {
+    let dir = tempfile::Builder::new()
+        .prefix("secrt_test_cfg_")
+        .tempdir()
+        .expect("tempdir");
+    let secrt_dir = dir.path().join("secrt");
+    fs::create_dir_all(&secrt_dir).expect("create secrt subdir");
     let config_path = secrt_dir.join("config.toml");
     fs::write(&config_path, toml_content).unwrap();
     #[cfg(unix)]
@@ -661,12 +690,11 @@ fn get_passphrase_list_first_matches() {
     let (mut deps, stdout, stderr) = TestDepsBuilder::new()
         .is_tty(false)
         .mock_claim(Ok(mock_resp))
-        .env("XDG_CONFIG_HOME", cfg_dir.to_str().unwrap())
+        .env("XDG_CONFIG_HOME", cfg_dir.path().to_str().unwrap())
         .build();
     let code = cli::run(&args(&["secrt", "get", &share_link]), &mut deps);
     assert_eq!(code, 0, "stderr: {}", stderr.to_string());
     assert_eq!(stdout.to_string(), "list first match");
-    let _ = fs::remove_dir_all(&cfg_dir);
 }
 
 #[test]
@@ -681,12 +709,11 @@ fn get_passphrase_list_second_matches() {
     let (mut deps, stdout, stderr) = TestDepsBuilder::new()
         .is_tty(false)
         .mock_claim(Ok(mock_resp))
-        .env("XDG_CONFIG_HOME", cfg_dir.to_str().unwrap())
+        .env("XDG_CONFIG_HOME", cfg_dir.path().to_str().unwrap())
         .build();
     let code = cli::run(&args(&["secrt", "get", &share_link]), &mut deps);
     assert_eq!(code, 0, "stderr: {}", stderr.to_string());
     assert_eq!(stdout.to_string(), "list second match");
-    let _ = fs::remove_dir_all(&cfg_dir);
 }
 
 #[test]
@@ -704,12 +731,11 @@ fn get_passphrase_default_tried_before_list() {
     let (mut deps, stdout, stderr) = TestDepsBuilder::new()
         .is_tty(false)
         .mock_claim(Ok(mock_resp))
-        .env("XDG_CONFIG_HOME", cfg_dir.to_str().unwrap())
+        .env("XDG_CONFIG_HOME", cfg_dir.path().to_str().unwrap())
         .build();
     let code = cli::run(&args(&["secrt", "get", &share_link]), &mut deps);
     assert_eq!(code, 0, "stderr: {}", stderr.to_string());
     assert_eq!(stdout.to_string(), "default first");
-    let _ = fs::remove_dir_all(&cfg_dir);
 }
 
 #[test]
@@ -724,7 +750,7 @@ fn get_passphrase_list_no_match_non_tty_error() {
     let (mut deps, _stdout, stderr) = TestDepsBuilder::new()
         .is_tty(false)
         .mock_claim(Ok(mock_resp))
-        .env("XDG_CONFIG_HOME", cfg_dir.to_str().unwrap())
+        .env("XDG_CONFIG_HOME", cfg_dir.path().to_str().unwrap())
         .build();
     let code = cli::run(&args(&["secrt", "get", &share_link]), &mut deps);
     assert_eq!(code, 1);
@@ -734,7 +760,6 @@ fn get_passphrase_list_no_match_non_tty_error() {
         "should mention tried count: {}",
         err
     );
-    let _ = fs::remove_dir_all(&cfg_dir);
 }
 
 #[test]
@@ -750,7 +775,7 @@ fn get_passphrase_list_no_match_tty_falls_through_to_prompt() {
         .is_tty(true)
         .mock_claim(Ok(mock_resp))
         .read_pass(&["correct"])
-        .env("XDG_CONFIG_HOME", cfg_dir.to_str().unwrap())
+        .env("XDG_CONFIG_HOME", cfg_dir.path().to_str().unwrap())
         .build();
     let code = cli::run(&args(&["secrt", "get", &share_link]), &mut deps);
     assert_eq!(code, 0, "stderr: {}", stderr.to_string());
@@ -761,7 +786,6 @@ fn get_passphrase_list_no_match_tty_falls_through_to_prompt() {
         "should mention list didn't match: {}",
         err
     );
-    let _ = fs::remove_dir_all(&cfg_dir);
 }
 
 #[test]
@@ -777,7 +801,7 @@ fn get_passphrase_explicit_flag_bypasses_list() {
     let (mut deps, _stdout, stderr) = TestDepsBuilder::new()
         .is_tty(false)
         .mock_claim(Ok(mock_resp))
-        .env("XDG_CONFIG_HOME", cfg_dir.to_str().unwrap())
+        .env("XDG_CONFIG_HOME", cfg_dir.path().to_str().unwrap())
         .env("BAD_PASS", "wrong")
         .build();
     let code = cli::run(
@@ -791,7 +815,6 @@ fn get_passphrase_explicit_flag_bypasses_list() {
         "should fail with decryption error: {}",
         err
     );
-    let _ = fs::remove_dir_all(&cfg_dir);
 }
 
 #[test]
@@ -809,12 +832,11 @@ fn get_passphrase_list_deduplication() {
     let (mut deps, stdout, stderr) = TestDepsBuilder::new()
         .is_tty(false)
         .mock_claim(Ok(mock_resp))
-        .env("XDG_CONFIG_HOME", cfg_dir.to_str().unwrap())
+        .env("XDG_CONFIG_HOME", cfg_dir.path().to_str().unwrap())
         .build();
     let code = cli::run(&args(&["secrt", "get", &share_link]), &mut deps);
     assert_eq!(code, 0, "stderr: {}", stderr.to_string());
     assert_eq!(stdout.to_string(), "dedup test");
-    let _ = fs::remove_dir_all(&cfg_dir);
 }
 
 #[test]
@@ -880,16 +902,11 @@ fn get_file_auto_save_on_tty() {
         expires_at: "2099-12-31T23:59:59Z".into(),
     };
     // Use a temp dir to avoid polluting CWD
-    let dir = std::env::temp_dir().join(format!(
-        "secrt_test_auto_save_{}",
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_nanos()
-    ));
-    let _ = fs::create_dir_all(&dir);
-    let orig_dir = std::env::current_dir().unwrap();
-    let _ = std::env::set_current_dir(&dir);
+    let dir = tempfile::Builder::new()
+        .prefix("secrt_test_auto_save_")
+        .tempdir()
+        .expect("tempdir");
+    let _cwd = CwdGuard::enter(dir.path());
 
     let (mut deps, _stdout, stderr) = TestDepsBuilder::new()
         .is_tty(true)
@@ -897,8 +914,6 @@ fn get_file_auto_save_on_tty() {
         .mock_claim(Ok(mock_resp))
         .build();
     let code = cli::run(&args(&["secrt", "get", &share_link]), &mut deps);
-
-    let _ = std::env::set_current_dir(&orig_dir);
 
     assert_eq!(code, 0, "stderr: {}", stderr.to_string());
     let err = stderr.to_string();
@@ -909,10 +924,8 @@ fn get_file_auto_save_on_tty() {
     );
 
     // Verify file was written
-    let saved = fs::read(dir.join("photo.png")).expect("file should exist");
+    let saved = fs::read(dir.path().join("photo.png")).expect("file should exist");
     assert_eq!(saved, plaintext);
-
-    let _ = fs::remove_dir_all(&dir);
 }
 
 #[test]
@@ -924,14 +937,11 @@ fn get_file_output_flag() {
         envelope: seal_result.envelope,
         expires_at: "2099-12-31T23:59:59Z".into(),
     };
-    let dir = std::env::temp_dir();
-    let out_path = dir.join(format!(
-        "secrt_test_output_{}.bin",
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_nanos()
-    ));
+    let dir = tempfile::Builder::new()
+        .prefix("secrt_test_output_")
+        .tempdir()
+        .expect("tempdir");
+    let out_path = dir.path().join("out.bin");
 
     let (mut deps, _stdout, stderr) = TestDepsBuilder::new().mock_claim(Ok(mock_resp)).build();
     let code = cli::run(
@@ -955,8 +965,6 @@ fn get_file_output_flag() {
 
     let saved = fs::read(&out_path).expect("output file should exist");
     assert_eq!(saved, plaintext);
-
-    let _ = fs::remove_file(&out_path);
 }
 
 #[test]
@@ -1084,13 +1092,11 @@ fn get_binary_no_hint_tty_auto_saves() {
     };
 
     // Use --output with an explicit temp path to avoid cwd races in parallel tests
-    let tmp = std::env::temp_dir().join(format!(
-        "secrt_test_binary_{}",
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_nanos()
-    ));
+    let tmp_dir = tempfile::Builder::new()
+        .prefix("secrt_test_binary_")
+        .tempdir()
+        .expect("tempdir");
+    let tmp = tmp_dir.path().join("out.bin");
 
     let (mut deps, stdout, stderr) = TestDepsBuilder::new()
         .is_stdout_tty(true)
@@ -1177,14 +1183,11 @@ fn get_file_output_flag_text_no_hint() {
         envelope: seal_result.envelope,
         expires_at: "2099-12-31T23:59:59Z".into(),
     };
-    let dir = std::env::temp_dir();
-    let out_path = dir.join(format!(
-        "secrt_test_text_output_{}.txt",
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_nanos()
-    ));
+    let dir = tempfile::Builder::new()
+        .prefix("secrt_test_text_output_")
+        .tempdir()
+        .expect("tempdir");
+    let out_path = dir.path().join("out.txt");
 
     let (mut deps, _stdout, stderr) = TestDepsBuilder::new().mock_claim(Ok(mock_resp)).build();
     let code = cli::run(
@@ -1200,7 +1203,6 @@ fn get_file_output_flag_text_no_hint() {
     assert_eq!(code, 0, "stderr: {}", stderr.to_string());
     let saved = fs::read(&out_path).expect("output file should exist");
     assert_eq!(saved, plaintext);
-    let _ = fs::remove_file(&out_path);
 }
 
 #[test]
@@ -1293,20 +1295,15 @@ fn get_file_auto_save_collision() {
         expires_at: "2099-12-31T23:59:59Z".into(),
     };
 
-    let dir = std::env::temp_dir().join(format!(
-        "secrt_test_collision_{}",
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_nanos()
-    ));
-    let _ = fs::create_dir_all(&dir);
-    let orig_dir = std::env::current_dir().unwrap();
+    let dir = tempfile::Builder::new()
+        .prefix("secrt_test_collision_")
+        .tempdir()
+        .expect("tempdir");
 
     // Create existing file to cause collision
-    fs::write(dir.join("data.txt"), "existing").unwrap();
+    fs::write(dir.path().join("data.txt"), "existing").unwrap();
 
-    let _ = std::env::set_current_dir(&dir);
+    let _cwd = CwdGuard::enter(dir.path());
 
     let (mut deps, _stdout, stderr) = TestDepsBuilder::new()
         .is_tty(true)
@@ -1314,8 +1311,6 @@ fn get_file_auto_save_collision() {
         .mock_claim(Ok(mock_resp))
         .build();
     let code = cli::run(&args(&["secrt", "get", &share_link]), &mut deps);
-
-    let _ = std::env::set_current_dir(&orig_dir);
 
     assert_eq!(code, 0, "stderr: {}", stderr.to_string());
     let err = stderr.to_string();
@@ -1326,10 +1321,8 @@ fn get_file_auto_save_collision() {
         err
     );
 
-    let saved = fs::read(dir.join("data (1).txt")).expect("collision file should exist");
+    let saved = fs::read(dir.path().join("data (1).txt")).expect("collision file should exist");
     assert_eq!(saved, plaintext);
-
-    let _ = fs::remove_dir_all(&dir);
 }
 
 #[test]
@@ -1343,16 +1336,11 @@ fn get_binary_no_hint_tty_auto_saves_secret_bin() {
         expires_at: "2099-12-31T23:59:59Z".into(),
     };
 
-    let dir = std::env::temp_dir().join(format!(
-        "secrt_test_binautosave_{}",
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_nanos()
-    ));
-    let _ = fs::create_dir_all(&dir);
-    let orig_dir = std::env::current_dir().unwrap();
-    let _ = std::env::set_current_dir(&dir);
+    let dir = tempfile::Builder::new()
+        .prefix("secrt_test_binautosave_")
+        .tempdir()
+        .expect("tempdir");
+    let _cwd = CwdGuard::enter(dir.path());
 
     let (mut deps, _stdout, stderr) = TestDepsBuilder::new()
         .is_tty(true)
@@ -1360,8 +1348,6 @@ fn get_binary_no_hint_tty_auto_saves_secret_bin() {
         .mock_claim(Ok(mock_resp))
         .build();
     let code = cli::run(&args(&["secrt", "get", &share_link]), &mut deps);
-
-    let _ = std::env::set_current_dir(&orig_dir);
 
     assert_eq!(code, 0, "stderr: {}", stderr.to_string());
     let err = stderr.to_string();
@@ -1372,7 +1358,7 @@ fn get_binary_no_hint_tty_auto_saves_secret_bin() {
         err
     );
 
-    let saved = fs::read(dir.join("secret.bin")).expect("secret.bin should exist");
+    let saved = fs::read(dir.path().join("secret.bin")).expect("secret.bin should exist");
     assert_eq!(saved, plaintext);
 
     let _ = fs::remove_dir_all(&dir);
@@ -1398,7 +1384,7 @@ fn get_no_passphrase_flag_skips_configured_passphrases() {
     let (mut deps, _stdout, stderr) = TestDepsBuilder::new()
         .is_tty(false)
         .mock_claim(Ok(mock_resp))
-        .env("XDG_CONFIG_HOME", cfg_dir.to_str().unwrap())
+        .env("XDG_CONFIG_HOME", cfg_dir.path().to_str().unwrap())
         .build();
 
     // -n means "no passphrase" — should NOT try the configured list
@@ -1414,8 +1400,6 @@ fn get_no_passphrase_flag_skips_configured_passphrases() {
         "--no-passphrase should prevent trying configured passphrases; stderr: {}",
         stderr.to_string()
     );
-
-    let _ = fs::remove_dir_all(&cfg_dir);
 }
 
 #[test]
@@ -1433,7 +1417,7 @@ fn get_no_passphrase_short_flag_skips_default_passphrase() {
     let (mut deps, _stdout, stderr) = TestDepsBuilder::new()
         .is_tty(false)
         .mock_claim(Ok(mock_resp))
-        .env("XDG_CONFIG_HOME", cfg_dir.to_str().unwrap())
+        .env("XDG_CONFIG_HOME", cfg_dir.path().to_str().unwrap())
         .build();
 
     let code = cli::run(&args(&["secrt", "get", &share_link, "-n"]), &mut deps);
@@ -1444,8 +1428,6 @@ fn get_no_passphrase_short_flag_skips_default_passphrase() {
         "-n should prevent trying default passphrase; stderr: {}",
         stderr.to_string()
     );
-
-    let _ = fs::remove_dir_all(&cfg_dir);
 }
 
 #[test]
