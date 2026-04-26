@@ -17,11 +17,8 @@
 # it elevates to, and named for what it does (no "deploy.sh in someone's
 # home" ambiguity).
 #
-# Currently deployed on: secrt.is, secrt.ca. Each host has a backward-
-# compat symlink at ~jdlien/deploy.sh, and secrt.ca additionally has
-# /var/www/secrt.ca/deploy.sh symlinked for historical reference. New
-# hosts SHOULD install at the canonical path and SHOULD NOT recreate the
-# legacy symlinks.
+# Currently deployed on: secrt.is, secrt.ca.
+# New hosts SHOULD install at the canonical path.
 #
 # ── Install on a new server ──────────────────────────────────────────
 #   scp scripts/secrt-server-deploy.sh <host>:/tmp/secrt-server-deploy
@@ -39,8 +36,6 @@
 #   ssh <host> secrt-server-deploy
 #   # or, after ssh:
 #   secrt-server-deploy
-#
-# (~/deploy.sh still works on existing hosts via a symlink.)
 #
 # The script re-execs itself under sudo, so no manual `sudo` prefix is
 # needed. It will prompt before redeploying when already on the latest
