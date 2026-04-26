@@ -2,7 +2,11 @@
 
 ## Unreleased
 
-## 0.16.3 — 2026-04-26
+### Added
+
+- **"About secrt" entry in the More Information menu.** The `/about` page existed but had no nav entry point, making it functionally invisible. Now appears in both the desktop dropdown and the mobile menu group, between "Privacy Policy" and the external links. Uses a new `CircleInfoIcon`. The menu trigger now also highlights when on `/about`.
+
+
 
 ### Added
 
