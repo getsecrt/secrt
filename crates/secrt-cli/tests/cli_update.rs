@@ -125,12 +125,16 @@ fn check_only_reports_up_to_date_when_target_equals_current() {
         )
         .with_bytes(&format!("{}/{}", release_url, asset), bin);
 
+    // When CURRENT_VERSION carries a prerelease suffix (e.g. during an
+    // rc.N build), `--version` requires `--channel prerelease` to validate.
+    let mut argv: Vec<&str> = vec!["--check", "--version", version, "--release-base-url", base];
+    if version.contains('-') {
+        argv.push("--channel");
+        argv.push("prerelease");
+    }
+
     let (mut deps, stdout, _stderr) = TestDepsBuilder::new().build();
-    let code = run_update_with(
-        &args(&["--check", "--version", version, "--release-base-url", base])[..],
-        &mut deps,
-        &http,
-    );
+    let code = run_update_with(&args(&argv)[..], &mut deps, &http);
     assert_eq!(code, exit::OK);
     let s = stdout.to_string();
     assert!(s.contains("up to date"), "stdout: {}", s);
