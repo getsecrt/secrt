@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+### Fixed
+
+- **`secrt update --check --version <X>` now validates that `<X>` exists.** Previously the comparison was string-only — `secrt update --check --version 99.99.99` would happily exit 0 with "99.99.99 available!" without ever asking GitHub. Now it fetches the release's checksum file and surfaces a clean error (`exit 1`) when the version doesn't exist, naming the bogus version and pointing at the release URL. The check still runs zero extra network calls when `--version` is omitted (we already round-trip GitHub via the channel resolver).
+- **Windows: `secrt update` no longer falsely refuses with "managed install" on plain Windows binaries.** `fs::canonicalize` on Windows returns paths in extended-length form (`\\?\D:\...`) while `current_exe()` returns the plain form (`D:\...`). The pre-existing path classifier compared them lexically, so every Windows install differed from its canonical and got classified as `GenericSymlink` → `MANAGED_INSTALL` (exit 3). The classifier now strips the `\\?\` prefix before comparing, so Windows installs follow the same `Plain → self-update OK` path as Unix.
+
 ## 0.16.0 — 2026-04-26
 
 ### Added
