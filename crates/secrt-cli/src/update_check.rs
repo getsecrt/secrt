@@ -219,37 +219,70 @@ pub fn ingest_info_response(
 /// `ingest_*` followed by a banner check.
 static BANNER_EMITTED: OnceLock<()> = OnceLock::new();
 
-/// Emit the banner to `stderr` if appropriate. `stderr_is_tty` controls
-/// color styling (DIM when true, plain otherwise). Returns whether the
-/// banner was emitted.
+/// Emit the banner to `stderr` per `spec/v1/cli.md § Implicit Banner`.
+///
+/// **TTY-only.** When `stderr_is_tty` is false the banner is suppressed
+/// entirely — a bare `secrt update` line in a non-TTY pipe (CI logs,
+/// deploy scripts) would be more confusing than helpful. Callers that
+/// reach this function should already have applied the suppression
+/// matrix in `cli::banner_suppressed`; the TTY check here is defense in
+/// depth.
+///
+/// Returns whether the banner was emitted.
 pub fn emit_banner(stderr: &mut dyn Write, info: &BannerInfo, stderr_is_tty: bool) -> bool {
+    if !stderr_is_tty {
+        return false;
+    }
     if BANNER_EMITTED.set(()).is_err() {
         return false;
     }
-    let line = format_banner_line(info, stderr_is_tty);
-    let _ = writeln!(stderr, "{}", line);
+    let _ = writeln!(stderr, "{}", format_banner_line(info, /* ansi */ true));
     true
 }
 
-/// Build the banner line. Public for tests; main path goes through
-/// [`emit_banner`].
-pub fn format_banner_line(info: &BannerInfo, stderr_is_tty: bool) -> String {
-    let body = if info.below_min_supported {
-        format!(
-            "warning: secrt {} may not be compatible with this server. Run 'secrt update' to upgrade.",
-            info.current
+/// Build the two-line update banner.
+///
+/// Format:
+///
+/// ```text
+/// <header>      ← DIM (or WARN when below min_supported)
+///   secrt update ← bold cyan, indented to read as "do this"
+/// ```
+///
+/// `ansi` controls whether ANSI SGR codes are emitted. Both [`emit_banner`]
+/// (implicit stderr banner) and `secrt update --check` (explicit stdout
+/// reply) call this; the implicit path forces `ansi=true` because it
+/// already gates on stderr being a TTY, while the explicit `--check` path
+/// passes the stdout TTY state — `--check` always prints, but only colorizes
+/// when stdout is interactive.
+pub fn format_banner_line(info: &BannerInfo, ansi: bool) -> String {
+    // Codes match the semantic tokens in `color.rs`: DIM=2, WARN=33, URL
+    // (bold cyan)=1;36.
+    let (header, header_sgr) = if info.below_min_supported {
+        (
+            format!(
+                "warning: secrt {} may not be compatible with this server",
+                info.current
+            ),
+            "33", // WARN — yellow
         )
     } else {
-        format!(
-            "secrt {} is available (you have {}). Run 'secrt update' to upgrade.",
-            info.latest, info.current
+        (
+            format!(
+                "secrt {} available (current: {})",
+                info.latest, info.current
+            ),
+            "2", // DIM
         )
     };
-    if stderr_is_tty {
-        // Match `crate::color::DIM` (ANSI 2 = dim, 0 = reset).
-        format!("\x1b[2m{}\x1b[0m", body)
+    if ansi {
+        format!(
+            "\x1b[{sgr}m{header}\x1b[0m\n  \x1b[1;36msecrt update\x1b[0m",
+            sgr = header_sgr,
+            header = header,
+        )
     } else {
-        body
+        format!("{}\n  secrt update", header)
     }
 }
 
@@ -735,45 +768,57 @@ mod tests {
     }
 
     #[test]
-    fn banner_line_dim_when_tty() {
+    fn banner_line_two_lines_dim_header_bold_cyan_command() {
         let info = BannerInfo {
             current: "0.15.0".into(),
             latest: "0.16.0".into(),
             below_min_supported: false,
         };
-        let line = format_banner_line(&info, true);
-        assert!(line.starts_with("\x1b[2m"));
-        assert!(line.ends_with("\x1b[0m"));
-        assert!(line.contains("0.16.0 is available"));
+        let line = format_banner_line(&info, /* ansi */ true);
+        // Header: DIM (\x1b[2m) wrapping the "X.Y.Z available" text.
+        assert!(line.starts_with("\x1b[2msecrt 0.16.0 available (current: 0.15.0)\x1b[0m"));
+        // Command on its own line, indented, bold cyan.
+        assert!(line.contains("\n  \x1b[1;36msecrt update\x1b[0m"));
     }
 
     #[test]
-    fn banner_line_plain_when_not_tty() {
+    fn banner_line_plain_when_ansi_off() {
         let info = BannerInfo {
             current: "0.15.0".into(),
             latest: "0.16.0".into(),
             below_min_supported: false,
         };
-        let line = format_banner_line(&info, false);
+        let line = format_banner_line(&info, /* ansi */ false);
+        assert_eq!(line, "secrt 0.16.0 available (current: 0.15.0)\n  secrt update");
         assert!(!line.contains("\x1b["));
-        assert_eq!(
-            line,
-            "secrt 0.16.0 is available (you have 0.15.0). Run 'secrt update' to upgrade."
-        );
     }
 
     #[test]
-    fn banner_line_below_min_supported() {
+    fn banner_line_below_min_supported_uses_warn() {
         let info = BannerInfo {
             current: "0.14.0".into(),
             latest: "0.14.0".into(),
             below_min_supported: true,
         };
-        let line = format_banner_line(&info, false);
-        assert_eq!(
-            line,
-            "warning: secrt 0.14.0 may not be compatible with this server. Run 'secrt update' to upgrade."
-        );
+        let line = format_banner_line(&info, /* ansi */ true);
+        // Stronger warning swaps DIM for WARN (yellow, 33) on the header.
+        assert!(line.starts_with(
+            "\x1b[33mwarning: secrt 0.14.0 may not be compatible with this server\x1b[0m"
+        ));
+        assert!(line.contains("\n  \x1b[1;36msecrt update\x1b[0m"));
+    }
+
+    #[test]
+    fn emit_banner_suppresses_when_not_tty() {
+        let info = BannerInfo {
+            current: "0.15.0".into(),
+            latest: "0.16.0".into(),
+            below_min_supported: false,
+        };
+        let mut buf = Vec::new();
+        let emitted = emit_banner(&mut buf, &info, /* stderr_is_tty */ false);
+        assert!(!emitted, "banner must be suppressed on non-TTY stderr");
+        assert!(buf.is_empty(), "stderr must be untouched: {:?}", buf);
     }
 
     /// Serialize banner-emit tests so the once-per-process gate doesn't
@@ -791,17 +836,18 @@ mod tests {
             below_min_supported: false,
         };
         let mut buf = Vec::new();
-        let first = emit_banner(&mut buf, &info, false);
-        let second = emit_banner(&mut buf, &info, false);
+        // Pass `stderr_is_tty = true` so emit actually fires.
+        let first = emit_banner(&mut buf, &info, true);
+        let second = emit_banner(&mut buf, &info, true);
         // First call may or may not be the first across the entire test
         // process (other tests share the gate). What we *can* assert is
         // that the second call returned `false` after a successful first
-        // *and* did not double-write — at most one banner line is in the
-        // buffer.
+        // *and* did not double-write — at most one banner header is in
+        // the buffer.
         if first {
             assert!(!second, "second emit should be suppressed");
             let s = String::from_utf8(buf).unwrap();
-            assert_eq!(s.matches("is available").count(), 1);
+            assert_eq!(s.matches("0.16.0 available").count(), 1);
         }
     }
 }

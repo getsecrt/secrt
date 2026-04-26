@@ -124,9 +124,16 @@ fn banner_emitted_when_cache_fresh_and_stderr_is_tty() {
     assert_eq!(code, 0, "version flag should exit 0");
 
     let err = stderr.to_string();
+    // New two-line banner: header carries `<latest> available`, followed
+    // by an indented `secrt update` line in bold cyan.
     assert!(
-        err.contains("99.0.0 is available"),
-        "expected banner, got stderr: {:?}",
+        err.contains("99.0.0 available"),
+        "expected banner header, got stderr: {:?}",
+        err
+    );
+    assert!(
+        err.contains("secrt update"),
+        "expected indented `secrt update` line, got stderr: {:?}",
         err
     );
     assert!(
@@ -149,7 +156,7 @@ fn banner_suppressed_when_stderr_not_tty() {
     let code = cli::run(&args(&["secrt", "--version"]), &mut deps);
     assert_eq!(code, 0);
     assert!(
-        !stderr.to_string().contains("is available"),
+        !stderr.to_string().contains("99.0.0 available"),
         "banner must be suppressed when stderr is not a TTY"
     );
 }
@@ -171,7 +178,7 @@ fn banner_suppressed_with_no_update_check_flag() {
     );
     assert_eq!(code, 0);
     assert!(
-        !stderr.to_string().contains("is available"),
+        !stderr.to_string().contains("99.0.0 available"),
         "banner must be suppressed by --no-update-check"
     );
 }
@@ -189,7 +196,7 @@ fn banner_suppressed_with_silent_flag() {
 
     let code = cli::run(&args(&["secrt", "--version", "--silent"]), &mut deps);
     assert_eq!(code, 0);
-    assert!(!stderr.to_string().contains("is available"));
+    assert!(!stderr.to_string().contains("99.0.0 available"));
 }
 
 #[test]
@@ -205,7 +212,7 @@ fn banner_suppressed_with_json_flag() {
 
     let code = cli::run(&args(&["secrt", "--version", "--json"]), &mut deps);
     assert_eq!(code, 0);
-    assert!(!stderr.to_string().contains("is available"));
+    assert!(!stderr.to_string().contains("99.0.0 available"));
 }
 
 #[test]
@@ -222,7 +229,7 @@ fn banner_suppressed_with_env_var() {
 
     let code = cli::run(&args(&["secrt", "--version"]), &mut deps);
     assert_eq!(code, 0);
-    assert!(!stderr.to_string().contains("is available"));
+    assert!(!stderr.to_string().contains("99.0.0 available"));
 }
 
 #[test]
@@ -256,7 +263,7 @@ fn banner_suppressed_when_config_disables_update_check() {
     let code = cli::run(&args(&["secrt", "--version"]), &mut deps);
     assert_eq!(code, 0);
     assert!(
-        !stderr.to_string().contains("is available"),
+        !stderr.to_string().contains("99.0.0 available"),
         "config update_check=false must suppress banner"
     );
 }
@@ -278,7 +285,7 @@ fn banner_suppressed_for_secrt_update_command() {
 
     let _code = cli::run(&args(&["secrt", "update", "--check"]), &mut deps);
     assert!(
-        !stderr.to_string().contains("is available"),
+        !stderr.to_string().contains("99.0.0 available"),
         "banner must be suppressed when running `secrt update`"
     );
 }
@@ -290,7 +297,7 @@ fn banner_silent_when_cache_missing() {
     let code = cli::run(&args(&["secrt", "--version"]), &mut deps);
     assert_eq!(code, 0);
     assert!(
-        !stderr.to_string().contains("is available"),
+        !stderr.to_string().contains("99.0.0 available"),
         "missing cache must produce no banner"
     );
 }
@@ -310,7 +317,7 @@ fn banner_silent_when_cache_corrupted() {
     let code = cli::run(&args(&["secrt", "--version"]), &mut deps);
     assert_eq!(code, 0);
     assert!(
-        !stderr.to_string().contains("is available"),
+        !stderr.to_string().contains("99.0.0 available"),
         "corrupted cache must collapse to silent (no panic, no banner)"
     );
 }
@@ -330,7 +337,7 @@ fn banner_silent_when_cache_stale() {
     let code = cli::run(&args(&["secrt", "--version"]), &mut deps);
     assert_eq!(code, 0);
     assert!(
-        !stderr.to_string().contains("is available"),
+        !stderr.to_string().contains("99.0.0 available"),
         "stale cache must produce no banner"
     );
     let _ = now_minus_seconds(0); // silence dead-code lint

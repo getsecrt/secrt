@@ -726,9 +726,15 @@ The CLI SHOULD cache update-check results locally to avoid repeated network call
 
 After every command's primary work completes, the CLI SHOULD perform an update check and emit a banner on stderr if a newer version is available.
 
-- The banner MUST be exactly one line.
-- Recommended wording: `secrt 0.16.0 is available (you have 0.15.0). Run 'secrt update' to upgrade.`
-- The banner SHOULD be styled in DIM when stderr is a TTY; when stderr is not a TTY, color codes MUST be omitted (the line is still emitted so that pipelines grepping stderr for warnings continue to see it).
+- The banner is two lines: a header line announcing the new version, followed by an indented line carrying the upgrade command on its own so it is trivially copy-pasteable.
+- Recommended wording:
+
+  ```
+  secrt 0.16.0 available (current: 0.15.0)
+    secrt update
+  ```
+
+- The header line SHOULD be styled in DIM and the command line SHOULD be styled in **bold cyan** (matching the `URL` semantic-color token used elsewhere for copyable values). When stderr is not a TTY, the banner MUST be suppressed entirely (see suppression matrix below) — implementations MUST NOT emit a colorless plain-text variant in piped contexts, since a bare `secrt update` line in a deploy log is more confusing than helpful. Anyone needing the announcement in piped contexts can run `secrt update --check`.
 - The banner MUST be emitted at most once per CLI invocation, even if the command made multiple `/api/v1/info` calls.
 - **The implicit banner is cache-only.** It MUST NOT initiate a network request. The cache is opportunistically refreshed by:
   - Commands that already call `/api/v1/info` for their primary work (e.g., `secrt info`, `secrt sync`, `secrt list`, `secrt config`).
@@ -747,7 +753,14 @@ The banner MUST be suppressed when any of the following hold:
 - Stdout is being used to emit binary data to a non-TTY pipe (e.g., `secrt get -o -` piped to a file or another process).
 - **Stderr is not a TTY** (e.g., redirected to a file, captured by a CI logger, piped to another process). Anyone needing the banner in piped contexts can use `secrt update --check`.
 
-When the running CLI is below the server's `min_supported_cli_version`, the banner MUST be replaced with a stronger message: `warning: secrt <current> may not be compatible with this server. Run 'secrt update' to upgrade.` This stronger message follows the same suppression rules as the regular banner.
+When the running CLI is below the server's `min_supported_cli_version`, the banner MUST be replaced with a stronger message:
+
+```
+warning: secrt <current> may not be compatible with this server
+  secrt update
+```
+
+The header line SHOULD be styled in WARN (yellow) instead of DIM; the command line stays bold cyan. This stronger message follows the same suppression rules as the regular banner.
 
 ### Advisory Response Headers
 
