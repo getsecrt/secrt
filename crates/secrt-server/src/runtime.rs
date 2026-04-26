@@ -295,6 +295,11 @@ pub fn init_logging(log_level: &str) {
 }
 
 #[cfg(test)]
+#[allow(clippy::await_holding_lock)]
+// `env_lock()` serializes tests that mutate process-global env vars; the
+// guard must outlive the async test body because the contention is on the
+// env (process state), not the mutex itself. Switching to an async-aware
+// mutex would not solve the underlying serialization problem.
 mod tests {
     use super::*;
     use axum::routing::{get, post};

@@ -489,13 +489,14 @@ async fn rename_passkey_cross_user_isolation() {
     let token_b = passkey_register_flow(&app, "Bob", "cred-xuser-b").await;
 
     // Get Alice's passkey ID
-    let passkeys = store.passkeys.lock().expect("lock");
-    let alice_pk_id = passkeys
-        .values()
-        .find(|p| p.credential_id == "cred-xuser-a")
-        .expect("alice pk")
-        .id;
-    drop(passkeys);
+    let alice_pk_id = {
+        let passkeys = store.passkeys.lock().expect("lock");
+        passkeys
+            .values()
+            .find(|p| p.credential_id == "cred-xuser-a")
+            .expect("alice pk")
+            .id
+    };
 
     // Bob tries to rename Alice's passkey → 404
     let resp = app
@@ -642,13 +643,14 @@ async fn revoke_passkey_cross_user_isolation() {
     let token_b = passkey_register_flow(&app, "Bob", "cred-rev-xuser-b").await;
 
     // Get Alice's passkey ID
-    let passkeys = store.passkeys.lock().expect("lock");
-    let alice_pk_id = passkeys
-        .values()
-        .find(|p| p.credential_id == "cred-rev-xuser-a")
-        .expect("alice pk")
-        .id;
-    drop(passkeys);
+    let alice_pk_id = {
+        let passkeys = store.passkeys.lock().expect("lock");
+        passkeys
+            .values()
+            .find(|p| p.credential_id == "cred-rev-xuser-a")
+            .expect("alice pk")
+            .id
+    };
 
     // Bob tries to revoke Alice's passkey → 400 (looks like "last passkey"
     // because the store doesn't find it for Bob's user_id)
