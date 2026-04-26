@@ -262,6 +262,18 @@ jobs:
             secrt-macos-arm64.pkg
             secrt-macos-amd64.pkg
 
+      # Raw signed (but unstapled — `xcrun stapler` does not support
+      # standalone Mach-O binaries) universal binary, ready to be tarballed
+      # and published as `secrt-darwin-universal` for human download. The
+      # `secrt update` self-update path consumes the per-arch raw binaries
+      # (`secrt-darwin-arm64` / `secrt-darwin-amd64`) which were already
+      # uploaded by the per-platform `build` job.
+      - name: Upload universal raw binary
+        uses: actions/upload-artifact@v5
+        with:
+          name: secrt-darwin-universal
+          path: secrt-darwin-universal
+
   release:
     name: Publish release
     if: startsWith(github.ref, 'refs/tags/')
@@ -280,13 +292,31 @@ jobs:
       - name: Create archives
         working-directory: artifacts
         run: |
-          # macOS .pkg installers arrive pre-built from the universal-macos job
+          # macOS .pkg installers arrive pre-built from the universal-macos job.
+          # Raw per-platform binaries (secrt-{linux,darwin,windows}-{amd64,arm64}[.exe])
+          # arrive directly from the build matrix and are uploaded as-is to
+          # the release for `secrt update` to consume.
 
           # Linux archives (tar.gz containing 'secrt')
           for arch in linux-amd64 linux-arm64; do
             cp "secrt-${arch}" secrt
             chmod +x secrt
             tar czf "secrt-${arch}.tar.gz" secrt
+            rm secrt
+          done
+
+          # macOS archives (tar.gz containing 'secrt'). Mirrors the Linux
+          # tarball shape for human-install consistency. The raw signed
+          # binaries (secrt-darwin-amd64, secrt-darwin-arm64,
+          # secrt-darwin-universal) are also uploaded directly so
+          # `secrt update` can pull them without unpacking an archive.
+          for arch in darwin-amd64 darwin-arm64 darwin-universal; do
+            cp "secrt-${arch}" secrt
+            chmod +x secrt
+            # Output filename uses 'macos' for the human-facing name even
+            # though the asset/host triplet uses 'darwin'.
+            out="secrt-macos-${arch#darwin-}.tar.gz"
+            tar czf "$out" secrt
             rm secrt
           done
 
@@ -299,7 +329,19 @@ jobs:
 
       - name: Generate checksums
         working-directory: artifacts
-        run: sha256sum secrt-macos*.pkg secrt-linux-*.tar.gz secrt-windows-*.zip > secrt-checksums-sha256.txt
+        # Order: raw binaries first (consumed by `secrt update`), then human
+        # archives (consumed by install.sh / brew / direct download). Every
+        # asset attached to the release MUST have an entry here so the
+        # self-update SHA-256 verify never trusts an asset that was added
+        # without the matching checksum.
+        run: |
+          sha256sum \
+            secrt-linux-amd64 secrt-linux-arm64 \
+            secrt-darwin-amd64 secrt-darwin-arm64 secrt-darwin-universal \
+            secrt-windows-amd64.exe secrt-windows-arm64.exe \
+            secrt-linux-*.tar.gz secrt-macos-*.tar.gz secrt-macos*.pkg \
+            secrt-windows-*.zip \
+            > secrt-checksums-sha256.txt
 
       - name: Show checksums
         run: cat artifacts/secrt-checksums-sha256.txt
@@ -308,12 +350,27 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           generate_release_notes: true
+          # Two distinct asset audiences:
+          #   1. `secrt update` self-update path → raw per-platform binaries
+          #      (must match raw_asset_name() in crates/secrt-cli/src/update.rs).
+          #   2. install.sh / brew / human download → archives + .pkg files.
+          # Both audiences share the single secrt-checksums-sha256.txt.
           files: |
+            artifacts/secrt-linux-amd64
+            artifacts/secrt-linux-arm64
+            artifacts/secrt-darwin-amd64
+            artifacts/secrt-darwin-arm64
+            artifacts/secrt-darwin-universal
+            artifacts/secrt-windows-amd64.exe
+            artifacts/secrt-windows-arm64.exe
             artifacts/secrt-macos.pkg
             artifacts/secrt-macos-arm64.pkg
             artifacts/secrt-macos-amd64.pkg
             artifacts/secrt-linux-amd64.tar.gz
             artifacts/secrt-linux-arm64.tar.gz
+            artifacts/secrt-macos-amd64.tar.gz
+            artifacts/secrt-macos-arm64.tar.gz
+            artifacts/secrt-macos-universal.tar.gz
             artifacts/secrt-windows-amd64.zip
             artifacts/secrt-windows-arm64.zip
             artifacts/secrt-checksums-sha256.txt
