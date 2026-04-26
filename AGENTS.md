@@ -284,14 +284,13 @@ guarantees the release build sees the same Rust version that ci.yml passed.
 ### Deploying a server release
 
 After a stable `server/v*` release publishes, run `secrt-server-deploy`
-on each secrt server (`secrt.is`, `jdlien.com` — `jdlien.com` also
-serves `secrt.ca`) to pull the new binaries, verify SHA-256, and restart
-the service. The script autodetects the host architecture (`linux-amd64`
-/ `linux-arm64`) and is safe to re-run.
+on each secrt server (`secrt.is`, `secrt.ca`) to pull the new binaries,
+verify SHA-256, and restart the service. The script autodetects the host
+architecture (`linux-amd64` / `linux-arm64`) and is safe to re-run.
 
 ```sh
 ssh secrt.is secrt-server-deploy
-ssh jdlien.com secrt-server-deploy
+ssh secrt.ca secrt-server-deploy
 ```
 
 (`~/deploy.sh` on each host is a backward-compat symlink to the same
