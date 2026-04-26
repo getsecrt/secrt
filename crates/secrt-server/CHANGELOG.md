@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+## 0.16.3 — 2026-04-26
+
+### Added
+
+- **`server_version` field on `/api/v1/info`.** Returns the server's own `CARGO_PKG_VERSION` at build time. Always present (no cold-cache window like the GitHub-poller fields). Lets operators verify deploys without SSH and lets clients record which server version a response came from.
+- **`X-Secrt-Server-Version` advisory response header.** Emitted on every response (authenticated and public, including `/healthz`) by the existing CLI-version-headers middleware. Same `env!("CARGO_PKG_VERSION")` source as the `/api/v1/info` body field.
+- **`secrt-core::InfoResponse::server_version: Option<String>`.** New `#[serde(default)]` field so older CLIs continue to deserialize new responses cleanly (mirrors the `latest_cli_version` field shape from 0.16.0).
+
+### Spec
+
+- **`spec/v1/api.md` and `spec/v1/openapi.yaml`** document the new `server_version` body field and `X-Secrt-Server-Version` header alongside the existing CLI-version trio.
+
 ## 0.16.2 — 2026-04-26
 
 No server-side functional changes. Workspace version bump only — released alongside `cli/v0.16.2` per the shared workspace versioning policy.

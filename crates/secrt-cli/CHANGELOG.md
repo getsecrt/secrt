@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 0.16.3 — 2026-04-26
+
+No user-facing CLI changes. Workspace version bump only — released alongside `server/v0.16.3` (which adds the `server_version` field to `/api/v1/info` and the `X-Secrt-Server-Version` response header). The matching `secrt-core::InfoResponse::server_version: Option<String>` field is added in this release for forward compatibility, so future CLI features can read it.
+
 ## 0.16.2 — 2026-04-26
 
 ### Changed
