@@ -283,18 +283,30 @@ guarantees the release build sees the same Rust version that ci.yml passed.
 
 ### Deploying a server release
 
-After a stable `server/v*` release publishes, run `scripts/deploy.sh` on
-each secrt server (e.g., `secrt.is`, `secrt.ca`) to pull the new binaries,
-verify SHA-256, and restart the service. The script autodetects the host
-architecture (`linux-amd64` / `linux-arm64`) and is safe to re-run.
+After a stable `server/v*` release publishes, run `secrt-server-deploy`
+on each secrt server (`secrt.is`, `jdlien.com` — `jdlien.com` also
+serves `secrt.ca`) to pull the new binaries, verify SHA-256, and restart
+the service. The script autodetects the host architecture (`linux-amd64`
+/ `linux-arm64`) and is safe to re-run.
 
 ```sh
-ssh secrt.is ~/deploy.sh
+ssh secrt.is secrt-server-deploy
+ssh jdlien.com secrt-server-deploy
 ```
 
-The repo copy (`scripts/deploy.sh`) is the canonical version. The live
-copy at `secrt.is:~/deploy.sh` may have local edits — sync the repo copy
-after every production change.
+(`~/deploy.sh` on each host is a backward-compat symlink to the same
+script, so older muscle memory still works.)
+
+`scripts/secrt-server-deploy.sh` in this repo is the canonical version.
+The live copy lives at `/usr/local/bin/secrt-server-deploy` on each
+host. After any change to the repo copy, sync to each host with:
+
+```sh
+scp scripts/secrt-server-deploy.sh <host>:/tmp/secrt-server-deploy
+ssh <host> 'sudo install -m 755 -o root -g root \
+    /tmp/secrt-server-deploy /usr/local/bin/secrt-server-deploy && \
+    rm /tmp/secrt-server-deploy'
+```
 
 ## Dependency policy
 

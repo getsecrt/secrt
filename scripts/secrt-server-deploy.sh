@@ -5,15 +5,19 @@
 # restarts the systemd unit.
 #
 # ── Canonical copy ───────────────────────────────────────────────────
-# This file in the secrt repo (scripts/deploy.sh) is the source of truth.
-# The live copy on the server may have local edits — sync after every
-# production change so the repo stays current.
+# This file in the secrt repo (scripts/secrt-server-deploy.sh) is the
+# source of truth. Sync to each host after any change here.
 #
-# Live location: secrt.is:~/deploy.sh
+# Live location: /usr/local/bin/secrt-server-deploy on both secrt.is and
+# jdlien.com (which also serves secrt.ca). Each host has a backward-
+# compat symlink at ~jdlien/deploy.sh, and jdlien.com additionally has
+# /var/www/secrt.ca/deploy.sh symlinked for historical reference.
 #
 # ── Install on a new server ──────────────────────────────────────────
-#   scp scripts/deploy.sh <host>:~/deploy.sh
-#   ssh <host> 'chmod +x ~/deploy.sh'
+#   scp scripts/secrt-server-deploy.sh <host>:/tmp/secrt-server-deploy
+#   ssh <host> 'sudo install -m 755 -o root -g root \
+#       /tmp/secrt-server-deploy /usr/local/bin/secrt-server-deploy && \
+#       rm /tmp/secrt-server-deploy'
 #
 # Prerequisites on the target host:
 #   - sudo, curl, python3, sha256sum, install (coreutils), systemctl
@@ -22,9 +26,11 @@
 #   - /etc/secrt-server/env (root:root 0600) holds runtime config
 #
 # ── Usage ────────────────────────────────────────────────────────────
-#   ssh <host> ~/deploy.sh
+#   ssh <host> secrt-server-deploy
 #   # or, after ssh:
-#   ./deploy.sh
+#   secrt-server-deploy
+#
+# (~/deploy.sh still works on existing hosts via a symlink.)
 #
 # The script re-execs itself under sudo, so no manual `sudo` prefix is
 # needed. It will prompt before redeploying when already on the latest
