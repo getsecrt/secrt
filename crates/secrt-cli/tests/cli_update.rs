@@ -146,7 +146,15 @@ fn check_only_reports_upgrade_when_target_is_newer() {
 
     // Pretend a far-future release exists. The current CLI version is
     // strictly less than 99.0.0, so --check should announce the upgrade.
-    let http = MockHttp::default();
+    // Mock the checksum URL so the existence-validation in --check
+    // (introduced for #18) sees a successful fetch and proceeds to the
+    // version comparison — without this mock the fetch would 404 and we'd
+    // get the new "version does not exist" error path instead.
+    let release_url = format!("{}/cli/v99.0.0", base);
+    let http = MockHttp::default().with_text(
+        &format!("{}/{}", release_url, CHECKSUM_FILENAME_PUB),
+        "deadbeef  whatever\n",
+    );
 
     let (mut deps, stdout, _stderr) = TestDepsBuilder::new().build();
     let code = run_update_with(
@@ -161,6 +169,33 @@ fn check_only_reports_upgrade_when_target_is_newer() {
     assert!(s.contains("99.0.0 available"), "stdout: {}", s);
     assert!(s.contains("current: "), "stdout: {}", s);
     assert!(s.contains("\n  secrt update"), "stdout: {}", s);
+}
+
+#[test]
+fn check_with_explicit_version_errors_when_version_does_not_exist() {
+    // Regression for #18: `secrt update --check --version <bogus>` used to
+    // exit 0 with "<bogus> available!" because the comparison was purely
+    // string-based with no network round-trip. Now it must validate the
+    // version exists by fetching the checksum file, and surface a 404 as
+    // a clean error.
+    let base = mock_base_url();
+
+    // MockHttp default returns Err for unmocked URLs — simulating a 404.
+    let http = MockHttp::default();
+
+    let (mut deps, _stdout, stderr) = TestDepsBuilder::new().build();
+    let code = run_update_with(
+        &args(&["--check", "--version", "99.0.0", "--release-base-url", base])[..],
+        &mut deps,
+        &http,
+    );
+    assert_eq!(code, exit::GENERIC);
+    let err = stderr.to_string();
+    assert!(
+        err.contains("99.0.0") && err.contains("does not exist"),
+        "stderr should explain the version is missing: {}",
+        err
+    );
 }
 
 #[test]

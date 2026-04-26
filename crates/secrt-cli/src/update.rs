@@ -850,6 +850,34 @@ pub fn run_update_with(args: &[String], deps: &mut Deps, http: &dyn UpdateHttp) 
     let cmp = update_check::compare_semver(current_version, &target_version);
 
     if parsed.check {
+        // When --version was explicitly provided, validate that the version
+        // actually exists on the release host before claiming it's "available".
+        // Without this, `secrt update --check --version 99.99.99` would happily
+        // print "99.99.99 available!" because we'd accept the user's input
+        // verbatim and never round-trip GitHub. The cheapest validation is a
+        // GET of the release's checksum file — already required for any real
+        // install, so the URL pattern is well-trodden.
+        //
+        // When --version was NOT provided we already round-tripped GitHub
+        // via resolve_latest_for_channel, so the resolved version is known
+        // to exist and we skip this extra fetch.
+        if parsed.version.is_some() {
+            let base = parsed
+                .release_base_url
+                .clone()
+                .unwrap_or_else(|| DEFAULT_RELEASE_DOWNLOAD_BASE.to_string());
+            let release_url = format!("{}/cli/v{}", base.trim_end_matches('/'), target_version);
+            let checksum_url = format!("{}/{}", release_url, CHECKSUM_FILENAME);
+            if let Err(e) = http.fetch_text(&checksum_url) {
+                let _ = writeln!(
+                    deps.stderr,
+                    "error: version {} does not exist on the release host ({}). Check the version number or visit {}",
+                    target_version, e, release_url
+                );
+                return exit::GENERIC;
+            }
+        }
+
         if cmp == std::cmp::Ordering::Less {
             // Same shape as the implicit banner so users see the same
             // copy-pasteable command they would see passively.
