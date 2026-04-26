@@ -279,8 +279,8 @@ fn gen_send_count_error() {
 #[test]
 fn gen_send_tty_shows_generated_password() {
     let (mut deps, stdout, stderr) = TestDepsBuilder::new()
-        .is_tty(true)
-        .is_stdout_tty(true)
+        .tty(true)
+        .stdout_tty(true)
         .mock_create(Ok(mock_send_response()))
         .build();
     let code = cli::run(&args(&["secrt", "gen", "send"]), &mut deps);
@@ -297,7 +297,7 @@ fn gen_send_tty_shows_generated_password() {
 #[test]
 fn gen_send_non_tty_shows_password_on_stderr() {
     let (mut deps, _stdout, stderr) = TestDepsBuilder::new()
-        .is_tty(false)
+        .tty(false)
         .mock_create(Ok(mock_send_response()))
         .build();
     let code = cli::run(&args(&["secrt", "gen", "send"]), &mut deps);

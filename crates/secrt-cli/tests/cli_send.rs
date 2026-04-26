@@ -108,7 +108,7 @@ fn send_invalid_ttl() {
 fn send_tty_prompt() {
     let (mut deps, _stdout, stderr) = TestDepsBuilder::new()
         .read_pass(&["tty secret data"])
-        .is_tty(true)
+        .tty(true)
         .env("SECRET_BASE_URL", DEAD_URL)
         .build();
     let code = cli::run(&args(&["secrt", "send"]), &mut deps);
@@ -180,7 +180,7 @@ fn mock_send_response() -> CreateResponse {
 fn send_tty_shows_status_message_on_success() {
     let (mut deps, _stdout, stderr) = TestDepsBuilder::new()
         .read_pass(&["my secret"])
-        .is_tty(true)
+        .tty(true)
         .mock_create(Ok(mock_send_response()))
         .build();
     let code = cli::run(&args(&["secrt", "send"]), &mut deps);
@@ -197,7 +197,7 @@ fn send_tty_shows_status_message_on_success() {
 fn send_tty_shows_status_message_on_api_error() {
     let (mut deps, _stdout, stderr) = TestDepsBuilder::new()
         .read_pass(&["my secret"])
-        .is_tty(true)
+        .tty(true)
         .mock_create(Err("connection refused".into()))
         .build();
     let code = cli::run(&args(&["secrt", "send"]), &mut deps);
@@ -219,7 +219,7 @@ fn send_tty_shows_status_message_on_api_error() {
 fn send_non_tty_no_status_message() {
     let (mut deps, _stdout, stderr) = TestDepsBuilder::new()
         .stdin(b"my secret")
-        .is_tty(false)
+        .tty(false)
         .mock_create(Ok(mock_send_response()))
         .build();
     let code = cli::run(&args(&["secrt", "send"]), &mut deps);
@@ -239,7 +239,7 @@ fn send_multi_line_tty_reads_from_stdin() {
     // With --multi-line in TTY mode, should read from stdin (not read_pass)
     let (mut deps, stdout, stderr) = TestDepsBuilder::new()
         .stdin(b"line 1\nline 2\n")
-        .is_tty(true)
+        .tty(true)
         .mock_create(Ok(mock_send_response()))
         .build();
     let code = cli::run(&args(&["secrt", "send", "--multi-line"]), &mut deps);
@@ -255,7 +255,7 @@ fn send_multi_line_tty_reads_from_stdin() {
 fn send_multi_line_tty_shows_prompt() {
     let (mut deps, _stdout, stderr) = TestDepsBuilder::new()
         .stdin(b"some data")
-        .is_tty(true)
+        .tty(true)
         .mock_create(Ok(mock_send_response()))
         .build();
     let code = cli::run(&args(&["secrt", "send", "-m"]), &mut deps);
@@ -274,7 +274,7 @@ fn send_multi_line_preserves_exact_bytes() {
     let input = b"line 1\nline 2\n";
     let (mut deps, stdout, stderr) = TestDepsBuilder::new()
         .stdin(input)
-        .is_tty(true)
+        .tty(true)
         .mock_create(Ok(mock_send_response()))
         .build();
     let code = cli::run(&args(&["secrt", "send", "--multi-line"]), &mut deps);
@@ -285,7 +285,7 @@ fn send_multi_line_preserves_exact_bytes() {
 
 #[test]
 fn send_multi_line_empty_input() {
-    let (mut deps, _stdout, stderr) = TestDepsBuilder::new().stdin(b"").is_tty(true).build();
+    let (mut deps, _stdout, stderr) = TestDepsBuilder::new().stdin(b"").tty(true).build();
     let code = cli::run(&args(&["secrt", "send", "--multi-line"]), &mut deps);
     assert_eq!(code, 2, "stderr: {}", stderr);
     assert!(
@@ -401,7 +401,7 @@ fn send_default_tty_uses_single_line() {
     // Default TTY (no --multi-line) should use read_pass (single-line, no echo)
     let (mut deps, stdout, stderr) = TestDepsBuilder::new()
         .read_pass(&["single line secret"])
-        .is_tty(true)
+        .tty(true)
         .mock_create(Ok(mock_send_response()))
         .build();
     let code = cli::run(&args(&["secrt", "send"]), &mut deps);
@@ -539,7 +539,7 @@ fn send_unauthorized_error_shows_api_key_hint() {
 fn send_show_flag_reads_visible_input() {
     let (mut deps, stdout, stderr) = TestDepsBuilder::new()
         .stdin(b"visible secret\n")
-        .is_tty(true)
+        .tty(true)
         .mock_create(Ok(mock_send_response()))
         .build();
     let code = cli::run(&args(&["secrt", "send", "--show"]), &mut deps);
@@ -557,7 +557,7 @@ fn send_show_flag_reads_visible_input() {
 fn send_show_short_flag() {
     let (mut deps, stdout, stderr) = TestDepsBuilder::new()
         .stdin(b"visible secret\n")
-        .is_tty(true)
+        .tty(true)
         .mock_create(Ok(mock_send_response()))
         .build();
     let code = cli::run(&args(&["secrt", "send", "-s"]), &mut deps);
@@ -569,7 +569,7 @@ fn send_show_short_flag() {
 fn send_hidden_overrides_show() {
     let (mut deps, _stdout, stderr) = TestDepsBuilder::new()
         .read_pass(&["hidden secret"])
-        .is_tty(true)
+        .tty(true)
         .mock_create(Ok(mock_send_response()))
         .build();
     let code = cli::run(&args(&["secrt", "send", "--show", "--hidden"]), &mut deps);
@@ -603,7 +603,7 @@ fn send_silent_suppresses_status() {
 fn send_silent_tty_suppresses_prompts_and_status() {
     let (mut deps, stdout, stderr) = TestDepsBuilder::new()
         .read_pass(&["my secret"])
-        .is_tty(true)
+        .tty(true)
         .mock_create(Ok(mock_send_response()))
         .build();
     let code = cli::run(&args(&["secrt", "send", "--silent"]), &mut deps);
@@ -626,7 +626,7 @@ fn send_silent_tty_suppresses_prompts_and_status() {
 fn send_tty_status_indicator_success() {
     let (mut deps, _stdout, stderr) = TestDepsBuilder::new()
         .read_pass(&["my secret"])
-        .is_tty(true)
+        .tty(true)
         .mock_create(Ok(mock_send_response()))
         .build();
     let code = cli::run(&args(&["secrt", "send"]), &mut deps);
@@ -648,7 +648,7 @@ fn send_tty_status_indicator_success() {
 
 #[test]
 fn send_show_empty_input_errors() {
-    let (mut deps, _stdout, stderr) = TestDepsBuilder::new().stdin(b"\n").is_tty(true).build();
+    let (mut deps, _stdout, stderr) = TestDepsBuilder::new().stdin(b"\n").tty(true).build();
     let code = cli::run(&args(&["secrt", "send", "--show"]), &mut deps);
     assert_eq!(code, 2, "stderr: {}", stderr);
     assert!(
@@ -682,7 +682,7 @@ fn send_passphrase_conflicting_flags() {
 fn send_api_error_tty_silent() {
     let (mut deps, _stdout, stderr) = TestDepsBuilder::new()
         .read_pass(&["my secret"])
-        .is_tty(true)
+        .tty(true)
         .mock_create(Err("server error (500): internal error".into()))
         .build();
     let code = cli::run(&args(&["secrt", "send", "--silent"]), &mut deps);
@@ -704,8 +704,8 @@ fn send_api_error_tty_silent() {
 fn send_success_tty_stdout_shows_link() {
     let (mut deps, stdout, stderr) = TestDepsBuilder::new()
         .read_pass(&["my secret"])
-        .is_tty(true)
-        .is_stdout_tty(true)
+        .tty(true)
+        .stdout_tty(true)
         .mock_create(Ok(mock_send_response()))
         .build();
     let code = cli::run(&args(&["secrt", "send"]), &mut deps);
@@ -718,7 +718,7 @@ fn send_success_tty_stdout_shows_link() {
 fn send_tty_status_shows_with_passphrase() {
     let (mut deps, _stdout, stderr) = TestDepsBuilder::new()
         .read_pass(&["my secret"])
-        .is_tty(true)
+        .tty(true)
         .env("MY_PASS", "testpass")
         .mock_create(Ok(mock_send_response()))
         .build();
@@ -739,7 +739,7 @@ fn send_tty_status_shows_with_passphrase() {
 fn send_tty_status_no_passphrase_message_without_passphrase() {
     let (mut deps, _stdout, stderr) = TestDepsBuilder::new()
         .read_pass(&["my secret"])
-        .is_tty(true)
+        .tty(true)
         .mock_create(Ok(mock_send_response()))
         .build();
     let code = cli::run(&args(&["secrt", "send"]), &mut deps);
@@ -762,7 +762,7 @@ fn send_show_crlf_stripping() {
     // --show mode should strip trailing \r\n
     let (mut deps, stdout, stderr) = TestDepsBuilder::new()
         .stdin(b"secret with crlf\r\n")
-        .is_tty(true)
+        .tty(true)
         .mock_create(Ok(mock_send_response()))
         .build();
     let code = cli::run(&args(&["secrt", "send", "--show"]), &mut deps);
@@ -773,7 +773,7 @@ fn send_show_crlf_stripping() {
 #[test]
 fn send_hidden_empty_input_error() {
     // Default hidden mode with empty password from read_pass
-    let (mut deps, _stdout, stderr) = TestDepsBuilder::new().read_pass(&[""]).is_tty(true).build();
+    let (mut deps, _stdout, stderr) = TestDepsBuilder::new().read_pass(&[""]).tty(true).build();
     let code = cli::run(&args(&["secrt", "send"]), &mut deps);
     assert_eq!(code, 2);
     assert!(
@@ -788,7 +788,7 @@ fn send_silent_show_mode_suppresses_prompts() {
     // --silent + --show on TTY should not show prompts
     let (mut deps, stdout, stderr) = TestDepsBuilder::new()
         .stdin(b"my secret\n")
-        .is_tty(true)
+        .tty(true)
         .mock_create(Ok(mock_send_response()))
         .build();
     let code = cli::run(&args(&["secrt", "send", "--show", "--silent"]), &mut deps);
@@ -812,7 +812,7 @@ fn send_hidden_read_error() {
     // Hidden mode when read_pass returns an I/O error
     let (mut deps, _stdout, stderr) = TestDepsBuilder::new()
         .read_pass_error("terminal lost")
-        .is_tty(true)
+        .tty(true)
         .build();
     let code = cli::run(&args(&["secrt", "send"]), &mut deps);
     assert_eq!(code, 2);
@@ -952,7 +952,7 @@ fn send_tty_copies_to_clipboard() {
     let (clipboard_fn, calls) = tracking_clipboard();
     let (mut deps, _stdout, stderr) = TestDepsBuilder::new()
         .read_pass(&["my secret"])
-        .is_tty(true)
+        .tty(true)
         .mock_create(Ok(mock_send_response()))
         .copy_to_clipboard_fn(clipboard_fn)
         .build();
@@ -978,7 +978,7 @@ fn send_non_tty_skips_clipboard() {
     let (clipboard_fn, calls) = tracking_clipboard();
     let (mut deps, _stdout, stderr) = TestDepsBuilder::new()
         .stdin(b"my secret")
-        .is_tty(false)
+        .tty(false)
         .mock_create(Ok(mock_send_response()))
         .copy_to_clipboard_fn(clipboard_fn)
         .build();
@@ -1021,7 +1021,7 @@ fn send_silent_skips_clipboard() {
     let (clipboard_fn, calls) = tracking_clipboard();
     let (mut deps, _stdout, stderr) = TestDepsBuilder::new()
         .read_pass(&["my secret"])
-        .is_tty(true)
+        .tty(true)
         .mock_create(Ok(mock_send_response()))
         .copy_to_clipboard_fn(clipboard_fn)
         .build();
@@ -1039,7 +1039,7 @@ fn send_no_copy_flag_skips_clipboard() {
     let (clipboard_fn, calls) = tracking_clipboard();
     let (mut deps, _stdout, stderr) = TestDepsBuilder::new()
         .read_pass(&["my secret"])
-        .is_tty(true)
+        .tty(true)
         .mock_create(Ok(mock_send_response()))
         .copy_to_clipboard_fn(clipboard_fn)
         .build();
@@ -1060,7 +1060,7 @@ fn send_no_copy_flag_skips_clipboard() {
 fn send_clipboard_failure_is_graceful() {
     let (mut deps, stdout, stderr) = TestDepsBuilder::new()
         .read_pass(&["my secret"])
-        .is_tty(true)
+        .tty(true)
         .mock_create(Ok(mock_send_response()))
         .copy_to_clipboard_fn(|_| Err("xclip not found".into()))
         .build();
@@ -1097,7 +1097,7 @@ fn send_auto_copy_false_config_skips_clipboard() {
     let (clipboard_fn, calls) = tracking_clipboard();
     let (mut deps, _stdout, stderr) = TestDepsBuilder::new()
         .read_pass(&["my secret"])
-        .is_tty(true)
+        .tty(true)
         .env("XDG_CONFIG_HOME", dir.path().to_str().unwrap())
         .mock_create(Ok(mock_send_response()))
         .copy_to_clipboard_fn(clipboard_fn)

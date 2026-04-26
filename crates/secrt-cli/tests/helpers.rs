@@ -235,25 +235,19 @@ impl TestDepsBuilder {
         self
     }
 
-    // TODO: rename to drop the `is_` prefix — these are builder setters,
-    // not predicates. Rename touches ~88 call sites across test files;
-    // deferred to a focused refactor PR.
-    #[allow(clippy::wrong_self_convention)]
-    pub fn is_tty(mut self, v: bool) -> Self {
+    pub fn tty(mut self, v: bool) -> Self {
         self.is_tty = v;
         self
     }
 
     #[allow(dead_code)]
-    #[allow(clippy::wrong_self_convention)]
-    pub fn is_stdout_tty(mut self, v: bool) -> Self {
+    pub fn stdout_tty(mut self, v: bool) -> Self {
         self.is_stdout_tty = v;
         self
     }
 
     #[allow(dead_code)]
-    #[allow(clippy::wrong_self_convention)]
-    pub fn is_stderr_tty(mut self, v: bool) -> Self {
+    pub fn stderr_tty(mut self, v: bool) -> Self {
         self.is_stderr_tty = v;
         self
     }

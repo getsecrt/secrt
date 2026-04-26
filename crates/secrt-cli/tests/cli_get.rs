@@ -164,7 +164,7 @@ fn get_success_tty_shows_label() {
         expires_at: "2099-12-31T23:59:59Z".into(),
     };
     let (mut deps, stdout, stderr) = TestDepsBuilder::new()
-        .is_stdout_tty(true)
+        .stdout_tty(true)
         .mock_claim(Ok(mock_resp))
         .build();
     let code = cli::run(&args(&["secrt", "get", &share_link]), &mut deps);
@@ -186,7 +186,7 @@ fn get_success_non_tty_no_label() {
         expires_at: "2099-12-31T23:59:59Z".into(),
     };
     let (mut deps, stdout, stderr) = TestDepsBuilder::new()
-        .is_stdout_tty(false)
+        .stdout_tty(false)
         .mock_claim(Ok(mock_resp))
         .build();
     let code = cli::run(&args(&["secrt", "get", &share_link]), &mut deps);
@@ -326,7 +326,7 @@ fn get_silent_suppresses_label() {
         expires_at: "2099-12-31T23:59:59Z".into(),
     };
     let (mut deps, stdout, stderr) = TestDepsBuilder::new()
-        .is_stdout_tty(true)
+        .stdout_tty(true)
         .mock_claim(Ok(mock_resp))
         .build();
     let code = cli::run(&args(&["secrt", "get", &share_link, "--silent"]), &mut deps);
@@ -352,7 +352,7 @@ fn get_passphrase_auto_prompt_on_tty() {
     // TTY + no passphrase flags → should auto-prompt
     let (mut deps, stdout, stderr) = TestDepsBuilder::new()
         .env("XDG_CONFIG_HOME", "/tmp/secrt_test_no_config")
-        .is_tty(true)
+        .tty(true)
         .mock_claim(Ok(mock_resp))
         .read_pass(&["mypass"])
         .build();
@@ -376,7 +376,7 @@ fn get_passphrase_auto_prompt_shows_key_symbol() {
         expires_at: "2099-12-31T23:59:59Z".into(),
     };
     let (mut deps, _stdout, stderr) = TestDepsBuilder::new()
-        .is_tty(true)
+        .tty(true)
         .mock_claim(Ok(mock_resp))
         .read_pass(&["pass123"])
         .build();
@@ -395,7 +395,7 @@ fn get_passphrase_auto_prompt_silent_hides_notice() {
         expires_at: "2099-12-31T23:59:59Z".into(),
     };
     let (mut deps, stdout, stderr) = TestDepsBuilder::new()
-        .is_tty(true)
+        .tty(true)
         .mock_claim(Ok(mock_resp))
         .read_pass(&["mypass"])
         .build();
@@ -419,7 +419,7 @@ fn get_passphrase_non_tty_errors_with_hint() {
     };
     // Non-TTY + no passphrase flags → should error with helpful message
     let (mut deps, _stdout, stderr) = TestDepsBuilder::new()
-        .is_tty(false)
+        .tty(false)
         .mock_claim(Ok(mock_resp))
         .build();
     let code = cli::run(&args(&["secrt", "get", &share_link]), &mut deps);
@@ -443,7 +443,7 @@ fn get_passphrase_retry_on_wrong_passphrase() {
     };
     // First attempt wrong, second attempt correct
     let (mut deps, stdout, stderr) = TestDepsBuilder::new()
-        .is_tty(true)
+        .tty(true)
         .mock_claim(Ok(mock_resp))
         .read_pass(&["wrong", "correct"])
         .build();
@@ -468,7 +468,7 @@ fn get_passphrase_retry_many_then_succeed() {
     };
     // 4 wrong attempts then correct — no limit on retries
     let (mut deps, stdout, stderr) = TestDepsBuilder::new()
-        .is_tty(true)
+        .tty(true)
         .mock_claim(Ok(mock_resp))
         .read_pass(&["wrong1", "wrong2", "wrong3", "wrong4", "correct"])
         .build();
@@ -495,7 +495,7 @@ fn get_passphrase_no_retry_with_env_flag() {
     };
     // Wrong passphrase via --passphrase-env → no retry even on TTY
     let (mut deps, _stdout, stderr) = TestDepsBuilder::new()
-        .is_tty(true)
+        .tty(true)
         .mock_claim(Ok(mock_resp))
         .env("BAD_PASS", "wrong")
         .build();
@@ -527,7 +527,7 @@ fn get_passphrase_prompt_flag_allows_retry() {
     };
     // Wrong first via -p, then correct on retry
     let (mut deps, stdout, stderr) = TestDepsBuilder::new()
-        .is_tty(true)
+        .tty(true)
         .mock_claim(Ok(mock_resp))
         .read_pass(&["wrong", "correct"])
         .build();
@@ -545,7 +545,7 @@ fn get_passphrase_auto_prompt_empty_input() {
         expires_at: "2099-12-31T23:59:59Z".into(),
     };
     let (mut deps, _stdout, stderr) = TestDepsBuilder::new()
-        .is_tty(true)
+        .tty(true)
         .mock_claim(Ok(mock_resp))
         .read_pass(&[""])
         .build();
@@ -567,7 +567,7 @@ fn get_passphrase_auto_prompt_read_error() {
         expires_at: "2099-12-31T23:59:59Z".into(),
     };
     let (mut deps, _stdout, stderr) = TestDepsBuilder::new()
-        .is_tty(true)
+        .tty(true)
         .mock_claim(Ok(mock_resp))
         .read_pass_error("terminal lost")
         .build();
@@ -590,7 +590,7 @@ fn get_passphrase_retry_empty_input() {
     };
     // First attempt wrong, retry gives empty string
     let (mut deps, _stdout, stderr) = TestDepsBuilder::new()
-        .is_tty(true)
+        .tty(true)
         .mock_claim(Ok(mock_resp))
         .read_pass(&["wrong", ""])
         .build();
@@ -642,7 +642,7 @@ fn get_passphrase_json_non_tty_error() {
         expires_at: "2099-12-31T23:59:59Z".into(),
     };
     let (mut deps, _stdout, stderr) = TestDepsBuilder::new()
-        .is_tty(false)
+        .tty(false)
         .mock_claim(Ok(mock_resp))
         .build();
     let code = cli::run(&args(&["secrt", "get", &share_link, "--json"]), &mut deps);
@@ -688,7 +688,7 @@ fn get_passphrase_list_first_matches() {
     };
     let cfg_dir = setup_config("decryption_passphrases = [\"correct\", \"other\"]\n");
     let (mut deps, stdout, stderr) = TestDepsBuilder::new()
-        .is_tty(false)
+        .tty(false)
         .mock_claim(Ok(mock_resp))
         .env("XDG_CONFIG_HOME", cfg_dir.path().to_str().unwrap())
         .build();
@@ -707,7 +707,7 @@ fn get_passphrase_list_second_matches() {
     };
     let cfg_dir = setup_config("decryption_passphrases = [\"wrong\", \"correct\"]\n");
     let (mut deps, stdout, stderr) = TestDepsBuilder::new()
-        .is_tty(false)
+        .tty(false)
         .mock_claim(Ok(mock_resp))
         .env("XDG_CONFIG_HOME", cfg_dir.path().to_str().unwrap())
         .build();
@@ -729,7 +729,7 @@ fn get_passphrase_default_tried_before_list() {
         "passphrase = \"default-pass\"\ndecryption_passphrases = [\"other1\", \"other2\"]\n",
     );
     let (mut deps, stdout, stderr) = TestDepsBuilder::new()
-        .is_tty(false)
+        .tty(false)
         .mock_claim(Ok(mock_resp))
         .env("XDG_CONFIG_HOME", cfg_dir.path().to_str().unwrap())
         .build();
@@ -748,7 +748,7 @@ fn get_passphrase_list_no_match_non_tty_error() {
     };
     let cfg_dir = setup_config("decryption_passphrases = [\"wrong1\", \"wrong2\"]\n");
     let (mut deps, _stdout, stderr) = TestDepsBuilder::new()
-        .is_tty(false)
+        .tty(false)
         .mock_claim(Ok(mock_resp))
         .env("XDG_CONFIG_HOME", cfg_dir.path().to_str().unwrap())
         .build();
@@ -772,7 +772,7 @@ fn get_passphrase_list_no_match_tty_falls_through_to_prompt() {
     };
     let cfg_dir = setup_config("decryption_passphrases = [\"wrong1\"]\n");
     let (mut deps, stdout, stderr) = TestDepsBuilder::new()
-        .is_tty(true)
+        .tty(true)
         .mock_claim(Ok(mock_resp))
         .read_pass(&["correct"])
         .env("XDG_CONFIG_HOME", cfg_dir.path().to_str().unwrap())
@@ -799,7 +799,7 @@ fn get_passphrase_explicit_flag_bypasses_list() {
     // Config has the correct passphrase in list, but explicit --passphrase-env with wrong value
     let cfg_dir = setup_config("decryption_passphrases = [\"correct\"]\n");
     let (mut deps, _stdout, stderr) = TestDepsBuilder::new()
-        .is_tty(false)
+        .tty(false)
         .mock_claim(Ok(mock_resp))
         .env("XDG_CONFIG_HOME", cfg_dir.path().to_str().unwrap())
         .env("BAD_PASS", "wrong")
@@ -830,7 +830,7 @@ fn get_passphrase_list_deduplication() {
         "passphrase = \"same-pass\"\ndecryption_passphrases = [\"same-pass\", \"other\"]\n",
     );
     let (mut deps, stdout, stderr) = TestDepsBuilder::new()
-        .is_tty(false)
+        .tty(false)
         .mock_claim(Ok(mock_resp))
         .env("XDG_CONFIG_HOME", cfg_dir.path().to_str().unwrap())
         .build();
@@ -909,8 +909,8 @@ fn get_file_auto_save_on_tty() {
     let _cwd = CwdGuard::enter(dir.path());
 
     let (mut deps, _stdout, stderr) = TestDepsBuilder::new()
-        .is_tty(true)
-        .is_stdout_tty(true)
+        .tty(true)
+        .stdout_tty(true)
         .mock_claim(Ok(mock_resp))
         .build();
     let code = cli::run(&args(&["secrt", "get", &share_link]), &mut deps);
@@ -995,7 +995,7 @@ fn get_file_piped_stdout_raw_bytes() {
         expires_at: "2099-12-31T23:59:59Z".into(),
     };
     let (mut deps, stdout, stderr) = TestDepsBuilder::new()
-        .is_stdout_tty(false) // piped
+        .stdout_tty(false) // piped
         .mock_claim(Ok(mock_resp))
         .build();
     let code = cli::run(&args(&["secrt", "get", &share_link]), &mut deps);
@@ -1063,7 +1063,7 @@ fn get_text_no_hint_unchanged_behavior() {
         expires_at: "2099-12-31T23:59:59Z".into(),
     };
     let (mut deps, stdout, stderr) = TestDepsBuilder::new()
-        .is_stdout_tty(true)
+        .stdout_tty(true)
         .mock_claim(Ok(mock_resp))
         .build();
     let code = cli::run(&args(&["secrt", "get", &share_link]), &mut deps);
@@ -1099,7 +1099,7 @@ fn get_binary_no_hint_tty_auto_saves() {
     let tmp = tmp_dir.path().join("out.bin");
 
     let (mut deps, stdout, stderr) = TestDepsBuilder::new()
-        .is_stdout_tty(true)
+        .stdout_tty(true)
         .mock_claim(Ok(mock_resp))
         .build();
     let tmp_str = tmp.to_string_lossy().to_string();
@@ -1136,7 +1136,7 @@ fn get_binary_no_hint_piped_passes_through() {
         expires_at: "2099-12-31T23:59:59Z".into(),
     };
     let (mut deps, stdout, _stderr) = TestDepsBuilder::new()
-        .is_stdout_tty(false)
+        .stdout_tty(false)
         .mock_claim(Ok(mock_resp))
         .build();
     let code = cli::run(&args(&["secrt", "get", &share_link]), &mut deps);
@@ -1215,7 +1215,7 @@ fn get_passphrase_non_tty_no_candidates_error() {
         expires_at: "2099-12-31T23:59:59Z".into(),
     };
     let (mut deps, _stdout, stderr) = TestDepsBuilder::new()
-        .is_tty(false)
+        .tty(false)
         .mock_claim(Ok(mock_resp))
         .env("XDG_CONFIG_HOME", "/tmp/secrt_test_no_config_nonexistent")
         .build();
@@ -1245,7 +1245,7 @@ fn get_passphrase_prompt_retry_read_error() {
     };
     // Only one response: "wrong". Second read_pass call returns error.
     let (mut deps, _stdout, stderr) = TestDepsBuilder::new()
-        .is_tty(true)
+        .tty(true)
         .mock_claim(Ok(mock_resp))
         .read_pass(&["wrong"])
         .build();
@@ -1274,7 +1274,7 @@ fn get_passphrase_prompt_retry_empty() {
         expires_at: "2099-12-31T23:59:59Z".into(),
     };
     let (mut deps, _stdout, stderr) = TestDepsBuilder::new()
-        .is_tty(true)
+        .tty(true)
         .mock_claim(Ok(mock_resp))
         .read_pass(&["wrong", ""])
         .build();
@@ -1306,8 +1306,8 @@ fn get_file_auto_save_collision() {
     let _cwd = CwdGuard::enter(dir.path());
 
     let (mut deps, _stdout, stderr) = TestDepsBuilder::new()
-        .is_tty(true)
-        .is_stdout_tty(true)
+        .tty(true)
+        .stdout_tty(true)
         .mock_claim(Ok(mock_resp))
         .build();
     let code = cli::run(&args(&["secrt", "get", &share_link]), &mut deps);
@@ -1343,8 +1343,8 @@ fn get_binary_no_hint_tty_auto_saves_secret_bin() {
     let _cwd = CwdGuard::enter(dir.path());
 
     let (mut deps, _stdout, stderr) = TestDepsBuilder::new()
-        .is_tty(true)
-        .is_stdout_tty(true)
+        .tty(true)
+        .stdout_tty(true)
         .mock_claim(Ok(mock_resp))
         .build();
     let code = cli::run(&args(&["secrt", "get", &share_link]), &mut deps);
@@ -1382,7 +1382,7 @@ fn get_no_passphrase_flag_skips_configured_passphrases() {
     let cfg_dir = setup_config("decryption_passphrases = [\"configured-pass\"]\n");
 
     let (mut deps, _stdout, stderr) = TestDepsBuilder::new()
-        .is_tty(false)
+        .tty(false)
         .mock_claim(Ok(mock_resp))
         .env("XDG_CONFIG_HOME", cfg_dir.path().to_str().unwrap())
         .build();
@@ -1414,7 +1414,7 @@ fn get_no_passphrase_short_flag_skips_default_passphrase() {
     let cfg_dir = setup_config("passphrase = \"my-default\"\n");
 
     let (mut deps, _stdout, stderr) = TestDepsBuilder::new()
-        .is_tty(false)
+        .tty(false)
         .mock_claim(Ok(mock_resp))
         .env("XDG_CONFIG_HOME", cfg_dir.path().to_str().unwrap())
         .build();
@@ -1439,7 +1439,7 @@ fn get_tty_no_candidates_shows_notice() {
         expires_at: "2099-12-31T23:59:59Z".into(),
     };
     let (mut deps, stdout, stderr) = TestDepsBuilder::new()
-        .is_tty(true)
+        .tty(true)
         .mock_claim(Ok(mock_resp))
         .read_pass(&["correct"])
         .env("XDG_CONFIG_HOME", "/tmp/secrt_test_no_config_nonexistent")

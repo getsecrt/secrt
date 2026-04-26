@@ -93,7 +93,7 @@ fn build(label: &str, args_extra: &[&str]) -> (cli::Deps, SharedBuf, PathBuf) {
     let (deps, _stdout, stderr) = TestDepsBuilder::new()
         .env("XDG_CACHE_HOME", dir.to_str().unwrap())
         .env("HOME", dir.to_str().unwrap()) // keep ~/.cache fallback inside our sandbox
-        .is_stderr_tty(true)
+        .stderr_tty(true)
         .build();
     let _ = args_extra; // only here so callers can document intent at the call site
     (deps, stderr, dir)
@@ -150,7 +150,7 @@ fn banner_suppressed_when_stderr_not_tty() {
     let (mut deps, _stdout, stderr) = TestDepsBuilder::new()
         .env("XDG_CACHE_HOME", dir.to_str().unwrap())
         .env("HOME", dir.to_str().unwrap())
-        .is_stderr_tty(false) // critical: stderr-not-TTY is the suppression rule
+        .stderr_tty(false) // critical: stderr-not-TTY is the suppression rule
         .build();
 
     let code = cli::run(&args(&["secrt", "--version"]), &mut deps);
@@ -169,7 +169,7 @@ fn banner_suppressed_with_no_update_check_flag() {
     let (mut deps, _stdout, stderr) = TestDepsBuilder::new()
         .env("XDG_CACHE_HOME", dir.to_str().unwrap())
         .env("HOME", dir.to_str().unwrap())
-        .is_stderr_tty(true)
+        .stderr_tty(true)
         .build();
 
     let code = cli::run(
@@ -191,7 +191,7 @@ fn banner_suppressed_with_silent_flag() {
     let (mut deps, _stdout, stderr) = TestDepsBuilder::new()
         .env("XDG_CACHE_HOME", dir.to_str().unwrap())
         .env("HOME", dir.to_str().unwrap())
-        .is_stderr_tty(true)
+        .stderr_tty(true)
         .build();
 
     let code = cli::run(&args(&["secrt", "--version", "--silent"]), &mut deps);
@@ -207,7 +207,7 @@ fn banner_suppressed_with_json_flag() {
     let (mut deps, _stdout, stderr) = TestDepsBuilder::new()
         .env("XDG_CACHE_HOME", dir.to_str().unwrap())
         .env("HOME", dir.to_str().unwrap())
-        .is_stderr_tty(true)
+        .stderr_tty(true)
         .build();
 
     let code = cli::run(&args(&["secrt", "--version", "--json"]), &mut deps);
@@ -224,7 +224,7 @@ fn banner_suppressed_with_env_var() {
         .env("XDG_CACHE_HOME", dir.to_str().unwrap())
         .env("HOME", dir.to_str().unwrap())
         .env("SECRET_NO_UPDATE_CHECK", "1")
-        .is_stderr_tty(true)
+        .stderr_tty(true)
         .build();
 
     let code = cli::run(&args(&["secrt", "--version"]), &mut deps);
@@ -257,7 +257,7 @@ fn banner_suppressed_when_config_disables_update_check() {
         .env("XDG_CACHE_HOME", dir.to_str().unwrap())
         .env("XDG_CONFIG_HOME", cfg_dir.to_str().unwrap())
         .env("HOME", dir.to_str().unwrap())
-        .is_stderr_tty(true)
+        .stderr_tty(true)
         .build();
 
     let code = cli::run(&args(&["secrt", "--version"]), &mut deps);
@@ -280,7 +280,7 @@ fn banner_suppressed_for_secrt_update_command() {
     let (mut deps, _stdout, stderr) = TestDepsBuilder::new()
         .env("XDG_CACHE_HOME", dir.to_str().unwrap())
         .env("HOME", dir.to_str().unwrap())
-        .is_stderr_tty(true)
+        .stderr_tty(true)
         .build();
 
     let _code = cli::run(&args(&["secrt", "update", "--check"]), &mut deps);
@@ -311,7 +311,7 @@ fn banner_silent_when_cache_corrupted() {
     let (mut deps, _stdout, stderr) = TestDepsBuilder::new()
         .env("XDG_CACHE_HOME", dir.to_str().unwrap())
         .env("HOME", dir.to_str().unwrap())
-        .is_stderr_tty(true)
+        .stderr_tty(true)
         .build();
 
     let code = cli::run(&args(&["secrt", "--version"]), &mut deps);
@@ -331,7 +331,7 @@ fn banner_silent_when_cache_stale() {
     let (mut deps, _stdout, stderr) = TestDepsBuilder::new()
         .env("XDG_CACHE_HOME", dir.to_str().unwrap())
         .env("HOME", dir.to_str().unwrap())
-        .is_stderr_tty(true)
+        .stderr_tty(true)
         .build();
 
     let code = cli::run(&args(&["secrt", "--version"]), &mut deps);

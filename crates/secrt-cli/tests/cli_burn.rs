@@ -202,10 +202,7 @@ fn burn_silent_suppresses_message() {
 
 #[test]
 fn burn_success_tty_shows_checkmark() {
-    let (mut deps, _stdout, stderr) = TestDepsBuilder::new()
-        .is_tty(true)
-        .mock_burn(Ok(()))
-        .build();
+    let (mut deps, _stdout, stderr) = TestDepsBuilder::new().tty(true).mock_burn(Ok(())).build();
     let code = cli::run(
         &args(&["secrt", "burn", "test-id", "--api-key", "sk_test"]),
         &mut deps,
