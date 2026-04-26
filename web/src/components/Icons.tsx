@@ -16,6 +16,20 @@ export function CircleQuestionIcon(props: IconProps) {
   );
 }
 
+export function CircleInfoIcon(props: IconProps) {
+  return (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      viewBox="0 0 640 640"
+      fill="currentColor"
+      class="size-5"
+      {...props}
+    >
+      <path d="M320 576a256 256 0 1 0 0-512 256 256 0 0 0 0 512m-32-352a32 32 0 1 1 64 0 32 32 0 0 1-64 0m-8 64h48c13 0 24 11 24 24v88h8a24 24 0 1 1 0 48h-80a24 24 0 1 1 0-48h24v-64h-24a24 24 0 1 1 0-48" />
+    </svg>
+  );
+}
+
 export function TriangleExclamationIcon(props: IconProps) {
   return (
     <svg

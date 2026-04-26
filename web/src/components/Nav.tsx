@@ -15,6 +15,7 @@ import {
   PasskeyIcon,
   DownloadIcon,
   CircleQuestionIcon,
+  CircleInfoIcon,
   EyeSlashIcon,
   LockIcon,
   GitHubIcon,
@@ -395,6 +396,19 @@ function MoreInfoMenu({ active }: { active?: boolean }) {
             Privacy Policy
           </a>
           <a
+            href="/about"
+            role="menuitem"
+            class={itemClass}
+            onClick={(e: MouseEvent) => {
+              e.preventDefault();
+              setOpen(false);
+              navigate('/about');
+            }}
+          >
+            <CircleInfoIcon class="size-4" aria-hidden="true" />
+            About secrt
+          </a>
+          <a
             href="https://github.com/getsecrt/secrt/blob/main/SECURITY.md"
             role="menuitem"
             class={itemClass}
@@ -455,7 +469,11 @@ export function Nav() {
             </NavLink>
 
             <MoreInfoMenu
-              active={isActive('how-it-works') || isActive('privacy')}
+              active={
+                isActive('how-it-works') ||
+                isActive('privacy') ||
+                isActive('about')
+              }
             />
 
             <DownloadsMenu />
@@ -587,6 +605,16 @@ export function Nav() {
                   <span class={navItemClass}>
                     <EyeSlashIcon class="size-4" aria-hidden="true" />
                     Privacy Policy
+                  </span>
+                </NavLink>
+                <NavLink
+                  href="/about"
+                  active={isActive('about')}
+                  class="pl-6"
+                >
+                  <span class={navItemClass}>
+                    <CircleInfoIcon class="size-4" aria-hidden="true" />
+                    About secrt
                   </span>
                 </NavLink>
                 <NavLink
