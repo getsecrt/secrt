@@ -118,6 +118,24 @@ If `cargo-nextest` is not installed, `make test-rust-fallback` runs the
 same suite with `cargo test`. Install nextest with
 `cargo install --locked cargo-nextest`.
 
+> **Agent note: prefer scoped test targets.** When your edits are confined
+> to one crate, run that crate's scoped target instead of the full
+> workspace — it skips rebuilding unrelated crates' dep graphs and runs
+> only the relevant tests:
+> - Edits in `crates/secrt-core/` only → `make test-core`
+> - Edits in `crates/secrt-cli/` only → `make test-cli`
+> - Edits in `crates/secrt-server/` only → `make test-server`
+> - Edits touching `secrt-core` (a dep of cli + server) → `make test-rust`
+>   (run the full suite — both downstream crates need verification)
+> - Edits in `crates/secrt-app/` (Tauri desktop) → `make test-app`
+> - Frontend edits in `web/` → `make test-web` (no Rust test needed)
+> - Cross-cutting edits → `make test-rust` (then `make test-app` if you
+>   touched anything secrt-app re-exports)
+>
+> Run the full `make test-rust` once before opening a PR regardless, to
+> catch dep-graph surprises. The scoped targets are for the iteration
+> loop, not the final verification.
+
 ### E2E tests
 
 E2E tests hit a real server and are gated behind environment variables:
