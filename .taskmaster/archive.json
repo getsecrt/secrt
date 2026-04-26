@@ -149,6 +149,12 @@
       "title": "Fix keychain config writes string instead of bool for use_keychain",
       "status": "done",
       "priority": "high"
+    },
+    {
+      "id": 54,
+      "title": "Get-Secret form: handle cross-instance links correctly",
+      "status": "done",
+      "priority": "medium"
     }
   ]
 }
