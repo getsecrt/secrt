@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.16.2 — 2026-04-26
+
 ### Changed
 
 - **`secrt update` permission-denied message now branches on system vs user install.** When the failing install dir is a known system path (`/usr/local/bin`, `/usr/bin`, `/usr/local/sbin`, `/usr/sbin`, or `/opt/<segment>/bin`), the error suggests `sudo secrt update` and labels the path as system-wide; user-space paths continue to suggest `--install-dir ~/.local/bin` with no sudo hint. The previous behavior — always recommending `--install-dir ~/.local/bin` regardless of where the binary lived — was actively counterproductive on root-owned system installs: it created a parallel install in user-space while leaving the privileged binary in place at the original location, with `PATH` ordering deciding which one ran. **Supersedes the 0.16.0 "always `--install-dir`, never sudo" rule** for the specific case of detected system paths; user-space installs still get the least-privilege default.

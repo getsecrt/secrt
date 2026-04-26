@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 0.16.2 — 2026-04-26
+
+No server-side functional changes. Workspace version bump only — released alongside `cli/v0.16.2` per the shared workspace versioning policy.
+
 ## 0.16.1 — 2026-04-26
 
 ### Fixed
