@@ -81,7 +81,7 @@ check-nextest:
 lint: lint-rust lint-web ## Run all linters
 
 lint-rust: ## Run Rust linters (excludes secrt-app)
-	cargo clippy --workspace --exclude secrt-app -- -D warnings
+	cargo clippy --workspace --exclude secrt-app --all-targets -- -D warnings
 	cargo fmt --all -- --check
 
 lint-web: ## Run frontend linters
