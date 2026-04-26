@@ -21,7 +21,12 @@ import {
 } from '../../lib/envelope-size';
 import { formatShareLink, parseShareUrl } from '../../lib/url';
 import { copySensitive } from '../../lib/clipboard';
-import { getCanonicalHost } from '../../lib/config';
+import {
+  getCanonicalHost,
+  isKnownInstance,
+  isTauri,
+  normalizeHost,
+} from '../../lib/config';
 import { TTL_DEFAULT, isValidTtl } from '../../lib/ttl';
 import {
   getSendPasswordGeneratorSettings,
@@ -65,10 +70,25 @@ type SendStatus =
   | { step: 'done'; shareUrl: string; expiresAt: string }
   | { step: 'error'; message: string };
 
+interface CrossInstancePrompt {
+  /** Foreign host as pasted (subdomain preserved) — used for the message body and link label. */
+  host: string;
+  /** Sanitized URL rebuilt from validated parts — used for the redirect / shell-open. */
+  redirectUrl: string;
+}
+
 function GetSecretForm() {
   const [getUrl, setGetUrl] = useState('');
   const [getError, setGetError] = useState('');
+  const [crossInstance, setCrossInstance] =
+    useState<CrossInstancePrompt | null>(null);
   const exampleShareUrl = `https://${getCanonicalHost()}/s/abc123#...`;
+
+  const Secrt = () => (
+    <span class="text-black dark:text-white">
+      s<span class="text-green-700 dark:text-green-400">e</span>crt
+    </span>
+  );
 
   const handleGet = useCallback(() => {
     const parsed = parseShareUrl(getUrl.trim());
@@ -77,13 +97,56 @@ function GetSecretForm() {
       return;
     }
     setGetError('');
-    const fragment = base64urlEncode(parsed.urlKey);
-    // Pass autoClaim flag so the claim page skips the confirm modal
-    const url = `/s/${parsed.id}#${fragment}`;
-    history.pushState({ autoClaim: true }, '', url);
-    window.scrollTo(0, 0);
-    window.dispatchEvent(new PopStateEvent('popstate'));
-  }, [getUrl]);
+
+    // Same instance (apex match — covers wildcard subdomains): existing flow.
+    if (normalizeHost(parsed.host) === getCanonicalHost()) {
+      const fragment = base64urlEncode(parsed.urlKey);
+      // Pass autoClaim flag so the claim page skips the confirm modal
+      const url = `/s/${parsed.id}#${fragment}`;
+      history.pushState({ autoClaim: true }, '', url);
+      window.scrollTo(0, 0);
+      window.dispatchEvent(new PopStateEvent('popstate'));
+      return;
+    }
+
+    // Foreign instance, unknown host: high-friction inline error. Don't
+    // offer to redirect or shell-open — the user must trust it themselves.
+    if (!isKnownInstance(parsed.host)) {
+      setGetError(
+        `This link is for an unknown secrt instance (${parsed.host}). Open it directly in your browser if you trust it.`,
+      );
+      return;
+    }
+
+    // Foreign instance, known sibling: rebuild a sanitized redirect URL
+    // (drops userinfo, ports, query, scheme oddities) and open the
+    // cross-instance Modal. Web's primary action does window.location.href;
+    // Tauri's primary action shells out to the OS browser.
+    const sanitized = new URL('https://placeholder');
+    sanitized.hostname = parsed.host;
+    sanitized.pathname = `/s/${parsed.id}`;
+    sanitized.hash = `#${base64urlEncode(parsed.urlKey)}`;
+    setCrossInstance({ host: parsed.host, redirectUrl: sanitized.toString() });
+  }, [getUrl, exampleShareUrl]);
+
+  const handleCrossInstancePrimary = useCallback(async () => {
+    if (!crossInstance) return;
+    if (isTauri()) {
+      try {
+        const { open } = await import('@tauri-apps/plugin-shell');
+        await open(crossInstance.redirectUrl);
+        setCrossInstance(null);
+      } catch {
+        // Leave the modal open so the user can try again or copy the
+        // URL from the input.
+      }
+      return;
+    }
+    // Web: full-page navigation to the foreign origin. autoClaim cannot
+    // survive cross-origin nav; receiving instance shows its own confirm
+    // modal.
+    window.location.href = crossInstance.redirectUrl;
+  }, [crossInstance]);
 
   const handleSubmit = useCallback(
     (e: Event) => {
@@ -117,9 +180,60 @@ function GetSecretForm() {
         {getError ? (
           <p class="text-sm text-red-600">{getError}</p>
         ) : (
-          <p class="text-center text-sm text-muted">&nbsp;</p>
+          <p class="text-center text-sm text-muted">
+            Links from any secrt instance work — we'll route you to the right
+            one.
+          </p>
         )}
       </div>
+
+      <Modal
+        open={crossInstance !== null}
+        onClose={() => setCrossInstance(null)}
+        dismissible={true}
+        aria-label="Cross-instance link"
+        data-testid="cross-instance-modal"
+      >
+        {crossInstance && (
+          <>
+            <div class="flex flex-col items-center gap-2 text-center">
+              <TriangleExclamationIcon
+                class="size-10 text-error"
+                aria-hidden="true"
+              />
+              <h2 class="mb-2 text-xl font-semibold">
+                Different <Secrt /> Instance
+              </h2>
+              <p>
+                This link is for <strong>{crossInstance.host}</strong>. You're
+                currently on <strong>{getCanonicalHost()}</strong>.
+              </p>
+              <p class="mt-2 text-sm text-muted">
+                {isTauri()
+                  ? 'Open it in your default browser to claim it on the right instance.'
+                  : 'Continue to that instance to view the secret there.'}
+              </p>
+            </div>
+
+            <button
+              type="button"
+              class="btn btn-primary w-full tracking-wider uppercase"
+              onClick={() => void handleCrossInstancePrimary()}
+            >
+              {isTauri()
+                ? 'Open in Browser'
+                : `Continue to ${crossInstance.host}`}
+            </button>
+            <button
+              type="button"
+              class="btn w-full tracking-wider uppercase"
+              onClick={() => setCrossInstance(null)}
+            >
+              Cancel
+            </button>
+          </>
+        )}
+      </Modal>
       <button
         type="submit"
         class="btn btn-primary w-full tracking-wider uppercase"

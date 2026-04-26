@@ -43,6 +43,7 @@ describe('parseShareUrl', () => {
     expect(result).not.toBeNull();
     expect(result!.id).toBe('abcdef0123456789');
     expect(result!.urlKey).toEqual(key);
+    expect(result!.host).toBe(window.location.hostname);
   });
 
   it('round-trips formatShareLink -> parseShareUrl', () => {
@@ -53,6 +54,56 @@ describe('parseShareUrl', () => {
     expect(result).not.toBeNull();
     expect(result!.id).toBe(id);
     expect(result!.urlKey).toEqual(key);
+    expect(result!.host).toBe(window.location.hostname);
+  });
+
+  it('preserves subdomain in host (wildcard sibling instance)', () => {
+    const key = makeUrlKey(11);
+    const fragment = base64urlEncode(key);
+    const result = parseShareUrl(
+      `https://team.secrt.is/s/abcdef0123456789#${fragment}`,
+    );
+    expect(result).not.toBeNull();
+    expect(result!.host).toBe('team.secrt.is');
+  });
+
+  it('lowercases host', () => {
+    const key = makeUrlKey(12);
+    const fragment = base64urlEncode(key);
+    const result = parseShareUrl(
+      `https://SECRT.CA/s/abcdef0123456789#${fragment}`,
+    );
+    expect(result).not.toBeNull();
+    expect(result!.host).toBe('secrt.ca');
+  });
+
+  it('strips port from host', () => {
+    const key = makeUrlKey(13);
+    const fragment = base64urlEncode(key);
+    const result = parseShareUrl(
+      `https://secrt.ca:8443/s/abcdef0123456789#${fragment}`,
+    );
+    expect(result).not.toBeNull();
+    expect(result!.host).toBe('secrt.ca');
+  });
+
+  it('rejects non-HTTPS URLs (production scheme guard)', () => {
+    const key = makeUrlKey(14);
+    const fragment = base64urlEncode(key);
+    // http://secrt.is/... — explicit non-https scheme that's not localhost.
+    // Dev mode permits localhost; this case uses a non-localhost hostname,
+    // which must always be rejected.
+    expect(
+      parseShareUrl(`http://secrt.is/s/abcdef0123456789#${fragment}`),
+    ).toBeNull();
+  });
+
+  it('coerces bare-host paste to https', () => {
+    const key = makeUrlKey(15);
+    const fragment = base64urlEncode(key);
+    const result = parseShareUrl(`secrt.is/s/abcdef0123456789#${fragment}`);
+    expect(result).not.toBeNull();
+    expect(result!.host).toBe('secrt.is');
   });
 
   it('returns null for missing fragment', () => {
@@ -83,7 +134,9 @@ describe('parseShareUrl', () => {
   it('handles trailing slash on path', () => {
     const key = makeUrlKey(10);
     const fragment = base64urlEncode(key);
-    const result = parseShareUrl(`https://secrt.ca/s/abcdef0123456789/#${fragment}`);
+    const result = parseShareUrl(
+      `https://secrt.ca/s/abcdef0123456789/#${fragment}`,
+    );
     expect(result).not.toBeNull();
     expect(result!.id).toBe('abcdef0123456789');
   });
@@ -105,7 +158,9 @@ describe('parseShareUrl', () => {
   it('handles URL-safe ID characters (alphanumeric, -, _)', () => {
     const key = makeUrlKey(5);
     const fragment = base64urlEncode(key);
-    const result = parseShareUrl(`https://secrt.ca/s/aB3-z_9012345678#${fragment}`);
+    const result = parseShareUrl(
+      `https://secrt.ca/s/aB3-z_9012345678#${fragment}`,
+    );
     expect(result).not.toBeNull();
     expect(result!.id).toBe('aB3-z_9012345678');
   });

@@ -12,7 +12,8 @@ export function formatShareLink(
   urlKey: Uint8Array,
   baseUrl?: string,
 ): string {
-  const origin = baseUrl ?? (isTauri() ? 'https://secrt.ca' : window.location.origin);
+  const origin =
+    baseUrl ?? (isTauri() ? 'https://secrt.ca' : window.location.origin);
   return `${origin}/s/${id}#${base64urlEncode(urlKey)}`;
 }
 
@@ -25,7 +26,8 @@ export function formatSyncLink(
   urlKey: Uint8Array,
   baseUrl?: string,
 ): string {
-  const origin = baseUrl ?? (isTauri() ? 'https://secrt.ca' : window.location.origin);
+  const origin =
+    baseUrl ?? (isTauri() ? 'https://secrt.ca' : window.location.origin);
   return `${origin}/sync/${id}#${base64urlEncode(urlKey)}`;
 }
 
@@ -33,13 +35,19 @@ export function formatSyncLink(
 const MIN_ID_LEN = 16;
 
 /**
- * Parse a share URL, extracting the secret ID and url_key.
- * Tolerates missing protocol (prepends https://).
- * Returns null if the URL doesn't match the expected format.
+ * Parse a share URL, extracting the secret ID, url_key, and host.
+ * Tolerates missing protocol (prepends https://). Rejects non-HTTPS in
+ * production builds (with a localhost exemption in dev so the proxy path
+ * keeps working). Returns null if the URL doesn't match the expected
+ * format.
+ *
+ * `host` is `URL.hostname` — lowercased per WHATWG, port-free, subdomain
+ * preserved. Callers that need apex collapse should run it through
+ * `normalizeHost` from `./config`.
  */
 export function parseShareUrl(
   url: string,
-): { id: string; urlKey: Uint8Array } | null {
+): { id: string; urlKey: Uint8Array; host: string } | null {
   try {
     // Allow pasting without protocol — prepend https:// if missing
     let normalized = url;
@@ -48,6 +56,15 @@ export function parseShareUrl(
     }
 
     const parsed = new URL(normalized);
+
+    // Production: HTTPS only. Dev: allow http://localhost / 127.x for the
+    // Vite proxy / local server path.
+    if (parsed.protocol !== 'https:') {
+      const isLocalhost =
+        parsed.hostname === 'localhost' || /^127\./.test(parsed.hostname);
+      if (!(import.meta.env.DEV && isLocalhost)) return null;
+    }
+
     const match = parsed.pathname.match(/^\/s\/([a-zA-Z0-9_-]+)\/?$/);
     if (!match || match[1].length < MIN_ID_LEN) return null;
 
@@ -57,7 +74,7 @@ export function parseShareUrl(
     const urlKey = base64urlDecode(fragment);
     if (urlKey.length !== URL_KEY_LEN) return null;
 
-    return { id: match[1], urlKey };
+    return { id: match[1], urlKey, host: parsed.hostname };
   } catch {
     return null;
   }

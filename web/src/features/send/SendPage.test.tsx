@@ -10,9 +10,13 @@ vi.mock('../../crypto/envelope', () => ({
   preloadPassphraseKdf: vi.fn().mockResolvedValue(undefined),
 }));
 
-vi.mock('../../crypto/encoding', () => ({
-  utf8Encode: vi.fn((s: string) => new TextEncoder().encode(s)),
-}));
+vi.mock('../../crypto/encoding', async (importActual) => {
+  const actual = await importActual<typeof import('../../crypto/encoding')>();
+  return {
+    ...actual,
+    utf8Encode: vi.fn((s: string) => new TextEncoder().encode(s)),
+  };
+});
 
 vi.mock('../../crypto/frame', () => ({
   buildFrame: vi.fn((_meta: unknown, body: Uint8Array) => {
@@ -29,9 +33,10 @@ vi.mock('../../crypto/compress', () => ({
   compress: vi.fn((data: Uint8Array) => data),
 }));
 
-vi.mock('../../crypto/constants', () => ({
-  CODEC_ZSTD: 1,
-}));
+vi.mock('../../crypto/constants', async (importActual) => {
+  const actual = await importActual<typeof import('../../crypto/constants')>();
+  return { ...actual, CODEC_ZSTD: 1 };
+});
 
 vi.mock('../../lib/api', () => ({
   createSecret: vi.fn(),
@@ -60,8 +65,28 @@ vi.mock('../../lib/envelope-size', () => ({
   }),
 }));
 
-vi.mock('../../lib/url', () => ({
-  formatShareLink: vi.fn(),
+vi.mock('../../lib/url', async (importActual) => {
+  const actual = await importActual<typeof import('../../lib/url')>();
+  return {
+    ...actual,
+    formatShareLink: vi.fn(),
+  };
+});
+
+const mockIsTauri = vi.fn(() => false);
+const mockGetCanonicalHost = vi.fn(() => 'secrt.ca');
+vi.mock('../../lib/config', async (importActual) => {
+  const actual = await importActual<typeof import('../../lib/config')>();
+  return {
+    ...actual,
+    isTauri: () => mockIsTauri(),
+    getCanonicalHost: () => mockGetCanonicalHost(),
+  };
+});
+
+const mockTauriShellOpen = vi.fn().mockResolvedValue(undefined);
+vi.mock('@tauri-apps/plugin-shell', () => ({
+  open: (url: string) => mockTauriShellOpen(url),
 }));
 
 vi.mock('../../lib/clipboard', () => ({
@@ -175,6 +200,10 @@ describe('SendPage', () => {
     mockCopySensitive.mockResolvedValue(true);
     mockGeneratePassword.mockReturnValue('Aa1!Aa1!Aa1!Aa1!Aa1!');
     mockPreloadPassphraseKdf.mockResolvedValue(undefined);
+    mockIsTauri.mockReturnValue(false);
+    mockGetCanonicalHost.mockReturnValue('secrt.ca');
+    mockTauriShellOpen.mockClear();
+    mockTauriShellOpen.mockResolvedValue(undefined);
   });
 
   afterEach(() => {
@@ -216,9 +245,9 @@ describe('SendPage', () => {
       });
     });
     expect(mockCopySensitive).toHaveBeenCalledWith('Aa1!Aa1!Aa1!Aa1!Aa1!');
-    expect(screen.getByPlaceholderText('Enter your secret or drag a file here...')).toHaveValue(
-      'Aa1!Aa1!Aa1!Aa1!Aa1!',
-    );
+    expect(
+      screen.getByPlaceholderText('Enter your secret or drag a file here...'),
+    ).toHaveValue('Aa1!Aa1!Aa1!Aa1!Aa1!');
     expect(screen.getByRole('button', { name: /copied/i })).toBeInTheDocument();
   });
 
@@ -295,9 +324,9 @@ describe('SendPage', () => {
     expect(screen.getByLabelText('Password Preview')).toHaveValue(
       'Bb2@Bb2@Bb2@Bb2@',
     );
-    expect(screen.getByPlaceholderText('Enter your secret or drag a file here...')).toHaveValue(
-      'Bb2@Bb2@Bb2@Bb2@',
-    );
+    expect(
+      screen.getByPlaceholderText('Enter your secret or drag a file here...'),
+    ).toHaveValue('Bb2@Bb2@Bb2@Bb2@');
 
     await user.click(screen.getByRole('button', { name: /Generate & copy/i }));
     await waitFor(() => {
@@ -310,9 +339,9 @@ describe('SendPage', () => {
     expect(screen.getByLabelText('Password Preview')).toHaveValue(
       'Cc3#Cc3#Cc3#Cc3#',
     );
-    expect(screen.getByPlaceholderText('Enter your secret or drag a file here...')).toHaveValue(
-      'Cc3#Cc3#Cc3#Cc3#',
-    );
+    expect(
+      screen.getByPlaceholderText('Enter your secret or drag a file here...'),
+    ).toHaveValue('Cc3#Cc3#Cc3#Cc3#');
   });
 
   it('keeps preview and secret message in sync when editing in modal', async () => {
@@ -334,9 +363,9 @@ describe('SendPage', () => {
     expect(screen.getByLabelText('Password Preview')).toHaveValue(
       'edited-password-value',
     );
-    expect(screen.getByPlaceholderText('Enter your secret or drag a file here...')).toHaveValue(
-      'edited-password-value',
-    );
+    expect(
+      screen.getByPlaceholderText('Enter your secret or drag a file here...'),
+    ).toHaveValue('edited-password-value');
   });
 
   it('closes the password modal from the X button', async () => {
@@ -764,9 +793,7 @@ describe('SendPage', () => {
       await waitFor(() => {
         expect(mockFetchInfo).toHaveBeenCalled();
       });
-      expect(
-        screen.queryByLabelText(/Private Note/),
-      ).not.toBeInTheDocument();
+      expect(screen.queryByLabelText(/Private Note/)).not.toBeInTheDocument();
     });
 
     it('hides note input when not authenticated', async () => {
@@ -776,9 +803,7 @@ describe('SendPage', () => {
       await waitFor(() => {
         expect(mockFetchInfo).toHaveBeenCalled();
       });
-      expect(
-        screen.queryByLabelText(/Private Note/),
-      ).not.toBeInTheDocument();
+      expect(screen.queryByLabelText(/Private Note/)).not.toBeInTheDocument();
     });
 
     it('attaches note on successful submission', async () => {
@@ -791,15 +816,11 @@ describe('SendPage', () => {
       });
 
       await user.type(
-        screen.getByPlaceholderText(
-          'Enter your secret or drag a file here...',
-        ),
+        screen.getByPlaceholderText('Enter your secret or drag a file here...'),
         'my secret',
       );
       await user.type(screen.getByLabelText(/Private Note/), 'test note');
-      await user.click(
-        screen.getByRole('button', { name: 'Create secret' }),
-      );
+      await user.click(screen.getByRole('button', { name: 'Create secret' }));
 
       await waitFor(() => {
         expect(screen.getByText('Secret Created')).toBeInTheDocument();
@@ -823,6 +844,245 @@ describe('SendPage', () => {
         1,
         expect.any(AbortSignal),
       );
+    });
+  });
+
+  describe('GetSecretForm cross-instance handling', () => {
+    /**
+     * Build a real share-link URL with a controllable host. We use a
+     * real key + base64url so parseShareUrl (un-mocked) accepts it.
+     */
+    function buildShareLink(host: string, id = 'abcdef0123456789') {
+      const key = new Uint8Array(32);
+      for (let i = 0; i < 32; i++) key[i] = i + 1;
+      // base64url encode without padding
+      let b64 = btoa(String.fromCharCode(...key))
+        .replaceAll('+', '-')
+        .replaceAll('/', '_')
+        .replace(/=+$/, '');
+      return `https://${host}/s/${id}#${b64}`;
+    }
+
+    /**
+     * Switch to the GetSecretForm tab. The form is one of two tabs in
+     * SendPage; the get tab is keyed by 'Get Secret' or similar — find
+     * by the input placeholder we render.
+     */
+    async function openGetTab(user: ReturnType<typeof userEvent.setup>) {
+      // Find the tab toggle that exposes the get-url input
+      const getTab = screen.queryByRole('tab', { name: /get/i });
+      if (getTab) {
+        await user.click(getTab);
+      }
+    }
+
+    let hrefSetter: ((value: string) => void) & { mock: { calls: any[][] } };
+    let originalHrefDescriptor: PropertyDescriptor | undefined;
+
+    beforeEach(() => {
+      hrefSetter = vi.fn() as typeof hrefSetter;
+      // Find the descriptor for `href` — typically on Location.prototype,
+      // not the instance. We override only the setter and delegate to the
+      // original getter, so pushState/document.URL keep working normally.
+      let proto: object | null = window.location;
+      while (proto && !originalHrefDescriptor) {
+        originalHrefDescriptor = Object.getOwnPropertyDescriptor(proto, 'href');
+        proto = Object.getPrototypeOf(proto);
+      }
+      const originalGetter = originalHrefDescriptor?.get?.bind(window.location);
+      Object.defineProperty(window.location, 'href', {
+        configurable: true,
+        get: () => originalGetter?.() ?? 'http://localhost/',
+        set: (value: string) => hrefSetter(value),
+      });
+    });
+
+    afterEach(() => {
+      // Drop the instance-level override; href falls back to the prototype.
+      // @ts-expect-error -- happy-dom/jsdom allow this delete
+      delete window.location.href;
+      originalHrefDescriptor = undefined;
+    });
+
+    it('same-apex paste uses pushState and does not navigate cross-origin', async () => {
+      mockGetCanonicalHost.mockReturnValue('secrt.ca');
+      const pushStateSpy = vi.spyOn(window.history, 'pushState');
+
+      const user = userEvent.setup();
+      render(<SendPage />);
+      await openGetTab(user);
+
+      const input = screen.getByLabelText(/Secret Link/);
+      const link = buildShareLink('secrt.ca');
+      // userEvent.type interprets {} as keyboard chord syntax — use paste
+      // to deliver a literal URL (the # in the fragment would otherwise be
+      // interpreted oddly).
+      await user.click(input);
+      await user.paste(link);
+      await user.click(screen.getByRole('button', { name: /View Secret/i }));
+
+      expect(pushStateSpy).toHaveBeenCalled();
+      expect(hrefSetter).not.toHaveBeenCalled();
+      expect(
+        screen.queryByRole('button', { name: /Continue to|Open in Browser/i }),
+      ).not.toBeInTheDocument();
+    });
+
+    it('wildcard subdomain on same apex is treated as same-instance', async () => {
+      mockGetCanonicalHost.mockReturnValue('secrt.is');
+      const pushStateSpy = vi.spyOn(window.history, 'pushState');
+
+      const user = userEvent.setup();
+      render(<SendPage />);
+      await openGetTab(user);
+
+      await user.type(
+        screen.getByLabelText(/Secret Link/),
+        buildShareLink('team.secrt.is'),
+      );
+      await user.click(screen.getByRole('button', { name: /View Secret/i }));
+
+      expect(pushStateSpy).toHaveBeenCalled();
+      expect(hrefSetter).not.toHaveBeenCalled();
+    });
+
+    it('web + known foreign apex shows modal and redirects to sanitized URL preserving subdomain', async () => {
+      mockGetCanonicalHost.mockReturnValue('secrt.ca');
+      mockIsTauri.mockReturnValue(false);
+
+      const user = userEvent.setup();
+      render(<SendPage />);
+      await openGetTab(user);
+
+      await user.type(
+        screen.getByLabelText(/Secret Link/),
+        buildShareLink('team.secrt.is'),
+      );
+      await user.click(screen.getByRole('button', { name: /View Secret/i }));
+
+      // Modal appears
+      const continueBtn = await screen.findByRole('button', {
+        name: /Continue to team\.secrt\.is/i,
+      });
+      expect(continueBtn).toBeInTheDocument();
+
+      await user.click(continueBtn);
+
+      expect(hrefSetter).toHaveBeenCalledTimes(1);
+      const target = hrefSetter.mock.calls[0][0] as string;
+      expect(target).toMatch(
+        /^https:\/\/team\.secrt\.is\/s\/abcdef0123456789#/,
+      );
+      expect(target).not.toContain('@'); // no userinfo
+      expect(mockTauriShellOpen).not.toHaveBeenCalled();
+    });
+
+    it('Tauri + known foreign apex calls plugin-shell.open with sanitized URL', async () => {
+      mockGetCanonicalHost.mockReturnValue('secrt.ca');
+      mockIsTauri.mockReturnValue(true);
+
+      const user = userEvent.setup();
+      render(<SendPage />);
+      await openGetTab(user);
+
+      await user.type(
+        screen.getByLabelText(/Secret Link/),
+        buildShareLink('secrt.is'),
+      );
+      await user.click(screen.getByRole('button', { name: /View Secret/i }));
+
+      const openInBrowserBtn = await screen.findByRole('button', {
+        name: /Open in Browser/i,
+      });
+      await user.click(openInBrowserBtn);
+
+      await waitFor(() => {
+        expect(mockTauriShellOpen).toHaveBeenCalledTimes(1);
+      });
+      const target = mockTauriShellOpen.mock.calls[0][0] as string;
+      expect(target).toMatch(/^https:\/\/secrt\.is\/s\/abcdef0123456789#/);
+      expect(hrefSetter).not.toHaveBeenCalled();
+    });
+
+    it('Cancel button closes modal and does not navigate', async () => {
+      mockGetCanonicalHost.mockReturnValue('secrt.ca');
+
+      const user = userEvent.setup();
+      render(<SendPage />);
+      await openGetTab(user);
+
+      await user.type(
+        screen.getByLabelText(/Secret Link/),
+        buildShareLink('secrt.is'),
+      );
+      await user.click(screen.getByRole('button', { name: /View Secret/i }));
+
+      const cancelBtn = await screen.findByRole('button', { name: /^Cancel$/ });
+      await user.click(cancelBtn);
+
+      await waitFor(() => {
+        expect(
+          screen.queryByRole('button', { name: /Continue to/i }),
+        ).not.toBeInTheDocument();
+      });
+      expect(hrefSetter).not.toHaveBeenCalled();
+      expect(mockTauriShellOpen).not.toHaveBeenCalled();
+    });
+
+    it.each([true, false])(
+      'unknown host shows inline error, no modal, no shell-open (isTauri=%s)',
+      async (tauri) => {
+        mockGetCanonicalHost.mockReturnValue('secrt.ca');
+        mockIsTauri.mockReturnValue(tauri);
+
+        const user = userEvent.setup();
+        render(<SendPage />);
+        await openGetTab(user);
+
+        await user.type(
+          screen.getByLabelText(/Secret Link/),
+          buildShareLink('evil.tld'),
+        );
+        await user.click(screen.getByRole('button', { name: /View Secret/i }));
+
+        expect(
+          screen.getByText(/unknown secrt instance \(evil\.tld\)/i),
+        ).toBeInTheDocument();
+        expect(
+          screen.queryByRole('button', {
+            name: /Continue to|Open in Browser/i,
+          }),
+        ).not.toBeInTheDocument();
+        expect(hrefSetter).not.toHaveBeenCalled();
+        expect(mockTauriShellOpen).not.toHaveBeenCalled();
+      },
+    );
+
+    it('strips userinfo when rebuilding the redirect URL', async () => {
+      mockGetCanonicalHost.mockReturnValue('secrt.ca');
+      mockIsTauri.mockReturnValue(false);
+
+      const user = userEvent.setup();
+      render(<SendPage />);
+      await openGetTab(user);
+
+      // Userinfo in pasted URL must be dropped on redirect
+      const link = buildShareLink('secrt.is').replace(
+        'https://',
+        'https://attacker@',
+      );
+      await user.type(screen.getByLabelText(/Secret Link/), link);
+      await user.click(screen.getByRole('button', { name: /View Secret/i }));
+
+      const continueBtn = await screen.findByRole('button', {
+        name: /Continue to secrt\.is/i,
+      });
+      await user.click(continueBtn);
+
+      const target = hrefSetter.mock.calls[0][0] as string;
+      expect(target).not.toContain('attacker');
+      expect(target).not.toContain('@');
+      expect(target).toMatch(/^https:\/\/secrt\.is\/s\//);
     });
   });
 });
