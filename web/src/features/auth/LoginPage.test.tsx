@@ -61,7 +61,11 @@ vi.mock('@tauri-apps/plugin-shell', () => ({
 
 import { LoginPage, isAllowedVerificationUrl } from './LoginPage';
 import { supportsWebAuthn, getPasskeyCredential } from '../../lib/webauthn';
-import { loginPasskeyStart, loginPasskeyFinish, appLoginStart } from '../../lib/api';
+import {
+  loginPasskeyStart,
+  loginPasskeyFinish,
+  appLoginStart,
+} from '../../lib/api';
 
 describe('LoginPage', () => {
   beforeEach(() => {
@@ -122,7 +126,11 @@ describe('LoginPage', () => {
       challenge_id: 'ch_login',
       credential_id: 'cred_login',
     });
-    expect(mockAuth.login).toHaveBeenCalledWith('uss_login.tok', '00000000-0000-0000-0000-000000000001', 'dave');
+    expect(mockAuth.login).toHaveBeenCalledWith(
+      'uss_login.tok',
+      '00000000-0000-0000-0000-000000000001',
+      'dave',
+    );
     expect(mockNavigate).toHaveBeenCalledWith('/');
   });
 
@@ -245,7 +253,9 @@ describe('LoginPage', () => {
 
 describe('isAllowedVerificationUrl', () => {
   it('rejects non-https URLs', () => {
-    expect(isAllowedVerificationUrl('http://secrt.ca/app-login?code=ABCD-1234')).toBe(false);
+    expect(
+      isAllowedVerificationUrl('http://secrt.ca/app-login?code=ABCD-1234'),
+    ).toBe(false);
   });
 
   it('rejects invalid URLs', () => {
@@ -255,7 +265,9 @@ describe('isAllowedVerificationUrl', () => {
 
   it('accepts https URLs in dev mode (getApiBase returns empty)', () => {
     // In test env, isTauri() is false and getApiBase() returns ''
-    expect(isAllowedVerificationUrl('https://secrt.ca/app-login?code=ABCD-1234')).toBe(true);
+    expect(
+      isAllowedVerificationUrl('https://secrt.ca/app-login?code=ABCD-1234'),
+    ).toBe(true);
     expect(isAllowedVerificationUrl('https://any-host.com/path')).toBe(true);
   });
 

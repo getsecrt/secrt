@@ -423,7 +423,10 @@ export async function updateSecretMeta(
         authorization: `Bearer ${token}`,
         'content-type': 'application/json',
       },
-      body: JSON.stringify({ enc_meta: encMeta, meta_key_version: metaKeyVersion }),
+      body: JSON.stringify({
+        enc_meta: encMeta,
+        meta_key_version: metaKeyVersion,
+      }),
     },
     signal,
   );
@@ -517,7 +520,10 @@ export async function addPasskeyFinish(
   token: string,
   req: { challenge_id: string; credential_id: string; public_key: string },
   signal?: AbortSignal,
-): Promise<{ ok: boolean; passkey: { id: number; label: string; created_at: string } }> {
+): Promise<{
+  ok: boolean;
+  passkey: { id: number; label: string; created_at: string };
+}> {
   return requestJson(
     '/api/v1/auth/passkeys/add/finish',
     {
@@ -604,7 +610,11 @@ export async function getDeviceChallenge(
   userCode: string,
   signal?: AbortSignal,
 ): Promise<{ user_code: string; ecdh_public_key?: string; status: string }> {
-  return requestJson<{ user_code: string; ecdh_public_key?: string; status: string }>(
+  return requestJson<{
+    user_code: string;
+    ecdh_public_key?: string;
+    status: string;
+  }>(
     `/api/v1/auth/device/challenge?user_code=${encodeURIComponent(userCode)}`,
     {
       method: 'GET',

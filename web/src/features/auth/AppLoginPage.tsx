@@ -26,14 +26,23 @@ type AppLoginState =
   | { step: 'error'; message: string }
   | { step: 'no-code' };
 
-function parseUrlParams(): { code: string | null; ek: string | null; intent: string | null } {
+function parseUrlParams(): {
+  code: string | null;
+  ek: string | null;
+  intent: string | null;
+} {
   const params = new URLSearchParams(window.location.search);
-  return { code: params.get('code'), ek: params.get('ek'), intent: params.get('intent') };
+  return {
+    code: params.get('code'),
+    ek: params.get('ek'),
+    intent: params.get('intent'),
+  };
 }
 
 export function AppLoginPage() {
   const auth = useAuth();
-  const [{ code: userCode, ek: ecdhPeerKey, intent }] = useState(parseUrlParams);
+  const [{ code: userCode, ek: ecdhPeerKey, intent }] =
+    useState(parseUrlParams);
   const [state, setState] = useState<AppLoginState>(() =>
     userCode ? { step: 'confirm' } : { step: 'no-code' },
   );

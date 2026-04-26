@@ -97,10 +97,7 @@ async function clearIdb(userId: string): Promise<void> {
 // --- Public API ---
 
 /** Store an AMK for a given user. */
-export async function storeAmk(
-  userId: string,
-  amk: Uint8Array,
-): Promise<void> {
+export async function storeAmk(userId: string, amk: Uint8Array): Promise<void> {
   return isTauri() ? storeTauri(userId, amk) : storeIdb(userId, amk);
 }
 

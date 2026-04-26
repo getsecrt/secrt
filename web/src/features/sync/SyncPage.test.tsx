@@ -112,9 +112,7 @@ describe('SyncPage', () => {
     await waitFor(() => {
       expect(screen.getByText('Sync Failed')).toBeInTheDocument();
     });
-    expect(
-      screen.getByText(/decryption key is missing/),
-    ).toBeInTheDocument();
+    expect(screen.getByText(/decryption key is missing/)).toBeInTheDocument();
   });
 
   it('shows error when url_key is wrong length', async () => {
@@ -174,9 +172,7 @@ describe('SyncPage', () => {
     await waitFor(() => {
       expect(screen.getByText('Sync Failed')).toBeInTheDocument();
     });
-    expect(
-      screen.getByText(/expired or was already used/),
-    ).toBeInTheDocument();
+    expect(screen.getByText(/expired or was already used/)).toBeInTheDocument();
   });
 
   it('shows error when decrypted AMK has wrong length', async () => {
@@ -217,8 +213,6 @@ describe('SyncPage', () => {
     await waitFor(() => {
       expect(screen.getByText('Sync Failed')).toBeInTheDocument();
     });
-    expect(
-      screen.getByText(/already been used/),
-    ).toBeInTheDocument();
+    expect(screen.getByText(/already been used/)).toBeInTheDocument();
   });
 });

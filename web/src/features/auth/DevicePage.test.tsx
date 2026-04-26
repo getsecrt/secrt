@@ -49,7 +49,9 @@ vi.mock('../../crypto/amk', () => ({
 // Mock crypto/encoding
 vi.mock('../../crypto/encoding', () => ({
   base64urlEncode: vi.fn((b: Uint8Array) => btoa(String.fromCharCode(...b))),
-  base64urlDecode: vi.fn((s: string) => new Uint8Array([...atob(s)].map(c => c.charCodeAt(0)))),
+  base64urlDecode: vi.fn(
+    (s: string) => new Uint8Array([...atob(s)].map((c) => c.charCodeAt(0))),
+  ),
 }));
 
 import { DevicePage } from './DevicePage';
@@ -201,8 +203,18 @@ describe('DevicePage', () => {
 
     // Both calls should have received the original code
     expect(mockDeviceApprove).toHaveBeenCalledTimes(2);
-    expect(mockDeviceApprove).toHaveBeenNthCalledWith(1, 'uss_test.tok', 'ABCD-1234', undefined);
-    expect(mockDeviceApprove).toHaveBeenNthCalledWith(2, 'uss_test.tok', 'ABCD-1234', undefined);
+    expect(mockDeviceApprove).toHaveBeenNthCalledWith(
+      1,
+      'uss_test.tok',
+      'ABCD-1234',
+      undefined,
+    );
+    expect(mockDeviceApprove).toHaveBeenNthCalledWith(
+      2,
+      'uss_test.tok',
+      'ABCD-1234',
+      undefined,
+    );
   });
 
   describe('AMK transfer flow', () => {
@@ -216,7 +228,9 @@ describe('DevicePage', () => {
       mockGetDeviceChallenge.mockResolvedValue({
         user_code: 'ABCD-1234',
         status: 'pending',
-        ecdh_public_key: btoa(String.fromCharCode(...new Uint8Array(65).fill(0x11))),
+        ecdh_public_key: btoa(
+          String.fromCharCode(...new Uint8Array(65).fill(0x11)),
+        ),
       });
       // AMK is available
       mockLoadAmk.mockResolvedValue(fakeAmk);
@@ -231,8 +245,12 @@ describe('DevicePage', () => {
 
       // Mock WebCrypto for AMK encryption
       const mockCryptoKey = {};
-      vi.spyOn(crypto.subtle, 'importKey').mockResolvedValue(mockCryptoKey as CryptoKey);
-      vi.spyOn(crypto.subtle, 'encrypt').mockResolvedValue(new Uint8Array(48).buffer);
+      vi.spyOn(crypto.subtle, 'importKey').mockResolvedValue(
+        mockCryptoKey as CryptoKey,
+      );
+      vi.spyOn(crypto.subtle, 'encrypt').mockResolvedValue(
+        new Uint8Array(48).buffer,
+      );
     });
 
     it('sends approval with AMK transfer automatically when AMK is available', async () => {

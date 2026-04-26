@@ -133,7 +133,11 @@ describe('RegisterPage', () => {
     expect(registerPasskeyStart).toHaveBeenCalledWith({
       display_name: 'Alice',
     });
-    expect(mockAuth.login).toHaveBeenCalledWith('uss_new.tok', '00000000-0000-0000-0000-000000000001', 'alice');
+    expect(mockAuth.login).toHaveBeenCalledWith(
+      'uss_new.tok',
+      '00000000-0000-0000-0000-000000000001',
+      'alice',
+    );
     expect(mockNavigate).toHaveBeenCalledWith('/');
   });
 

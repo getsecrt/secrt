@@ -22,7 +22,11 @@ export function TtlSelector({ value, onChange, disabled }: TtlSelectorProps) {
         <ClockIcon class="size-4 opacity-60" aria-hidden="true" />
         Expires After
       </legend>
-      <div class="flex flex-wrap justify-center gap-1.5" role="radiogroup" aria-label="Expiry duration">
+      <div
+        class="flex flex-wrap justify-center gap-1.5"
+        role="radiogroup"
+        aria-label="Expiry duration"
+      >
         {TTL_PRESETS.map((preset) => (
           <button
             key={preset.seconds}

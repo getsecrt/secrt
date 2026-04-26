@@ -438,16 +438,21 @@ describe('deviceApprove', () => {
       errorResponse(400, 'Bad Request', { error: 'invalid user code' }),
     );
 
-    await expect(
-      deviceApprove('uss_tok.secret', 'BAD-CODE'),
-    ).rejects.toThrow('invalid user code');
+    await expect(deviceApprove('uss_tok.secret', 'BAD-CODE')).rejects.toThrow(
+      'invalid user code',
+    );
   });
 
   it('passes signal to fetch', async () => {
     vi.mocked(fetch).mockResolvedValue(jsonResponse({ ok: true }));
     const controller = new AbortController();
 
-    await deviceApprove('uss_tok.secret', 'ABCD-1234', undefined, controller.signal);
+    await deviceApprove(
+      'uss_tok.secret',
+      'ABCD-1234',
+      undefined,
+      controller.signal,
+    );
     expect(fetch).toHaveBeenCalledWith(
       expect.anything(),
       expect.objectContaining({ signal: controller.signal }),

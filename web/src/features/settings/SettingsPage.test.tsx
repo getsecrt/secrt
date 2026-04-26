@@ -28,7 +28,9 @@ vi.mock('../../lib/api', () => ({
   registerApiKey: vi.fn(),
   deleteAccount: vi.fn(),
   upsertAmkWrapper: vi.fn().mockResolvedValue({ ok: true }),
-  fetchInfo: vi.fn().mockResolvedValue({ features: { encrypted_notes: false } }),
+  fetchInfo: vi
+    .fn()
+    .mockResolvedValue({ features: { encrypted_notes: false } }),
 }));
 
 vi.mock('../../crypto/apikey', () => ({

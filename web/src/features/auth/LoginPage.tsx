@@ -18,10 +18,7 @@ import { storeAmk } from '../../lib/amk-store';
 import { navigate } from '../../router';
 import { getRedirectParam } from '../../lib/redirect';
 import { isTauri, getApiBase } from '../../lib/config';
-import {
-  PasskeyIcon,
-  TriangleExclamationIcon,
-} from '../../components/Icons';
+import { PasskeyIcon, TriangleExclamationIcon } from '../../components/Icons';
 import { CardHeading } from '../../components/CardHeading';
 
 type LoginState =
@@ -75,156 +72,154 @@ function TauriLoginFlow() {
     };
   }, []);
 
-  const handleLogin = useCallback(async (intent: 'login' | 'register' = 'login') => {
-    if (state.step === 'starting' || state.step === 'polling') return;
-    setState({ step: 'starting' });
+  const handleLogin = useCallback(
+    async (intent: 'login' | 'register' = 'login') => {
+      if (state.step === 'starting' || state.step === 'polling') return;
+      setState({ step: 'starting' });
 
-    try {
-      // Generate ECDH keypair for AMK transfer
-      let ecdhPubKeyB64: string | undefined;
       try {
-        const kp = await generateEcdhKeyPair();
-        ecdhPrivateKeyRef.current = kp.privateKey;
-        const pubBytes = await exportPublicKey(kp.publicKey);
-        ecdhPubKeyB64 = base64urlEncode(pubBytes);
-      } catch {
-        // ECDH generation failure is non-fatal — proceed without AMK transfer
-      }
-
-      const res = await appLoginStart(ecdhPubKeyB64);
-      setState({
-        step: 'polling',
-        appCode: res.app_code,
-        userCode: res.user_code,
-      });
-
-      // Open system browser (only if URL passes origin check).
-      // For registration, go directly to /register with the app-login
-      // URL as redirect so the user lands on the registration form
-      // immediately instead of being routed through the login page.
-      let url: string;
-      if (intent === 'register') {
-        const parsed = new URL(res.verification_url);
-        const appLoginPath = `${parsed.pathname}${parsed.search}`;
-        url = `${parsed.origin}/register?redirect=${encodeURIComponent(appLoginPath)}`;
-      } else {
-        url = res.verification_url;
-      }
-      if (isAllowedVerificationUrl(url)) {
+        // Generate ECDH keypair for AMK transfer
+        let ecdhPubKeyB64: string | undefined;
         try {
-          const { open } = await import('@tauri-apps/plugin-shell');
-          await open(url);
+          const kp = await generateEcdhKeyPair();
+          ecdhPrivateKeyRef.current = kp.privateKey;
+          const pubBytes = await exportPublicKey(kp.publicKey);
+          ecdhPubKeyB64 = base64urlEncode(pubBytes);
         } catch {
-          // If shell plugin fails, the user_code is already displayed for manual entry
+          // ECDH generation failure is non-fatal — proceed without AMK transfer
         }
-      }
 
-      // Start polling
-      const controller = new AbortController();
-      abortRef.current = controller;
+        const res = await appLoginStart(ecdhPubKeyB64);
+        setState({
+          step: 'polling',
+          appCode: res.app_code,
+          userCode: res.user_code,
+        });
 
-      const poll = async () => {
-        while (!controller.signal.aborted) {
-          await new Promise((r) => setTimeout(r, (res.interval ?? 2) * 1000));
-          if (controller.signal.aborted) break;
-
+        // Open system browser (only if URL passes origin check).
+        // For registration, go directly to /register with the app-login
+        // URL as redirect so the user lands on the registration form
+        // immediately instead of being routed through the login page.
+        let url: string;
+        if (intent === 'register') {
+          const parsed = new URL(res.verification_url);
+          const appLoginPath = `${parsed.pathname}${parsed.search}`;
+          url = `${parsed.origin}/register?redirect=${encodeURIComponent(appLoginPath)}`;
+        } else {
+          url = res.verification_url;
+        }
+        if (isAllowedVerificationUrl(url)) {
           try {
-            const pollRes = await appLoginPoll(
-              res.app_code,
-              controller.signal,
-            );
-            if (pollRes.status === 'complete') {
-              if (
-                pollRes.session_token &&
-                pollRes.user_id &&
-                pollRes.display_name
-              ) {
-                // Decrypt and store AMK if transfer data is present
-                try {
-                  const privKey = ecdhPrivateKeyRef.current;
-                  if (pollRes.amk_transfer && privKey) {
-                    const peerPkBytes = base64urlDecode(
-                      pollRes.amk_transfer.ecdh_public_key,
-                    );
-                    const sharedSecret = await performEcdh(
-                      privKey,
-                      peerPkBytes,
-                    );
-                    const transferKey =
-                      await deriveTransferKey(sharedSecret);
-
-                    const ct = base64urlDecode(pollRes.amk_transfer.ct);
-                    const nonce = base64urlDecode(
-                      pollRes.amk_transfer.nonce,
-                    );
-                    const aad = new TextEncoder().encode(
-                      'secrt-amk-transfer-v1',
-                    );
-
-                    const buf = (a: Uint8Array): ArrayBuffer => {
-                      const b = new ArrayBuffer(a.byteLength);
-                      new Uint8Array(b).set(a);
-                      return b;
-                    };
-
-                    const cryptoKey = await crypto.subtle.importKey(
-                      'raw',
-                      buf(transferKey),
-                      'AES-GCM',
-                      false,
-                      ['decrypt'],
-                    );
-                    const amkPt = await crypto.subtle.decrypt(
-                      {
-                        name: 'AES-GCM',
-                        iv: buf(nonce),
-                        additionalData: buf(aad),
-                      },
-                      cryptoKey,
-                      buf(ct),
-                    );
-                    await storeAmk(
-                      pollRes.user_id,
-                      new Uint8Array(amkPt),
-                    );
-                  }
-                } catch {
-                  // AMK decryption failure is non-fatal — login still succeeds
-                }
-                ecdhPrivateKeyRef.current = null;
-
-                auth.login(
-                  pollRes.session_token,
-                  pollRes.user_id,
-                  pollRes.display_name,
-                );
-                setState({ step: 'done' });
-                navigate(redirectTo);
-              }
-              return;
-            }
-            // authorization_pending — continue polling
-          } catch (err) {
-            if (controller.signal.aborted) return;
-            const msg = err instanceof Error ? err.message : 'Polling failed.';
-            if (msg.includes('expired_token')) {
-              setState({
-                step: 'error',
-                message: 'Login session expired. Please try again.',
-              });
-              return;
-            }
-            // Transient error — keep polling
+            const { open } = await import('@tauri-apps/plugin-shell');
+            await open(url);
+          } catch {
+            // If shell plugin fails, the user_code is already displayed for manual entry
           }
         }
-      };
-      poll();
-    } catch (err) {
-      const message =
-        err instanceof Error ? err.message : 'Failed to start login.';
-      setState({ step: 'error', message });
-    }
-  }, [state.step, auth, redirectTo]);
+
+        // Start polling
+        const controller = new AbortController();
+        abortRef.current = controller;
+
+        const poll = async () => {
+          while (!controller.signal.aborted) {
+            await new Promise((r) => setTimeout(r, (res.interval ?? 2) * 1000));
+            if (controller.signal.aborted) break;
+
+            try {
+              const pollRes = await appLoginPoll(
+                res.app_code,
+                controller.signal,
+              );
+              if (pollRes.status === 'complete') {
+                if (
+                  pollRes.session_token &&
+                  pollRes.user_id &&
+                  pollRes.display_name
+                ) {
+                  // Decrypt and store AMK if transfer data is present
+                  try {
+                    const privKey = ecdhPrivateKeyRef.current;
+                    if (pollRes.amk_transfer && privKey) {
+                      const peerPkBytes = base64urlDecode(
+                        pollRes.amk_transfer.ecdh_public_key,
+                      );
+                      const sharedSecret = await performEcdh(
+                        privKey,
+                        peerPkBytes,
+                      );
+                      const transferKey = await deriveTransferKey(sharedSecret);
+
+                      const ct = base64urlDecode(pollRes.amk_transfer.ct);
+                      const nonce = base64urlDecode(pollRes.amk_transfer.nonce);
+                      const aad = new TextEncoder().encode(
+                        'secrt-amk-transfer-v1',
+                      );
+
+                      const buf = (a: Uint8Array): ArrayBuffer => {
+                        const b = new ArrayBuffer(a.byteLength);
+                        new Uint8Array(b).set(a);
+                        return b;
+                      };
+
+                      const cryptoKey = await crypto.subtle.importKey(
+                        'raw',
+                        buf(transferKey),
+                        'AES-GCM',
+                        false,
+                        ['decrypt'],
+                      );
+                      const amkPt = await crypto.subtle.decrypt(
+                        {
+                          name: 'AES-GCM',
+                          iv: buf(nonce),
+                          additionalData: buf(aad),
+                        },
+                        cryptoKey,
+                        buf(ct),
+                      );
+                      await storeAmk(pollRes.user_id, new Uint8Array(amkPt));
+                    }
+                  } catch {
+                    // AMK decryption failure is non-fatal — login still succeeds
+                  }
+                  ecdhPrivateKeyRef.current = null;
+
+                  auth.login(
+                    pollRes.session_token,
+                    pollRes.user_id,
+                    pollRes.display_name,
+                  );
+                  setState({ step: 'done' });
+                  navigate(redirectTo);
+                }
+                return;
+              }
+              // authorization_pending — continue polling
+            } catch (err) {
+              if (controller.signal.aborted) return;
+              const msg =
+                err instanceof Error ? err.message : 'Polling failed.';
+              if (msg.includes('expired_token')) {
+                setState({
+                  step: 'error',
+                  message: 'Login session expired. Please try again.',
+                });
+                return;
+              }
+              // Transient error — keep polling
+            }
+          }
+        };
+        poll();
+      } catch (err) {
+        const message =
+          err instanceof Error ? err.message : 'Failed to start login.';
+        setState({ step: 'error', message });
+      }
+    },
+    [state.step, auth, redirectTo],
+  );
 
   const handleCancel = useCallback(() => {
     abortRef.current?.abort();

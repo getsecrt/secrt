@@ -278,9 +278,7 @@ export async function deriveClaimHash(urlKey: Uint8Array): Promise<string> {
  * Derive the claim_token from a url_key.
  * claim_token = HKDF-SHA-256(url_key, CLAIM_SALT, HKDF_INFO_CLAIM, 32)
  */
-async function webDeriveClaimToken(
-  urlKey: Uint8Array,
-): Promise<Uint8Array> {
+async function webDeriveClaimToken(urlKey: Uint8Array): Promise<Uint8Array> {
   const claimSalt = new Uint8Array(
     await crypto.subtle.digest('SHA-256', buf(utf8Encode(CLAIM_SALT_LABEL))),
   );

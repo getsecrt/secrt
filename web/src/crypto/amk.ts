@@ -301,9 +301,7 @@ export async function generateEcdhKeyPair(): Promise<CryptoKeyPair> {
 }
 
 /** Export public key bytes (uncompressed point). */
-export async function exportPublicKey(
-  key: CryptoKey,
-): Promise<Uint8Array> {
+export async function exportPublicKey(key: CryptoKey): Promise<Uint8Array> {
   const raw = await crypto.subtle.exportKey('raw', key);
   return new Uint8Array(raw);
 }
@@ -332,7 +330,12 @@ export async function performEcdh(
 export async function deriveTransferKey(
   sharedSecret: Uint8Array,
 ): Promise<Uint8Array> {
-  return hkdfDerive(sharedSecret, new Uint8Array(0), HKDF_INFO_AMK_TRANSFER, 32);
+  return hkdfDerive(
+    sharedSecret,
+    new Uint8Array(0),
+    HKDF_INFO_AMK_TRANSFER,
+    32,
+  );
 }
 
 /**
@@ -347,7 +350,12 @@ export async function computeSas(
   const cmp = compareBytes(pkA, pkB);
   const [minPk, maxPk] = cmp <= 0 ? [pkA, pkB] : [pkB, pkA];
   const saltBytes = concatBytes(minPk, maxPk);
-  const sasBytes = await hkdfDerive(sharedSecret, saltBytes, HKDF_INFO_SAS, SAS_LEN);
+  const sasBytes = await hkdfDerive(
+    sharedSecret,
+    saltBytes,
+    HKDF_INFO_SAS,
+    SAS_LEN,
+  );
   const code =
     ((sasBytes[0] << 16) | (sasBytes[1] << 8) | sasBytes[2]) % 1_000_000;
   return code;

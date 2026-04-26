@@ -5,7 +5,11 @@ import {
   createPasskeyCredential,
   generateUserId,
 } from '../../lib/webauthn';
-import { registerPasskeyStart, registerPasskeyFinish, commitAmk } from '../../lib/api';
+import {
+  registerPasskeyStart,
+  registerPasskeyFinish,
+  commitAmk,
+} from '../../lib/api';
 import { navigate } from '../../router';
 import { getRedirectParam } from '../../lib/redirect';
 import { isTauri } from '../../lib/config';
@@ -155,7 +159,11 @@ export function RegisterPage() {
 
   // In Tauri, registration goes through the TauriLoginFlow on the login page
   if (isTauri()) {
-    navigate(redirectTo === '/' ? '/login' : `/login?redirect=${encodeURIComponent(redirectTo)}`);
+    navigate(
+      redirectTo === '/'
+        ? '/login'
+        : `/login?redirect=${encodeURIComponent(redirectTo)}`,
+    );
     return null;
   }
 
@@ -201,7 +209,11 @@ export function RegisterPage() {
         });
 
         // 4. Log in with the returned session
-        auth.login(finishRes.session_token, finishRes.user_id, finishRes.display_name);
+        auth.login(
+          finishRes.session_token,
+          finishRes.user_id,
+          finishRes.display_name,
+        );
 
         // 5. Generate AMK for encrypted notes (non-fatal if it fails)
         try {
@@ -314,11 +326,19 @@ export function RegisterPage() {
         Already have an account?
         <br />
         <a
-          href={redirectTo === '/' ? '/login' : `/login?redirect=${encodeURIComponent(redirectTo)}`}
+          href={
+            redirectTo === '/'
+              ? '/login'
+              : `/login?redirect=${encodeURIComponent(redirectTo)}`
+          }
           class="link"
           onClick={(e: MouseEvent) => {
             e.preventDefault();
-            navigate(redirectTo === '/' ? '/login' : `/login?redirect=${encodeURIComponent(redirectTo)}`);
+            navigate(
+              redirectTo === '/'
+                ? '/login'
+                : `/login?redirect=${encodeURIComponent(redirectTo)}`,
+            );
           }}
         >
           Log In

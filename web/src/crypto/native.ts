@@ -1,8 +1,16 @@
-import type { SealResult, OpenResult, PayloadMeta, EnvelopeJson } from '../types';
+import type {
+  SealResult,
+  OpenResult,
+  PayloadMeta,
+  EnvelopeJson,
+} from '../types';
 import { base64urlEncode, base64urlDecode } from './encoding';
 
 /** Dynamically import Tauri's invoke to avoid bundling issues in browser builds. */
-async function invoke<T>(cmd: string, args: Record<string, unknown>): Promise<T> {
+async function invoke<T>(
+  cmd: string,
+  args: Record<string, unknown>,
+): Promise<T> {
   const { invoke: tauriInvoke } = await import('@tauri-apps/api/core');
   return tauriInvoke<T>(cmd, args);
 }

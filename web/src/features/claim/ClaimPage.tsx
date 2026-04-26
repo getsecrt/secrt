@@ -87,7 +87,9 @@ export function ClaimPage({ id }: ClaimPageProps) {
   // suppressModal hides the modal during the entire claim+decrypt flow so
   // the user only sees the placeholder card → revealed secret with no flash.
   const autoClaimRef = useRef(!!history.state?.autoClaim);
-  const [suppressModal, setSuppressModal] = useState(() => !!history.state?.autoClaim);
+  const [suppressModal, setSuppressModal] = useState(
+    () => !!history.state?.autoClaim,
+  );
 
   // Validate fragment on mount — stop at confirm screen, don't claim yet
   useEffect(() => {
@@ -231,7 +233,11 @@ export function ClaimPage({ id }: ClaimPageProps) {
   // ── Pure loading: validating fragment ──
   if (status.step === 'init') {
     return (
-      <div class="card space-y-4 text-center" role="status" aria-label="Loading">
+      <div
+        class="card space-y-4 text-center"
+        role="status"
+        aria-label="Loading"
+      >
         <div class="flex justify-center" aria-hidden="true">
           <div class="size-8 animate-spin rounded-full border-2 border-border border-t-accent" />
         </div>
@@ -407,7 +413,9 @@ export function ClaimPage({ id }: ClaimPageProps) {
                   type={showPassphrase ? 'text' : 'password'}
                   class="input pr-10"
                   value={passphrase}
-                  aria-describedby={passphraseError ? 'claim-passphrase-error' : undefined}
+                  aria-describedby={
+                    passphraseError ? 'claim-passphrase-error' : undefined
+                  }
                   onInput={(e) => {
                     const value = (e.target as HTMLInputElement).value;
                     setPassphrase(value);
@@ -439,8 +447,15 @@ export function ClaimPage({ id }: ClaimPageProps) {
             </div>
 
             {passphraseError && (
-              <div id="claim-passphrase-error" role="alert" class="alert-error flex items-center gap-2">
-                <TriangleExclamationIcon class="size-5 shrink-0" aria-hidden="true" />
+              <div
+                id="claim-passphrase-error"
+                role="alert"
+                class="alert-error flex items-center gap-2"
+              >
+                <TriangleExclamationIcon
+                  class="size-5 shrink-0"
+                  aria-hidden="true"
+                />
                 {passphraseError}
               </div>
             )}
