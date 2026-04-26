@@ -10,7 +10,7 @@
 mod helpers;
 
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
@@ -35,7 +35,7 @@ fn fresh_cache_dir(label: &str) -> PathBuf {
     p
 }
 
-fn write_cache(dir: &PathBuf, latest: &str, checked_at_iso: &str, min_supported: Option<&str>) {
+fn write_cache(dir: &Path, latest: &str, checked_at_iso: &str, min_supported: Option<&str>) {
     let secrt_dir = dir.join("secrt");
     fs::create_dir_all(&secrt_dir).unwrap();
     let body = match min_supported {

@@ -83,7 +83,7 @@ fn get_unknown_flag() {
     assert!(
         stderr.to_string().contains("unknown flag"),
         "stderr: {}",
-        stderr.to_string()
+        stderr
     );
 }
 
@@ -116,7 +116,7 @@ fn get_api_call_fails() {
     let url = make_share_url(DEAD_URL, "test123");
     let (mut deps, _stdout, stderr) = TestDepsBuilder::new().build();
     let code = cli::run(&args(&["secrt", "get", &url]), &mut deps);
-    assert_eq!(code, 1, "stderr: {}", stderr.to_string());
+    assert_eq!(code, 1, "stderr: {}", stderr);
 }
 
 #[test]
@@ -127,7 +127,7 @@ fn get_base_url_flag_override() {
         &args(&["secrt", "get", &url, "--base-url", DEAD_URL]),
         &mut deps,
     );
-    assert_eq!(code, 1, "stderr: {}", stderr.to_string());
+    assert_eq!(code, 1, "stderr: {}", stderr);
 }
 
 #[test]
@@ -151,7 +151,7 @@ fn get_success_plain() {
     };
     let (mut deps, stdout, stderr) = TestDepsBuilder::new().mock_claim(Ok(mock_resp)).build();
     let code = cli::run(&args(&["secrt", "get", &share_link]), &mut deps);
-    assert_eq!(code, 0, "stderr: {}", stderr.to_string());
+    assert_eq!(code, 0, "stderr: {}", stderr);
     assert_eq!(stdout.to_string(), "hello from mock claim");
 }
 
@@ -168,12 +168,12 @@ fn get_success_tty_shows_label() {
         .mock_claim(Ok(mock_resp))
         .build();
     let code = cli::run(&args(&["secrt", "get", &share_link]), &mut deps);
-    assert_eq!(code, 0, "stderr: {}", stderr.to_string());
+    assert_eq!(code, 0, "stderr: {}", stderr);
     assert_eq!(stdout.to_string(), "my secret value\n");
     assert!(
         stderr.to_string().contains("Secret:"),
         "TTY claim should show label on stderr: {}",
-        stderr.to_string()
+        stderr
     );
 }
 
@@ -190,13 +190,13 @@ fn get_success_non_tty_no_label() {
         .mock_claim(Ok(mock_resp))
         .build();
     let code = cli::run(&args(&["secrt", "get", &share_link]), &mut deps);
-    assert_eq!(code, 0, "stderr: {}", stderr.to_string());
+    assert_eq!(code, 0, "stderr: {}", stderr);
     // Non-TTY: exact bytes, no label, no trailing newline
     assert_eq!(stdout.to_string(), "my secret value");
     assert!(
         !stderr.to_string().contains("Secret:"),
         "non-TTY claim should NOT show label: {}",
-        stderr.to_string()
+        stderr
     );
 }
 
@@ -210,7 +210,7 @@ fn get_success_json() {
     };
     let (mut deps, stdout, stderr) = TestDepsBuilder::new().mock_claim(Ok(mock_resp)).build();
     let code = cli::run(&args(&["secrt", "get", &share_link, "--json"]), &mut deps);
-    assert_eq!(code, 0, "stderr: {}", stderr.to_string());
+    assert_eq!(code, 0, "stderr: {}", stderr);
     let out = stdout.to_string();
     let json: serde_json::Value = serde_json::from_str(out.trim()).expect("invalid JSON output");
     assert_eq!(json["plaintext"].as_str().unwrap(), "json claim test");
@@ -228,7 +228,7 @@ fn get_success_json_with_unicode() {
     };
     let (mut deps, stdout, stderr) = TestDepsBuilder::new().mock_claim(Ok(mock_resp)).build();
     let code = cli::run(&args(&["secrt", "get", &share_link, "--json"]), &mut deps);
-    assert_eq!(code, 0, "stderr: {}", stderr.to_string());
+    assert_eq!(code, 0, "stderr: {}", stderr);
     let out = stdout.to_string();
     let json: serde_json::Value = serde_json::from_str(out.trim()).expect("invalid JSON output");
     assert_eq!(
@@ -248,7 +248,7 @@ fn get_success_json_with_binary() {
     };
     let (mut deps, stdout, stderr) = TestDepsBuilder::new().mock_claim(Ok(mock_resp)).build();
     let code = cli::run(&args(&["secrt", "get", &share_link, "--json"]), &mut deps);
-    assert_eq!(code, 0, "stderr: {}", stderr.to_string());
+    assert_eq!(code, 0, "stderr: {}", stderr);
     let out = stdout.to_string();
     let json: serde_json::Value = serde_json::from_str(out.trim()).expect("invalid JSON output");
     // Binary data should be base64-encoded
@@ -274,7 +274,7 @@ fn get_success_with_passphrase() {
         &args(&["secrt", "get", &share_link, "--passphrase-env", "MY_PASS"]),
         &mut deps,
     );
-    assert_eq!(code, 0, "stderr: {}", stderr.to_string());
+    assert_eq!(code, 0, "stderr: {}", stderr);
     assert_eq!(stdout.to_string(), "passphrase protected");
 }
 
@@ -298,7 +298,7 @@ fn get_decryption_error() {
     assert!(
         stderr.to_string().contains("decryption failed"),
         "stderr: {}",
-        stderr.to_string()
+        stderr
     );
 }
 
@@ -313,7 +313,7 @@ fn get_api_error() {
     assert!(
         stderr.to_string().contains("get failed"),
         "stderr: {}",
-        stderr.to_string()
+        stderr
     );
 }
 
@@ -330,12 +330,12 @@ fn get_silent_suppresses_label() {
         .mock_claim(Ok(mock_resp))
         .build();
     let code = cli::run(&args(&["secrt", "get", &share_link, "--silent"]), &mut deps);
-    assert_eq!(code, 0, "stderr: {}", stderr.to_string());
+    assert_eq!(code, 0, "stderr: {}", stderr);
     assert_eq!(stdout.to_string(), "silent claim test\n");
     assert!(
         !stderr.to_string().contains("Secret:"),
         "silent claim should NOT show label: {}",
-        stderr.to_string()
+        stderr
     );
 }
 
@@ -357,7 +357,7 @@ fn get_passphrase_auto_prompt_on_tty() {
         .read_pass(&["mypass"])
         .build();
     let code = cli::run(&args(&["secrt", "get", &share_link]), &mut deps);
-    assert_eq!(code, 0, "stderr: {}", stderr.to_string());
+    assert_eq!(code, 0, "stderr: {}", stderr);
     assert_eq!(stdout.to_string(), "auto prompt secret");
     let err = stderr.to_string();
     assert!(
@@ -381,7 +381,7 @@ fn get_passphrase_auto_prompt_shows_key_symbol() {
         .read_pass(&["pass123"])
         .build();
     let code = cli::run(&args(&["secrt", "get", &share_link]), &mut deps);
-    assert_eq!(code, 0, "stderr: {}", stderr.to_string());
+    assert_eq!(code, 0, "stderr: {}", stderr);
     let err = stderr.to_string();
     assert!(err.contains("\u{26b7}"), "should show key symbol: {}", err);
 }
@@ -400,12 +400,12 @@ fn get_passphrase_auto_prompt_silent_hides_notice() {
         .read_pass(&["mypass"])
         .build();
     let code = cli::run(&args(&["secrt", "get", &share_link, "--silent"]), &mut deps);
-    assert_eq!(code, 0, "stderr: {}", stderr.to_string());
+    assert_eq!(code, 0, "stderr: {}", stderr);
     assert_eq!(stdout.to_string(), "silent passphrase");
     assert!(
         !stderr.to_string().contains("passphrase-protected"),
         "silent should hide notice: {}",
-        stderr.to_string()
+        stderr
     );
 }
 
@@ -448,7 +448,7 @@ fn get_passphrase_retry_on_wrong_passphrase() {
         .read_pass(&["wrong", "correct"])
         .build();
     let code = cli::run(&args(&["secrt", "get", &share_link]), &mut deps);
-    assert_eq!(code, 0, "stderr: {}", stderr.to_string());
+    assert_eq!(code, 0, "stderr: {}", stderr);
     assert_eq!(stdout.to_string(), "retry secret");
     let err = stderr.to_string();
     assert!(
@@ -473,7 +473,7 @@ fn get_passphrase_retry_many_then_succeed() {
         .read_pass(&["wrong1", "wrong2", "wrong3", "wrong4", "correct"])
         .build();
     let code = cli::run(&args(&["secrt", "get", &share_link]), &mut deps);
-    assert_eq!(code, 0, "stderr: {}", stderr.to_string());
+    assert_eq!(code, 0, "stderr: {}", stderr);
     assert_eq!(stdout.to_string(), "many retries");
     let err = stderr.to_string();
     // Should have shown "Wrong passphrase" 4 times
@@ -532,7 +532,7 @@ fn get_passphrase_prompt_flag_allows_retry() {
         .read_pass(&["wrong", "correct"])
         .build();
     let code = cli::run(&args(&["secrt", "get", &share_link, "-p"]), &mut deps);
-    assert_eq!(code, 0, "stderr: {}", stderr.to_string());
+    assert_eq!(code, 0, "stderr: {}", stderr);
     assert_eq!(stdout.to_string(), "prompt flag retry");
 }
 
@@ -554,7 +554,7 @@ fn get_passphrase_auto_prompt_empty_input() {
     assert!(
         stderr.to_string().contains("must not be empty"),
         "stderr: {}",
-        stderr.to_string()
+        stderr
     );
 }
 
@@ -576,7 +576,7 @@ fn get_passphrase_auto_prompt_read_error() {
     assert!(
         stderr.to_string().contains("read passphrase"),
         "stderr: {}",
-        stderr.to_string()
+        stderr
     );
 }
 
@@ -629,7 +629,7 @@ fn get_passphrase_conflicting_flags() {
     assert!(
         stderr.to_string().contains("at most one"),
         "stderr: {}",
-        stderr.to_string()
+        stderr
     );
 }
 
@@ -693,7 +693,7 @@ fn get_passphrase_list_first_matches() {
         .env("XDG_CONFIG_HOME", cfg_dir.path().to_str().unwrap())
         .build();
     let code = cli::run(&args(&["secrt", "get", &share_link]), &mut deps);
-    assert_eq!(code, 0, "stderr: {}", stderr.to_string());
+    assert_eq!(code, 0, "stderr: {}", stderr);
     assert_eq!(stdout.to_string(), "list first match");
 }
 
@@ -712,7 +712,7 @@ fn get_passphrase_list_second_matches() {
         .env("XDG_CONFIG_HOME", cfg_dir.path().to_str().unwrap())
         .build();
     let code = cli::run(&args(&["secrt", "get", &share_link]), &mut deps);
-    assert_eq!(code, 0, "stderr: {}", stderr.to_string());
+    assert_eq!(code, 0, "stderr: {}", stderr);
     assert_eq!(stdout.to_string(), "list second match");
 }
 
@@ -734,7 +734,7 @@ fn get_passphrase_default_tried_before_list() {
         .env("XDG_CONFIG_HOME", cfg_dir.path().to_str().unwrap())
         .build();
     let code = cli::run(&args(&["secrt", "get", &share_link]), &mut deps);
-    assert_eq!(code, 0, "stderr: {}", stderr.to_string());
+    assert_eq!(code, 0, "stderr: {}", stderr);
     assert_eq!(stdout.to_string(), "default first");
 }
 
@@ -778,7 +778,7 @@ fn get_passphrase_list_no_match_tty_falls_through_to_prompt() {
         .env("XDG_CONFIG_HOME", cfg_dir.path().to_str().unwrap())
         .build();
     let code = cli::run(&args(&["secrt", "get", &share_link]), &mut deps);
-    assert_eq!(code, 0, "stderr: {}", stderr.to_string());
+    assert_eq!(code, 0, "stderr: {}", stderr);
     assert_eq!(stdout.to_string(), "tty prompt fallback");
     let err = stderr.to_string();
     assert!(
@@ -835,7 +835,7 @@ fn get_passphrase_list_deduplication() {
         .env("XDG_CONFIG_HOME", cfg_dir.path().to_str().unwrap())
         .build();
     let code = cli::run(&args(&["secrt", "get", &share_link]), &mut deps);
-    assert_eq!(code, 0, "stderr: {}", stderr.to_string());
+    assert_eq!(code, 0, "stderr: {}", stderr);
     assert_eq!(stdout.to_string(), "dedup test");
 }
 
@@ -850,7 +850,7 @@ fn get_implicit_from_share_url() {
     let (mut deps, stdout, stderr) = TestDepsBuilder::new().mock_claim(Ok(mock_resp)).build();
     // No "get" subcommand — just secrt <url>
     let code = cli::run(&args(&["secrt", &share_link]), &mut deps);
-    assert_eq!(code, 0, "stderr: {}", stderr.to_string());
+    assert_eq!(code, 0, "stderr: {}", stderr);
     assert_eq!(stdout.to_string(), "implicit claim works");
 }
 
@@ -865,11 +865,11 @@ fn get_implicit_with_flags() {
     let (mut deps, stdout, stderr) = TestDepsBuilder::new().mock_claim(Ok(mock_resp)).build();
     // Implicit get with --json flag
     let code = cli::run(&args(&["secrt", &share_link, "--json"]), &mut deps);
-    assert_eq!(code, 0, "stderr: {}", stderr.to_string());
+    assert_eq!(code, 0, "stderr: {}", stderr);
     assert!(
         stdout.to_string().contains("\"plaintext\""),
         "stdout: {}",
-        stdout.to_string()
+        stdout
     );
 }
 
@@ -915,7 +915,7 @@ fn get_file_auto_save_on_tty() {
         .build();
     let code = cli::run(&args(&["secrt", "get", &share_link]), &mut deps);
 
-    assert_eq!(code, 0, "stderr: {}", stderr.to_string());
+    assert_eq!(code, 0, "stderr: {}", stderr);
     let err = stderr.to_string();
     assert!(
         err.contains("Saved to") && err.contains("photo.png"),
@@ -955,7 +955,7 @@ fn get_file_output_flag() {
         &mut deps,
     );
 
-    assert_eq!(code, 0, "stderr: {}", stderr.to_string());
+    assert_eq!(code, 0, "stderr: {}", stderr);
     let err = stderr.to_string();
     assert!(
         err.contains("Saved to"),
@@ -980,7 +980,7 @@ fn get_file_output_dash_stdout() {
         &args(&["secrt", "get", &share_link, "--output", "-"]),
         &mut deps,
     );
-    assert_eq!(code, 0, "stderr: {}", stderr.to_string());
+    assert_eq!(code, 0, "stderr: {}", stderr);
     // Raw bytes to stdout, no label, no newline
     assert_eq!(stdout.0.lock().unwrap().as_slice(), plaintext);
 }
@@ -999,7 +999,7 @@ fn get_file_piped_stdout_raw_bytes() {
         .mock_claim(Ok(mock_resp))
         .build();
     let code = cli::run(&args(&["secrt", "get", &share_link]), &mut deps);
-    assert_eq!(code, 0, "stderr: {}", stderr.to_string());
+    assert_eq!(code, 0, "stderr: {}", stderr);
     // Piped: raw bytes, no label
     assert_eq!(stdout.0.lock().unwrap().as_slice(), plaintext);
 }
@@ -1014,7 +1014,7 @@ fn get_file_json_with_hint_utf8() {
     };
     let (mut deps, stdout, stderr) = TestDepsBuilder::new().mock_claim(Ok(mock_resp)).build();
     let code = cli::run(&args(&["secrt", "get", &share_link, "--json"]), &mut deps);
-    assert_eq!(code, 0, "stderr: {}", stderr.to_string());
+    assert_eq!(code, 0, "stderr: {}", stderr);
 
     let json: serde_json::Value =
         serde_json::from_str(stdout.to_string().trim()).expect("valid JSON");
@@ -1035,7 +1035,7 @@ fn get_file_json_with_hint_binary() {
     };
     let (mut deps, stdout, stderr) = TestDepsBuilder::new().mock_claim(Ok(mock_resp)).build();
     let code = cli::run(&args(&["secrt", "get", &share_link, "--json"]), &mut deps);
-    assert_eq!(code, 0, "stderr: {}", stderr.to_string());
+    assert_eq!(code, 0, "stderr: {}", stderr);
 
     let json: serde_json::Value =
         serde_json::from_str(stdout.to_string().trim()).expect("valid JSON");
@@ -1067,7 +1067,7 @@ fn get_text_no_hint_unchanged_behavior() {
         .mock_claim(Ok(mock_resp))
         .build();
     let code = cli::run(&args(&["secrt", "get", &share_link]), &mut deps);
-    assert_eq!(code, 0, "stderr: {}", stderr.to_string());
+    assert_eq!(code, 0, "stderr: {}", stderr);
     assert_eq!(stdout.to_string(), "just a text secret\n");
     assert!(
         stderr.to_string().contains("Secret:"),
@@ -1108,11 +1108,11 @@ fn get_binary_no_hint_tty_auto_saves() {
         &mut deps,
     );
 
-    assert_eq!(code, 0, "stderr: {}", stderr.to_string());
+    assert_eq!(code, 0, "stderr: {}", stderr);
     assert!(
         stderr.to_string().contains("Saved to"),
         "should show save confirmation: {}",
-        stderr.to_string()
+        stderr
     );
     assert!(
         stdout.to_string().is_empty(),
@@ -1156,7 +1156,7 @@ fn get_output_flag_missing_value() {
     assert!(
         stderr.to_string().contains("--output requires a value"),
         "stderr: {}",
-        stderr.to_string()
+        stderr
     );
 }
 
@@ -1200,7 +1200,7 @@ fn get_file_output_flag_text_no_hint() {
         ]),
         &mut deps,
     );
-    assert_eq!(code, 0, "stderr: {}", stderr.to_string());
+    assert_eq!(code, 0, "stderr: {}", stderr);
     let saved = fs::read(&out_path).expect("output file should exist");
     assert_eq!(saved, plaintext);
 }
@@ -1312,7 +1312,7 @@ fn get_file_auto_save_collision() {
         .build();
     let code = cli::run(&args(&["secrt", "get", &share_link]), &mut deps);
 
-    assert_eq!(code, 0, "stderr: {}", stderr.to_string());
+    assert_eq!(code, 0, "stderr: {}", stderr);
     let err = stderr.to_string();
     assert!(err.contains("Saved to"), "should save: {}", err);
     assert!(
@@ -1349,7 +1349,7 @@ fn get_binary_no_hint_tty_auto_saves_secret_bin() {
         .build();
     let code = cli::run(&args(&["secrt", "get", &share_link]), &mut deps);
 
-    assert_eq!(code, 0, "stderr: {}", stderr.to_string());
+    assert_eq!(code, 0, "stderr: {}", stderr);
     let err = stderr.to_string();
     assert!(err.contains("Saved to"), "should auto-save: {}", err);
     assert!(
@@ -1395,10 +1395,9 @@ fn get_no_passphrase_flag_skips_configured_passphrases() {
 
     // With -n the configured passphrase must be skipped, so decryption should fail
     assert_eq!(
-        code,
-        1,
+        code, 1,
         "--no-passphrase should prevent trying configured passphrases; stderr: {}",
-        stderr.to_string()
+        stderr
     );
 }
 
@@ -1423,10 +1422,9 @@ fn get_no_passphrase_short_flag_skips_default_passphrase() {
     let code = cli::run(&args(&["secrt", "get", &share_link, "-n"]), &mut deps);
 
     assert_eq!(
-        code,
-        1,
+        code, 1,
         "-n should prevent trying default passphrase; stderr: {}",
-        stderr.to_string()
+        stderr
     );
 }
 
@@ -1447,7 +1445,7 @@ fn get_tty_no_candidates_shows_notice() {
         .env("XDG_CONFIG_HOME", "/tmp/secrt_test_no_config_nonexistent")
         .build();
     let code = cli::run(&args(&["secrt", "get", &share_link]), &mut deps);
-    assert_eq!(code, 0, "stderr: {}", stderr.to_string());
+    assert_eq!(code, 0, "stderr: {}", stderr);
     assert_eq!(stdout.to_string(), "tty no candidates");
     let err = stderr.to_string();
     assert!(

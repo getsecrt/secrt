@@ -20,7 +20,7 @@ fn send_unknown_flag() {
     assert!(
         stderr.to_string().contains("unknown flag"),
         "stderr: {}",
-        stderr.to_string()
+        stderr
     );
 }
 
@@ -39,7 +39,7 @@ fn send_stdin() {
         .env("SECRET_BASE_URL", DEAD_URL)
         .build();
     let code = cli::run(&args(&["secrt", "send"]), &mut deps);
-    assert_eq!(code, 1, "stderr: {}", stderr.to_string());
+    assert_eq!(code, 1, "stderr: {}", stderr);
 }
 
 #[test]
@@ -48,7 +48,7 @@ fn send_text_flag() {
         .env("SECRET_BASE_URL", DEAD_URL)
         .build();
     let code = cli::run(&args(&["secrt", "send", "--text", "hello"]), &mut deps);
-    assert_eq!(code, 1, "stderr: {}", stderr.to_string());
+    assert_eq!(code, 1, "stderr: {}", stderr);
 }
 
 #[test]
@@ -64,7 +64,7 @@ fn send_file_flag() {
         &args(&["secrt", "send", "--file", path.to_str().unwrap()]),
         &mut deps,
     );
-    assert_eq!(code, 1, "stderr: {}", stderr.to_string());
+    assert_eq!(code, 1, "stderr: {}", stderr);
 }
 
 #[test]
@@ -85,7 +85,7 @@ fn send_multiple_sources() {
         ]),
         &mut deps,
     );
-    assert_eq!(code, 2, "stderr: {}", stderr.to_string());
+    assert_eq!(code, 2, "stderr: {}", stderr);
     let _ = std::fs::remove_file(&path);
 }
 
@@ -93,7 +93,7 @@ fn send_multiple_sources() {
 fn send_empty_stdin() {
     let (mut deps, _stdout, stderr) = TestDepsBuilder::new().stdin(b"").build();
     let code = cli::run(&args(&["secrt", "send"]), &mut deps);
-    assert_eq!(code, 2, "stderr: {}", stderr.to_string());
+    assert_eq!(code, 2, "stderr: {}", stderr);
     assert!(stderr.to_string().contains("empty"));
 }
 
@@ -101,7 +101,7 @@ fn send_empty_stdin() {
 fn send_invalid_ttl() {
     let (mut deps, _stdout, stderr) = TestDepsBuilder::new().stdin(b"data").build();
     let code = cli::run(&args(&["secrt", "send", "--ttl", "abc"]), &mut deps);
-    assert_eq!(code, 2, "stderr: {}", stderr.to_string());
+    assert_eq!(code, 2, "stderr: {}", stderr);
 }
 
 #[test]
@@ -112,11 +112,11 @@ fn send_tty_prompt() {
         .env("SECRET_BASE_URL", DEAD_URL)
         .build();
     let code = cli::run(&args(&["secrt", "send"]), &mut deps);
-    assert_eq!(code, 1, "stderr: {}", stderr.to_string());
+    assert_eq!(code, 1, "stderr: {}", stderr);
     assert!(
         stderr.to_string().contains("Enter your secret"),
         "stderr should contain prompt: {}",
-        stderr.to_string()
+        stderr
     );
 }
 
@@ -131,7 +131,7 @@ fn send_with_passphrase_env() {
         &args(&["secrt", "send", "--passphrase-env", "MY_PASS"]),
         &mut deps,
     );
-    assert_eq!(code, 1, "stderr: {}", stderr.to_string());
+    assert_eq!(code, 1, "stderr: {}", stderr);
 }
 
 #[test]
@@ -145,11 +145,11 @@ fn send_empty_file() {
         &args(&["secrt", "send", "--file", path.to_str().unwrap()]),
         &mut deps,
     );
-    assert_eq!(code, 2, "stderr: {}", stderr.to_string());
+    assert_eq!(code, 2, "stderr: {}", stderr);
     assert!(
         stderr.to_string().contains("file is empty"),
         "stderr: {}",
-        stderr.to_string()
+        stderr
     );
     let _ = std::fs::remove_file(&path);
 }
@@ -184,7 +184,7 @@ fn send_tty_shows_status_message_on_success() {
         .mock_create(Ok(mock_send_response()))
         .build();
     let code = cli::run(&args(&["secrt", "send"]), &mut deps);
-    assert_eq!(code, 0, "stderr: {}", stderr.to_string());
+    assert_eq!(code, 0, "stderr: {}", stderr);
     let err = stderr.to_string();
     assert!(
         err.contains("Encrypting and uploading..."),
@@ -223,7 +223,7 @@ fn send_non_tty_no_status_message() {
         .mock_create(Ok(mock_send_response()))
         .build();
     let code = cli::run(&args(&["secrt", "send"]), &mut deps);
-    assert_eq!(code, 0, "stderr: {}", stderr.to_string());
+    assert_eq!(code, 0, "stderr: {}", stderr);
     let err = stderr.to_string();
     assert!(
         !err.contains("Encrypting and uploading"),
@@ -243,11 +243,11 @@ fn send_multi_line_tty_reads_from_stdin() {
         .mock_create(Ok(mock_send_response()))
         .build();
     let code = cli::run(&args(&["secrt", "send", "--multi-line"]), &mut deps);
-    assert_eq!(code, 0, "stderr: {}", stderr.to_string());
+    assert_eq!(code, 0, "stderr: {}", stderr);
     assert!(
         stdout.to_string().contains("#"),
         "should succeed and output share link: {}",
-        stdout.to_string()
+        stdout
     );
 }
 
@@ -259,7 +259,7 @@ fn send_multi_line_tty_shows_prompt() {
         .mock_create(Ok(mock_send_response()))
         .build();
     let code = cli::run(&args(&["secrt", "send", "-m"]), &mut deps);
-    assert_eq!(code, 0, "stderr: {}", stderr.to_string());
+    assert_eq!(code, 0, "stderr: {}", stderr);
     let err = stderr.to_string();
     assert!(
         err.contains("Ctrl+D"),
@@ -278,7 +278,7 @@ fn send_multi_line_preserves_exact_bytes() {
         .mock_create(Ok(mock_send_response()))
         .build();
     let code = cli::run(&args(&["secrt", "send", "--multi-line"]), &mut deps);
-    assert_eq!(code, 0, "stderr: {}", stderr.to_string());
+    assert_eq!(code, 0, "stderr: {}", stderr);
     // Success means the exact bytes were used (not trimmed)
     assert!(stdout.to_string().contains("#"));
 }
@@ -287,11 +287,11 @@ fn send_multi_line_preserves_exact_bytes() {
 fn send_multi_line_empty_input() {
     let (mut deps, _stdout, stderr) = TestDepsBuilder::new().stdin(b"").is_tty(true).build();
     let code = cli::run(&args(&["secrt", "send", "--multi-line"]), &mut deps);
-    assert_eq!(code, 2, "stderr: {}", stderr.to_string());
+    assert_eq!(code, 2, "stderr: {}", stderr);
     assert!(
         stderr.to_string().contains("empty"),
         "should error on empty input: {}",
-        stderr.to_string()
+        stderr
     );
 }
 
@@ -302,7 +302,7 @@ fn send_trim_strips_whitespace_stdin() {
         .mock_create(Ok(mock_send_response()))
         .build();
     let code = cli::run(&args(&["secrt", "send", "--trim"]), &mut deps);
-    assert_eq!(code, 0, "stderr: {}", stderr.to_string());
+    assert_eq!(code, 0, "stderr: {}", stderr);
     assert!(stdout.to_string().contains("#"));
 }
 
@@ -315,7 +315,7 @@ fn send_trim_with_text_flag() {
         &args(&["secrt", "send", "--text", "  hello  ", "--trim"]),
         &mut deps,
     );
-    assert_eq!(code, 0, "stderr: {}", stderr.to_string());
+    assert_eq!(code, 0, "stderr: {}", stderr);
     assert!(stdout.to_string().contains("#"));
 }
 
@@ -332,7 +332,7 @@ fn send_trim_with_file_flag() {
         &args(&["secrt", "send", "--file", path.to_str().unwrap(), "--trim"]),
         &mut deps,
     );
-    assert_eq!(code, 0, "stderr: {}", stderr.to_string());
+    assert_eq!(code, 0, "stderr: {}", stderr);
     assert!(stdout.to_string().contains("#"));
     let _ = std::fs::remove_file(&path);
 }
@@ -341,11 +341,11 @@ fn send_trim_with_file_flag() {
 fn send_trim_makes_empty_errors() {
     let (mut deps, _stdout, stderr) = TestDepsBuilder::new().stdin(b"  \n  \r\n  ").build();
     let code = cli::run(&args(&["secrt", "send", "--trim"]), &mut deps);
-    assert_eq!(code, 2, "stderr: {}", stderr.to_string());
+    assert_eq!(code, 2, "stderr: {}", stderr);
     assert!(
         stderr.to_string().contains("empty"),
         "trim to empty should error: {}",
-        stderr.to_string()
+        stderr
     );
 }
 
@@ -353,11 +353,11 @@ fn send_trim_makes_empty_errors() {
 fn send_trim_non_utf8_stdin_errors() {
     let (mut deps, _stdout, stderr) = TestDepsBuilder::new().stdin(b"\xFF\xFE\xFD").build();
     let code = cli::run(&args(&["secrt", "send", "--trim"]), &mut deps);
-    assert_eq!(code, 2, "stderr: {}", stderr.to_string());
+    assert_eq!(code, 2, "stderr: {}", stderr);
     assert!(
         stderr.to_string().contains("UTF-8"),
         "expected UTF-8 error: {}",
-        stderr.to_string()
+        stderr
     );
 }
 
@@ -372,11 +372,11 @@ fn send_trim_non_utf8_file_errors() {
         &args(&["secrt", "send", "--file", path.to_str().unwrap(), "--trim"]),
         &mut deps,
     );
-    assert_eq!(code, 2, "stderr: {}", stderr.to_string());
+    assert_eq!(code, 2, "stderr: {}", stderr);
     assert!(
         stderr.to_string().contains("UTF-8"),
         "expected UTF-8 error: {}",
-        stderr.to_string()
+        stderr
     );
 
     let _ = std::fs::remove_file(&path);
@@ -392,7 +392,7 @@ fn send_multi_line_with_trim() {
         &args(&["secrt", "send", "--multi-line", "--trim"]),
         &mut deps,
     );
-    assert_eq!(code, 0, "stderr: {}", stderr.to_string());
+    assert_eq!(code, 0, "stderr: {}", stderr);
     assert!(stdout.to_string().contains("#"));
 }
 
@@ -405,7 +405,7 @@ fn send_default_tty_uses_single_line() {
         .mock_create(Ok(mock_send_response()))
         .build();
     let code = cli::run(&args(&["secrt", "send"]), &mut deps);
-    assert_eq!(code, 0, "stderr: {}", stderr.to_string());
+    assert_eq!(code, 0, "stderr: {}", stderr);
     assert!(stdout.to_string().contains("#"));
     // Should show "input is hidden" hint on instruction line
     let err = stderr.to_string();
@@ -431,7 +431,7 @@ fn send_success_plain() {
         .mock_create(Ok(mock_send_response()))
         .build();
     let code = cli::run(&args(&["secrt", "send"]), &mut deps);
-    assert_eq!(code, 0, "stderr: {}", stderr.to_string());
+    assert_eq!(code, 0, "stderr: {}", stderr);
     let out = stdout.to_string();
     assert!(
         out.contains("https://secrt.ca/s/test-id-123#"),
@@ -447,7 +447,7 @@ fn send_success_json() {
         .mock_create(Ok(mock_send_response()))
         .build();
     let code = cli::run(&args(&["secrt", "send", "--json"]), &mut deps);
-    assert_eq!(code, 0, "stderr: {}", stderr.to_string());
+    assert_eq!(code, 0, "stderr: {}", stderr);
     let out = stdout.to_string();
     let json: serde_json::Value = serde_json::from_str(out.trim()).expect("invalid JSON output");
     assert_eq!(json["id"].as_str().unwrap(), "test-id-123");
@@ -463,7 +463,7 @@ fn send_success_with_ttl() {
         .mock_create(Ok(mock_send_response()))
         .build();
     let code = cli::run(&args(&["secrt", "send", "--ttl", "5m"]), &mut deps);
-    assert_eq!(code, 0, "stderr: {}", stderr.to_string());
+    assert_eq!(code, 0, "stderr: {}", stderr);
     let out = stdout.to_string();
     assert!(
         out.contains("#"),
@@ -483,7 +483,7 @@ fn send_api_error() {
     assert!(
         stderr.to_string().contains("server error"),
         "stderr: {}",
-        stderr.to_string()
+        stderr
     );
 }
 
@@ -543,7 +543,7 @@ fn send_show_flag_reads_visible_input() {
         .mock_create(Ok(mock_send_response()))
         .build();
     let code = cli::run(&args(&["secrt", "send", "--show"]), &mut deps);
-    assert_eq!(code, 0, "stderr: {}", stderr.to_string());
+    assert_eq!(code, 0, "stderr: {}", stderr);
     assert!(stdout.to_string().contains("#"));
     let err = stderr.to_string();
     assert!(
@@ -561,7 +561,7 @@ fn send_show_short_flag() {
         .mock_create(Ok(mock_send_response()))
         .build();
     let code = cli::run(&args(&["secrt", "send", "-s"]), &mut deps);
-    assert_eq!(code, 0, "stderr: {}", stderr.to_string());
+    assert_eq!(code, 0, "stderr: {}", stderr);
     assert!(stdout.to_string().contains("#"));
 }
 
@@ -573,7 +573,7 @@ fn send_hidden_overrides_show() {
         .mock_create(Ok(mock_send_response()))
         .build();
     let code = cli::run(&args(&["secrt", "send", "--show", "--hidden"]), &mut deps);
-    assert_eq!(code, 0, "stderr: {}", stderr.to_string());
+    assert_eq!(code, 0, "stderr: {}", stderr);
     let err = stderr.to_string();
     assert!(
         err.contains("input is hidden"),
@@ -589,7 +589,7 @@ fn send_silent_suppresses_status() {
         .mock_create(Ok(mock_send_response()))
         .build();
     let code = cli::run(&args(&["secrt", "send", "--silent"]), &mut deps);
-    assert_eq!(code, 0, "stderr: {}", stderr.to_string());
+    assert_eq!(code, 0, "stderr: {}", stderr);
     assert!(stdout.to_string().contains("#"));
     let err = stderr.to_string();
     assert!(
@@ -607,7 +607,7 @@ fn send_silent_tty_suppresses_prompts_and_status() {
         .mock_create(Ok(mock_send_response()))
         .build();
     let code = cli::run(&args(&["secrt", "send", "--silent"]), &mut deps);
-    assert_eq!(code, 0, "stderr: {}", stderr.to_string());
+    assert_eq!(code, 0, "stderr: {}", stderr);
     assert!(stdout.to_string().contains("#"));
     let err = stderr.to_string();
     assert!(
@@ -630,7 +630,7 @@ fn send_tty_status_indicator_success() {
         .mock_create(Ok(mock_send_response()))
         .build();
     let code = cli::run(&args(&["secrt", "send"]), &mut deps);
-    assert_eq!(code, 0, "stderr: {}", stderr.to_string());
+    assert_eq!(code, 0, "stderr: {}", stderr);
     let err = stderr.to_string();
     // Should contain both the in-progress and success indicators
     assert!(
@@ -650,11 +650,11 @@ fn send_tty_status_indicator_success() {
 fn send_show_empty_input_errors() {
     let (mut deps, _stdout, stderr) = TestDepsBuilder::new().stdin(b"\n").is_tty(true).build();
     let code = cli::run(&args(&["secrt", "send", "--show"]), &mut deps);
-    assert_eq!(code, 2, "stderr: {}", stderr.to_string());
+    assert_eq!(code, 2, "stderr: {}", stderr);
     assert!(
         stderr.to_string().contains("empty"),
         "empty show input should error: {}",
-        stderr.to_string()
+        stderr
     );
 }
 
@@ -674,7 +674,7 @@ fn send_passphrase_conflicting_flags() {
     assert!(
         stderr.to_string().contains("at most one"),
         "stderr: {}",
-        stderr.to_string()
+        stderr
     );
 }
 
@@ -709,7 +709,7 @@ fn send_success_tty_stdout_shows_link() {
         .mock_create(Ok(mock_send_response()))
         .build();
     let code = cli::run(&args(&["secrt", "send"]), &mut deps);
-    assert_eq!(code, 0, "stderr: {}", stderr.to_string());
+    assert_eq!(code, 0, "stderr: {}", stderr);
     let out = stdout.to_string();
     assert!(out.contains("#"), "should show share link: {}", out);
 }
@@ -726,7 +726,7 @@ fn send_tty_status_shows_with_passphrase() {
         &args(&["secrt", "send", "--passphrase-env", "MY_PASS"]),
         &mut deps,
     );
-    assert_eq!(code, 0, "stderr: {}", stderr.to_string());
+    assert_eq!(code, 0, "stderr: {}", stderr);
     let err = stderr.to_string();
     assert!(
         err.contains("Encrypted and uploaded with passphrase."),
@@ -743,7 +743,7 @@ fn send_tty_status_no_passphrase_message_without_passphrase() {
         .mock_create(Ok(mock_send_response()))
         .build();
     let code = cli::run(&args(&["secrt", "send"]), &mut deps);
-    assert_eq!(code, 0, "stderr: {}", stderr.to_string());
+    assert_eq!(code, 0, "stderr: {}", stderr);
     let err = stderr.to_string();
     assert!(
         err.contains("Encrypted and uploaded."),
@@ -766,7 +766,7 @@ fn send_show_crlf_stripping() {
         .mock_create(Ok(mock_send_response()))
         .build();
     let code = cli::run(&args(&["secrt", "send", "--show"]), &mut deps);
-    assert_eq!(code, 0, "stderr: {}", stderr.to_string());
+    assert_eq!(code, 0, "stderr: {}", stderr);
     assert!(stdout.to_string().contains("#"));
 }
 
@@ -779,7 +779,7 @@ fn send_hidden_empty_input_error() {
     assert!(
         stderr.to_string().contains("empty"),
         "should error on empty hidden input: {}",
-        stderr.to_string()
+        stderr
     );
 }
 
@@ -792,7 +792,7 @@ fn send_silent_show_mode_suppresses_prompts() {
         .mock_create(Ok(mock_send_response()))
         .build();
     let code = cli::run(&args(&["secrt", "send", "--show", "--silent"]), &mut deps);
-    assert_eq!(code, 0, "stderr: {}", stderr.to_string());
+    assert_eq!(code, 0, "stderr: {}", stderr);
     assert!(stdout.to_string().contains("#"));
     let err = stderr.to_string();
     assert!(
@@ -819,7 +819,7 @@ fn send_hidden_read_error() {
     assert!(
         stderr.to_string().contains("read secret"),
         "should contain read error: {}",
-        stderr.to_string()
+        stderr
     );
 }
 
@@ -834,11 +834,11 @@ fn send_note_no_api_key_fails() {
         &args(&["secrt", "send", "--note", "remember this"]),
         &mut deps,
     );
-    assert_eq!(code, 1, "should fail: {}", stderr.to_string());
+    assert_eq!(code, 1, "should fail: {}", stderr);
     assert!(
         stdout.to_string().is_empty(),
         "should not output a share link: {}",
-        stdout.to_string()
+        stdout
     );
     let err = stderr.to_string();
     assert!(
@@ -862,11 +862,11 @@ fn send_note_no_amk_fails() {
         .mock_get_amk_wrapper(Ok(None))
         .build();
     let code = cli::run(&args(&["secrt", "send", "--note", "a note"]), &mut deps);
-    assert_eq!(code, 1, "should fail: {}", stderr.to_string());
+    assert_eq!(code, 1, "should fail: {}", stderr);
     assert!(
         stdout.to_string().is_empty(),
         "should not output a share link: {}",
-        stdout.to_string()
+        stdout
     );
     let err = stderr.to_string();
     assert!(
@@ -915,11 +915,11 @@ fn send_note_success_attaches_note() {
         &args(&["secrt", "send", "--note", "deployment note"]),
         &mut deps,
     );
-    assert_eq!(code, 0, "send should succeed: {}", stderr.to_string());
+    assert_eq!(code, 0, "send should succeed: {}", stderr);
     assert!(
         stdout.to_string().contains("#"),
         "should output share link: {}",
-        stdout.to_string()
+        stdout
     );
     let err = stderr.to_string();
     assert!(
@@ -936,6 +936,7 @@ fn send_note_success_attaches_note() {
 
 // ── Clipboard auto-copy tests ───────────────────────────────────────
 
+#[allow(clippy::type_complexity)]
 fn tracking_clipboard() -> (impl Fn(&str) -> Result<(), String>, Arc<Mutex<Vec<String>>>) {
     let calls = Arc::new(Mutex::new(Vec::<String>::new()));
     let calls_clone = Arc::clone(&calls);
@@ -956,7 +957,7 @@ fn send_tty_copies_to_clipboard() {
         .copy_to_clipboard_fn(clipboard_fn)
         .build();
     let code = cli::run(&args(&["secrt", "send"]), &mut deps);
-    assert_eq!(code, 0, "stderr: {}", stderr.to_string());
+    assert_eq!(code, 0, "stderr: {}", stderr);
     let copied = calls.lock().unwrap();
     assert_eq!(copied.len(), 1, "clipboard should be called once");
     assert!(
@@ -982,7 +983,7 @@ fn send_non_tty_skips_clipboard() {
         .copy_to_clipboard_fn(clipboard_fn)
         .build();
     let code = cli::run(&args(&["secrt", "send"]), &mut deps);
-    assert_eq!(code, 0, "stderr: {}", stderr.to_string());
+    assert_eq!(code, 0, "stderr: {}", stderr);
     let copied = calls.lock().unwrap();
     assert!(
         copied.is_empty(),
@@ -1003,7 +1004,7 @@ fn send_json_skips_clipboard() {
         .copy_to_clipboard_fn(clipboard_fn)
         .build();
     let code = cli::run(&args(&["secrt", "send", "--json"]), &mut deps);
-    assert_eq!(code, 0, "stderr: {}", stderr.to_string());
+    assert_eq!(code, 0, "stderr: {}", stderr);
     let copied = calls.lock().unwrap();
     assert!(
         copied.is_empty(),
@@ -1025,7 +1026,7 @@ fn send_silent_skips_clipboard() {
         .copy_to_clipboard_fn(clipboard_fn)
         .build();
     let code = cli::run(&args(&["secrt", "send", "--silent"]), &mut deps);
-    assert_eq!(code, 0, "stderr: {}", stderr.to_string());
+    assert_eq!(code, 0, "stderr: {}", stderr);
     let copied = calls.lock().unwrap();
     assert!(
         copied.is_empty(),
@@ -1043,7 +1044,7 @@ fn send_no_copy_flag_skips_clipboard() {
         .copy_to_clipboard_fn(clipboard_fn)
         .build();
     let code = cli::run(&args(&["secrt", "send", "--no-copy"]), &mut deps);
-    assert_eq!(code, 0, "stderr: {}", stderr.to_string());
+    assert_eq!(code, 0, "stderr: {}", stderr);
     let copied = calls.lock().unwrap();
     assert!(
         copied.is_empty(),
@@ -1068,7 +1069,7 @@ fn send_clipboard_failure_is_graceful() {
     assert!(
         stdout.to_string().contains("#"),
         "should still output share link: {}",
-        stdout.to_string()
+        stdout
     );
     assert!(
         !stderr.to_string().contains("Copied to clipboard"),
@@ -1102,7 +1103,7 @@ fn send_auto_copy_false_config_skips_clipboard() {
         .copy_to_clipboard_fn(clipboard_fn)
         .build();
     let code = cli::run(&args(&["secrt", "send"]), &mut deps);
-    assert_eq!(code, 0, "stderr: {}", stderr.to_string());
+    assert_eq!(code, 0, "stderr: {}", stderr);
     let copied = calls.lock().unwrap();
     assert!(
         copied.is_empty(),

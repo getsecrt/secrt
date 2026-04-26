@@ -46,11 +46,7 @@ fn list_no_api_key() {
     let (mut deps, _stdout, stderr) = TestDepsBuilder::new().build();
     let code = cli::run(&args(&["secrt", "list"]), &mut deps);
     assert_eq!(code, 2);
-    assert!(
-        stderr.to_string().contains("api-key"),
-        "stderr: {}",
-        stderr.to_string()
-    );
+    assert!(stderr.to_string().contains("api-key"), "stderr: {}", stderr);
 }
 
 #[test]
@@ -80,7 +76,7 @@ fn list_unknown_flag() {
     assert!(
         stderr.to_string().contains("unknown flag"),
         "stderr: {}",
-        stderr.to_string()
+        stderr
     );
 }
 
@@ -171,7 +167,7 @@ fn list_empty() {
     assert!(
         stderr.to_string().contains("No active secrets"),
         "stderr: {}",
-        stderr.to_string()
+        stderr
     );
 }
 
@@ -185,7 +181,7 @@ fn list_api_error() {
     assert!(
         stderr.to_string().contains("list failed"),
         "stderr: {}",
-        stderr.to_string()
+        stderr
     );
 }
 
@@ -278,7 +274,7 @@ fn list_silent_suppresses_empty_message() {
     assert!(
         !stderr.to_string().contains("No active secrets"),
         "silent should suppress message: {}",
-        stderr.to_string()
+        stderr
     );
 }
 

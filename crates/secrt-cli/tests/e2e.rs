@@ -43,7 +43,7 @@ fn e2e_send_get_roundtrip() {
         .env("SECRET_BASE_URL", &url)
         .build();
     let code = cli::run(&args(&["secrt", "send"]), &mut deps);
-    assert_eq!(code, 0, "send failed: {}", stderr.to_string());
+    assert_eq!(code, 0, "send failed: {}", stderr);
 
     let share_link = stdout.to_string().trim().to_string();
     assert!(!share_link.is_empty(), "no share link returned");
@@ -51,7 +51,7 @@ fn e2e_send_get_roundtrip() {
     // Get
     let (mut deps2, stdout2, stderr2) = TestDepsBuilder::new().build();
     let code2 = cli::run(&args(&["secrt", "get", &share_link]), &mut deps2);
-    assert_eq!(code2, 0, "get failed: {}", stderr2.to_string());
+    assert_eq!(code2, 0, "get failed: {}", stderr2);
 
     let recovered = stdout2.to_string();
     assert_eq!(recovered, plaintext);
@@ -76,7 +76,7 @@ fn e2e_send_with_passphrase() {
         &args(&["secrt", "send", "--passphrase-env", "MY_E2E_PASS"]),
         &mut deps,
     );
-    assert_eq!(code, 0, "send failed: {}", stderr.to_string());
+    assert_eq!(code, 0, "send failed: {}", stderr);
 
     let share_link = stdout.to_string().trim().to_string();
 
@@ -94,7 +94,7 @@ fn e2e_send_with_passphrase() {
         ]),
         &mut deps2,
     );
-    assert_eq!(code2, 0, "get failed: {}", stderr2.to_string());
+    assert_eq!(code2, 0, "get failed: {}", stderr2);
     assert_eq!(stdout2.to_string(), plaintext);
 }
 
@@ -115,7 +115,7 @@ fn e2e_send_with_ttl() {
         &args(&["secrt", "send", "--ttl", "5m", "--json"]),
         &mut deps,
     );
-    assert_eq!(code, 0, "send failed: {}", stderr.to_string());
+    assert_eq!(code, 0, "send failed: {}", stderr);
 
     let out = stdout.to_string();
     let json: serde_json::Value = serde_json::from_str(out.trim()).expect("invalid JSON output");
@@ -137,7 +137,7 @@ fn e2e_send_get_json() {
         .env("SECRET_BASE_URL", &url)
         .build();
     let code = cli::run(&args(&["secrt", "send", "--json"]), &mut deps);
-    assert_eq!(code, 0, "send failed: {}", stderr.to_string());
+    assert_eq!(code, 0, "send failed: {}", stderr);
 
     let out = stdout.to_string();
     let json: serde_json::Value = serde_json::from_str(out.trim()).expect("invalid JSON");
@@ -146,7 +146,7 @@ fn e2e_send_get_json() {
     // Get with JSON output
     let (mut deps2, stdout2, stderr2) = TestDepsBuilder::new().build();
     let code2 = cli::run(&args(&["secrt", "get", &share_link, "--json"]), &mut deps2);
-    assert_eq!(code2, 0, "get failed: {}", stderr2.to_string());
+    assert_eq!(code2, 0, "get failed: {}", stderr2);
 
     let out2 = stdout2.to_string();
     let json2: serde_json::Value = serde_json::from_str(out2.trim()).expect("invalid JSON");
@@ -172,7 +172,7 @@ fn e2e_send_with_api_key() {
         &args(&["secrt", "send", "--api-key", &key, "--json"]),
         &mut deps,
     );
-    assert_eq!(code, 0, "send failed: {}", stderr.to_string());
+    assert_eq!(code, 0, "send failed: {}", stderr);
 
     let out = stdout.to_string();
     let json: serde_json::Value = serde_json::from_str(out.trim()).expect("invalid JSON");
@@ -181,7 +181,7 @@ fn e2e_send_with_api_key() {
     // Get it back
     let (mut deps2, stdout2, stderr2) = TestDepsBuilder::new().build();
     let code2 = cli::run(&args(&["secrt", "get", &share_link]), &mut deps2);
-    assert_eq!(code2, 0, "get failed: {}", stderr2.to_string());
+    assert_eq!(code2, 0, "get failed: {}", stderr2);
     assert_eq!(stdout2.to_string(), plaintext);
 }
 
@@ -203,7 +203,7 @@ fn e2e_burn() {
         &args(&["secrt", "send", "--api-key", &key, "--json"]),
         &mut deps,
     );
-    assert_eq!(code, 0, "send failed: {}", stderr.to_string());
+    assert_eq!(code, 0, "send failed: {}", stderr);
 
     let out = stdout.to_string();
     let json: serde_json::Value = serde_json::from_str(out.trim()).expect("invalid JSON");
@@ -216,11 +216,11 @@ fn e2e_burn() {
         &args(&["secrt", "burn", &secret_id, "--api-key", &key]),
         &mut deps2,
     );
-    assert_eq!(code2, 0, "burn failed: {}", stderr2.to_string());
+    assert_eq!(code2, 0, "burn failed: {}", stderr2);
     assert!(
         stderr2.to_string().contains("Secret burned."),
         "stderr: {}",
-        stderr2.to_string()
+        stderr2
     );
 }
 
@@ -281,7 +281,7 @@ fn e2e_config_show_with_server_info() {
 
     let (mut deps, _stdout, stderr) = TestDepsBuilder::new().env("SECRET_BASE_URL", &url).build();
     let code = cli::run(&args(&["secrt", "config"]), &mut deps);
-    assert_eq!(code, 0, "config failed: {}", stderr.to_string());
+    assert_eq!(code, 0, "config failed: {}", stderr);
 
     let err = stderr.to_string();
     assert!(
@@ -448,8 +448,8 @@ fn e2e_update_local_mock_full_install() {
         code,
         update_exit::OK,
         "stdout: {}\nstderr: {}",
-        stdout.to_string(),
-        stderr.to_string()
+        stdout,
+        stderr
     );
     let installed: PathBuf = dir.join(if cfg!(windows) { "secrt.exe" } else { "secrt" });
     assert_eq!(fs::read(&installed).unwrap(), bin);

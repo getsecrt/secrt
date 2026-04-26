@@ -221,7 +221,7 @@ fn version_with_prerelease_suffix_requires_channel_prerelease() {
     assert!(
         stderr.to_string().contains("--channel prerelease"),
         "stderr: {}",
-        stderr.to_string()
+        stderr
     );
 }
 
@@ -275,11 +275,11 @@ fn channel_prerelease_without_version_resolves_via_picker() {
         &mut deps,
         &http,
     );
-    assert_eq!(code, exit::OK, "stderr: {}", stderr.to_string());
+    assert_eq!(code, exit::OK, "stderr: {}", stderr);
     assert!(
         stdout.to_string().contains("9.9.0-rc.10 installed"),
         "stdout: {}",
-        stdout.to_string()
+        stdout
     );
     assert_eq!(fs::read(&target).unwrap(), bin);
 }
@@ -298,7 +298,7 @@ fn channel_prerelease_without_version_no_releases_errors() {
     assert!(
         stderr.to_string().contains("no stable or prerelease"),
         "stderr: {}",
-        stderr.to_string()
+        stderr
     );
 }
 
@@ -413,7 +413,7 @@ fn happy_path_installs_atomically() {
         &mut deps,
         &http,
     );
-    assert_eq!(code, exit::OK, "stderr: {}", stderr.to_string());
+    assert_eq!(code, exit::OK, "stderr: {}", stderr);
     assert!(stdout.to_string().contains("9.9.9 installed"));
     assert_eq!(fs::read(&target).unwrap(), bin);
     let mode = fs::metadata(&target).unwrap().permissions();
@@ -462,7 +462,7 @@ fn channel_prerelease_with_version_pin_proceeds() {
         &mut deps,
         &http,
     );
-    assert_eq!(code, exit::OK, "stderr: {}", stderr.to_string());
+    assert_eq!(code, exit::OK, "stderr: {}", stderr);
     assert!(stdout.to_string().contains("9.9.0-rc.1 installed"));
     assert_eq!(fs::read(&target).unwrap(), bin);
 }
@@ -604,12 +604,7 @@ fn permission_denied_install_dir_exits_4_with_install_dir_hint() {
         return;
     }
 
-    assert_eq!(
-        code,
-        exit::PERMISSION_DENIED,
-        "stderr: {}",
-        stderr.to_string()
-    );
+    assert_eq!(code, exit::PERMISSION_DENIED, "stderr: {}", stderr);
     let err = stderr.to_string();
     assert!(
         err.contains("--install-dir"),

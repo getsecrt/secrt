@@ -22,7 +22,7 @@ fn burn_unknown_flag() {
     assert!(
         stderr.to_string().contains("unknown flag"),
         "stderr: {}",
-        stderr.to_string()
+        stderr
     );
 }
 
@@ -59,7 +59,7 @@ fn burn_bare_id() {
         &args(&["secrt", "burn", "testid", "--api-key", "sk_test"]),
         &mut deps,
     );
-    assert_eq!(code, 1, "stderr: {}", stderr.to_string());
+    assert_eq!(code, 1, "stderr: {}", stderr);
 }
 
 #[test]
@@ -70,7 +70,7 @@ fn burn_share_url() {
         &args(&["secrt", "burn", &url, "--api-key", "sk_test"]),
         &mut deps,
     );
-    assert_eq!(code, 1, "stderr: {}", stderr.to_string());
+    assert_eq!(code, 1, "stderr: {}", stderr);
 }
 
 #[test]
@@ -94,12 +94,8 @@ fn burn_malformed_url() {
         &args(&["secrt", "burn", "bad/url#short", "--api-key", "sk_test"]),
         &mut deps,
     );
-    assert_eq!(code, 2, "stderr: {}", stderr.to_string());
-    assert!(
-        stderr.to_string().contains("invalid"),
-        "stderr: {}",
-        stderr.to_string()
-    );
+    assert_eq!(code, 2, "stderr: {}", stderr);
+    assert!(stderr.to_string().contains("invalid"), "stderr: {}", stderr);
 }
 
 #[test]
@@ -109,7 +105,7 @@ fn burn_env_api_key() {
         .env("SECRET_BASE_URL", DEAD_URL)
         .build();
     let code = cli::run(&args(&["secrt", "burn", "testid"]), &mut deps);
-    assert_eq!(code, 1, "stderr: {}", stderr.to_string());
+    assert_eq!(code, 1, "stderr: {}", stderr);
 }
 
 // --- Mock API success tests ---
@@ -121,11 +117,11 @@ fn burn_success_plain() {
         &args(&["secrt", "burn", "test-id-123", "--api-key", "sk_test"]),
         &mut deps,
     );
-    assert_eq!(code, 0, "stderr: {}", stderr.to_string());
+    assert_eq!(code, 0, "stderr: {}", stderr);
     assert!(
         stderr.to_string().contains("Secret burned."),
         "stderr: {}",
-        stderr.to_string()
+        stderr
     );
 }
 
@@ -143,7 +139,7 @@ fn burn_success_json() {
         ]),
         &mut deps,
     );
-    assert_eq!(code, 0, "stderr: {}", stderr.to_string());
+    assert_eq!(code, 0, "stderr: {}", stderr);
     let out = stdout.to_string();
     let json: serde_json::Value = serde_json::from_str(out.trim()).expect("invalid JSON output");
     assert!(json["ok"].as_bool().unwrap());
@@ -157,11 +153,11 @@ fn burn_success_share_url() {
         &args(&["secrt", "burn", &url, "--api-key", "sk_test"]),
         &mut deps,
     );
-    assert_eq!(code, 0, "stderr: {}", stderr.to_string());
+    assert_eq!(code, 0, "stderr: {}", stderr);
     assert!(
         stderr.to_string().contains("Secret burned."),
         "stderr: {}",
-        stderr.to_string()
+        stderr
     );
 }
 
@@ -178,7 +174,7 @@ fn burn_api_error() {
     assert!(
         stderr.to_string().contains("burn failed"),
         "stderr: {}",
-        stderr.to_string()
+        stderr
     );
 }
 
@@ -196,11 +192,11 @@ fn burn_silent_suppresses_message() {
         ]),
         &mut deps,
     );
-    assert_eq!(code, 0, "stderr: {}", stderr.to_string());
+    assert_eq!(code, 0, "stderr: {}", stderr);
     assert!(
         !stderr.to_string().contains("Secret burned"),
         "silent burn should suppress message: {}",
-        stderr.to_string()
+        stderr
     );
 }
 
@@ -214,7 +210,7 @@ fn burn_success_tty_shows_checkmark() {
         &args(&["secrt", "burn", "test-id", "--api-key", "sk_test"]),
         &mut deps,
     );
-    assert_eq!(code, 0, "stderr: {}", stderr.to_string());
+    assert_eq!(code, 0, "stderr: {}", stderr);
     let err = stderr.to_string();
     assert!(
         err.contains("\u{2713}") || err.contains("Secret burned"),
@@ -239,11 +235,11 @@ fn burn_strips_ellipsis_from_id() {
         ]),
         &mut deps,
     );
-    assert_eq!(code, 0, "stderr: {}", stderr.to_string());
+    assert_eq!(code, 0, "stderr: {}", stderr);
     assert!(
         stderr.to_string().contains("Secret burned"),
         "stderr: {}",
-        stderr.to_string()
+        stderr
     );
 }
 

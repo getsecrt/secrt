@@ -226,11 +226,11 @@ fn config_init_creates_file() {
         .env("XDG_CONFIG_HOME", dir.path().to_str().unwrap())
         .build();
     let code = cli::run(&args(&["secrt", "config", "init"]), &mut deps);
-    assert_eq!(code, 0, "stderr: {}", stderr.to_string());
+    assert_eq!(code, 0, "stderr: {}", stderr);
     assert!(
         stderr.to_string().contains("Created config file"),
         "should show created message: {}",
-        stderr.to_string()
+        stderr
     );
     assert!(config_path.exists(), "config file should exist");
 
@@ -264,16 +264,16 @@ fn config_init_refuses_overwrite() {
         .env("XDG_CONFIG_HOME", dir.path().to_str().unwrap())
         .build();
     let code = cli::run(&args(&["secrt", "config", "init"]), &mut deps);
-    assert_eq!(code, 1, "should fail: {}", stderr.to_string());
+    assert_eq!(code, 1, "should fail: {}", stderr);
     assert!(
         stderr.to_string().contains("already exists"),
         "should show already exists: {}",
-        stderr.to_string()
+        stderr
     );
     assert!(
         stderr.to_string().contains("--force"),
         "should mention --force: {}",
-        stderr.to_string()
+        stderr
     );
 
     // Verify original content unchanged
@@ -296,11 +296,11 @@ fn config_init_force_overwrites() {
         .env("XDG_CONFIG_HOME", dir.path().to_str().unwrap())
         .build();
     let code = cli::run(&args(&["secrt", "config", "init", "--force"]), &mut deps);
-    assert_eq!(code, 0, "stderr: {}", stderr.to_string());
+    assert_eq!(code, 0, "stderr: {}", stderr);
     assert!(
         stderr.to_string().contains("Created config file"),
         "should show created message: {}",
-        stderr.to_string()
+        stderr
     );
 
     let contents = std::fs::read_to_string(&config_path).unwrap();
@@ -319,7 +319,7 @@ fn config_unknown_subcommand() {
     assert!(
         stderr.to_string().contains("unknown config subcommand"),
         "should show error: {}",
-        stderr.to_string()
+        stderr
     );
 }
 
@@ -498,7 +498,7 @@ fn config_init_template_has_all_fields() {
         .env("XDG_CONFIG_HOME", dir.path().to_str().unwrap())
         .build();
     let code = cli::run(&args(&["secrt", "config", "init"]), &mut deps);
-    assert_eq!(code, 0, "stderr: {}", stderr.to_string());
+    assert_eq!(code, 0, "stderr: {}", stderr);
 
     let config_path = dir.path().join("secrt").join("config.toml");
     let contents = fs::read_to_string(&config_path).unwrap();

@@ -208,7 +208,7 @@ fn gen_send_combined() {
         .mock_create(Ok(mock_send_response()))
         .build();
     let code = cli::run(&args(&["secrt", "gen", "send"]), &mut deps);
-    assert_eq!(code, 0, "stderr: {}", stderr.to_string());
+    assert_eq!(code, 0, "stderr: {}", stderr);
     let out = stdout.to_string();
     assert!(out.contains("#"), "should output share link: {}", out);
 }
@@ -219,7 +219,7 @@ fn send_gen_combined() {
         .mock_create(Ok(mock_send_response()))
         .build();
     let code = cli::run(&args(&["secrt", "send", "gen"]), &mut deps);
-    assert_eq!(code, 0, "stderr: {}", stderr.to_string());
+    assert_eq!(code, 0, "stderr: {}", stderr);
     let out = stdout.to_string();
     assert!(out.contains("#"), "should output share link: {}", out);
 }
@@ -230,7 +230,7 @@ fn gen_send_with_ttl() {
         .mock_create(Ok(mock_send_response()))
         .build();
     let code = cli::run(&args(&["secrt", "gen", "send", "--ttl", "1h"]), &mut deps);
-    assert_eq!(code, 0, "stderr: {}", stderr.to_string());
+    assert_eq!(code, 0, "stderr: {}", stderr);
     let out = stdout.to_string();
     assert!(out.contains("#"), "should output share link: {}", out);
 }
@@ -241,7 +241,7 @@ fn gen_send_with_length() {
         .mock_create(Ok(mock_send_response()))
         .build();
     let code = cli::run(&args(&["secrt", "gen", "send", "-L", "32"]), &mut deps);
-    assert_eq!(code, 0, "stderr: {}", stderr.to_string());
+    assert_eq!(code, 0, "stderr: {}", stderr);
     assert!(stdout.to_string().contains("#"));
 }
 
@@ -251,7 +251,7 @@ fn gen_send_json() {
         .mock_create(Ok(mock_send_response()))
         .build();
     let code = cli::run(&args(&["secrt", "gen", "send", "--json"]), &mut deps);
-    assert_eq!(code, 0, "stderr: {}", stderr.to_string());
+    assert_eq!(code, 0, "stderr: {}", stderr);
     let out = stdout.to_string();
     let json: serde_json::Value = serde_json::from_str(out.trim()).expect("valid JSON");
     assert!(json["share_link"].as_str().unwrap().contains("#"));
@@ -284,7 +284,7 @@ fn gen_send_tty_shows_generated_password() {
         .mock_create(Ok(mock_send_response()))
         .build();
     let code = cli::run(&args(&["secrt", "gen", "send"]), &mut deps);
-    assert_eq!(code, 0, "stderr: {}", stderr.to_string());
+    assert_eq!(code, 0, "stderr: {}", stderr);
     let err = stderr.to_string();
     assert!(
         err.contains("Generated:"),
@@ -301,7 +301,7 @@ fn gen_send_non_tty_shows_password_on_stderr() {
         .mock_create(Ok(mock_send_response()))
         .build();
     let code = cli::run(&args(&["secrt", "gen", "send"]), &mut deps);
-    assert_eq!(code, 0, "stderr: {}", stderr.to_string());
+    assert_eq!(code, 0, "stderr: {}", stderr);
     let err = stderr.to_string();
     // Non-TTY should output generated password on stderr (plain, no label)
     assert!(
@@ -321,7 +321,7 @@ fn gen_send_silent_suppresses_generated_password() {
         .mock_create(Ok(mock_send_response()))
         .build();
     let code = cli::run(&args(&["secrt", "gen", "send", "--silent"]), &mut deps);
-    assert_eq!(code, 0, "stderr: {}", stderr.to_string());
+    assert_eq!(code, 0, "stderr: {}", stderr);
     let err = stderr.to_string();
     assert!(
         !err.contains("Generated"),

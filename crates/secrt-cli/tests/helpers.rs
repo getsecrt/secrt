@@ -1,8 +1,11 @@
 #![allow(dead_code)]
 
 use std::collections::HashMap;
+use std::fmt;
 use std::io::{self, Cursor, Write};
 use std::sync::{Arc, Mutex};
+
+type CopyToClipboardFn = Box<dyn Fn(&str) -> Result<(), String>>;
 
 use secrt_cli::cli::Deps;
 use secrt_cli::client::{
@@ -25,10 +28,12 @@ impl SharedBuf {
     pub fn new() -> Self {
         SharedBuf(Arc::new(Mutex::new(Vec::new())))
     }
+}
 
-    pub fn to_string(&self) -> String {
+impl fmt::Display for SharedBuf {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let buf = self.0.lock().unwrap();
-        String::from_utf8_lossy(&buf).to_string()
+        write!(f, "{}", String::from_utf8_lossy(&buf))
     }
 }
 
@@ -177,7 +182,7 @@ pub struct TestDepsBuilder {
     mock_responses: Option<MockApiResponses>,
     keychain_secrets: HashMap<String, String>,
     keychain_secret_lists: HashMap<String, Vec<String>>,
-    copy_to_clipboard_fn: Option<Box<dyn Fn(&str) -> Result<(), String>>>,
+    copy_to_clipboard_fn: Option<CopyToClipboardFn>,
     now: Option<std::time::SystemTime>,
     /// Per-builder isolation directory. `tempfile::TempDir` guarantees a
     /// unique random name and atomic creation, so two parallel test
@@ -230,18 +235,24 @@ impl TestDepsBuilder {
         self
     }
 
+    // TODO: rename to drop the `is_` prefix — these are builder setters,
+    // not predicates. Rename touches ~88 call sites across test files;
+    // deferred to a focused refactor PR.
+    #[allow(clippy::wrong_self_convention)]
     pub fn is_tty(mut self, v: bool) -> Self {
         self.is_tty = v;
         self
     }
 
     #[allow(dead_code)]
+    #[allow(clippy::wrong_self_convention)]
     pub fn is_stdout_tty(mut self, v: bool) -> Self {
         self.is_stdout_tty = v;
         self
     }
 
     #[allow(dead_code)]
+    #[allow(clippy::wrong_self_convention)]
     pub fn is_stderr_tty(mut self, v: bool) -> Self {
         self.is_stderr_tty = v;
         self
