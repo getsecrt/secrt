@@ -1122,7 +1122,8 @@ pub fn cleanup_at_startup() {
 
 /// Help text for `secrt update`.
 pub fn print_update_help(deps: &mut Deps) {
-    use crate::color::{color_func, ARG, CMD, HEADING, OPT};
+    use crate::cli::write_option_rows;
+    use crate::color::{color_func, ARG, CMD, HEADING};
     let c = color_func((deps.is_stdout_tty)());
     let w = &mut deps.stderr;
     let _ = writeln!(
@@ -1140,37 +1141,37 @@ pub fn print_update_help(deps: &mut Deps) {
         c(ARG, "[options]")
     );
     let _ = writeln!(w, "{}", c(HEADING, "OPTIONS"));
-    let _ = writeln!(
+    write_option_rows(
         w,
-        "  {}                 Print whether an update is available; do not download.",
-        c(OPT, "--check")
-    );
-    let _ = writeln!(
-        w,
-        "  {}                 Re-download and reinstall even if already up to date.",
-        c(OPT, "--force")
-    );
-    let _ = writeln!(
-        w,
-        "  {}        Install a specific version. Stable: X.Y.Z. Prerelease: X.Y.Z[-(rc|beta|alpha).N].",
-        c(OPT, "--version <X.Y.Z>")
-    );
-    let _ = writeln!(
-        w,
-        "  {}     Install to a directory other than the running binary's.",
-        c(OPT, "--install-dir <path>")
-    );
-    let _ = writeln!(
-        w,
-        "  {} {}     Channel to install from (default: stable). With 'prerelease', --version is required in this revision.",
-        c(OPT, "--channel"),
-        c(ARG, "<stable|prerelease>")
-    );
-    let _ = writeln!(
-        w,
-        "  {}, {}            Show this help.",
-        c(OPT, "-h"),
-        c(OPT, "--help")
+        &c,
+        &[
+            (
+                "--check",
+                "",
+                "Print whether an update is available; do not download.",
+            ),
+            (
+                "--force",
+                "",
+                "Re-download and reinstall even if already up to date.",
+            ),
+            (
+                "--version",
+                "<X.Y.Z>",
+                "Install a specific version. Stable: X.Y.Z. Prerelease: X.Y.Z[-(rc|beta|alpha).N].",
+            ),
+            (
+                "--install-dir",
+                "<path>",
+                "Install to a directory other than the running binary's.",
+            ),
+            (
+                "--channel",
+                "<stable|prerelease>",
+                "Channel to install from (default: stable). With 'prerelease', --version is required in this revision.",
+            ),
+            ("-h, --help", "", "Show this help."),
+        ],
     );
     let _ = writeln!(w, "\n{}", c(HEADING, "EXIT CODES"));
     let _ = writeln!(w, "  0  success or --check ran cleanly");
