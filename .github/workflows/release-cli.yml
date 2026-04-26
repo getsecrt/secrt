@@ -16,7 +16,7 @@ jobs:
     name: Pre-release checks
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy
@@ -67,7 +67,7 @@ jobs:
             artifact: secrt-windows-arm64.exe
 
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ matrix.target }}
@@ -130,7 +130,7 @@ jobs:
         run: cp target/${{ matrix.target }}/release/secrt.exe ${{ matrix.artifact }}
 
       - name: Upload artifact
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v7
         with:
           name: ${{ matrix.artifact }}
           path: ${{ matrix.artifact }}
@@ -145,12 +145,12 @@ jobs:
       HAS_INSTALLER_CERT: ${{ secrets.APPLE_INSTALLER_P12 != '' }}
     steps:
       - name: Download macOS ARM binary
-        uses: actions/download-artifact@v5
+        uses: actions/download-artifact@v8
         with:
           name: secrt-darwin-arm64
 
       - name: Download macOS Intel binary
-        uses: actions/download-artifact@v5
+        uses: actions/download-artifact@v8
         with:
           name: secrt-darwin-amd64
 
@@ -260,7 +260,7 @@ jobs:
           done
 
       - name: Upload macOS release archives
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v7
         with:
           name: macos-release-pkgs
           path: |
@@ -275,7 +275,7 @@ jobs:
       # (`secrt-darwin-arm64` / `secrt-darwin-amd64`) which were already
       # uploaded by the per-platform `build` job.
       - name: Upload universal raw binary
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v7
         with:
           name: secrt-darwin-universal
           path: secrt-darwin-universal
@@ -287,7 +287,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Download all artifacts
-        uses: actions/download-artifact@v5
+        uses: actions/download-artifact@v8
         with:
           path: artifacts
           merge-multiple: true
