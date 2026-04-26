@@ -687,6 +687,7 @@ fn mock_info_response(authenticated: bool) -> InfoResponse {
         latest_cli_version: None,
         latest_cli_version_checked_at: None,
         min_supported_cli_version: None,
+        server_version: None,
     }
 }
 

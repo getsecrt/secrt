@@ -774,6 +774,7 @@ mod tests {
             latest_cli_version: Some("0.16.0".into()),
             latest_cli_version_checked_at: Some("2026-04-25T09:00:00Z".into()),
             min_supported_cli_version: Some("0.15.0".into()),
+            server_version: Some("0.16.2".into()),
         };
         ingest_info_response(&info, &getenv, SystemTime::now());
         let cache = read_cache(&getenv);

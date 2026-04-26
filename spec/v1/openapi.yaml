@@ -1263,6 +1263,17 @@ components:
       schema:
         type: string
         example: "0.15.0"
+    X-Secrt-Server-Version:
+      description: |
+        Server build's own semver, sourced from `CARGO_PKG_VERSION` at compile
+        time. Lets operators verify deploys without SSH and lets clients record
+        which server version a given response came from. Mirrors
+        `InfoResponse.server_version`. Sent on every response by conforming
+        servers; older servers that pre-date this header omit it.
+      required: false
+      schema:
+        type: string
+        example: "0.16.3"
 
   schemas:
     CreateSecretRequest:
@@ -1956,6 +1967,16 @@ components:
             warn users below this version but MUST NOT block: zero-knowledge claim
             flows must continue to work for already-issued share URLs.
           example: "0.15.0"
+        server_version:
+          type: string
+          nullable: true
+          description: |
+            Server build's own semver, sourced from `CARGO_PKG_VERSION` at
+            compile time. Always present on conforming servers; older servers
+            that pre-date this field omit it. Lets operators verify deploys
+            without SSH and lets clients record which server version a given
+            response came from.
+          example: "0.16.3"
 
     InfoTier:
       type: object

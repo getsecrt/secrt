@@ -123,6 +123,7 @@ fn mock_info_response() -> InfoResponse {
         latest_cli_version: None,
         latest_cli_version_checked_at: None,
         min_supported_cli_version: None,
+        server_version: None,
     }
 }
 

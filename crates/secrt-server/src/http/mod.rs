@@ -168,6 +168,10 @@ struct InfoResponse {
     /// Advisory: the server does not refuse old clients, but clients display
     /// an upgrade-required notice when their version is below this.
     min_supported_cli_version: String,
+    /// Server's own version (`CARGO_PKG_VERSION` at build time). Always
+    /// present. Lets operators verify deploys without SSH and lets the CLI
+    /// record which server version a response came from.
+    server_version: String,
 }
 
 #[derive(Serialize)]
@@ -785,6 +789,11 @@ async fn request_middleware(
         resp.headers_mut(),
         "x-secrt-min-cli-version",
         MIN_SUPPORTED_CLI_VERSION,
+    );
+    insert_header(
+        resp.headers_mut(),
+        "x-secrt-server-version",
+        env!("CARGO_PKG_VERSION"),
     );
 
     let bytes = response_bytes(&resp);
@@ -3422,6 +3431,7 @@ pub async fn handle_info_entry(State(state): State<Arc<AppState>>, req: Request)
             latest_cli_version,
             latest_cli_version_checked_at,
             min_supported_cli_version: MIN_SUPPORTED_CLI_VERSION.to_string(),
+            server_version: env!("CARGO_PKG_VERSION").to_string(),
         },
     );
 
@@ -7001,6 +7011,11 @@ mod tests {
             crate::MIN_SUPPORTED_CLI_VERSION,
             "min_supported_cli_version is always present"
         );
+        assert_eq!(
+            body["server_version"],
+            env!("CARGO_PKG_VERSION"),
+            "server_version is always present"
+        );
     }
 
     #[tokio::test]
@@ -7031,6 +7046,7 @@ mod tests {
             body["min_supported_cli_version"],
             crate::MIN_SUPPORTED_CLI_VERSION
         );
+        assert_eq!(body["server_version"], env!("CARGO_PKG_VERSION"));
     }
 
     #[tokio::test]
@@ -7056,6 +7072,12 @@ mod tests {
             .headers()
             .get("x-secrt-latest-cli-version-checked-at")
             .is_none());
+        assert_eq!(
+            resp.headers()
+                .get("x-secrt-server-version")
+                .and_then(|v| v.to_str().ok()),
+            Some(env!("CARGO_PKG_VERSION"))
+        );
 
         // Populated cache: all three headers are set.
         {
@@ -7085,6 +7107,12 @@ mod tests {
                 .get("x-secrt-min-cli-version")
                 .and_then(|v| v.to_str().ok()),
             Some(crate::MIN_SUPPORTED_CLI_VERSION)
+        );
+        assert_eq!(
+            resp.headers()
+                .get("x-secrt-server-version")
+                .and_then(|v| v.to_str().ok()),
+            Some(env!("CARGO_PKG_VERSION"))
         );
     }
 }

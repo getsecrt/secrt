@@ -61,6 +61,12 @@ pub struct InfoResponse {
     /// older servers that pre-date the field will deserialize as `None`.
     #[serde(default)]
     pub min_supported_cli_version: Option<String>,
+    /// Server's own version (`CARGO_PKG_VERSION` at build time). Lets
+    /// operators verify deploys without SSH and lets the CLI record which
+    /// server version a response came from. Older servers that pre-date the
+    /// field will deserialize as `None`.
+    #[serde(default)]
+    pub server_version: Option<String>,
 }
 
 #[derive(Clone, Deserialize)]
@@ -198,6 +204,7 @@ mod tests {
         assert!(info.latest_cli_version.is_none());
         assert!(info.latest_cli_version_checked_at.is_none());
         assert!(info.min_supported_cli_version.is_none());
+        assert!(info.server_version.is_none());
     }
 
     #[test]
@@ -212,7 +219,8 @@ mod tests {
             "claim_rate": {"requests_per_second": 1.0, "burst": 1},
             "latest_cli_version": "0.16.0",
             "latest_cli_version_checked_at": "2026-04-25T09:08:07Z",
-            "min_supported_cli_version": "0.15.0"
+            "min_supported_cli_version": "0.15.0",
+            "server_version": "0.16.3"
         }"#;
         let info: InfoResponse = serde_json::from_str(body).expect("parse");
         assert_eq!(info.latest_cli_version.as_deref(), Some("0.16.0"));
@@ -221,6 +229,7 @@ mod tests {
             Some("2026-04-25T09:08:07Z")
         );
         assert_eq!(info.min_supported_cli_version.as_deref(), Some("0.15.0"));
+        assert_eq!(info.server_version.as_deref(), Some("0.16.3"));
     }
 
     #[test]
