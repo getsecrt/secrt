@@ -12,24 +12,20 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  test:
-    name: Pre-release checks
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v6
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          components: clippy
-      - uses: Swatinem/rust-cache@v2
-      - run: cargo test --workspace --exclude secrt-app
-      - run: cargo clippy --workspace --exclude secrt-app -- -D warnings
-
+  # Note: no pre-release test/clippy job here. The merge to main already
+  # passed both via ci.yml on the exact SHA being tagged, and the toolchain
+  # is pinned via rust-toolchain.toml so there's no drift between the
+  # ci.yml run and this build. See .taskmaster/docs/test-cycle-perf.md.
+  #
+  # Server is Linux-only by design (deployed as a containerised service);
+  # no macOS/Windows build matrix is intended.
   build:
     name: Build (${{ matrix.name }})
-    needs: test
     runs-on: ubuntu-latest
     strategy:
-      fail-fast: true
+      # fail-fast: false so amd64 / arm64 don't take each other out on a
+      # transient flake.
+      fail-fast: false
       matrix:
         include:
           - name: linux-amd64

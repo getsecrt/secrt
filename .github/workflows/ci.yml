@@ -6,22 +6,18 @@ on:
   pull_request:
     branches: [main]
 
+# Cancel in-progress runs when a new commit lands on the same branch/PR.
+# Without this, every push burns the full 3×OS matrix even if the previous
+# run is obsolete seconds later. Main branch runs are not cancelled (each
+# main commit deserves its own green checkmark).
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
 env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  check:
-    name: Lint
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v5
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          components: clippy, rustfmt
-      - uses: Swatinem/rust-cache@v2
-      - run: cargo fmt --all -- --check
-      - run: cargo clippy --workspace --exclude secrt-app -- -D warnings
-
   test:
     name: Test (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
@@ -31,6 +27,35 @@ jobs:
         os: [ubuntu-latest, macos-latest, windows-latest]
     steps:
       - uses: actions/checkout@v5
-      - uses: dtolnay/rust-toolchain@stable
+
+      # rust-toolchain.toml pins the channel; this action picks it up
+      # automatically. Components beyond `minimal` are added per-job.
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: 1.95.0
+          components: clippy, rustfmt
+
       - uses: Swatinem/rust-cache@v2
-      - run: cargo test --workspace --exclude secrt-app
+
+      - name: Install cargo-nextest
+        uses: taiki-e/install-action@nextest
+
+      # Format + clippy run on ubuntu only — they're platform-agnostic and
+      # running them on three OSes wastes minutes. Doing them inline (vs a
+      # separate job) avoids paying a second runner's setup overhead.
+      - name: Format check (ubuntu only)
+        if: matrix.os == 'ubuntu-latest'
+        run: cargo fmt --all -- --check
+
+      - name: Clippy (ubuntu only)
+        if: matrix.os == 'ubuntu-latest'
+        run: cargo clippy --workspace --exclude secrt-app -- -D warnings
+
+      - name: Test
+        run: cargo nextest run --workspace --exclude secrt-app
+
+      # Doctests run on ubuntu only — they exercise pure Rust API surface
+      # that's identical across platforms; nextest does not run them.
+      - name: Doctests (ubuntu only)
+        if: matrix.os == 'ubuntu-latest'
+        run: cargo test --doc --workspace --exclude secrt-app

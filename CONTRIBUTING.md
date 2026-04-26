@@ -5,9 +5,14 @@
 ```sh
 git clone https://github.com/getsecrt/secrt.git
 cd secrt
-cargo build --workspace
-cargo test --workspace
+cargo install --locked cargo-nextest    # ~3.5× faster test runs
+make build-rust
+make test-rust
 ```
+
+The `Makefile` is the entry point — run `make help` to see all targets. The
+Rust toolchain is pinned via `rust-toolchain.toml` so your local `rustc`
+matches CI exactly.
 
 ## Repository Structure
 
@@ -23,11 +28,18 @@ The web frontend lives in `web/` (Vite + Preact + TypeScript).
 
 ```sh
 cargo fmt --all
-cargo clippy --workspace -- -D warnings
-cargo test --workspace
+make lint-rust
+make test-rust
 ```
 
-CI enforces all three — PRs that fail formatting, linting, or tests will not be merged.
+CI enforces formatting, linting, and tests — PRs that fail any of them will
+not be merged. `make test-rust` and `make lint-rust` exclude `secrt-app`
+(Tauri) by default to keep iteration fast; if you're touching the desktop
+app, run `make test-app` and `cargo clippy -p secrt-app -- -D warnings`
+explicitly.
+
+For scoped iteration, `make test-cli`, `make test-server`, and
+`make test-core` only build and test one crate at a time.
 
 ## Commit Style
 

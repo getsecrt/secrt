@@ -73,26 +73,42 @@ The spec at `spec/v1/` is the normative contract for all implementations. **Read
 
 ## Build & test
 
-This is a Cargo workspace. Always work from the repo root.
+This is a Cargo workspace. Always work from the repo root. The toolchain
+is pinned to `1.95.0` via `rust-toolchain.toml` — local rustc and CI rustc
+are guaranteed to match.
+
+The `Makefile` is the day-to-day entry point. Default Rust test/lint
+targets use `cargo nextest` (~3.5× faster than `cargo test` here) and
+exclude `secrt-app` (Tauri inflates the target dir 12× and isn't relevant
+to CLI/server work). See `.taskmaster/docs/test-cycle-perf.md` for the
+measurements behind these defaults.
 
 ```sh
 # Build everything
-cargo build --workspace
+cargo build --workspace             # or: make build-rust
 
-# Run all tests (unit + integration, excluding e2e)
-cargo test --workspace
+# Run all Rust tests (excludes secrt-app; uses nextest)
+make test-rust
 
-# Lint (CI enforces these)
-cargo clippy --workspace -- -D warnings
-cargo fmt --all -- --check
+# Scoped runs — only rebuild one crate's deps
+make test-cli                       # or: cargo nextest run -p secrt-cli
+make test-server
+make test-core
 
-# Build a specific crate
-cargo build -p secrt-core
-cargo build -p secrt-cli
+# Lint (matches CI exactly)
+make lint-rust
+
+# secrt-app (Tauri) — heavy, opt-in
+make test-app
+cargo clippy -p secrt-app -- -D warnings
 
 # Release build (size-optimized, LTO, stripped)
-cargo build --release -p secrt-cli
+cargo build --release -p secrt-cli   # or: make release
 ```
+
+If `cargo-nextest` is not installed, `make test-rust-fallback` runs the
+same suite with `cargo test`. Install nextest with
+`cargo install --locked cargo-nextest`.
 
 ### E2E tests
 
@@ -141,11 +157,13 @@ Always run before committing code changes:
 
 ```sh
 cargo fmt --all             # auto-fix formatting
-cargo clippy --workspace -- -D warnings   # lint
-cargo test --workspace      # all tests pass
+make lint-rust              # clippy + fmt-check (excludes secrt-app)
+make test-rust              # nextest run (excludes secrt-app)
 ```
 
-CI runs `cargo fmt --check` and `cargo clippy -- -D warnings` — commits that fail formatting or linting will break the build.
+CI runs the same `lint-rust` + `test-rust` commands plus `cargo test --doc`
+on ubuntu, with cross-platform test runs on macOS and Windows. Commits that
+fail formatting, linting, or tests will break the build.
 
 ## Git commits
 
@@ -220,7 +238,6 @@ There are **two separate release pipelines** — one for the CLI and one for the
      ```
 
 **`cli/v*` tag** triggers the CLI release workflow (`.github/workflows/release-cli.yml`):
-- Runs `cargo test --workspace` and `cargo clippy --workspace`
 - Cross-compiles for 6 targets (macOS arm64/amd64, Linux amd64/arm64, Windows amd64/arm64)
 - Creates a universal macOS binary via `lipo`
 - Code-signs macOS binaries (Developer ID + notarization)
@@ -229,11 +246,14 @@ There are **two separate release pipelines** — one for the CLI and one for the
 - Publishes a GitHub Release with all CLI artifacts
 
 **`server/v*` tag** triggers the server release workflow (`.github/workflows/release-server.yml`):
-- Runs `cargo test --workspace` and `cargo clippy --workspace`
 - Builds the web frontend (`pnpm install --frozen-lockfile && pnpm run build`)
 - Cross-compiles server + admin binaries for Linux amd64/arm64 (musl)
 - Generates SHA256 checksums
 - Publishes a GitHub Release with server and admin artifacts
+
+Both release workflows trust the `ci.yml` run on the merge commit — they
+do not re-run tests or clippy. The toolchain pin in `rust-toolchain.toml`
+guarantees the release build sees the same Rust version that ci.yml passed.
 
 ## Dependency policy
 
