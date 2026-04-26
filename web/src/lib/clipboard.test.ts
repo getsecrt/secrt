@@ -106,7 +106,7 @@ describe('copyToClipboard', () => {
 
 describe('copySensitive', () => {
   let originalClipboard: Clipboard;
-  const originalWindow = window as Record<string, unknown>;
+  const originalWindow = window as unknown as Record<string, unknown>;
 
   beforeEach(() => {
     originalClipboard = navigator.clipboard;

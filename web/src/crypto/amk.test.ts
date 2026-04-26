@@ -1,6 +1,4 @@
 import { describe, it, expect } from 'vitest';
-import { readFileSync } from 'fs';
-import { resolve } from 'path';
 import {
   computeAmkCommit,
   deriveAmkWrapKey,
@@ -18,10 +16,7 @@ import {
   NOTE_SALT_LEN,
 } from './amk';
 import { base64urlEncode, base64urlDecode } from './encoding';
-
-// Load the shared test vectors
-const vectorsPath = resolve(__dirname, '../../../spec/v1/amk.vectors.json');
-const vectors = JSON.parse(readFileSync(vectorsPath, 'utf-8'));
+import vectors from '../../../spec/v1/amk.vectors.json';
 
 function hexToBytes(hex: string): Uint8Array {
   const bytes = new Uint8Array(hex.length / 2);
