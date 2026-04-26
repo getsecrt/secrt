@@ -3739,6 +3739,7 @@ dependencies = [
  "dirs",
  "is-terminal",
  "keyring",
+ "libc",
  "qrcode",
  "ring",
  "rpassword",

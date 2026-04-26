@@ -317,3 +317,140 @@ fn e2e_config_show_with_server_info() {
         err
     );
 }
+
+// ---------------------------------------------------------------------------
+// `secrt update` E2E against a local HTTP mock.
+//
+// This is `#[ignore]`-gated like the rest of e2e.rs (no live server
+// required, but it spawns a TCP listener thread). It exercises the full
+// download + checksum + atomic-install path against canned bytes served
+// from 127.0.0.1, mirroring the `--release-base-url` workflow documented
+// in `docs/update-flow-testing.md § 1`.
+//
+// Run with:
+//   cargo test -p secrt-cli e2e_update -- --ignored
+// ---------------------------------------------------------------------------
+
+use std::fs;
+use std::io::{Read as _, Write as _};
+use std::net::TcpListener;
+use std::path::PathBuf;
+use std::sync::{Arc, Mutex};
+use std::thread;
+use std::time::{SystemTime, UNIX_EPOCH};
+
+use secrt_cli::update::{
+    exit as update_exit, raw_asset_name, run_update_with, sha256_hex, UreqUpdateHttp,
+    CHECKSUM_FILENAME_PUB,
+};
+
+#[test]
+#[ignore]
+fn e2e_update_local_mock_full_install() {
+    // Per-host asset.
+    let asset = raw_asset_name(std::env::consts::OS, std::env::consts::ARCH)
+        .expect("unsupported (os, arch) for self-update");
+
+    // Canned binary contents + checksum.
+    let bin: Vec<u8> = b"\x7fELF e2e canned binary".to_vec();
+    let hex = sha256_hex(&bin);
+    let version = "9.9.9";
+
+    let listener = TcpListener::bind("127.0.0.1:0").expect("bind");
+    let port = listener.local_addr().unwrap().port();
+    let bin_clone = bin.clone();
+    let asset_path = format!("/cli/v{}/{}", version, asset);
+    let checksum_path = format!("/cli/v{}/{}", version, CHECKSUM_FILENAME_PUB);
+    let checksum_body = format!("{}  {}\n", hex, asset);
+
+    // Tiny single-pass HTTP/1.1 server. Serves the next request whose
+    // path matches one of the two known endpoints; ignores everything
+    // else. Loops until shutdown is signaled by the channel below.
+    let stop = Arc::new(Mutex::new(false));
+    let stop_clone = stop.clone();
+    let server_handle = thread::spawn(move || {
+        listener.set_nonblocking(true).ok();
+        loop {
+            if *stop_clone.lock().unwrap() {
+                break;
+            }
+            match listener.accept() {
+                Ok((mut sock, _)) => {
+                    let mut buf = vec![0u8; 4096];
+                    let n = sock.read(&mut buf).unwrap_or(0);
+                    let req = String::from_utf8_lossy(&buf[..n]).to_string();
+                    let first_line = req.lines().next().unwrap_or("");
+                    let path = first_line.split_whitespace().nth(1).unwrap_or("");
+                    if path == checksum_path {
+                        let body = checksum_body.as_bytes();
+                        let resp = format!(
+                            "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                            body.len()
+                        );
+                        let _ = sock.write_all(resp.as_bytes());
+                        let _ = sock.write_all(body);
+                    } else if path == asset_path {
+                        let resp = format!(
+                            "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                            bin_clone.len()
+                        );
+                        let _ = sock.write_all(resp.as_bytes());
+                        let _ = sock.write_all(&bin_clone);
+                    } else {
+                        let resp = b"HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n";
+                        let _ = sock.write_all(resp);
+                    }
+                    let _ = sock.flush();
+                }
+                Err(_) => {
+                    thread::sleep(std::time::Duration::from_millis(20));
+                }
+            }
+        }
+    });
+
+    let dir = std::env::temp_dir().join(format!(
+        "secrt_e2e_update_{}_{}",
+        std::process::id(),
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    ));
+    fs::create_dir_all(&dir).unwrap();
+    let target = dir.join(if cfg!(windows) { "secrt.exe" } else { "secrt" });
+    fs::write(&target, b"old e2e payload").unwrap();
+
+    let base = format!("http://127.0.0.1:{}", port);
+    let (mut deps, stdout, stderr) = TestDepsBuilder::new().build();
+    let code = run_update_with(
+        &args(&[
+            "--version",
+            version,
+            "--install-dir",
+            &dir.to_string_lossy(),
+            "--release-base-url",
+            &base,
+            "--force",
+        ])[..],
+        &mut deps,
+        &UreqUpdateHttp,
+    );
+
+    *stop.lock().unwrap() = true;
+    // Best-effort: nudge the listener to wake from `accept` so the thread
+    // can observe shutdown. A bound TCP listener with a no-op connect is
+    // the simplest portable nudge.
+    let _ = std::net::TcpStream::connect(format!("127.0.0.1:{}", port));
+    let _ = server_handle.join();
+
+    assert_eq!(
+        code,
+        update_exit::OK,
+        "stdout: {}\nstderr: {}",
+        stdout.to_string(),
+        stderr.to_string()
+    );
+    let installed: PathBuf = dir.join(if cfg!(windows) { "secrt.exe" } else { "secrt" });
+    assert_eq!(fs::read(&installed).unwrap(), bin);
+}

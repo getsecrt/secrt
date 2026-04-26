@@ -18,4 +18,5 @@ pub mod passphrase;
 pub mod qr;
 pub mod send;
 pub mod sync;
+pub mod update;
 pub mod update_check;

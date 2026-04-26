@@ -9,6 +9,7 @@ use crate::gen::run_gen;
 use crate::get::run_get;
 use crate::list::run_list;
 use crate::send::run_send;
+use crate::update::run_update;
 use crate::update_check;
 
 const DEFAULT_BASE_URL: &str = "https://secrt.ca";
@@ -123,6 +124,7 @@ pub enum CliError {
 
 /// Main entry point. Returns exit code.
 pub fn run(args: &[String], deps: &mut Deps) -> i32 {
+    crate::update::cleanup_at_startup();
     let exit = dispatch(args, deps);
     maybe_emit_update_banner(args, deps);
     exit
@@ -165,6 +167,7 @@ fn dispatch(args: &[String], deps: &mut Deps) -> i32 {
         "info" => crate::info::run_info(remaining, deps),
         "sync" => crate::sync::run_sync(remaining, deps),
         "auth" => crate::auth::run_auth(remaining, deps),
+        "update" => run_update(remaining, deps),
         _ if looks_like_share_url(command) => {
             // Implicit get: treat share URLs/bare IDs as `secrt get <url>`
             run_get(&args[1..], deps)
@@ -306,6 +309,7 @@ fn run_help(args: &[String], deps: &mut Deps) -> i32 {
         "sync" => crate::sync::print_sync_help(deps),
         "config" => print_config_help(deps),
         "auth" => print_auth_help(deps),
+        "update" => crate::update::print_update_help(deps),
         _ => {
             let _ = writeln!(deps.stderr, "error: unknown command {:?}", args[0]);
             return 2;
@@ -1188,6 +1192,7 @@ pub fn print_help(deps: &mut Deps) {
             ("gen", "Generate a random password"),
             ("auth", "Login, setup, or manage authentication"),
             ("config", "Show or initialize configuration"),
+            ("update", "Self-update against published GitHub Releases"),
             ("version", "Show version"),
             ("help", "Show this help"),
             ("completion", "Output shell completion script"),
