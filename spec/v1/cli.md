@@ -833,7 +833,12 @@ Exit codes:
 - `4`: permission denied writing to install dir.
 - `5`: install lock contention (another `secrt update` is in progress).
 
-Permission-denied error message MUST suggest `--install-dir` first (least-privilege default — keeps user-space installs out of `sudo`). When the failing install directory is a known system path (`/usr/local/bin`, `/usr/bin`, `/usr/local/sbin`, `/usr/sbin`, or `/opt/<segment>/bin`), the message MUST also mention `sudo secrt update` as a second option, because `--install-dir ~/.local/bin` on a deliberately root-owned system install leaves the privileged binary in place at the original location and creates a parallel install whose precedence depends on `PATH` ordering. The sudo hint MUST appear after `--install-dir` in the message and MUST NOT appear on Windows (no `sudo` analog; Windows installs are typically per-user or via MSI).
+Permission-denied error message branches on whether the failing install directory is a known system path (`/usr/local/bin`, `/usr/bin`, `/usr/local/sbin`, `/usr/sbin`, or `/opt/<segment>/bin`):
+
+- **System path** — message MUST recommend `sudo secrt update` and MUST NOT suggest `--install-dir`. The user deliberately chose a system-wide install; suggesting `--install-dir ~/.local/bin` would create a parallel install in user-space while leaving the privileged binary in place at the original location, with `PATH` ordering determining which one runs (a real footgun in practice).
+- **User-space path** — message MUST suggest `--install-dir ~/.local/bin` and MUST NOT mention `sudo` (privilege escalation is hostile to least-privilege practice and surprising on user-level installs).
+
+On Windows the system-path branch is never taken (no `sudo` analog; Windows installs are typically per-user or via MSI). Manual download via the GitHub release URL is offered as a universal fallback in both branches.
 
 ### Opt-out
 

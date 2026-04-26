@@ -1086,20 +1086,31 @@ fn matches_opt_segment_bin(s: &str) -> bool {
 }
 
 /// Build the user-facing "cannot write" message for permission-denied
-/// install failures. Pure function — no IO. Includes a `sudo secrt update`
-/// hint when `install_dir` looks like a system path. `--install-dir`
-/// stays first so the least-privilege default still nudges new installs
-/// into user-space.
+/// install failures. Pure function — no IO. Branches entirely on the
+/// system-vs-user heuristic so the hint matches the user's actual intent:
+///
+/// - System path → suggest `sudo secrt update`. The user deliberately
+///   chose a system-wide install; nudging them to `~/.local/bin` would
+///   leave the privileged binary in place and create a parallel install.
+/// - User-space path → suggest `--install-dir ~/.local/bin`. Sudo is
+///   never recommended here — it would surprise users who expect a
+///   per-user install to stay user-owned.
+///
+/// Manual download is the universal fallback in both branches.
 fn permission_denied_message(install_dir: &Path, release_url: &str) -> String {
-    let mut msg = format!(
-        "error: cannot write to {}. Try: secrt update --install-dir ~/.local/bin (and add ~/.local/bin to your PATH)",
-        install_dir.display()
-    );
     if looks_like_system_install(install_dir) {
-        msg.push_str(", or, if you installed system-wide: sudo secrt update");
+        format!(
+            "error: cannot write to {} (system-wide install). Try: sudo secrt update, or download manually from {}",
+            install_dir.display(),
+            release_url
+        )
+    } else {
+        format!(
+            "error: cannot write to {}. Try: secrt update --install-dir ~/.local/bin (and add ~/.local/bin to your PATH), or download manually from {}",
+            install_dir.display(),
+            release_url
+        )
     }
-    msg.push_str(&format!(", or download manually from {}", release_url));
-    msg
 }
 
 /// Resolve the highest published release for the requested channel via the
@@ -1722,26 +1733,32 @@ short  bad-line
 
     #[cfg(unix)]
     #[test]
-    fn permission_denied_message_system_path_adds_sudo_after_install_dir() {
+    fn permission_denied_message_system_path_recommends_sudo_only() {
+        // For a positively-detected system install, the user picked a
+        // system-wide install deliberately. The message must lead with
+        // sudo and MUST NOT suggest --install-dir — that would create a
+        // parallel install in user-space while leaving the privileged
+        // binary in place at the original location, with PATH ordering
+        // determining which one runs. This is the exact footgun #55
+        // was opened to fix.
         let msg = permission_denied_message(
             Path::new("/usr/local/bin"),
             "https://github.com/getsecrt/secrt/releases/tag/cli/v0.16.1",
         );
         assert!(
-            msg.contains("--install-dir ~/.local/bin"),
-            "system message should still keep --install-dir first: {msg}"
-        );
-        assert!(
             msg.contains("sudo secrt update"),
-            "system path message should mention sudo: {msg}"
+            "system path message should recommend sudo: {msg}"
         );
-        // Ordering matters: --install-dir is the least-privilege default,
-        // sudo is the second option. The message must not lead with sudo.
-        let install_dir_idx = msg.find("--install-dir").unwrap();
-        let sudo_idx = msg.find("sudo").unwrap();
         assert!(
-            install_dir_idx < sudo_idx,
-            "--install-dir should appear before sudo in the message: {msg}"
+            !msg.contains("--install-dir"),
+            "system path message must NOT suggest --install-dir; it would \
+             create a parallel install at the user-space path while \
+             leaving the privileged binary in place: {msg}"
+        );
+        assert!(
+            msg.contains("system-wide"),
+            "message should label the path as system-wide so the user \
+             understands why sudo is appropriate: {msg}"
         );
     }
 
