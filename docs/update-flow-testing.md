@@ -21,6 +21,8 @@ sed -i.bak 's/^version = ".*"/version = "0.99.0-test"/' Cargo.toml
 cargo build --release -p secrt-cli
 
 # Stage the artifact under the asset name secrt update will look up.
+# IMPORTANT: assets MUST live under cli/v<version>/, mirroring the real
+# GitHub release URL layout (.../releases/download/cli/v0.16.0/<asset>).
 # Asset names per spec/v1/cli.md § secrt update Subcommand:
 #   linux-amd64  → secrt-linux-amd64
 #   linux-arm64  → secrt-linux-arm64
@@ -28,24 +30,30 @@ cargo build --release -p secrt-cli
 #   darwin-arm64 → secrt-darwin-arm64
 #   windows-amd64 → secrt-windows-amd64.exe
 #   windows-arm64 → secrt-windows-arm64.exe
-mkdir -p /tmp/release-fixtures
-cp target/release/secrt /tmp/release-fixtures/secrt-darwin-arm64   # match your host
-( cd /tmp/release-fixtures && shasum -a 256 secrt-* > secrt-checksums-sha256.txt )
+mkdir -p /tmp/release-fixtures/cli/v0.99.0
+cp target/release/secrt /tmp/release-fixtures/cli/v0.99.0/secrt-darwin-arm64   # match your host
+( cd /tmp/release-fixtures/cli/v0.99.0 && shasum -a 256 secrt-* > secrt-checksums-sha256.txt )
 
 # Restore your local Cargo.toml so the running binary stays at its real version.
 mv Cargo.toml.bak Cargo.toml
+# (also restore secrt-core dep pins in crates/secrt-{cli,server,app}/Cargo.toml
+# if you bumped them — `cargo build --release -p secrt-cli` rebuilds at the
+# original version once everything is back in place.)
 
 # Serve it
 python3 -m http.server 8000 --directory /tmp/release-fixtures &
 
 # Run the upgrade
-secrt update --version 0.99.0-test --release-base-url http://localhost:8000
-secrt --version       # → secrt 0.99.0-test
+secrt update --version 0.99.0 --release-base-url http://localhost:8000
+secrt --version       # → secrt 0.99.0
 ```
 
+Note: `--version` is strict `\d+.\d+.\d+`. A `0.99.0-test` style suffix is
+rejected at parse time. Use a plain triplet for the staged "newer" version.
+
 To exercise SHA-256 mismatch: edit the staged binary by one byte after
-generating the checksum file. `secrt update` MUST refuse, exit with code 2,
-and print both hashes.
+generating the checksum file (e.g., `echo x >> /tmp/release-fixtures/cli/v0.99.0/secrt-darwin-arm64`).
+`secrt update` MUST refuse, exit with code 2, and print both hashes.
 
 To exercise managed-install detection: symlink your `secrt` under a fake
 manager root before running `update`:

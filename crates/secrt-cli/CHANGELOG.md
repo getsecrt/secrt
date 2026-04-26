@@ -4,7 +4,20 @@
 
 ### Added
 
-- **Implicit update-check banner.** After every command, the CLI now reads `$XDG_CACHE_HOME/secrt/update-check.json` (24h TTL) and prints a one-line stderr banner when a newer version is available — `secrt 0.16.0 is available (you have 0.15.0). Run 'secrt update' to upgrade.` The banner is **cache-only and never initiates a network request**. The cache refreshes opportunistically from `/api/v1/info` body fields (any command that calls it) and from `X-Secrt-Latest-Cli-Version*` / `X-Secrt-Min-Cli-Version` response headers on every other server response.
+- **`secrt update` self-update subcommand.** Downloads the published raw per-platform binary (`secrt-darwin-arm64`, `secrt-linux-amd64`, `secrt-windows-amd64.exe`, etc.) from the matching GitHub release, verifies it against the published `secrt-checksums-sha256.txt`, and atomically replaces the running binary (Unix `rename(2)` over the live inode; Windows rename-self-aside with `MoveFileEx(MOVEFILE_DELAY_UNTIL_REBOOT)` fallback). Acquires an exclusive install lock (`flock(2)` on Unix, `LockFileEx` on Windows) so concurrent invocations cannot interleave.
+  - **Flags:** `--check` (report only), `--force` (re-download even if up to date), `--version <X.Y.Z>` (pin a specific stable triplet — strict `\d+.\d+.\d+`, no prerelease), `--install-dir <path>` (install to a separate dir; binary is named `secrt[.exe]` regardless of how the running binary was named), `--channel <stable|prerelease>` (reserved per spec; `prerelease` hard-errors in this revision), and a hidden `--release-base-url <url>` test seam that mirrors `ReqwestFetcher::with_base_url` from the server poller.
+  - **Managed-install refusal** (exit 3) for Homebrew Cellar, asdf, mise, Nix store, cargo `~/.cargo/bin`, and a generic-symlink fallback. Each refusal prints the exact upgrade command for that manager (e.g., `Run: brew upgrade secrt`).
+  - **Permission-denied messages always suggest `--install-dir`**, never `sudo` (running self-update with elevated privileges is hostile to least-privilege practice).
+  - **Hidden `--cleanup` flag** deletes leftover `secrt.exe.old` on Windows; invoked automatically at startup of every `secrt` command (cheap no-op on Unix).
+  - **Exit codes:** `0` success, `1` generic, `2` SHA-256 mismatch (loud halt with both expected + actual hashes), `3` managed install refused, `4` permission denied, `5` install-lock contention.
+- **Implicit update-check banner.** After every command, the CLI reads `$XDG_CACHE_HOME/secrt/update-check.json` (24h TTL) and prints a two-line stderr banner when a newer version is available:
+
+  ```
+  secrt 0.16.0 available (current: 0.15.0)
+    secrt update
+  ```
+
+  The header line is **DIM**, the indented `secrt update` line is **bold cyan** so the upgrade command is trivially copy-pasteable. The banner is **cache-only and never initiates a network request**. The cache refreshes opportunistically from `/api/v1/info` body fields (any command that calls it) and from `X-Secrt-Latest-Cli-Version*` / `X-Secrt-Min-Cli-Version` response headers on every other server response. `secrt update --check` prints the same shape on stdout (always — TTY or not — but only colorizes when stdout is interactive).
 - **`--no-update-check` global flag** plus `update_check = false` config key plus `SECRET_NO_UPDATE_CHECK=1` env var, all of which suppress the banner. The matrix also suppresses on `--silent`, `--json`, `secrt update` itself, stdout-binary-to-pipe, and **stderr-not-a-TTY** (CI logs and redirected stderr stay clean by default).
 - **`User-Agent: secrt/<version>`** is now sent on every CLI HTTP request, so servers can correlate usage by version and trigger version-specific incident remediation.
 - **Min-supported-version awareness.** When the running CLI is below the server's `min_supported_cli_version`, the banner is replaced with a stronger `warning: secrt <version> may not be compatible with this server.` notice.
