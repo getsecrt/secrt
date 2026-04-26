@@ -854,7 +854,7 @@ The trust root for `secrt update` is whoever can push tags matching `cli/v*` to 
 Two channels are defined: `stable` (default) and `prerelease`.
 
 - **`stable`**: only tags matching `^cli/v\d+\.\d+\.\d+$` are eligible. `--version` MUST match `\d+\.\d+\.\d+` exactly. Pre-release tags (e.g., `cli/v0.16.0-rc.1`) MUST be skipped by both the server poller and the CLI's GitHub-direct fallback. `--version` with a prerelease suffix MUST be rejected with a usage error pointing at `--channel prerelease`.
-- **`prerelease`**: `--version` MAY match `\d+\.\d+\.\d+(-(rc|beta|alpha)\.\d+)?`. In **this revision**, callers MUST pin via `--version`; if `--channel prerelease` is set without `--version`, implementations MUST exit with a usage error directing the user to pin a specific version. Auto-discovery of the highest matching prerelease tag from the GitHub Releases API is reserved for the next revision and will use the tag pattern `^cli/v\d+\.\d+\.\d+(-(rc|beta|alpha)\.\d+)?$` with the same `(channel_rank, index)` ordering used by the implicit-banner version compare.
+- **`prerelease`**: `--version` MAY match `\d+\.\d+\.\d+(-(rc|beta|alpha)\.\d+)?`. When `--channel prerelease` is set without `--version`, the CLI MUST query the GitHub Releases API and pick the highest tag matching `^cli/v\d+\.\d+\.\d+(-(rc|beta|alpha)\.\d+)?$` (skipping drafts and tags that don't match the pattern). Ordering uses `(major, minor, patch)` first; ties are broken by `(channel_rank, index)` where `alpha < beta < rc < stable`. A stable triplet still sorts above its own prerelease, so on a release set containing both `0.16.0` and `0.16.0-rc.1`, the resolver returns `0.16.0`.
 
 Anything other than `stable` or `prerelease` MUST exit with a usage error.
 

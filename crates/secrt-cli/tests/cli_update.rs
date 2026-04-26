@@ -191,14 +191,80 @@ fn version_with_prerelease_suffix_requires_channel_prerelease() {
 }
 
 #[test]
-fn channel_prerelease_without_version_errors() {
+#[cfg(unix)]
+fn channel_prerelease_without_version_resolves_via_picker() {
+    // Mock the GitHub Releases API JSON + the resolved version's
+    // checksum file + binary. With no --version, the CLI MUST hit the
+    // API, pick the highest prerelease, and proceed with the install.
+    let dir = tempdir("prerelease_autoresolve");
+    let target = dir.join("secrt");
+    fs::write(&target, b"old version").unwrap();
+
+    let asset = host_asset();
+    let bin = b"\x7fELF auto-resolved prerelease binary".to_vec();
+    let hex = sha256_hex(&bin);
+    let base = mock_base_url();
+    // The picker should select v9.9.0-rc.10 over v9.9.0-rc.2 (the canonical
+    // rc.10 > rc.2 regression case) and reject the non-conforming
+    // -pre.1 suffix.
+    let releases_json = r#"[
+        {"tag_name":"cli/v9.9.0-rc.2","draft":false,"prerelease":true},
+        {"tag_name":"cli/v9.9.0-rc.10","draft":false,"prerelease":true},
+        {"tag_name":"cli/v9.8.0","draft":false,"prerelease":false},
+        {"tag_name":"cli/v9.9.0-pre.1","draft":false,"prerelease":true},
+        {"tag_name":"cli/v9.9.5-alpha.1","draft":true,"prerelease":true}
+    ]"#;
+    let release_url = format!("{}/cli/v9.9.0-rc.10", base);
+    let http = MockHttp::default()
+        .with_text(
+            "https://api.github.com/repos/getsecrt/secrt/releases?per_page=30",
+            releases_json,
+        )
+        .with_text(
+            &format!("{}/{}", release_url, CHECKSUM_FILENAME_PUB),
+            &checksums_file(asset, &hex),
+        )
+        .with_bytes(&format!("{}/{}", release_url, asset), bin.clone());
+
+    let (mut deps, stdout, stderr) = TestDepsBuilder::new().build();
+    let code = run_update_with(
+        &args(&[
+            "--channel",
+            "prerelease",
+            "--install-dir",
+            &dir.to_string_lossy(),
+            "--release-base-url",
+            base,
+            "--force",
+        ])[..],
+        &mut deps,
+        &http,
+    );
+    assert_eq!(code, exit::OK, "stderr: {}", stderr.to_string());
+    assert!(
+        stdout.to_string().contains("9.9.0-rc.10 installed"),
+        "stdout: {}",
+        stdout.to_string()
+    );
+    assert_eq!(fs::read(&target).unwrap(), bin);
+}
+
+#[test]
+fn channel_prerelease_without_version_no_releases_errors() {
+    // Picker returns None when no usable releases exist; resolver then
+    // returns a clean error to the user.
+    let http = MockHttp::default().with_text(
+        "https://api.github.com/repos/getsecrt/secrt/releases?per_page=30",
+        "[]",
+    );
     let (mut deps, _stdout, stderr) = TestDepsBuilder::new().build();
-    let http = MockHttp::default();
     let code = run_update_with(&args(&["--channel", "prerelease"])[..], &mut deps, &http);
-    assert_eq!(code, exit::USAGE);
-    let err = stderr.to_string();
-    assert!(err.contains("--channel prerelease"), "stderr: {err}");
-    assert!(err.contains("--version"), "stderr: {err}");
+    assert_eq!(code, exit::GENERIC);
+    assert!(
+        stderr.to_string().contains("no stable or prerelease"),
+        "stderr: {}",
+        stderr.to_string()
+    );
 }
 
 #[test]

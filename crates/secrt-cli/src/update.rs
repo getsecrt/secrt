@@ -813,29 +813,18 @@ pub fn run_update_with(args: &[String], deps: &mut Deps, http: &dyn UpdateHttp) 
     };
 
     // 3. Determine target version. `--version` pins; otherwise resolve via
-    // GitHub Releases API (or the cached `latest_cli_version` if we want
-    // to be cute later — for now, ask GitHub directly so behavior is
-    // deterministic regardless of the local cache).
-    //
-    // `--channel prerelease` requires an explicit `--version` pin in this
-    // revision; auto-discovery from the GitHub API is reserved for the
-    // next revision (see `spec/v1/cli.md § Update Channels`).
+    // the GitHub Releases API. `Channel::Stable` accepts only strict
+    // triplets; `Channel::Prerelease` accepts both stable and prerelease
+    // tags, picking the highest by `update_check::compare_semver`. The
+    // implicit update-check banner is unaffected — it stays stable-only
+    // by design.
     let target_version = match parsed.version.clone() {
         Some(v) => v,
-        None => match parsed.channel {
-            Channel::Stable => match resolve_latest_version(http) {
-                Ok(v) => v,
-                Err(e) => {
-                    let _ = writeln!(deps.stderr, "error: {}", e);
-                    return exit::GENERIC;
-                }
-            },
-            Channel::Prerelease => {
-                let _ = writeln!(
-                    deps.stderr,
-                    "error: --channel prerelease requires --version <X.Y.Z>-(rc|beta|alpha).<N> in this revision (auto-discovery lands in a follow-up)."
-                );
-                return exit::USAGE;
+        None => match resolve_latest_for_channel(http, parsed.channel) {
+            Ok(v) => v,
+            Err(e) => {
+                let _ = writeln!(deps.stderr, "error: {}", e);
+                return exit::GENERIC;
             }
         },
     };
@@ -1018,18 +1007,26 @@ fn looks_like_permission(e: &str) -> bool {
     s.contains("permission denied") || s.contains("access is denied") || s.contains("readonly")
 }
 
-/// Resolve the highest published stable `cli/v\d+\.\d+\.\d+` release tag
-/// via the GitHub Releases API. Mirrors the server-side
-/// `release_poller::pick_highest_stable` logic but runs CLI-side as the
-/// fallback when `/api/v1/info` was not consulted.
-fn resolve_latest_version(http: &dyn UpdateHttp) -> Result<String, String> {
+/// Resolve the highest published release for the requested channel via the
+/// GitHub Releases API. Mirrors the server-side
+/// `release_poller::pick_highest_stable` logic for `Channel::Stable`, and
+/// extends it to accept prerelease tags for `Channel::Prerelease`.
+/// `Stable` accepts only strict-triplet `cli/v\d+\.\d+\.\d+` tags;
+/// `Prerelease` additionally accepts `cli/v\d+\.\d+\.\d+-(rc|beta|alpha)\.\d+`
+/// and picks the highest via `update_check::compare_semver`.
+fn resolve_latest_for_channel(http: &dyn UpdateHttp, channel: Channel) -> Result<String, String> {
     let url = format!(
         "{}/repos/getsecrt/secrt/releases?per_page=30",
         DEFAULT_GITHUB_API_BASE
     );
     let body = http.fetch_text(&url)?;
-    pick_highest_from_releases_json(&body, Channel::Stable)
-        .ok_or_else(|| format!("no stable cli/v* release found at {}", url))
+    pick_highest_from_releases_json(&body, channel).ok_or_else(|| {
+        let kind = match channel {
+            Channel::Stable => "stable",
+            Channel::Prerelease => "stable or prerelease",
+        };
+        format!("no {} cli/v* release found at {}", kind, url)
+    })
 }
 
 /// Pure JSON parser for the GitHub Releases response shape we care about.
@@ -1168,7 +1165,7 @@ pub fn print_update_help(deps: &mut Deps) {
             (
                 "--channel",
                 "<stable|prerelease>",
-                "Channel to install from (default: stable). With 'prerelease', --version is required in this revision.",
+                "Channel to install from (default: stable). With 'prerelease', auto-resolves to the highest published prerelease tag unless --version is given.",
             ),
             ("-h, --help", "", "Show this help."),
         ],
