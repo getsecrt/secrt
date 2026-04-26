@@ -185,20 +185,6 @@ jobs:
             secrt-darwin-universal
           codesign --verify --verbose secrt-darwin-universal
 
-      - name: Notarize macOS binaries
-        if: env.HAS_APPLE_ID == 'true'
-        env:
-          APPLE_ID: ${{ secrets.APPLE_ID }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-          APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
-        run: |
-          zip secrt-notarize.zip secrt-darwin-arm64 secrt-darwin-amd64 secrt-darwin-universal
-          xcrun notarytool submit secrt-notarize.zip \
-            --apple-id "$APPLE_ID" \
-            --team-id "$APPLE_TEAM_ID" \
-            --password "$APPLE_APP_PASSWORD" \
-            --wait
-
       - name: Import Installer certificate
         if: env.HAS_INSTALLER_CERT == 'true'
         env:
@@ -237,15 +223,27 @@ jobs:
             rm -rf pkg-root "${pkg_name}-unsigned.pkg"
           done
 
-      - name: Notarize installer packages
-        if: env.HAS_APPLE_ID == 'true' && env.HAS_INSTALLER_CERT == 'true'
+      # Submit the raw-binaries zip and all .pkg files to Apple's notary
+      # service in parallel. Each `notarytool submit --wait` blocks ~3-5min
+      # on Apple's queue; running them concurrently saves the equivalent
+      # of one full notarization round-trip per release. Apple's notary
+      # accepts multiple concurrent submissions from a single Apple ID
+      # (the prior code already submitted 3 .pkg files in parallel; one
+      # more concurrent submission is no different from Apple's view).
+      - name: Notarize macOS binaries and packages
+        if: env.HAS_APPLE_ID == 'true'
         env:
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
           APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
         run: |
-          for pkg in secrt-macos.pkg secrt-macos-arm64.pkg secrt-macos-amd64.pkg; do
-            xcrun notarytool submit "$pkg" \
+          zip secrt-notarize.zip secrt-darwin-arm64 secrt-darwin-amd64 secrt-darwin-universal
+          submissions=("secrt-notarize.zip")
+          if [[ "$HAS_INSTALLER_CERT" == "true" ]]; then
+            submissions+=("secrt-macos.pkg" "secrt-macos-arm64.pkg" "secrt-macos-amd64.pkg")
+          fi
+          for item in "${submissions[@]}"; do
+            xcrun notarytool submit "$item" \
               --apple-id "$APPLE_ID" \
               --team-id "$APPLE_TEAM_ID" \
               --password "$APPLE_APP_PASSWORD" \
