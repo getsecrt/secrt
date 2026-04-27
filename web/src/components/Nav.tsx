@@ -481,7 +481,7 @@ export function Nav() {
             aria-hidden="true"
             onClick={() => setMenuOpen(false)}
           />
-          <div class="absolute right-0 left-0 border-t border-border bg-neutral-200 px-4 pt-2 pb-4 shadow-lg sm:hidden dark:bg-neutral-800">
+          <div class="absolute right-0 left-0 border-t border-border bg-neutral-200/70 px-4 pt-2 pb-4 shadow-lg backdrop-blur-xs sm:hidden dark:bg-neutral-700/80">
             <div class="flex flex-col gap-3">
               {!auth.loading && auth.authenticated && (
                 <div class="mb-1 flex items-center justify-between border-b border-border px-2 py-1 pb-2 text-sm text-black/55 dark:text-white/55">
