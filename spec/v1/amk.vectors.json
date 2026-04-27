@@ -3,6 +3,7 @@
   "_spec": "docs/whitepaper.md § Encrypted Notes (Account Master Key)",
   "constants": {
     "hkdf_info_amk_wrap": "secrt-amk-wrap-v1",
+    "hkdf_info_amk_wrap_prf": "secrt-amk-wrap-prf-v1",
     "hkdf_info_note": "secrt-note-v1",
     "hkdf_info_amk_transfer": "secrt-amk-transfer-v1",
     "hkdf_info_sas": "secrt-amk-sas-v1",
@@ -16,8 +17,9 @@
       "commit_hex": "686d63a5d81b6d2c6fc0754e8b77af1eef58e92658d971cfcfb18d4c73e8312a"
     },
     "wrap_unwrap": {
-      "description": "AMK wrap via AES-256-GCM with derived wrap key and domain-tagged AAD",
-      "_aad_layout": "info || user_id_uuid(16B) || u16be(len(key_prefix)) || key_prefix || u16be(version)",
+      "description": "AMK wrap (Transport A: API-key root) via AES-256-GCM with derived wrap key and domain-tagged AAD",
+      "_aad_layout": "info || user_id_uuid(16B) || u16be(len(binding_id)) || binding_id || u16be(version)",
+      "_binding_id_meaning": "UTF-8 bytes of the API-key prefix",
       "amk_hex": "1111111111111111111111111111111111111111111111111111111111111111",
       "root_key_hex": "2222222222222222222222222222222222222222222222222222222222222222",
       "user_id": "00000000-0000-0000-0000-0000000000ab",
@@ -28,6 +30,24 @@
       "aad_hex": "73656372742d616d6b2d777261702d7631000000000000000000000000000000ab00066162636465660001",
       "ct_b64url": "P4eQZMY_ZR1vJB5GWHKF64fqMmzxP2cfJZ6FjjYGiQ86-DUjLPSRbVADZXXM0rqL",
       "nonce_b64url": "MzMzMzMzMzMzMzMz"
+    },
+    "wrap_unwrap_prf": {
+      "description": "AMK wrap (Transport D: WebAuthn PRF). Same wire format as wrap_unwrap; differs only in IKM source, HKDF salt, info string, and binding_id semantics. See spec/v1/api.md §'Transport D: PRF wrap'.",
+      "_aad_layout": "info || user_id_uuid(16B) || u16be(len(binding_id)) || binding_id || u16be(version)",
+      "_binding_id_meaning": "raw bytes of the WebAuthn credential ID (base64url-decoded)",
+      "_wrap_key_derivation": "HKDF-SHA-256(ikm = prf_output, salt = cred_salt, info = 'secrt-amk-wrap-prf-v1', len = 32)",
+      "amk_hex": "1111111111111111111111111111111111111111111111111111111111111111",
+      "prf_output_hex": "2222222222222222222222222222222222222222222222222222222222222222",
+      "cred_salt_hex": "3333333333333333333333333333333333333333333333333333333333333333",
+      "user_id": "00000000-0000-0000-0000-000000000001",
+      "credential_id_hex": "8fee7f86a0eb4d279ae4a75fb0f8a900",
+      "version": 1,
+      "nonce_fill_byte": "0x44",
+      "wrap_key_hex": "6a18525c1c329d3d572181ff24e88915a6c8ff3cb77229f7bf6cd0cc6fb46069",
+      "aad_hex": "73656372742d616d6b2d777261702d7072662d76310000000000000000000000000000000100108fee7f86a0eb4d279ae4a75fb0f8a9000001",
+      "ct_b64url": "5QpzZomwU0Uwy72MJm8oP37P6rykBf5nYbl7-yFBGLRfnLlCsfX1Zvo_8hhXDYsi",
+      "nonce_b64url": "RERERERERERERERE",
+      "amk_commit_hex": "686d63a5d81b6d2c6fc0754e8b77af1eef58e92658d971cfcfb18d4c73e8312a"
     },
     "note_encrypt_decrypt": {
       "description": "Per-secret note encryption: HKDF(AMK, salt) -> note_key, AES-256-GCM with AAD bound to secret_id",

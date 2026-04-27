@@ -23,6 +23,7 @@ pub const NOTE_SALT_LEN: usize = 32;
 pub const SAS_LEN: usize = 3;
 
 pub const HKDF_INFO_AMK_WRAP: &str = "secrt-amk-wrap-v1";
+pub const HKDF_INFO_AMK_WRAP_PRF: &str = "secrt-amk-wrap-prf-v1";
 pub const HKDF_INFO_NOTE: &str = "secrt-note-v1";
 pub const HKDF_INFO_AMK_TRANSFER: &str = "secrt-amk-transfer-v1";
 pub const HKDF_INFO_SAS: &str = "secrt-amk-sas-v1";
@@ -67,35 +68,91 @@ pub fn derive_amk_wrap_key(root_key: &[u8]) -> Result<Vec<u8>, ApiKeyError> {
     derive_from_root(root_key, HKDF_INFO_AMK_WRAP, WRAP_KEY_LEN)
 }
 
-/// Build domain-tagged AAD for AMK wrapping.
+/// Derive the AMK wrap key from a WebAuthn PRF extension output.
 ///
-/// Layout (all integers big-endian):
+/// `wrap_key = HKDF-SHA-256(ikm = prf_output, salt = cred_salt, info = "secrt-amk-wrap-prf-v1", len = 32)`.
+///
+/// Both `prf_output` and `cred_salt` MUST be exactly 32 bytes — `prf_output`
+/// is the WebAuthn `extensions.prf.eval.first` result, `cred_salt` is the
+/// per-credential server-generated salt stored on `passkeys.cred_salt`.
+///
+/// See `spec/v1/api.md` §"Transport D: PRF wrap" for the normative contract.
+pub fn derive_amk_wrap_key_from_prf(
+    prf_output: &[u8],
+    cred_salt: &[u8],
+) -> Result<Vec<u8>, EnvelopeError> {
+    if prf_output.len() != 32 {
+        return Err(EnvelopeError::InvalidEnvelope(
+            "PRF output must be 32 bytes".into(),
+        ));
+    }
+    if cred_salt.len() != 32 {
+        return Err(EnvelopeError::InvalidEnvelope(
+            "cred_salt must be 32 bytes".into(),
+        ));
+    }
+    let hkdf_salt = hkdf::Salt::new(hkdf::HKDF_SHA256, cred_salt);
+    let prk = hkdf_salt.extract(prf_output);
+    let info = [HKDF_INFO_AMK_WRAP_PRF.as_bytes()];
+    let okm = prk
+        .expand(&info, HkdfLen(WRAP_KEY_LEN))
+        .map_err(|_| EnvelopeError::InvalidEnvelope("HKDF expand failed".into()))?;
+    let mut out = vec![0u8; WRAP_KEY_LEN];
+    okm.fill(&mut out)
+        .map_err(|_| EnvelopeError::InvalidEnvelope("HKDF fill failed".into()))?;
+    Ok(out)
+}
+
+/// Internal: build the AAD byte string used by every AMK wrap path.
+///
+/// Layout (all integers big-endian, per `spec/v1/api.md` §"AAD construction"):
 /// ```text
-/// info                    // "secrt-amk-wrap-v1" (UTF-8, 17 bytes)
+/// info                    // transport-specific HKDF info string (UTF-8)
 /// user_id_uuid            // raw 16 bytes (UUIDv7)
-/// u16 len(key_prefix)
-/// key_prefix              // UTF-8
+/// u16 len(binding_id)
+/// binding_id              // transport-specific binding identifier
 /// u16 version
 /// ```
-///
-/// Convention: fixed-size protocol primitives (UUIDs, the version field)
-/// are included verbatim with no length prefix. Variable-length fields
-/// (key_prefix, and future wrap-path-specific fields) are prefixed with
-/// a u16 big-endian byte length so the concatenation is unambiguous.
-///
-/// This convention matches the PRF wrap path
-/// (`crates/secrt-server/docs/prf-amk-wrapping.md` §3.2) so that both
-/// AMK wrap layers follow one rule.
-pub fn build_wrap_aad(user_id_uuid: &[u8; 16], key_prefix: &str, version: u16) -> Vec<u8> {
-    let key_prefix_bytes = key_prefix.as_bytes();
-    let mut aad =
-        Vec::with_capacity(HKDF_INFO_AMK_WRAP.len() + 16 + 2 + key_prefix_bytes.len() + 2);
-    aad.extend_from_slice(HKDF_INFO_AMK_WRAP.as_bytes());
+fn build_wrap_aad_inner(
+    info: &[u8],
+    user_id_uuid: &[u8; 16],
+    binding_id: &[u8],
+    version: u16,
+) -> Vec<u8> {
+    let mut aad = Vec::with_capacity(info.len() + 16 + 2 + binding_id.len() + 2);
+    aad.extend_from_slice(info);
     aad.extend_from_slice(user_id_uuid);
-    aad.extend_from_slice(&(key_prefix_bytes.len() as u16).to_be_bytes());
-    aad.extend_from_slice(key_prefix_bytes);
+    aad.extend_from_slice(&(binding_id.len() as u16).to_be_bytes());
+    aad.extend_from_slice(binding_id);
     aad.extend_from_slice(&version.to_be_bytes());
     aad
+}
+
+/// Build AAD for the API-key root wrap transport (Transport A).
+///
+/// `binding_id` is the UTF-8 bytes of the API-key prefix; `info` is `"secrt-amk-wrap-v1"`.
+pub fn build_wrap_aad(user_id_uuid: &[u8; 16], key_prefix: &str, version: u16) -> Vec<u8> {
+    build_wrap_aad_inner(
+        HKDF_INFO_AMK_WRAP.as_bytes(),
+        user_id_uuid,
+        key_prefix.as_bytes(),
+        version,
+    )
+}
+
+/// Build AAD for the WebAuthn PRF wrap transport (Transport D).
+///
+/// `binding_id` is the raw bytes of the WebAuthn credential ID (base64url-decoded);
+/// `info` is `"secrt-amk-wrap-prf-v1"`.
+///
+/// See `spec/v1/api.md` §"Transport D: PRF wrap" for the normative contract.
+pub fn build_wrap_aad_prf(user_id_uuid: &[u8; 16], credential_id: &[u8], version: u16) -> Vec<u8> {
+    build_wrap_aad_inner(
+        HKDF_INFO_AMK_WRAP_PRF.as_bytes(),
+        user_id_uuid,
+        credential_id,
+        version,
+    )
 }
 
 // ── AES-256-GCM Helpers ─────────────────────────────────────────────
@@ -409,6 +466,84 @@ mod tests {
         assert_ne!(a1, a2);
     }
 
+    // ── derive_amk_wrap_key_from_prf ────────────────────────────────
+
+    #[test]
+    fn prf_wrap_key_is_deterministic() {
+        let prf = [0x55; 32];
+        let salt = [0x66; 32];
+        let k1 = derive_amk_wrap_key_from_prf(&prf, &salt).unwrap();
+        let k2 = derive_amk_wrap_key_from_prf(&prf, &salt).unwrap();
+        assert_eq!(k1, k2);
+        assert_eq!(k1.len(), WRAP_KEY_LEN);
+    }
+
+    #[test]
+    fn prf_wrap_key_differs_from_apikey_wrap_key() {
+        // Even with the same 32 bytes treated as ikm, the PRF path uses a
+        // different info string and a different salt, so the resulting wrap
+        // keys MUST diverge. Domain separation check.
+        let bytes = [0x77; 32];
+        let prf_key = derive_amk_wrap_key_from_prf(&bytes, &bytes).unwrap();
+        let apikey_key = derive_amk_wrap_key(&bytes).unwrap();
+        assert_ne!(prf_key, apikey_key);
+    }
+
+    #[test]
+    fn prf_wrap_key_differs_for_different_salt() {
+        let prf = [0x77; 32];
+        let k1 = derive_amk_wrap_key_from_prf(&prf, &[0xAA; 32]).unwrap();
+        let k2 = derive_amk_wrap_key_from_prf(&prf, &[0xBB; 32]).unwrap();
+        assert_ne!(k1, k2);
+    }
+
+    #[test]
+    fn prf_wrap_key_rejects_short_inputs() {
+        assert!(derive_amk_wrap_key_from_prf(&[0u8; 16], &[0u8; 32]).is_err());
+        assert!(derive_amk_wrap_key_from_prf(&[0u8; 32], &[0u8; 16]).is_err());
+    }
+
+    // ── build_wrap_aad_prf ──────────────────────────────────────────
+
+    #[test]
+    fn prf_aad_differs_from_apikey_aad() {
+        // Critical: even with the same UUID, same binding bytes, same version,
+        // the two transports MUST produce different AAD because the info
+        // prefix differs. This is what binds each wrapper to its wrap path.
+        let cid = b"abcdef";
+        let api_aad = build_wrap_aad(&UID1, "abcdef", 1);
+        let prf_aad = build_wrap_aad_prf(&UID1, cid, 1);
+        assert_ne!(api_aad, prf_aad);
+    }
+
+    #[test]
+    fn prf_aad_layout_matches_spec() {
+        // info(21) || uuid(16) || u16(len) || binding || u16(ver)
+        let cid = &[0x01, 0x02, 0x03, 0x04];
+        let aad = build_wrap_aad_prf(&UID1, cid, 1);
+        let info = HKDF_INFO_AMK_WRAP_PRF.as_bytes();
+        assert_eq!(&aad[..info.len()], info);
+        assert_eq!(&aad[info.len()..info.len() + 16], &UID1);
+        let len_off = info.len() + 16;
+        assert_eq!(
+            &aad[len_off..len_off + 2],
+            &(cid.len() as u16).to_be_bytes()
+        );
+        assert_eq!(&aad[len_off + 2..len_off + 2 + cid.len()], cid);
+        assert_eq!(&aad[len_off + 2 + cid.len()..], &1u16.to_be_bytes()[..],);
+    }
+
+    #[test]
+    fn prf_aad_handles_variable_length_credential_id() {
+        // WebAuthn credential IDs vary widely (16 bytes for some authenticators,
+        // up to several hundred for others). The u16 len-prefix must accommodate.
+        let short_cid = vec![0xAB; 16];
+        let long_cid = vec![0xCD; 256];
+        let a1 = build_wrap_aad_prf(&UID1, &short_cid, 1);
+        let a2 = build_wrap_aad_prf(&UID1, &long_cid, 1);
+        assert_ne!(a1, a2);
+    }
+
     // ── AES-256-GCM round-trip ──────────────────────────────────────
 
     #[test]
@@ -658,6 +793,85 @@ mod tests {
 
         let unwrapped = unwrap_amk(&wrapped, &wrap_key, &aad).unwrap();
         assert_eq!(unwrapped, amk);
+    }
+
+    #[test]
+    fn wrap_unwrap_prf_deterministic_roundtrip() {
+        // Canonical PRF wrap vector. Outputs printed by this test are the
+        // hex values pasted into spec/v1/amk.vectors.json#wrap_unwrap_prf.
+        let amk = [0x11; AMK_LEN];
+        let prf_output = [0x22; 32];
+        let cred_salt = [0x33; 32];
+        let credential_id: &[u8] = &[
+            0x8f, 0xee, 0x7f, 0x86, 0xa0, 0xeb, 0x4d, 0x27, 0x9a, 0xe4, 0xa7, 0x5f, 0xb0, 0xf8,
+            0xa9, 0x00,
+        ];
+
+        let wrap_key = derive_amk_wrap_key_from_prf(&prf_output, &cred_salt).unwrap();
+        let aad = build_wrap_aad_prf(&TEST_UID, credential_id, 1);
+        let wrapped = wrap_amk(&amk, &wrap_key, &aad, &fixed_rand(0x44)).unwrap();
+        assert!(wrapped.nonce.iter().all(|&b| b == 0x44));
+
+        // Round-trip
+        let unwrapped = unwrap_amk(&wrapped, &wrap_key, &aad).unwrap();
+        assert_eq!(unwrapped, amk);
+
+        // Cross-credential AAD MUST cause unwrap failure.
+        let other_cred: &[u8] = b"different-credential-id";
+        let bad_aad = build_wrap_aad_prf(&TEST_UID, other_cred, 1);
+        assert!(unwrap_amk(&wrapped, &wrap_key, &bad_aad).is_err());
+
+        // Wrong cred_salt MUST cause unwrap failure.
+        let bad_salt = [0x99; 32];
+        let bad_wrap_key = derive_amk_wrap_key_from_prf(&prf_output, &bad_salt).unwrap();
+        assert!(unwrap_amk(&wrapped, &bad_wrap_key, &aad).is_err());
+    }
+
+    /// Prints byte-exact PRF vector hex values for pasting into
+    /// `spec/v1/amk.vectors.json#wrap_unwrap_prf`. Run with:
+    ///   `cargo test -p secrt-core print_prf_wrap_vector_for_spec -- --nocapture`
+    /// Ignored by default to avoid noise in normal test runs.
+    #[test]
+    #[ignore]
+    fn print_prf_wrap_vector_for_spec() {
+        let amk = [0x11; AMK_LEN];
+        let prf_output = [0x22; 32];
+        let cred_salt = [0x33; 32];
+        let credential_id: &[u8] = &[
+            0x8f, 0xee, 0x7f, 0x86, 0xa0, 0xeb, 0x4d, 0x27, 0x9a, 0xe4, 0xa7, 0x5f, 0xb0, 0xf8,
+            0xa9, 0x00,
+        ];
+
+        let wrap_key = derive_amk_wrap_key_from_prf(&prf_output, &cred_salt).unwrap();
+        let aad = build_wrap_aad_prf(&TEST_UID, credential_id, 1);
+        let wrapped = wrap_amk(&amk, &wrap_key, &aad, &fixed_rand(0x44)).unwrap();
+        let amk_commit = compute_amk_commit(&amk);
+
+        let hex = |bytes: &[u8]| -> String {
+            bytes
+                .iter()
+                .map(|b| format!("{:02x}", b))
+                .collect::<String>()
+        };
+        let b64u = |bytes: &[u8]| -> String {
+            use base64::engine::general_purpose::URL_SAFE_NO_PAD;
+            use base64::Engine;
+            URL_SAFE_NO_PAD.encode(bytes)
+        };
+        eprintln!("\n--- PRF wrap vector (paste into spec/v1/amk.vectors.json) ---");
+        eprintln!("amk_hex            = {}", hex(&amk));
+        eprintln!("prf_output_hex     = {}", hex(&prf_output));
+        eprintln!("cred_salt_hex      = {}", hex(&cred_salt));
+        eprintln!("credential_id_hex  = {}", hex(credential_id));
+        eprintln!("user_id            = 00000000-0000-0000-0000-000000000001");
+        eprintln!("version            = 1");
+        eprintln!("nonce_fill_byte    = 0x44");
+        eprintln!("wrap_key_hex       = {}", hex(&wrap_key));
+        eprintln!("aad_hex            = {}", hex(&aad));
+        eprintln!("ct_b64url          = {}", b64u(&wrapped.ct));
+        eprintln!("nonce_b64url       = {}", b64u(&wrapped.nonce));
+        eprintln!("amk_commit_hex     = {}", hex(&amk_commit));
+        eprintln!("--- end vector ---\n");
     }
 
     #[test]

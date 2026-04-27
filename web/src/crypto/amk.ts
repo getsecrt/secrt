@@ -25,6 +25,7 @@ export const NOTE_SALT_LEN = 32;
 export const SAS_LEN = 3;
 
 const HKDF_INFO_AMK_WRAP = 'secrt-amk-wrap-v1';
+const HKDF_INFO_AMK_WRAP_PRF = 'secrt-amk-wrap-prf-v1';
 const HKDF_INFO_NOTE = 'secrt-note-v1';
 const HKDF_INFO_AMK_TRANSFER = 'secrt-amk-transfer-v1';
 const HKDF_INFO_SAS = 'secrt-amk-sas-v1';
@@ -157,27 +158,43 @@ export async function deriveAmkWrapKey(
 }
 
 /**
- * Build domain-tagged AAD for AMK wrapping.
+ * Derive the AMK wrap key from a WebAuthn PRF extension output.
  *
- * Layout (all integers big-endian):
- *   info                    // "secrt-amk-wrap-v1" (UTF-8, 17 bytes)
- *   user_id_uuid            // raw 16 bytes (UUIDv7)
- *   u16 len(key_prefix)
- *   key_prefix              // UTF-8
- *   u16 version
+ * `wrap_key = HKDF-SHA-256(ikm = prfOutput, salt = credSalt, info = "secrt-amk-wrap-prf-v1", len = 32)`.
  *
- * Convention: fixed-size protocol primitives (UUIDs, version) are
- * included verbatim with no length prefix. Variable-length fields
- * get a u16 big-endian byte-length prefix. Matches the PRF wrap
- * path (`crates/secrt-server/docs/prf-amk-wrapping.md` §3.2).
+ * Both inputs MUST be exactly 32 bytes — `prfOutput` is the WebAuthn
+ * `extensions.prf.eval.first` result, `credSalt` is the per-credential
+ * server-generated salt returned in the register-finish response.
+ *
+ * Mirror of `derive_amk_wrap_key_from_prf` in `secrt-core/src/amk.rs`.
+ * See `spec/v1/api.md` §"Transport D: PRF wrap" for the normative contract.
  */
-export function buildWrapAad(
+export async function deriveAmkWrapKeyFromPrf(
+  prfOutput: Uint8Array,
+  credSalt: Uint8Array,
+): Promise<Uint8Array> {
+  if (prfOutput.length !== 32) throw new Error('PRF output must be 32 bytes');
+  if (credSalt.length !== 32) throw new Error('cred_salt must be 32 bytes');
+  return hkdfDerive(prfOutput, credSalt, HKDF_INFO_AMK_WRAP_PRF, WRAP_KEY_LEN);
+}
+
+/**
+ * Internal: build the AAD byte string used by every AMK wrap path.
+ *
+ * Layout (all integers big-endian, per `spec/v1/api.md` §"AAD construction"):
+ *   info                    // transport-specific HKDF info string (UTF-8)
+ *   user_id_uuid            // raw 16 bytes (UUIDv7)
+ *   u16 len(binding_id)
+ *   binding_id              // transport-specific binding identifier
+ *   u16 version
+ */
+function buildWrapAadInner(
+  info: string,
   userId: string,
-  keyPrefix: string,
+  bindingId: Uint8Array,
   version: number,
 ): Uint8Array {
   const userIdBytes = uuidStringToBytes(userId);
-  const keyPrefixBytes = utf8Encode(keyPrefix);
   const u16 = (n: number): Uint8Array => {
     const out = new Uint8Array(2);
     out[0] = (n >> 8) & 0xff;
@@ -185,11 +202,50 @@ export function buildWrapAad(
     return out;
   };
   return concatBytes(
-    utf8Encode(HKDF_INFO_AMK_WRAP),
+    utf8Encode(info),
     userIdBytes,
-    u16(keyPrefixBytes.length),
-    keyPrefixBytes,
+    u16(bindingId.length),
+    bindingId,
     u16(version),
+  );
+}
+
+/**
+ * Build AAD for the API-key root wrap transport (Transport A).
+ *
+ * `binding_id` is the UTF-8 bytes of the API-key prefix; `info` is
+ * `"secrt-amk-wrap-v1"`. Mirror of `build_wrap_aad` in `secrt-core`.
+ */
+export function buildWrapAad(
+  userId: string,
+  keyPrefix: string,
+  version: number,
+): Uint8Array {
+  return buildWrapAadInner(
+    HKDF_INFO_AMK_WRAP,
+    userId,
+    utf8Encode(keyPrefix),
+    version,
+  );
+}
+
+/**
+ * Build AAD for the WebAuthn PRF wrap transport (Transport D).
+ *
+ * `binding_id` is the raw bytes of the WebAuthn credential ID
+ * (base64url-decoded); `info` is `"secrt-amk-wrap-prf-v1"`.
+ * Mirror of `build_wrap_aad_prf` in `secrt-core`.
+ */
+export function buildWrapAadPrf(
+  userId: string,
+  credentialId: Uint8Array,
+  version: number,
+): Uint8Array {
+  return buildWrapAadInner(
+    HKDF_INFO_AMK_WRAP_PRF,
+    userId,
+    credentialId,
+    version,
   );
 }
 

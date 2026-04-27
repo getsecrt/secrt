@@ -3,8 +3,9 @@ use base64::Engine;
 use serde::Deserialize;
 
 use secrt_core::amk::{
-    build_wrap_aad, compute_amk_commit, compute_sas, decrypt_note, derive_amk_wrap_key,
-    derive_transfer_key, encrypt_note, unwrap_amk, wrap_amk, EncryptedNote,
+    build_wrap_aad, build_wrap_aad_prf, compute_amk_commit, compute_sas, decrypt_note,
+    derive_amk_wrap_key, derive_amk_wrap_key_from_prf, derive_transfer_key, encrypt_note,
+    unwrap_amk, wrap_amk, EncryptedNote,
 };
 use secrt_core::types::EnvelopeError;
 
@@ -19,6 +20,7 @@ struct AmkVectors {
 #[derive(Debug, Deserialize)]
 struct Constants {
     hkdf_info_amk_wrap: String,
+    hkdf_info_amk_wrap_prf: String,
     hkdf_info_note: String,
     hkdf_info_amk_transfer: String,
     hkdf_info_sas: String,
@@ -30,6 +32,7 @@ struct Constants {
 struct Vectors {
     amk_commit: AmkCommitVector,
     wrap_unwrap: WrapUnwrapVector,
+    wrap_unwrap_prf: WrapUnwrapPrfVector,
     note_encrypt_decrypt: NoteEncryptDecryptVector,
     transfer_key: TransferKeyVector,
     sas: SasVector,
@@ -53,6 +56,22 @@ struct WrapUnwrapVector {
     aad_hex: String,
     ct_b64url: String,
     nonce_b64url: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct WrapUnwrapPrfVector {
+    amk_hex: String,
+    prf_output_hex: String,
+    cred_salt_hex: String,
+    user_id: String,
+    credential_id_hex: String,
+    version: u16,
+    nonce_fill_byte: String,
+    wrap_key_hex: String,
+    aad_hex: String,
+    ct_b64url: String,
+    nonce_b64url: String,
+    amk_commit_hex: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -108,6 +127,10 @@ fn amk_constants_match_spec() {
     assert_eq!(
         v.constants.hkdf_info_amk_wrap,
         secrt_core::amk::HKDF_INFO_AMK_WRAP
+    );
+    assert_eq!(
+        v.constants.hkdf_info_amk_wrap_prf,
+        secrt_core::amk::HKDF_INFO_AMK_WRAP_PRF
     );
     assert_eq!(v.constants.hkdf_info_note, secrt_core::amk::HKDF_INFO_NOTE);
     assert_eq!(
@@ -181,6 +204,62 @@ fn wrap_unwrap_vector() {
     // Verify unwrap round-trip
     let unwrapped = unwrap_amk(&wrapped, &wrap_key, &aad).expect("unwrap amk");
     assert_eq!(unwrapped, amk, "unwrap round-trip mismatch");
+}
+
+#[test]
+fn wrap_unwrap_prf_vector() {
+    let v = load_vectors().vectors.wrap_unwrap_prf;
+    let amk = hex::decode(&v.amk_hex).expect("valid amk hex");
+    let prf_output = hex::decode(&v.prf_output_hex).expect("valid prf_output hex");
+    let cred_salt = hex::decode(&v.cred_salt_hex).expect("valid cred_salt hex");
+    let credential_id = hex::decode(&v.credential_id_hex).expect("valid credential_id hex");
+    let expected_wrap_key = hex::decode(&v.wrap_key_hex).expect("valid wrap_key hex");
+    let expected_aad = hex::decode(&v.aad_hex).expect("valid aad hex");
+    let expected_ct = URL_SAFE_NO_PAD
+        .decode(&v.ct_b64url)
+        .expect("valid ct b64url");
+    let expected_nonce = URL_SAFE_NO_PAD
+        .decode(&v.nonce_b64url)
+        .expect("valid nonce b64url");
+    let expected_amk_commit = hex::decode(&v.amk_commit_hex).expect("valid amk_commit hex");
+    let nonce_fill = parse_fill_byte(&v.nonce_fill_byte);
+
+    // Verify wrap key derivation: HKDF(prf_output, cred_salt, "secrt-amk-wrap-prf-v1", 32)
+    let wrap_key =
+        derive_amk_wrap_key_from_prf(&prf_output, &cred_salt).expect("derive prf wrap key");
+    assert_eq!(wrap_key, expected_wrap_key, "wrap_key derivation mismatch");
+
+    // Verify AAD construction with credential_id raw bytes as binding_id.
+    let user_id_bytes: [u8; 16] = {
+        let raw = v.user_id.replace('-', "");
+        assert_eq!(raw.len(), 32, "user_id must be a canonical UUID string");
+        let mut out = [0u8; 16];
+        for (i, out_byte) in out.iter_mut().enumerate() {
+            *out_byte = u8::from_str_radix(&raw[2 * i..2 * i + 2], 16)
+                .expect("valid hex digits in user_id UUID");
+        }
+        out
+    };
+    let aad = build_wrap_aad_prf(&user_id_bytes, &credential_id, v.version);
+    assert_eq!(aad, expected_aad, "PRF AAD mismatch");
+
+    // Verify wrap produces expected ciphertext
+    let wrapped = wrap_amk(&amk, &wrap_key, &aad, &fixed_rand(nonce_fill)).expect("wrap amk");
+    assert_eq!(wrapped.ct, expected_ct, "PRF ciphertext mismatch");
+    assert_eq!(wrapped.nonce, expected_nonce, "PRF nonce mismatch");
+
+    // Verify unwrap round-trip
+    let unwrapped = unwrap_amk(&wrapped, &wrap_key, &aad).expect("unwrap amk");
+    assert_eq!(unwrapped, amk, "PRF unwrap round-trip mismatch");
+
+    // Cross-check amk_commit (shared with api-key wrappers — the same AMK
+    // produces the same commit regardless of which transport wrapped it).
+    let commit = compute_amk_commit(&amk);
+    assert_eq!(
+        commit.as_slice(),
+        expected_amk_commit.as_slice(),
+        "PRF wrapper amk_commit mismatch"
+    );
 }
 
 #[test]

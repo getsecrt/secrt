@@ -2,7 +2,9 @@ import { describe, it, expect } from 'vitest';
 import {
   computeAmkCommit,
   deriveAmkWrapKey,
+  deriveAmkWrapKeyFromPrf,
   buildWrapAad,
+  buildWrapAadPrf,
   wrapAmk,
   unwrapAmk,
   encryptNote,
@@ -70,6 +72,60 @@ describe('AMK cross-implementation vectors', () => {
 
       const amk = await unwrapAmk(wrapped, wrapKey, aad);
       expect(bytesToHex(amk)).toBe(v.amk_hex);
+    });
+  });
+
+  describe('wrap_unwrap_prf', () => {
+    const v = vectors.vectors.wrap_unwrap_prf;
+
+    it('derives the same PRF wrap key as Rust', async () => {
+      const prfOutput = hexToBytes(v.prf_output_hex);
+      const credSalt = hexToBytes(v.cred_salt_hex);
+      const wrapKey = await deriveAmkWrapKeyFromPrf(prfOutput, credSalt);
+      expect(bytesToHex(wrapKey)).toBe(v.wrap_key_hex);
+    });
+
+    it('builds the same PRF AAD as Rust', () => {
+      const credentialId = hexToBytes(v.credential_id_hex);
+      const aad = buildWrapAadPrf(v.user_id, credentialId, v.version);
+      expect(bytesToHex(aad)).toBe(v.aad_hex);
+    });
+
+    it('can decrypt Rust-encrypted PRF-wrapped AMK', async () => {
+      const prfOutput = hexToBytes(v.prf_output_hex);
+      const credSalt = hexToBytes(v.cred_salt_hex);
+      const credentialId = hexToBytes(v.credential_id_hex);
+      const wrapKey = await deriveAmkWrapKeyFromPrf(prfOutput, credSalt);
+      const aad = buildWrapAadPrf(v.user_id, credentialId, v.version);
+
+      const wrapped = {
+        ct: v.ct_b64url,
+        nonce: v.nonce_b64url,
+        version: v.version,
+      };
+
+      const amk = await unwrapAmk(wrapped, wrapKey, aad);
+      expect(bytesToHex(amk)).toBe(v.amk_hex);
+    });
+
+    it('matches Rust amk_commit for the wrapped AMK', async () => {
+      const amk = hexToBytes(v.amk_hex);
+      const commit = await computeAmkCommit(amk);
+      expect(bytesToHex(commit)).toBe(v.amk_commit_hex);
+    });
+
+    it('rejects non-32-byte PRF output', async () => {
+      const credSalt = hexToBytes(v.cred_salt_hex);
+      await expect(
+        deriveAmkWrapKeyFromPrf(new Uint8Array(16), credSalt),
+      ).rejects.toThrow('PRF output must be 32 bytes');
+    });
+
+    it('rejects non-32-byte cred_salt', async () => {
+      const prfOutput = hexToBytes(v.prf_output_hex);
+      await expect(
+        deriveAmkWrapKeyFromPrf(prfOutput, new Uint8Array(16)),
+      ).rejects.toThrow('cred_salt must be 32 bytes');
     });
   });
 
