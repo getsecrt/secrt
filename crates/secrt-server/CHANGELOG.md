@@ -2,6 +2,20 @@
 
 ## Unreleased
 
+## 0.16.6 — 2026-04-27
+
+### Fixed
+
+- **Favicon CSP violation on iOS Safari.** `web/public/favicon.svg` contained an inline `<style>` block that swapped path fills under `prefers-color-scheme: dark`. iOS Safari subjects SVG-internal styles loaded via `<link rel="icon">` to the parent document's `style-src`, so the strict CSP shipped in 0.16.5 blocked the inline style and Safari fell back to rendering `apple-touch-icon.png` (the white-rounded-rect treatment) instead of the SVG. Drop the inline style and replace with two static SVG variants.
+
+### Changed
+
+- **Responsive favicon now uses two static SVG files via `media` queries on `<link rel="icon">`** instead of an inline SVG `<style>`. The `web/public/favicon.svg` is now the light variant; `web/public/favicon-dark.svg` is new and contains the same paths with the two `fill` colours swapped. `web/index.html` references both with `media="(prefers-color-scheme: dark)"` and `media="(prefers-color-scheme: light)"`. The dark variant is listed first and the light variant last — Firefox doesn't honour `media` on `<link rel="icon">` (longstanding open bug) and falls back to the last `<link rel="icon">` in source order, so Firefox users always see the higher-contrast light variant. Chrome / Edge honour the `media` query and swap correctly. Safari behaviour for `media` on `<link rel="icon">` is empirically uncertain and is the open question this release is meant to test.
+
+### Performance
+
+- **`touch-action: manipulation` on the mobile hamburger button.** Tells iOS Safari the element is for tap only, skipping the gesture-recognition wait that can otherwise add up to 300ms before the click event fires. Defensive change — small, free win on every mobile interaction.
+
 ## 0.16.5 — 2026-04-27
 
 ### Security
