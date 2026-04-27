@@ -2,9 +2,16 @@
 
 ## Unreleased
 
+## 0.16.7 — 2026-04-27
+
+### Fixed
+
+- **`Cache-Control: immutable` no longer applied to non-content-hashed static assets.** `crates/secrt-server/src/assets.rs` previously sent `public, max-age=31536000, immutable` for *every* file under `/static/*`, including stable-URL files like `favicon.svg`, `apple-touch-icon.png`, `og-image.png`, and the maskable manifest icon. `immutable` is only safe for filenames whose URL changes when content changes (Vite's content-hashed bundles in `assets/`); applying it to stable-URL files locks browsers to whatever they fetched first, so any future favicon/og-image update is undeployable until each user clears cache. Now: `assets/*` keeps the immutable forever-cache, everything else gets `public, max-age=86400` (1 day).
+- **Renamed `favicon.svg` → `favicon-light.svg`** to bust the iOS-cached old version. The 0.16.5 → 0.16.6 patch removed an inline `<style>` block from `favicon.svg`, but the broken cache-control sent by 0.16.4 / 0.16.5 had already locked iOS Safari into "year-immutable" caching of the *old* bytes — which still triggered a `style-src` CSP violation each page load even after the server-side fix was deployed. Cache invalidation by URL change. Future favicon tweaks deploy cleanly thanks to the cache-control fix above.
+
 ### Changed
 
-- **Mobile nav logo is now a link to the homepage** when the user isn't already on `/`. On the home route the logo renders as plain decoration so the click is suppressed (avoids a no-op router round-trip). Universal-pattern UX expectation; previously the small breakpoint logo was non-interactive.
+- **Mobile nav logo is now a link to the homepage** when the user isn't already on `/`. On the home route the logo renders as plain decoration so the click is suppressed (avoids a no-op router round-trip). Universal-pattern UX expectation; previously the small-breakpoint logo was non-interactive.
 
 ## 0.16.6 — 2026-04-27
 

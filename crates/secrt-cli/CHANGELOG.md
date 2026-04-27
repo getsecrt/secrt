@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 0.16.7 — 2026-04-27
+
+No CLI-facing changes. Workspace version bump to keep the CLI release in lockstep with the server release (which fixes a stale-favicon CSP issue and a Cache-Control bug — see `crates/secrt-server/CHANGELOG.md`).
+
 ## 0.16.6 — 2026-04-27
 
 No CLI-facing changes. Workspace version bump to keep the CLI release in lockstep with the server release (which fixes a favicon CSP issue exposed by the 0.16.5 enforcing strict CSP — see `crates/secrt-server/CHANGELOG.md`).

@@ -36,7 +36,17 @@ fn cache_control_for_path(path: &str) -> &'static str {
     if path.ends_with("sw.js") || path.ends_with("site.webmanifest") {
         return "no-store";
     }
-    "public, max-age=31536000, immutable"
+    // Content-hashed bundles under assets/ have URL-bound identity, so the
+    // immutable cache is safe — any content change produces a new filename
+    // and therefore a new URL.
+    if path.starts_with("assets/") {
+        return "public, max-age=31536000, immutable";
+    }
+    // Stable-URL assets (favicons, OG images, apple-touch-icon, manifest
+    // icons, etc.) keep their filename across content changes. Caching them
+    // as immutable would lock users to whatever they fetched first; a 1-day
+    // max-age lets updates roll out without forcing a cache clear.
+    "public, max-age=86400"
 }
 
 /// Returns raw bytes for a built web asset from embedded assets, env override,
@@ -99,9 +109,12 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn serve_embedded_returns_cached_body_for_existing_asset() {
-        let Some(path) = WebAssets::iter().next().map(|p| p.to_string()) else {
-            eprintln!("skipping: no embedded assets");
+    async fn serve_embedded_returns_cached_body_for_hashed_asset() {
+        let Some(path) = WebAssets::iter()
+            .find(|p| p.starts_with("assets/"))
+            .map(|p| p.to_string())
+        else {
+            eprintln!("skipping: no embedded hashed assets");
             return;
         };
         let resp = serve_embedded(axum::extract::Path(path)).await;
@@ -125,11 +138,32 @@ mod tests {
 
     #[test]
     fn cache_control_defaults_and_overrides() {
+        // Content-hashed bundles get the immutable forever-cache.
         assert_eq!(
             cache_control_for_path("assets/index-123.js"),
             "public, max-age=31536000, immutable"
         );
+        // sw.js and the manifest must always revalidate.
         assert_eq!(cache_control_for_path("sw.js"), "no-store");
         assert_eq!(cache_control_for_path("site.webmanifest"), "no-store");
+        // Stable-URL static assets cache for a day, NOT immutable, so a
+        // content change deploys cleanly without users needing to clear
+        // their cache.
+        assert_eq!(
+            cache_control_for_path("favicon-light.svg"),
+            "public, max-age=86400"
+        );
+        assert_eq!(
+            cache_control_for_path("favicon-dark.svg"),
+            "public, max-age=86400"
+        );
+        assert_eq!(
+            cache_control_for_path("apple-touch-icon.png"),
+            "public, max-age=86400"
+        );
+        assert_eq!(
+            cache_control_for_path("og-image.png"),
+            "public, max-age=86400"
+        );
     }
 }
