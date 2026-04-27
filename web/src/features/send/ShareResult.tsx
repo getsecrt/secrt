@@ -9,12 +9,13 @@ import { CopyButton } from '../../components/CopyButton';
 import { formatExpiryDate } from '../../lib/ttl';
 import { CardHeading } from '../../components/CardHeading';
 
+const QR_SIZE_PX = 192;
+
 interface QrCanvasProps {
   url: string;
-  size?: number;
 }
 
-function QrCanvas({ url, size = 192 }: QrCanvasProps) {
+function QrCanvas({ url }: QrCanvasProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -23,13 +24,11 @@ function QrCanvas({ url, size = 192 }: QrCanvasProps) {
     const qr = encode(url);
     const modules = qr.size;
     const dpr = window.devicePixelRatio || 1;
-    const px = Math.floor((size * dpr) / modules);
+    const px = Math.floor((QR_SIZE_PX * dpr) / modules);
     const dim = px * modules;
 
     canvas.width = dim;
     canvas.height = dim;
-    canvas.style.width = `${size}px`;
-    canvas.style.height = `${size}px`;
 
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
@@ -46,14 +45,14 @@ function QrCanvas({ url, size = 192 }: QrCanvasProps) {
         }
       }
     }
-  }, [url, size]);
+  }, [url]);
 
   return (
     <canvas
       ref={canvasRef}
       aria-label="QR code for share URL"
       role="img"
-      class=""
+      class="size-48"
     />
   );
 }
