@@ -49,9 +49,9 @@ pub struct WrappedAmk {
     pub version: u16,
 }
 ```
-AAD: `"secrt-amk-wrap-v1" || user_id_uuid(16B) || u16be(len(key_prefix)) || key_prefix || u16be(version)` (amk.rs:72–97).
+AAD: `"secrt-amk-wrap-v1" || user_id_uuid(16B) || u16be(len(binding_id)) || binding_id || u16be(version)` (amk.rs:72–97). For the api-key transport `binding_id = key_prefix` UTF-8 bytes; the Rust parameter is currently named `key_prefix` and gets renamed to `binding_id: &[u8]` in Phase B.
 
-Convention (applies to all AMK wrap paths, including §3.2 below): fixed-size protocol primitives (UUIDs, the version field) are included verbatim with no length prefix. Variable-length fields get a u16 big-endian byte-length prefix.
+Convention (applies to all AMK wrap paths): fixed-size protocol primitives (UUIDs, the version field) are included verbatim with no length prefix. Variable-length fields get a u16 big-endian byte-length prefix. The normative version of this convention lives in `spec/v1/api.md` §"AMK wrapping (normative crypto)".
 
 ### 2.4 Existing server schema (relevant tables)
 ```sql
@@ -105,21 +105,29 @@ wrap_key        = HKDF-SHA256(
 
 **Why the `cred_salt` is the HKDF salt, not the PRF salt:** the PRF salt is an application-level domain separator passed into the authenticator — it's fine for it to be a fixed per-RP constant (see §3.4). Per-credential randomness belongs in the HKDF step where it serves its cryptographic purpose (breaks same-input cross-credential identity) without confusing the PRF layer.
 
-### 3.2 New wrapped-AMK wire format
+### 3.2 Wrapped-AMK wire format (refers to normative spec)
 
-Reuse `WrappedAmk { ct, nonce, version }` but with a different AAD and a new storage row type.
+Reuses the **normative AMK wrap format** defined in `spec/v1/api.md` §"AMK wrapping (normative crypto)" — same `WrappedAmk { ct, nonce, version }` shape, same AAD layout, same cipher and nonce length. The PRF transport differs only in the per-transport variables documented in §"Transport D: PRF wrap":
 
-AAD: `"secrt-amk-wrap-prf-v1" || user_id || credential_id_bytes || version_u16_be`
+- `info` = `"secrt-amk-wrap-prf-v1"` (used both as HKDF info and as AAD prefix)
+- `binding_id` = raw bytes of the WebAuthn credential ID (base64url-decoded)
+- IKM = PRF extension output (32 bytes)
+- HKDF salt = `cred_salt` (per-credential, server-generated; see §3.4)
 
-Where `credential_id_bytes` is the raw bytes (not base64url), length-prefixed with `u16_be` to avoid ambiguity if variable-length. Exact encoding:
+Concretely:
 
 ```
-aad = b"secrt-amk-wrap-prf-v1"
-    + user_id_uuid.as_bytes()              // 16 bytes
-    + (len(cred_id) as u16_be).to_bytes()  // 2 bytes
-    + cred_id_bytes                        // variable
-    + (version as u16_be).to_bytes()       // 2 bytes
+aad = b"secrt-amk-wrap-prf-v1"               // info, 21 bytes
+    + user_id_uuid.as_bytes()                // 16 bytes
+    + (len(cred_id) as u16_be).to_bytes()    // 2 bytes
+    + cred_id_bytes                          // variable
+    + (version as u16_be).to_bytes()         // 2 bytes
 ```
+
+This matches the normative AAD shape with `info = HKDF_INFO_AMK_WRAP_PRF` and
+`binding_id = cred_id_bytes`. Implementations MUST NOT introduce a separate AAD format
+for PRF; they MUST reuse the same AAD-construction routine used for Transport A,
+parameterized by the transport-specific `info` and `binding_id`.
 
 ### 3.3 Server schema additions
 
@@ -153,14 +161,21 @@ CREATE INDEX prf_amk_wrappers_user ON prf_amk_wrappers(user_id);
 
 A separate table (not a union column on `amk_wrappers`) so the existing table stays clean and the foreign key to `passkeys.id` is tight. Read cost of checking both tables on login is acceptable (both indexed by `user_id`).
 
-### 3.4 PRF salt (the one passed to the authenticator)
+### 3.4 Two distinct salts — be precise about which is which
 
-Per-RP constant: `PRF_EVAL_SALT = SHA256("secrt.is/v1/amk-prf-eval-salt")` (32 bytes, computed at build time).
+This design uses two 32-byte salts, with very different roles. Naming them clearly avoids implementation mix-ups.
 
-Why constant, not per-credential:
-- The **PRF salt** is a domain separator telling the authenticator "give me the secret for _this purpose_." It doesn't provide secrecy (attacker can see it in the API call).
-- Per-credential randomness is already supplied by HKDF's salt (`cred_salt`). Having randomness at both the PRF and HKDF layers buys nothing and complicates key rotation.
-- Every device syncing the same passkey produces the same PRF output for the same salt — we depend on this for cross-device login.
+**`PRF_EVAL_SALT`** — the input passed to the authenticator at `extensions.prf.eval.first` during `navigator.credentials.create/get`.
+- Per-RP constant: `PRF_EVAL_SALT = SHA-256("secrt.is/v1/amk-prf-eval-salt")` (computed at build time, hardcoded in client code).
+- Stable for the lifetime of the RP. Same value on every device for every credential.
+- Why a constant, not per-credential: the PRF salt is an application-level domain separator telling the authenticator "give me the secret for _this purpose_." It does not provide secrecy (attacker sees it in the API call). Per-credential randomness belongs in the HKDF step where it serves its cryptographic purpose. Using the same eval salt across the synced device set is what makes synced-passkey PRF determinism possible — change it and the PRF output changes, breaking new-device unlock.
+
+**`cred_salt`** — the salt passed to HKDF when deriving the wrap key from the PRF output.
+- Per-credential, per-account 32-byte random value.
+- **Generated server-side** at passkey registration (`handle_passkey_register_finish_entry`) when the registering client reports `prf.supported = true`. Stored on the passkey row (`passkeys.cred_salt`).
+- Returned to the client in the register-finish response (`prf_cred_salt` field, base64url) so the client can immediately wrap the AMK and PUT the wrapper.
+- Surfaced inline in login-finish responses on subsequent logins so a fresh-device client can unwrap the AMK in one round-trip without a second GET.
+- Why server-side: keeps salt issuance single-source-of-truth, prevents client-side bugs that would silently produce a salt mismatch between wrap and unwrap, and makes it auditable when revisiting credentials.
 
 ### 3.5 New HTTP routes
 
@@ -464,32 +479,146 @@ Losing all of (1) + all passkey devices simultaneously = data loss. This is expl
 
 ---
 
-## 9. Test Vectors (to fill in during implementation)
+## 9. Test Vectors
 
-Until Rust and TS impls agree on these, don't ship.
+Canonical vectors live in `spec/v1/amk.vectors.json` under
+`vectors.wrap_unwrap_prf`. Both Rust (`crates/secrt-core/tests/amk_vectors.rs::wrap_unwrap_prf_vector`)
+and TypeScript (`web/src/crypto/amk.test.ts::wrap_unwrap_prf`) load the same
+JSON and verify byte-identical output for `wrap_key`, `aad`, `ct`, `nonce`,
+and `amk_commit`. CI fails if either implementation drifts.
 
-```
-// Vector 1: happy-path wrap + unwrap
-prf_output       = 0x<32 bytes, fixed>
-cred_salt        = 0x<32 bytes, fixed>
-amk              = 0x<32 bytes, fixed>
-user_id          = <fixed UUID>
-credential_id    = 0x<variable, fixed>
-version          = 1
-nonce            = 0x<12 bytes, fixed>
+The vector covers:
 
-expected wrap_key = HKDF(prf_output, cred_salt, "secrt-amk-wrap-prf-v1", 32)
-                  = 0x<fill in>
-expected aad      = "secrt-amk-wrap-prf-v1" ‖ user_id ‖ u16_be(len(cid)) ‖ cid ‖ u16_be(1)
-expected ct       = AES-256-GCM.encrypt(wrap_key, nonce, aad, amk)
-                  = 0x<fill in>
-expected amk_commit = SHA256("secrt-amk-commit-v1" ‖ amk)
-                  = 0x<fill in>
+- HKDF wrap-key derivation from a fixed PRF output and `cred_salt`.
+- AAD construction with a 16-byte credential_id as `binding_id`.
+- AES-256-GCM seal with a deterministic (fill-byte) nonce.
+- AMK commitment matches the api-key transport (same AMK, same commit).
 
-// Vector 2: cross-credential replay must fail
-(same inputs as Vector 1 but AAD uses a different credential_id)
-→ decrypt must fail with InvalidTag
-```
+Negative cases live in unit tests inside `crates/secrt-core/src/amk.rs`:
+
+- Wrong credential_id in AAD → `unwrap_amk` fails (`prf_aad_differs_from_apikey_aad`,
+  `wrap_unwrap_prf_deterministic_roundtrip`).
+- Wrong `cred_salt` produces a different wrap key → unwrap fails.
+- Non-32-byte `prf_output` or `cred_salt` rejected at derive time.
+- PRF wrap key MUST differ from API-key wrap key even given identical inputs
+  (domain separation via different info string).
+
+---
+
+## 11. 2026-04 spike findings
+
+Real-device verification using `web/prototypes/prf-spike/`. Records actual PRF
+behavior observed per surface. Update as more devices are tested.
+
+### Observed (so far)
+
+| Surface                                          | PRF-on-create | Login PRF | Notes                                                      |
+| ------------------------------------------------ | ------------- | --------- | ---------------------------------------------------------- |
+| Chrome on macOS + Apple Passwords (iCloud)       | ✓             |           | fp `ca3f9925 6f5b083c` (single device, single credential)  |
+| Safari 18+ on macOS + iCloud Keychain            | ✓             |           | fp `282b9779 0b3c05a9` (different credential than ↑)       |
+| Safari on iOS + Apple Passwords (iCloud)         | ✓             | ✓         | fp `150eed07 a4944b7d`. Round-trip OK on same device.      |
+| Chrome on Android + Google Password Manager      | ✓             |           | wrap+unwrap OK (fingerprint not recorded)                  |
+| Chrome on macOS + Google Password Manager        | ✗             | ✗         | `enabled=false` — see GPM-on-desktop caveat below          |
+| Bitwarden as picker (Chrome on macOS)            | ✗             | ✗         | `prf: undefined` — see Bitwarden caveat                    |
+| 1Password as picker (Safari on macOS)            | ✗             | ✗         | `prf: undefined` — see 1Password caveat                    |
+
+### iOS Safari naming quirk (not a bug)
+
+At login, iOS Safari returns `enabled=false hasResultsFirst=true`. The `enabled` field is
+only meaningfully set at create time; at get time the relevant signal is whether
+`results.first` is present. Our spike's `describePrfExt` shows both fields literally; the
+correct interpretation is "PRF output present" whenever `hasResultsFirst=true`. The Phase
+B and Phase D code should never read `enabled` at get time — only `results.first`.
+
+### 1Password caveat
+
+1Password as a credential picker also returned `prf: undefined` (Safari on macOS, 2026-04
+spike). Same root cause class as the Bitwarden caveat — the picker's WebAuthn passthrough
+doesn't forward the PRF extension, regardless of whether 1Password's underlying
+authenticator could in principle support it.
+
+User impact: same fallback story as Bitwarden — sync-link / API-key path remains the only
+new-device unlock for 1Password-stored secrt credentials.
+
+Note on cross-row fingerprint comparison: PRF outputs are per-credential. Different
+registrations on different surfaces produce different credentials and therefore different
+fingerprints — that's correct, not a bug. Cross-device determinism is only verifiable
+when the *same* synced credential is read on two devices (e.g. macOS Safari ↔ iOS Safari
+sharing one iCloud Keychain entry).
+
+### GPM-on-desktop caveat (2026-04 spike)
+
+Chrome on macOS storing into Google Password Manager returned `enabled=false` for a
+freshly created credential — meaning the API acknowledged the PRF request and explicitly
+declined. This contradicts the Corbado April 2026 matrix claim of 100% PRF-on-create
+success for GPM. Possible explanations to investigate:
+
+1. GPM PRF-on-create is enabled only on Chrome+Android, not Chrome desktop (the Corbado
+   measurement may have been Android-only).
+2. macOS Chrome routes GPM through a different code path than Windows/Linux.
+3. A recent Chrome desktop update changed GPM's PRF behavior.
+
+Re-test on **Chrome on Android + GPM** before drawing conclusions — that's the surface
+that actually matters for our gate (mobile users) and what the matrix in the task
+description was based on. If desktop-GPM stays broken but Android-GPM works, the user
+impact is "GPM users get PRF unlock on Android but not desktop"; mac users on desktop
+who want PRF should use Apple Passwords instead.
+
+
+
+### Bitwarden caveat (important for UX docs)
+
+Bitwarden as a credential picker did not propagate the PRF extension to the relying
+party in our 2026-04 testing on Chrome/macOS. The `prf` field on
+`getClientExtensionResults()` was undefined entirely (not just `enabled=false`).
+Bitwarden has shipped PRF for their own E2EE flows, but the browser-WebAuthn
+passthrough depends on the picker code path, and as of this spike that path drops the
+extension.
+
+For a recommended product like Bitwarden, this is unfortunate. Implication:
+1. Users storing their secrt passkey in Bitwarden will not get single-tap new-device unlock.
+2. Falls back to the existing sync-link / API-key path — same as Firefox ≤147, external roaming authenticators on iOS Safari, etc.
+3. Subtask 6 (UX) must surface this clearly so users can pick where to store their secrt passkey with eyes open.
+
+We should re-test periodically — Bitwarden may add the passthrough in a later release.
+
+### Cross-device determinism — CONFIRMED (2026-04-27)
+
+Registered credential `XZDeAOxyIOZo4DXVnuE9o6_I4bg` on iPhone Safari + iCloud Keychain
+(fingerprint `150eed07a4944b7d`). Same credential picked up on macOS Safari via
+discoverable login (no `allowCredentials` constraint) — fingerprint matched. Synced
+passkeys produce deterministic PRF outputs across devices in the iCloud sync set, as
+spec'd. Phase A gate is cleared for the most important surface.
+
+### Still informational, not gating
+
+- Chrome 147+ on Windows 11 + Hello — defer until we have Windows hardware in the loop, or to Subtask 7's CI matrix.
+- Firefox 148+ — small user share; defer.
+- External YubiKey on iOS Safari — expected fail (hmac-secret returned encrypted; documented Apple WebAuthn limitation, not in scope to fix).
+
+### YubiKey / external roaming authenticators
+
+YubiKey + PRF works on Chrome/Edge/Firefox desktop and on Safari macOS, plus Chrome
+Android with NFC. Two implications for secrt's UX (Subtask 6):
+
+1. YubiKey users should register **two physical keys** (primary + backup) because there
+   is no Apple/Google recovery layer.
+2. The fallback recovery story (API key written down, or a sync-link from another
+   device) is load-bearing for this cohort, not optional. Surface this in onboarding
+   when a user picks YubiKey as their primary credential.
+
+iOS Safari + external YubiKey remains broken upstream; iOS users with YubiKeys must use
+platform passkeys (Apple Passwords) for secrt.
+
+### Cohort summary for product copy
+
+| Cohort                                            | Path                                                          |
+| ------------------------------------------------- | ------------------------------------------------------------- |
+| Default users (Apple/Google synced passkeys)      | PRF unlock — single-tap on new devices.                       |
+| 1Password / Bitwarden / LastPass managers today   | Sync-link or API-key fallback until those add PRF passthrough.|
+| Ultra-paranoid (YubiKey)                          | 2× YubiKey + written-down API key, desktop-only PRF.          |
+
+### Gate status: CLEARED for Phase B
 
 ---
 
