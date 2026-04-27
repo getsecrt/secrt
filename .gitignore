@@ -14,4 +14,9 @@ web/.e2e-server.pid
 web/.e2e-vite.pid
 web/coverage
 .playwright-mcp
+# Local-only Claude Code state. .claude/settings.json, agents/, commands/,
+# hooks/, skills/, and CLAUDE.md remain commit-friendly.
+.claude/settings.local.json
+.claude/.credentials.json
+.claude/*.lock
 crates/secrt-app/gen/
