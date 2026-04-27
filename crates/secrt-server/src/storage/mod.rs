@@ -30,6 +30,22 @@ pub struct AmkWrapperRecord {
     pub created_at: DateTime<Utc>,
 }
 
+/// PRF-wrapped AMK row (Transport D). Keyed by `(user_id, credential_pk)`.
+/// Mirrors the API-key wrapper shape but binds via the passkey credential
+/// rather than an API-key prefix. See `spec/v1/api.md` §"Transport D: PRF wrap".
+#[derive(Clone, Debug)]
+pub struct PrfAmkWrapperRecord {
+    pub user_id: Uuid,
+    pub credential_pk: i64,
+    pub credential_id: String,
+    pub cred_salt: Vec<u8>,
+    pub wrapped_amk: Vec<u8>,
+    pub nonce: Vec<u8>,
+    pub version: i16,
+    pub amk_commit: Vec<u8>,
+    pub created_at: DateTime<Utc>,
+}
+
 /// Result of an atomic commit-then-upsert-wrapper operation.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum AmkUpsertResult {
@@ -90,6 +106,18 @@ pub struct PasskeyRecord {
     pub label: String,
     pub created_at: DateTime<Utc>,
     pub revoked_at: Option<DateTime<Utc>>,
+    /// Per-credential 32-byte HKDF salt for the PRF wrap path. NULL until the
+    /// credential is observed to support the PRF extension (see `spec/v1/api.md`
+    /// §"Transport D: PRF wrap" and `crates/secrt-server/docs/prf-amk-wrapping.md`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cred_salt: Option<Vec<u8>>,
+    /// Authenticator returned PRF output at some point (create or get ceremony).
+    #[serde(default)]
+    pub prf_supported: bool,
+    /// PRF output was available at registration time (PRF-on-create).
+    /// Distinguishes "single-step" registration from "PRF-on-get-only" fallback.
+    #[serde(default)]
+    pub prf_at_create: bool,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -358,6 +386,21 @@ pub trait AuthStore: Send + Sync {
         user_id: UserId,
         label: &str,
     ) -> Result<(), StorageError>;
+
+    /// Stamp PRF metadata onto a passkey row. Called from register-finish
+    /// when the client reports `prf.supported = true` (server generates
+    /// `cred_salt` and persists it alongside the boolean flags).
+    /// Reused by the upgrade flow (§4.5) when an existing pre-PRF credential
+    /// is observed to support PRF on a later assertion.
+    /// `cred_salt` MUST be exactly 32 bytes when `prf_supported = true`.
+    async fn set_passkey_prf_state(
+        &self,
+        id: i64,
+        user_id: UserId,
+        cred_salt: Option<&[u8]>,
+        prf_supported: bool,
+        prf_at_create: bool,
+    ) -> Result<(), StorageError>;
 }
 
 #[async_trait]
@@ -399,6 +442,38 @@ pub trait AmkStore: Send + Sync {
         enc_meta: &EncMetaV1,
         meta_key_version: i16,
     ) -> Result<(), StorageError>;
+
+    /// Atomically: ensure amk_accounts row exists, verify the submitted
+    /// `amk_commit` matches the stored anchor, then insert (or no-op) the
+    /// PRF wrapper row. `credential_pk` is the BIGSERIAL primary key of the
+    /// passkey row this wrapper binds to.
+    ///
+    /// Returns `CommitMismatch` if the anchor disagrees. The `(user_id, credential_pk)`
+    /// uniqueness is enforced by the schema; this method MUST NOT update an
+    /// existing row's bytes — a duplicate insert with matching commit is a
+    /// no-op (returns `Ok`), with mismatched commit returns `CommitMismatch`.
+    async fn upsert_prf_wrapper(
+        &self,
+        record: PrfAmkWrapperRecord,
+    ) -> Result<AmkUpsertResult, StorageError>;
+
+    /// Fetch the PRF wrapper for a (user, credential_id) pair. Returned to
+    /// the client inline in login-finish so a fresh-device unlock takes one
+    /// round-trip.
+    async fn get_prf_wrapper_by_credential_id(
+        &self,
+        user_id: Uuid,
+        credential_id: &str,
+    ) -> Result<Option<PrfAmkWrapperRecord>, StorageError>;
+
+    /// Delete the PRF wrapper for a credential. Used by the explicit
+    /// DELETE endpoint and called from the soft-revoke path so a revoked
+    /// credential cannot leave a wrapper behind.
+    async fn delete_prf_wrapper_by_credential_id(
+        &self,
+        user_id: Uuid,
+        credential_id: &str,
+    ) -> Result<bool, StorageError>;
 }
 
 #[async_trait]
@@ -704,6 +779,19 @@ where
     ) -> Result<(), StorageError> {
         (**self).update_passkey_label(id, user_id, label).await
     }
+
+    async fn set_passkey_prf_state(
+        &self,
+        id: i64,
+        user_id: UserId,
+        cred_salt: Option<&[u8]>,
+        prf_supported: bool,
+        prf_at_create: bool,
+    ) -> Result<(), StorageError> {
+        (**self)
+            .set_passkey_prf_state(id, user_id, cred_salt, prf_supported, prf_at_create)
+            .await
+    }
 }
 
 #[async_trait]
@@ -760,6 +848,33 @@ where
     ) -> Result<(), StorageError> {
         (**self)
             .update_enc_meta(secret_id, owner_keys, enc_meta, meta_key_version)
+            .await
+    }
+
+    async fn upsert_prf_wrapper(
+        &self,
+        record: PrfAmkWrapperRecord,
+    ) -> Result<AmkUpsertResult, StorageError> {
+        (**self).upsert_prf_wrapper(record).await
+    }
+
+    async fn get_prf_wrapper_by_credential_id(
+        &self,
+        user_id: Uuid,
+        credential_id: &str,
+    ) -> Result<Option<PrfAmkWrapperRecord>, StorageError> {
+        (**self)
+            .get_prf_wrapper_by_credential_id(user_id, credential_id)
+            .await
+    }
+
+    async fn delete_prf_wrapper_by_credential_id(
+        &self,
+        user_id: Uuid,
+        credential_id: &str,
+    ) -> Result<bool, StorageError> {
+        (**self)
+            .delete_prf_wrapper_by_credential_id(user_id, credential_id)
             .await
     }
 }

@@ -394,6 +394,16 @@ impl AuthStore for ErrStore {
     ) -> Result<(), StorageError> {
         Err(StorageError::Other("error".into()))
     }
+    async fn set_passkey_prf_state(
+        &self,
+        _id: i64,
+        _user_id: UserId,
+        _cred_salt: Option<&[u8]>,
+        _prf_supported: bool,
+        _prf_at_create: bool,
+    ) -> Result<(), StorageError> {
+        Err(StorageError::Other("error".into()))
+    }
 }
 
 #[async_trait]
@@ -443,6 +453,26 @@ impl AmkStore for ErrStore {
         _meta_key_version: i16,
     ) -> Result<(), StorageError> {
         Err(StorageError::NotFound)
+    }
+    async fn upsert_prf_wrapper(
+        &self,
+        _record: secrt_server::storage::PrfAmkWrapperRecord,
+    ) -> Result<AmkUpsertResult, StorageError> {
+        Err(StorageError::Other("error".into()))
+    }
+    async fn get_prf_wrapper_by_credential_id(
+        &self,
+        _user_id: Uuid,
+        _credential_id: &str,
+    ) -> Result<Option<secrt_server::storage::PrfAmkWrapperRecord>, StorageError> {
+        Ok(None)
+    }
+    async fn delete_prf_wrapper_by_credential_id(
+        &self,
+        _user_id: Uuid,
+        _credential_id: &str,
+    ) -> Result<bool, StorageError> {
+        Ok(false)
     }
 }
 

@@ -11,9 +11,9 @@ use secrt_core::api::EncMetaV1;
 use super::{
     AdminStore, AmkStore, AmkUpsertResult, AmkWrapperRecord, ApiKeyListEntry, ApiKeyRecord,
     ApiKeyRegistrationLimits, ApiKeysStore, AuthStore, ChallengeRecord, DashboardStats,
-    PasskeyRecord, SecretBreakdown, SecretQuotaLimits, SecretRecord, SecretSummary, SecretsStore,
-    SessionRecord, StorageError, StorageUsage, TopUser, UserDetail, UserId, UserListEntry,
-    UserRecord,
+    PasskeyRecord, PrfAmkWrapperRecord, SecretBreakdown, SecretQuotaLimits, SecretRecord,
+    SecretSummary, SecretsStore, SessionRecord, StorageError, StorageUsage, TopUser, UserDetail,
+    UserId, UserListEntry, UserRecord,
 };
 
 const POOL_MAX_SIZE: usize = 10;
@@ -573,7 +573,8 @@ impl AuthStore for PgStore {
             .query_one(
                 "INSERT INTO passkeys (user_id, credential_id, public_key, sign_count) \
                  VALUES ($1, $2, $3, $4) \
-                 RETURNING id, user_id, credential_id, public_key, sign_count, label, created_at, revoked_at",
+                 RETURNING id, user_id, credential_id, public_key, sign_count, label, \
+                           created_at, revoked_at, cred_salt, prf_supported, prf_at_create",
                 &[&user_id, &credential_id, &public_key, &sign_count],
             )
             .await?;
@@ -586,6 +587,9 @@ impl AuthStore for PgStore {
             label: row.try_get(5)?,
             created_at: row.try_get(6)?,
             revoked_at: row.try_get(7)?,
+            cred_salt: row.try_get(8)?,
+            prf_supported: row.try_get(9)?,
+            prf_at_create: row.try_get(10)?,
         })
     }
 
@@ -596,7 +600,8 @@ impl AuthStore for PgStore {
         let client = self.pool.get().await?;
         let row = client
             .query_opt(
-                "SELECT id, user_id, credential_id, public_key, sign_count, label, created_at, revoked_at \
+                "SELECT id, user_id, credential_id, public_key, sign_count, label, \
+                        created_at, revoked_at, cred_salt, prf_supported, prf_at_create \
                  FROM passkeys WHERE credential_id=$1",
                 &[&credential_id],
             )
@@ -613,6 +618,9 @@ impl AuthStore for PgStore {
             label: row.try_get(5)?,
             created_at: row.try_get(6)?,
             revoked_at: row.try_get(7)?,
+            cred_salt: row.try_get(8)?,
+            prf_supported: row.try_get(9)?,
+            prf_at_create: row.try_get(10)?,
         })
     }
 
@@ -1013,7 +1021,8 @@ impl AuthStore for PgStore {
         let client = self.pool.get().await?;
         let rows = client
             .query(
-                "SELECT id, user_id, credential_id, public_key, sign_count, label, created_at, revoked_at \
+                "SELECT id, user_id, credential_id, public_key, sign_count, label, \
+                        created_at, revoked_at, cred_salt, prf_supported, prf_at_create \
                  FROM passkeys WHERE user_id=$1 AND revoked_at IS NULL \
                  ORDER BY created_at",
                 &[&user_id],
@@ -1030,6 +1039,9 @@ impl AuthStore for PgStore {
                 label: row.try_get(5)?,
                 created_at: row.try_get(6)?,
                 revoked_at: row.try_get(7)?,
+                cred_salt: row.try_get(8)?,
+                prf_supported: row.try_get(9)?,
+                prf_at_create: row.try_get(10)?,
             });
         }
         Ok(out)
@@ -1058,6 +1070,16 @@ impl AuthStore for PgStore {
             )
             .await?;
 
+        // Soft-revoke: explicitly delete the PRF wrapper for this credential in
+        // the same transaction so a revoked credential cannot leave wrap-key
+        // material accessible to a future fresh-session GET. Hard delete of the
+        // passkey row would cascade via FK; soft delete needs us to do it here.
+        tx.execute(
+            "DELETE FROM prf_amk_wrappers WHERE credential_pk=$1 AND user_id=$2",
+            &[&id, &user_id],
+        )
+        .await?;
+
         tx.commit().await?;
         Ok(n > 0)
     }
@@ -1073,6 +1095,36 @@ impl AuthStore for PgStore {
             .execute(
                 "UPDATE passkeys SET label=$1 WHERE id=$2 AND user_id=$3 AND revoked_at IS NULL",
                 &[&label, &id, &user_id],
+            )
+            .await?;
+        if n == 0 {
+            return Err(StorageError::NotFound);
+        }
+        Ok(())
+    }
+
+    async fn set_passkey_prf_state(
+        &self,
+        id: i64,
+        user_id: UserId,
+        cred_salt: Option<&[u8]>,
+        prf_supported: bool,
+        prf_at_create: bool,
+    ) -> Result<(), StorageError> {
+        if prf_supported {
+            let bytes = cred_salt.ok_or_else(|| {
+                StorageError::Other("cred_salt required when prf_supported=true".into())
+            })?;
+            if bytes.len() != 32 {
+                return Err(StorageError::Other("cred_salt must be 32 bytes".into()));
+            }
+        }
+        let client = self.pool.get().await?;
+        let n = client
+            .execute(
+                "UPDATE passkeys SET cred_salt=$1, prf_supported=$2, prf_at_create=$3 \
+                 WHERE id=$4 AND user_id=$5 AND revoked_at IS NULL",
+                &[&cred_salt, &prf_supported, &prf_at_create, &id, &user_id],
             )
             .await?;
         if n == 0 {
@@ -1269,6 +1321,114 @@ impl AmkStore for PgStore {
             return Err(StorageError::NotFound);
         }
         Ok(())
+    }
+
+    async fn upsert_prf_wrapper(
+        &self,
+        record: PrfAmkWrapperRecord,
+    ) -> Result<AmkUpsertResult, StorageError> {
+        let mut client = self.pool.get().await?;
+        let tx = client.transaction().await?;
+
+        // 1. Anchor the AMK commit (first writer wins, like upsert_wrapper).
+        tx.execute(
+            "INSERT INTO amk_accounts (user_id, amk_commit) \
+             VALUES ($1, $2) ON CONFLICT (user_id) DO NOTHING",
+            &[&record.user_id, &record.amk_commit.as_slice()],
+        )
+        .await?;
+
+        // 2. Read back the stored commit and verify.
+        let row = tx
+            .query_one(
+                "SELECT amk_commit FROM amk_accounts WHERE user_id = $1",
+                &[&record.user_id],
+            )
+            .await?;
+        let stored_commit: Vec<u8> = row.try_get(0)?;
+        if stored_commit != record.amk_commit {
+            return Ok(AmkUpsertResult::CommitMismatch);
+        }
+
+        // 3. Insert the wrapper. ON CONFLICT (user_id, credential_pk) DO NOTHING:
+        // PRF wrappers are write-once per credential. A duplicate insert with a
+        // matching commit is a no-op (returns Ok); mismatch was caught at step 2.
+        tx.execute(
+            "INSERT INTO prf_amk_wrappers \
+                 (user_id, credential_pk, wrapped_amk, nonce, version, amk_commit) \
+             VALUES ($1, $2, $3, $4, $5, $6) \
+             ON CONFLICT (user_id, credential_pk) DO NOTHING",
+            &[
+                &record.user_id,
+                &record.credential_pk,
+                &record.wrapped_amk.as_slice(),
+                &record.nonce.as_slice(),
+                &record.version,
+                &record.amk_commit.as_slice(),
+            ],
+        )
+        .await?;
+
+        tx.commit().await?;
+        Ok(AmkUpsertResult::Ok)
+    }
+
+    async fn get_prf_wrapper_by_credential_id(
+        &self,
+        user_id: Uuid,
+        credential_id: &str,
+    ) -> Result<Option<PrfAmkWrapperRecord>, StorageError> {
+        let client = self.pool.get().await?;
+        let row = client
+            .query_opt(
+                "SELECT w.user_id, w.credential_pk, p.credential_id, p.cred_salt, \
+                        w.wrapped_amk, w.nonce, w.version, w.amk_commit, w.created_at \
+                 FROM prf_amk_wrappers w \
+                 JOIN passkeys p ON p.id = w.credential_pk \
+                 WHERE w.user_id = $1 AND p.credential_id = $2 AND p.revoked_at IS NULL",
+                &[&user_id, &credential_id],
+            )
+            .await?;
+        let Some(row) = row else {
+            return Ok(None);
+        };
+        let cred_salt: Option<Vec<u8>> = row.try_get(3)?;
+        // PRF wrapper without cred_salt on the passkey row is a schema invariant
+        // violation — wrapper rows can only exist for PRF-capable credentials.
+        let cred_salt = cred_salt.ok_or_else(|| {
+            StorageError::Other(
+                "PRF wrapper found but passkey.cred_salt is NULL (invariant violation)".into(),
+            )
+        })?;
+        Ok(Some(PrfAmkWrapperRecord {
+            user_id: row.try_get(0)?,
+            credential_pk: row.try_get(1)?,
+            credential_id: row.try_get(2)?,
+            cred_salt,
+            wrapped_amk: row.try_get(4)?,
+            nonce: row.try_get(5)?,
+            version: row.try_get(6)?,
+            amk_commit: row.try_get(7)?,
+            created_at: row.try_get(8)?,
+        }))
+    }
+
+    async fn delete_prf_wrapper_by_credential_id(
+        &self,
+        user_id: Uuid,
+        credential_id: &str,
+    ) -> Result<bool, StorageError> {
+        let client = self.pool.get().await?;
+        let n = client
+            .execute(
+                "DELETE FROM prf_amk_wrappers \
+                 WHERE user_id = $1 AND credential_pk = ( \
+                     SELECT id FROM passkeys WHERE credential_id = $2 AND user_id = $1 \
+                 )",
+                &[&user_id, &credential_id],
+            )
+            .await?;
+        Ok(n > 0)
     }
 }
 

@@ -15,8 +15,9 @@ use secrt_server::domain::auth::{generate_api_key_prefix, hash_api_key_auth_toke
 use secrt_server::http::{build_router, AppState};
 use secrt_server::storage::{
     AmkStore, AmkUpsertResult, AmkWrapperRecord, ApiKeyRecord, ApiKeyRegistrationLimits,
-    ApiKeysStore, AuthStore, ChallengeRecord, PasskeyRecord, SecretQuotaLimits, SecretRecord,
-    SecretSummary, SecretsStore, SessionRecord, StorageError, StorageUsage, UserId, UserRecord,
+    ApiKeysStore, AuthStore, ChallengeRecord, PasskeyRecord, PrfAmkWrapperRecord,
+    SecretQuotaLimits, SecretRecord, SecretSummary, SecretsStore, SessionRecord, StorageError,
+    StorageUsage, UserId, UserRecord,
 };
 use uuid::Uuid;
 
@@ -31,6 +32,8 @@ pub struct MemStore {
     pub apikey_regs: Mutex<Vec<(UserId, String, DateTime<Utc>)>>,
     pub amk_wrappers: Mutex<HashMap<String, AmkWrapperRecord>>,
     pub amk_commits: Mutex<HashMap<Uuid, Vec<u8>>>,
+    /// Keyed by `(user_id, credential_pk)` rendered as "uuid:i64" string.
+    pub prf_wrappers: Mutex<HashMap<String, PrfAmkWrapperRecord>>,
     pub ids: Mutex<i64>,
 }
 
@@ -338,6 +341,9 @@ impl AuthStore for MemStore {
             label: String::new(),
             created_at: Utc::now(),
             revoked_at: None,
+            cred_salt: None,
+            prf_supported: false,
+            prf_at_create: false,
         };
         self.passkeys
             .lock()
@@ -658,21 +664,35 @@ impl AuthStore for MemStore {
     }
 
     async fn revoke_passkey(&self, id: i64, user_id: UserId) -> Result<bool, StorageError> {
-        let mut m = self.passkeys.lock().expect("passkeys mutex poisoned");
-        let active_count = m
-            .values()
-            .filter(|p| p.user_id == user_id && p.revoked_at.is_none())
-            .count();
-        if active_count <= 1 {
-            return Ok(false);
-        }
-        for p in m.values_mut() {
-            if p.id == id && p.user_id == user_id && p.revoked_at.is_none() {
-                p.revoked_at = Some(Utc::now());
-                return Ok(true);
+        let revoked = {
+            let mut m = self.passkeys.lock().expect("passkeys mutex poisoned");
+            let active_count = m
+                .values()
+                .filter(|p| p.user_id == user_id && p.revoked_at.is_none())
+                .count();
+            if active_count <= 1 {
+                return Ok(false);
             }
+            let mut hit = false;
+            for p in m.values_mut() {
+                if p.id == id && p.user_id == user_id && p.revoked_at.is_none() {
+                    p.revoked_at = Some(Utc::now());
+                    hit = true;
+                    break;
+                }
+            }
+            hit
+        };
+        // Cascade: drop the PRF wrapper too so a revoked credential can't
+        // expose wrap material via a future fresh-session GET.
+        if revoked {
+            let key = format!("{user_id}:{id}");
+            self.prf_wrappers
+                .lock()
+                .expect("prf_wrappers mutex poisoned")
+                .remove(&key);
         }
-        Ok(false)
+        Ok(revoked)
     }
 
     async fn update_passkey_label(
@@ -685,6 +705,34 @@ impl AuthStore for MemStore {
         for p in m.values_mut() {
             if p.id == id && p.user_id == user_id && p.revoked_at.is_none() {
                 p.label = label.to_string();
+                return Ok(());
+            }
+        }
+        Err(StorageError::NotFound)
+    }
+
+    async fn set_passkey_prf_state(
+        &self,
+        id: i64,
+        user_id: UserId,
+        cred_salt: Option<&[u8]>,
+        prf_supported: bool,
+        prf_at_create: bool,
+    ) -> Result<(), StorageError> {
+        if prf_supported {
+            let bytes = cred_salt.ok_or_else(|| {
+                StorageError::Other("cred_salt required when prf_supported=true".into())
+            })?;
+            if bytes.len() != 32 {
+                return Err(StorageError::Other("cred_salt must be 32 bytes".into()));
+            }
+        }
+        let mut m = self.passkeys.lock().expect("passkeys mutex poisoned");
+        for p in m.values_mut() {
+            if p.id == id && p.user_id == user_id && p.revoked_at.is_none() {
+                p.cred_salt = cred_salt.map(|b| b.to_vec());
+                p.prf_supported = prf_supported;
+                p.prf_at_create = prf_at_create;
                 return Ok(());
             }
         }
@@ -800,6 +848,79 @@ impl AmkStore for MemStore {
             return Err(StorageError::NotFound);
         }
         Ok(())
+    }
+
+    async fn upsert_prf_wrapper(
+        &self,
+        record: PrfAmkWrapperRecord,
+    ) -> Result<AmkUpsertResult, StorageError> {
+        // 1. Anchor the AMK commit (first-writer-wins).
+        {
+            let mut commits = self.amk_commits.lock().expect("amk_commits mutex poisoned");
+            let stored = commits
+                .entry(record.user_id)
+                .or_insert_with(|| record.amk_commit.clone());
+            if stored.as_slice() != record.amk_commit.as_slice() {
+                return Ok(AmkUpsertResult::CommitMismatch);
+            }
+        }
+        // 2. Insert if not already present (write-once per credential).
+        let key = format!("{}:{}", record.user_id, record.credential_pk);
+        let mut m = self
+            .prf_wrappers
+            .lock()
+            .expect("prf_wrappers mutex poisoned");
+        m.entry(key).or_insert(record);
+        Ok(AmkUpsertResult::Ok)
+    }
+
+    async fn get_prf_wrapper_by_credential_id(
+        &self,
+        user_id: Uuid,
+        credential_id: &str,
+    ) -> Result<Option<PrfAmkWrapperRecord>, StorageError> {
+        // Look up credential_pk via passkeys table, then key by (user_id, pk).
+        let credential_pk = {
+            let pkeys = self.passkeys.lock().expect("passkeys mutex poisoned");
+            pkeys
+                .get(credential_id)
+                .filter(|p| p.user_id == user_id && p.revoked_at.is_none())
+                .map(|p| p.id)
+        };
+        let Some(pk) = credential_pk else {
+            return Ok(None);
+        };
+        let key = format!("{user_id}:{pk}");
+        Ok(self
+            .prf_wrappers
+            .lock()
+            .expect("prf_wrappers mutex poisoned")
+            .get(&key)
+            .cloned())
+    }
+
+    async fn delete_prf_wrapper_by_credential_id(
+        &self,
+        user_id: Uuid,
+        credential_id: &str,
+    ) -> Result<bool, StorageError> {
+        let credential_pk = {
+            let pkeys = self.passkeys.lock().expect("passkeys mutex poisoned");
+            pkeys
+                .get(credential_id)
+                .filter(|p| p.user_id == user_id)
+                .map(|p| p.id)
+        };
+        let Some(pk) = credential_pk else {
+            return Ok(false);
+        };
+        let key = format!("{user_id}:{pk}");
+        Ok(self
+            .prf_wrappers
+            .lock()
+            .expect("prf_wrappers mutex poisoned")
+            .remove(&key)
+            .is_some())
     }
 }
 

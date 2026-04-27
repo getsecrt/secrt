@@ -3624,7 +3624,7 @@ mod tests {
     use crate::config::Config;
     use crate::storage::{
         ApiKeyRecord, ApiKeyRegistrationLimits, AuthStore, ChallengeRecord, PasskeyRecord,
-        SecretSummary, SessionRecord, StorageUsage, UserRecord,
+        PrfAmkWrapperRecord, SecretSummary, SessionRecord, StorageUsage, UserRecord,
     };
     use async_trait::async_trait;
     use axum::body::Body;
@@ -4169,6 +4169,17 @@ mod tests {
         ) -> Result<(), StorageError> {
             Err(StorageError::NotFound)
         }
+
+        async fn set_passkey_prf_state(
+            &self,
+            _id: i64,
+            _user_id: UserId,
+            _cred_salt: Option<&[u8]>,
+            _prf_supported: bool,
+            _prf_at_create: bool,
+        ) -> Result<(), StorageError> {
+            Err(StorageError::NotFound)
+        }
     }
 
     #[async_trait]
@@ -4261,6 +4272,29 @@ mod tests {
                 return Err(StorageError::NotFound);
             }
             Ok(())
+        }
+
+        async fn upsert_prf_wrapper(
+            &self,
+            _record: PrfAmkWrapperRecord,
+        ) -> Result<AmkUpsertResult, StorageError> {
+            Err(StorageError::Other("unsupported".into()))
+        }
+
+        async fn get_prf_wrapper_by_credential_id(
+            &self,
+            _user_id: Uuid,
+            _credential_id: &str,
+        ) -> Result<Option<PrfAmkWrapperRecord>, StorageError> {
+            Ok(None)
+        }
+
+        async fn delete_prf_wrapper_by_credential_id(
+            &self,
+            _user_id: Uuid,
+            _credential_id: &str,
+        ) -> Result<bool, StorageError> {
+            Ok(false)
         }
     }
 
