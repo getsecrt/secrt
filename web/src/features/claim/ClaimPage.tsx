@@ -55,7 +55,6 @@ export function ClaimPage({ id }: ClaimPageProps) {
   const [showPassphrase, setShowPassphrase] = useState(false);
   const [passphraseError, setPassphraseError] = useState('');
   const abortRef = useRef<AbortController | null>(null);
-  const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const passphraseInputRef = useRef<HTMLInputElement | null>(null);
 
   // Hold the envelope + urlKey across passphrase retries
@@ -72,15 +71,6 @@ export function ClaimPage({ id }: ClaimPageProps) {
       passphraseInputRef.current?.focus();
       passphraseInputRef.current?.select();
     }
-  }, [status.step]);
-
-  // Auto-size textarea for browsers without field-sizing: content (Safari)
-  useEffect(() => {
-    const ta = textareaRef.current;
-    if (!ta || status.step !== 'done') return;
-    if (CSS.supports('field-sizing', 'content')) return;
-    ta.style.height = 'auto';
-    ta.style.height = `${Math.min(ta.scrollHeight, 256)}px`;
   }, [status.step]);
 
   // Auto-claim: skip the confirm modal when navigating from the Get form.
@@ -346,7 +336,6 @@ export function ClaimPage({ id }: ClaimPageProps) {
           /* ── Text result (or placeholder when locked) ── */
           <div class="space-y-3">
             <textarea
-              ref={isDone ? textareaRef : undefined}
               readOnly
               disabled={!isDone}
               tabIndex={isDone ? undefined : -1}
