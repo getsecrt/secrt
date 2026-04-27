@@ -90,7 +90,6 @@ export function Modal({
     >
       <Tag
         class={`card relative w-full max-w-sm space-y-6 ${className}`}
-        method={asForm ? 'dialog' : undefined}
         onSubmit={asForm ? onSubmit : undefined}
         onClick={(e: MouseEvent) => e.stopPropagation()}
       >
