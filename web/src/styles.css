@@ -423,6 +423,40 @@
     margin: 4px 0 0 0;
     position-try-fallbacks: flip-block;
   }
+
+  .user-menu-trigger {
+    anchor-name: --user-menu-anchor;
+  }
+
+  .downloads-menu-trigger {
+    anchor-name: --downloads-menu-anchor;
+  }
+
+  .more-info-menu-trigger {
+    anchor-name: --more-info-menu-anchor;
+  }
+
+  .nav-menu-popover:popover-open {
+    position: fixed;
+    inset: auto;
+    top: anchor(bottom);
+    right: anchor(right);
+    min-width: anchor-size(width);
+    margin: 0;
+    position-try-fallbacks: flip-block;
+  }
+
+  .user-menu-popover:popover-open {
+    position-anchor: --user-menu-anchor;
+  }
+
+  .downloads-menu-popover:popover-open {
+    position-anchor: --downloads-menu-anchor;
+  }
+
+  .more-info-menu-popover:popover-open {
+    position-anchor: --more-info-menu-anchor;
+  }
 }
 
 @utility text-muted {

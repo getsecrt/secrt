@@ -1,7 +1,6 @@
 import {
   useState,
   useEffect,
-  useLayoutEffect,
   useCallback,
   useRef,
 } from 'preact/hooks';
@@ -83,28 +82,13 @@ function UserMenu({
   displayName: string;
   onLogout: () => void;
 }) {
-  const triggerRef = useRef<HTMLButtonElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
   const [open, setOpen] = useState(false);
 
-  // Position and show the popover before first paint
-  useLayoutEffect(() => {
+  useEffect(() => {
     const menu = menuRef.current;
-    const trigger = triggerRef.current;
-    if (!open || !menu || !trigger) return;
-
-    menu.setAttribute('popover', 'auto');
-
-    const rect = trigger.getBoundingClientRect();
-    menu.style.position = 'fixed';
-    menu.style.top = `${rect.bottom}px`;
-    menu.style.right = `${window.innerWidth - rect.right}px`;
-    menu.style.left = 'auto';
-    menu.style.margin = '0';
-    menu.style.minWidth = `${rect.width}px`;
-
+    if (!open || !menu) return;
     menu.showPopover();
-
     const onToggle = () => {
       if (!menu.matches(':popover-open')) setOpen(false);
     };
@@ -116,7 +100,7 @@ function UserMenu({
     'flex w-full items-center gap-2 whitespace-nowrap rounded-md px-3 py-1.5 text-sm text-muted transition-colors hover:bg-text/10 hover:text-text';
 
   const userMenuClass =
-    'min-w-[127px] flex justify-around items-center gap-1 whitespace-nowrap px-2 py-1 text-sm border';
+    'user-menu-trigger min-w-[127px] flex justify-around items-center gap-1 whitespace-nowrap px-2 py-1 text-sm border';
   const triggerClass = open
     ? userMenuClass +
       ' rounded-t-lg text-text bg-neutral-200/70 backdrop-blur dark:bg-neutral-700/70 border-border/50 border-b-transparent'
@@ -126,7 +110,6 @@ function UserMenu({
   return (
     <>
       <button
-        ref={triggerRef}
         type="button"
         class={triggerClass}
         onClick={() => setOpen(true)}
@@ -145,7 +128,8 @@ function UserMenu({
           ref={menuRef}
           id="user-menu"
           role="menu"
-          class="rounded-b-lg bg-neutral-200/70 p-1 shadow-lg inset-shadow-border-3 backdrop-blur dark:bg-neutral-700/70"
+          popover="auto"
+          class="user-menu-popover nav-menu-popover rounded-b-lg bg-neutral-200/70 p-1 shadow-lg inset-shadow-border-3 backdrop-blur dark:bg-neutral-700/70"
         >
           <a
             href="/dashboard"
@@ -223,27 +207,13 @@ const downloadLinks = [
 ];
 
 function DownloadsMenu() {
-  const triggerRef = useRef<HTMLButtonElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
   const [open, setOpen] = useState(false);
 
-  useLayoutEffect(() => {
+  useEffect(() => {
     const menu = menuRef.current;
-    const trigger = triggerRef.current;
-    if (!open || !menu || !trigger) return;
-
-    menu.setAttribute('popover', 'auto');
-
-    const rect = trigger.getBoundingClientRect();
-    menu.style.position = 'fixed';
-    menu.style.top = `${rect.bottom}px`;
-    menu.style.right = `${window.innerWidth - rect.right}px`;
-    menu.style.left = 'auto';
-    menu.style.margin = '0';
-    menu.style.minWidth = `${rect.width}px`;
-
+    if (!open || !menu) return;
     menu.showPopover();
-
     const onToggle = () => {
       if (!menu.matches(':popover-open')) setOpen(false);
     };
@@ -255,7 +225,7 @@ function DownloadsMenu() {
     'flex w-full items-center gap-2 whitespace-nowrap rounded-md px-3 py-1.5 text-sm text-muted transition-colors hover:bg-text/10 hover:text-text';
 
   const downloadsMenuClass =
-    'flex justify-around items-center gap-1 whitespace-nowrap px-2 py-1 text-sm border';
+    'downloads-menu-trigger flex justify-around items-center gap-1 whitespace-nowrap px-2 py-1 text-sm border';
   const triggerClass = open
     ? downloadsMenuClass +
       ' rounded-t-lg text-text bg-neutral-200/70 backdrop-blur dark:bg-neutral-700/70 border-border/50 border-b-transparent'
@@ -265,7 +235,6 @@ function DownloadsMenu() {
   return (
     <>
       <button
-        ref={triggerRef}
         type="button"
         class={triggerClass}
         onClick={() => setOpen(true)}
@@ -284,7 +253,8 @@ function DownloadsMenu() {
           ref={menuRef}
           id="downloads-menu"
           role="menu"
-          class="rounded-b-lg bg-neutral-200/70 p-1 shadow-lg inset-shadow-border-3 backdrop-blur dark:bg-neutral-700/70"
+          popover="auto"
+          class="downloads-menu-popover nav-menu-popover rounded-b-lg bg-neutral-200/70 p-1 shadow-lg inset-shadow-border-3 backdrop-blur dark:bg-neutral-700/70"
         >
           {downloadLinks.map(({ label, href, icon: Icon }) => (
             <a
@@ -306,27 +276,13 @@ function DownloadsMenu() {
 }
 
 function MoreInfoMenu({ active }: { active?: boolean }) {
-  const triggerRef = useRef<HTMLButtonElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
   const [open, setOpen] = useState(false);
 
-  useLayoutEffect(() => {
+  useEffect(() => {
     const menu = menuRef.current;
-    const trigger = triggerRef.current;
-    if (!open || !menu || !trigger) return;
-
-    menu.setAttribute('popover', 'auto');
-
-    const rect = trigger.getBoundingClientRect();
-    menu.style.position = 'fixed';
-    menu.style.top = `${rect.bottom}px`;
-    menu.style.right = `${window.innerWidth - rect.right}px`;
-    menu.style.left = 'auto';
-    menu.style.margin = '0';
-    menu.style.minWidth = `${rect.width}px`;
-
+    if (!open || !menu) return;
     menu.showPopover();
-
     const onToggle = () => {
       if (!menu.matches(':popover-open')) setOpen(false);
     };
@@ -338,7 +294,7 @@ function MoreInfoMenu({ active }: { active?: boolean }) {
     'flex w-full items-center gap-2 whitespace-nowrap rounded-md px-3 py-1.5 text-sm text-muted transition-colors hover:bg-text/10 hover:text-text';
 
   const moreInfoMenuClass =
-    'flex justify-around items-center gap-1 whitespace-nowrap px-2 py-1 text-sm border';
+    'more-info-menu-trigger flex justify-around items-center gap-1 whitespace-nowrap px-2 py-1 text-sm border';
   const triggerClass = open
     ? moreInfoMenuClass +
       ' rounded-t-lg text-text bg-neutral-200/70 backdrop-blur dark:bg-neutral-700/70 border-border/50 border-b-transparent'
@@ -348,7 +304,6 @@ function MoreInfoMenu({ active }: { active?: boolean }) {
   return (
     <>
       <button
-        ref={triggerRef}
         type="button"
         class={triggerClass}
         onClick={() => setOpen(true)}
@@ -367,7 +322,8 @@ function MoreInfoMenu({ active }: { active?: boolean }) {
           ref={menuRef}
           id="more-info-menu"
           role="menu"
-          class="rounded-b-lg bg-neutral-200/70 p-1 shadow-lg inset-shadow-border-3 backdrop-blur dark:bg-neutral-700/70"
+          popover="auto"
+          class="more-info-menu-popover nav-menu-popover rounded-b-lg bg-neutral-200/70 p-1 shadow-lg inset-shadow-border-3 backdrop-blur dark:bg-neutral-700/70"
         >
           <a
             href="/how-it-works"
