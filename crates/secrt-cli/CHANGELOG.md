@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 0.16.5 — 2026-04-27
+
+No CLI-facing changes. Workspace version bump to keep the CLI release in lockstep with the server release (which flips CSP from Report-Only to enforcing and ships an SPA refactor — see `crates/secrt-server/CHANGELOG.md`).
+
 ## 0.16.4 — 2026-04-26
 
 ### Fixed

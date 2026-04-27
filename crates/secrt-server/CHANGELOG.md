@@ -2,6 +2,21 @@
 
 ## Unreleased
 
+## 0.16.5 — 2026-04-27
+
+### Security
+
+- **CSP flipped from Report-Only to enforcing.** After a clean cross-browser soak (Chrome / Safari / Firefox / iOS Safari) of the strict policy shipped in 0.16.4 as `Content-Security-Policy-Report-Only`, the policy now ships as the enforcing `Content-Security-Policy` header. Browsers will block, not just report, any future violation. Same directives as the 0.16.4 Report-Only policy plus `upgrade-insecure-requests` folded back in: `default-src 'none'; script-src 'self' 'wasm-unsafe-eval' 'sha256-…'; style-src 'self'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self'; manifest-src 'self'; worker-src 'self'; form-action 'none'; base-uri 'none'; frame-ancestors 'none'; object-src 'none'; upgrade-insecure-requests`.
+- **`upgrade-insecure-requests` folded back into the main CSP**, dropping the previously-separate enforcing header. Single CSP header per HTML response now.
+
+### Changed
+
+- **Web SPA refactored to drop all CSSOM `el.style.x = y` writes.** iOS Safari was reporting CSSOM mutations as `style-src` violations under the strict policy. Six call sites refactored to native CSS: legacy `execCommand('copy')` clipboard fallback removed entirely (Clipboard API has been universal since 2018-2020); ClaimPage textarea Safari-fallback effect removed in favour of native `field-sizing: content` (Safari 17.4+); QR canvas display sizing moved to the `size-48` Tailwind class; the `BurnPopover` and three Nav menus (`UserMenu`, `DownloadsMenu`, `MoreInfoMenu`) now position via CSS Anchor Positioning (`anchor-name` / `position-anchor` / `anchor()` / `anchor-size()` / `position-try-fallbacks: flip-block`), eliminating ~20 inline-style writes and the associated `getBoundingClientRect` measurements. Net diff: ~−145 lines across the web SPA.
+
+### Fixed
+
+- **`navigator.clipboard.writeText()` from a form inside a `Modal`.** Removing `method="dialog"` from the Modal component's inner form. The dialog-submit semantics consumed the user-gesture activation flag at submit-event dispatch time, even when `e.preventDefault()` was called — so the await chain to `writeText` saw no active activation and silently rejected. Most visible victim: the password-generator modal's "Generate & copy" button on Safari desktop and iOS. All three `asForm` Modal callers (`SendPage`, `SettingsPage`, `ClaimPage`) already call `preventDefault` in their submit handlers, so the implicit dialog-close was never load-bearing.
+
 ## 0.16.4 — 2026-04-26
 
 ### Added

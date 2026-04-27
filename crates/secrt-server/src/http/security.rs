@@ -1,10 +1,5 @@
 //! Browser-enforced security headers for the SPA: CSP, COOP, CORP,
 //! Permissions-Policy, and Cache-Control.
-//!
-//! The CSP is shipped as `Content-Security-Policy-Report-Only` for one
-//! release so violations surface in the browser console without breaking
-//! anything; once it's been clean across the full route set, flip it to
-//! the enforcing header name.
 
 use std::sync::OnceLock;
 
@@ -20,10 +15,6 @@ use ring::digest::{digest, SHA256};
 // compilation (Argon2 ships as WASM). Strictly narrower than
 // `'unsafe-eval'`: it allows WASM but NOT JS eval/Function/setTimeout(str).
 const CSP_TEMPLATE_HEAD: &str = "default-src 'none'; script-src 'self' 'wasm-unsafe-eval'";
-// Note: `upgrade-insecure-requests` is intentionally NOT in the
-// Report-Only policy below — it's a transforming directive with no
-// report semantics, so browsers warn and ignore it there. It ships as
-// its own enforcing CSP header (see `CSP_ENFORCED_VALUE`).
 const CSP_TEMPLATE_TAIL: &str = "; style-src 'self'; \
      img-src 'self' data: blob:; \
      font-src 'self'; \
@@ -33,19 +24,13 @@ const CSP_TEMPLATE_TAIL: &str = "; style-src 'self'; \
      form-action 'none'; \
      base-uri 'none'; \
      frame-ancestors 'none'; \
-     object-src 'none'";
+     object-src 'none'; \
+     upgrade-insecure-requests";
 
 const COOP_NAME: HeaderName = HeaderName::from_static("cross-origin-opener-policy");
 const CORP_NAME: HeaderName = HeaderName::from_static("cross-origin-resource-policy");
 const PERMISSIONS_POLICY_NAME: HeaderName = HeaderName::from_static("permissions-policy");
-const CSP_REPORT_ONLY_NAME: HeaderName =
-    HeaderName::from_static("content-security-policy-report-only");
-const CSP_ENFORCED_NAME: HeaderName = HeaderName::from_static("content-security-policy");
-
-/// Enforced policy: only the transforming directive that has no
-/// report-only semantics. Safe to enforce immediately — it just rewrites
-/// http:// subresource URLs to https://, exempting localhost per spec.
-const CSP_ENFORCED_VALUE: HeaderValue = HeaderValue::from_static("upgrade-insecure-requests");
+const CSP_NAME: HeaderName = HeaderName::from_static("content-security-policy");
 
 const COOP_VALUE: HeaderValue = HeaderValue::from_static("same-origin");
 const CORP_VALUE: HeaderValue = HeaderValue::from_static("same-origin");
@@ -166,9 +151,8 @@ pub fn apply_security_headers(resp: &mut Response) {
 
     if is_html {
         if let Ok(value) = HeaderValue::from_str(csp_value()) {
-            headers.insert(CSP_REPORT_ONLY_NAME, value);
+            headers.insert(CSP_NAME, value);
         }
-        headers.insert(CSP_ENFORCED_NAME, CSP_ENFORCED_VALUE);
         headers.insert(CACHE_CONTROL, NO_STORE_VALUE);
     }
 }
@@ -212,9 +196,7 @@ mod tests {
         assert_eq!(count, 2, "expected 2 hashes, got CSP: {csp}");
         assert!(csp.contains("frame-ancestors 'none'"));
         assert!(csp.contains("object-src 'none'"));
-        // upgrade-insecure-requests is intentionally NOT in the
-        // Report-Only policy — it ships as a separate enforcing header.
-        assert!(!csp.contains("upgrade-insecure-requests"));
+        assert!(csp.contains("upgrade-insecure-requests"));
         assert!(!csp.contains("'unsafe-inline'"));
         assert!(!csp.contains("'unsafe-eval'"));
     }

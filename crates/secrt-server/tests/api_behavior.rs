@@ -455,16 +455,16 @@ async fn method_not_allowed_and_headers() {
         );
     }
 
-    // CSP and no-store cache must NOT appear on non-HTML responses.
+    // CSP must NOT appear on non-HTML responses.
+    assert!(
+        resp.headers().get("content-security-policy").is_none(),
+        "CSP should be HTML-only"
+    );
     assert!(
         resp.headers()
             .get("content-security-policy-report-only")
             .is_none(),
-        "CSP should be HTML-only"
-    );
-    assert!(
-        resp.headers().get("content-security-policy").is_none(),
-        "enforcing CSP not yet enabled"
+        "Report-Only CSP retired in favour of enforcing"
     );
 }
 
@@ -482,15 +482,23 @@ async fn html_responses_carry_csp_and_no_store() {
 
     let csp = resp
         .headers()
-        .get("content-security-policy-report-only")
+        .get("content-security-policy")
         .and_then(|v| v.to_str().ok())
-        .expect("CSP-Report-Only header on HTML");
+        .expect("enforcing CSP header on HTML");
     assert!(csp.contains("default-src 'none'"), "CSP: {csp}");
     assert!(csp.contains("'sha256-"), "CSP: {csp}");
     assert!(csp.contains("frame-ancestors 'none'"), "CSP: {csp}");
     assert!(csp.contains("object-src 'none'"), "CSP: {csp}");
+    assert!(csp.contains("upgrade-insecure-requests"), "CSP: {csp}");
     assert!(!csp.contains("'unsafe-inline'"), "CSP: {csp}");
     assert!(!csp.contains("'unsafe-eval'"), "CSP: {csp}");
+    // Report-Only header should no longer be sent.
+    assert!(
+        resp.headers()
+            .get("content-security-policy-report-only")
+            .is_none(),
+        "Report-Only CSP retired in favour of enforcing"
+    );
 
     let cache = resp
         .headers()
