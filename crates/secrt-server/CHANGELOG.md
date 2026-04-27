@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Changed
+
+- **Mobile nav logo is now a link to the homepage** when the user isn't already on `/`. On the home route the logo renders as plain decoration so the click is suppressed (avoids a no-op router round-trip). Universal-pattern UX expectation; previously the small breakpoint logo was non-interactive.
+
 ## 0.16.6 — 2026-04-27
 
 ### Fixed

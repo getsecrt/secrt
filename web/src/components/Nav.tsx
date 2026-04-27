@@ -464,7 +464,20 @@ export function Nav() {
               )}
             </button>
 
-            <Logo class="w-22" />
+            {isActive('send') ? (
+              <Logo class="w-22" />
+            ) : (
+              <a
+                href="/"
+                onClick={(e: MouseEvent) => {
+                  e.preventDefault();
+                  navigate('/');
+                }}
+                aria-label="secrt home"
+              >
+                <Logo class="w-22" />
+              </a>
+            )}
 
             <div class="w-15">
               <ThemeToggle />
