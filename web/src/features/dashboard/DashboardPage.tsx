@@ -1,7 +1,6 @@
 import {
   useState,
   useEffect,
-  useLayoutEffect,
   useCallback,
   useRef,
   useMemo,
@@ -108,40 +107,25 @@ function BurnPopover({
   burning: boolean;
   onBurn: (id: string) => void;
 }) {
-  const triggerRef = useRef<HTMLButtonElement>(null);
   const [open, setOpen] = useState(false);
   const popoverRef = useRef<HTMLDivElement>(null);
 
-  // Position and show the popover before first paint
-  useLayoutEffect(() => {
-    const popover = popoverRef.current;
-    const trigger = triggerRef.current;
-    if (!open || !popover || !trigger) return;
-
-    popover.setAttribute('popover', 'auto');
-
-    const rect = trigger.getBoundingClientRect();
-    popover.style.position = 'fixed';
-    popover.style.top = `${rect.bottom + 4}px`;
-    popover.style.right = `${window.innerWidth - rect.right}px`;
-    popover.style.left = 'auto';
-    popover.style.margin = '0';
-
-    popover.showPopover();
-
+  useEffect(() => {
+    const el = popoverRef.current;
+    if (!open || !el) return;
+    el.showPopover();
     const onToggle = () => {
-      if (!popover.matches(':popover-open')) setOpen(false);
+      if (!el.matches(':popover-open')) setOpen(false);
     };
-    popover.addEventListener('toggle', onToggle);
-    return () => popover.removeEventListener('toggle', onToggle);
+    el.addEventListener('toggle', onToggle);
+    return () => el.removeEventListener('toggle', onToggle);
   }, [open]);
 
   return (
     <>
       <button
-        ref={triggerRef}
         type="button"
-        class="btn-destructive-subtle"
+        class="burn-trigger btn-destructive-subtle"
         onClick={() => setOpen(true)}
       >
         <FireIcon class="size-4 text-error" />
@@ -151,7 +135,8 @@ function BurnPopover({
         <div
           ref={popoverRef}
           id={`burn-${id}`}
-          class="rounded-lg border border-border/90 bg-surface-raised/80 p-2 text-text shadow-lg backdrop-blur"
+          popover="auto"
+          class="burn-popover rounded-lg border border-border/90 bg-surface-raised/80 p-2 text-text shadow-lg backdrop-blur"
         >
           <p class="mb-2 text-center text-sm">Burn this secret?</p>
           <div class="flex gap-4">
@@ -426,7 +411,7 @@ function DashboardContent() {
               </thead>
               <tbody>
                 {pageSecrets.map((s) => (
-                  <tr key={s.id} class="border-b border-border/50">
+                  <tr key={s.id} class="secret-row border-b border-border/50">
                     <td
                       class="link-subtle max-w-20 cursor-pointer truncate py-2 pr-3 font-mono text-xs hover:text-accent xs:max-w-32 sm:max-w-44 lg:max-w-none"
                       onClick={() => setSelectedSecret(s)}

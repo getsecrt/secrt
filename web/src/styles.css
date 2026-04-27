@@ -405,6 +405,24 @@
       }
     }
   }
+
+  .secret-row {
+    anchor-scope: --burn-anchor;
+  }
+
+  .burn-trigger {
+    anchor-name: --burn-anchor;
+  }
+
+  .burn-popover:popover-open {
+    position: fixed;
+    position-anchor: --burn-anchor;
+    inset: auto;
+    top: anchor(bottom);
+    right: anchor(right);
+    margin: 4px 0 0 0;
+    position-try-fallbacks: flip-block;
+  }
 }
 
 @utility text-muted {
