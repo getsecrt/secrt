@@ -115,6 +115,8 @@ describe('RegisterPage', () => {
     vi.mocked(createPasskeyCredential).mockResolvedValue({
       credentialId: 'cred_abc',
       publicKey: 'pk_xyz',
+      rawId: new Uint8Array([1, 2, 3, 4]),
+      prfState: { supported: false, atCreate: false },
     });
     vi.mocked(registerPasskeyFinish).mockResolvedValue({
       session_token: 'uss_new.tok',

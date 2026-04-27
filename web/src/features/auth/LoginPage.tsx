@@ -13,8 +13,12 @@ import {
   exportPublicKey,
   performEcdh,
   deriveTransferKey,
+  deriveAmkWrapKeyFromPrf,
+  buildWrapAadPrf,
+  unwrapAmk,
+  computeAmkCommit,
 } from '../../crypto/amk';
-import { storeAmk } from '../../lib/amk-store';
+import { loadAmk, storeAmk } from '../../lib/amk-store';
 import { navigate } from '../../router';
 import { getRedirectParam } from '../../lib/redirect';
 import { isTauri, getApiBase } from '../../lib/config';
@@ -34,6 +38,63 @@ function friendlyLoginError(raw: string): string {
   if (lower.includes('unknown credential'))
     return 'This passkey is not recognized. The account may have been deleted or the passkey is not registered with this server.';
   return raw;
+}
+
+/**
+ * Derive the AMK wrap key from the PRF output, unwrap the AMK, verify its
+ * commitment matches what the server stored, and persist it locally. Used
+ * on the new-device login path (the actual UX payoff of WebAuthn PRF).
+ *
+ * Throws on any verification failure so the caller can fall through to the
+ * existing sync-link / API-key flow rather than store a wrong AMK.
+ */
+async function unwrapAndStorePrfAmk(
+  userId: string,
+  credentialId: string,
+  credentialRawId: Uint8Array,
+  prfOutput: Uint8Array,
+  wrapper: {
+    wrapped_amk: string;
+    nonce: string;
+    amk_commit: string;
+    cred_salt?: string;
+    version: number;
+  },
+): Promise<void> {
+  if (wrapper.version !== 1) {
+    throw new Error(`unsupported PRF wrapper version: ${wrapper.version}`);
+  }
+  if (!wrapper.cred_salt) {
+    throw new Error('login-finish prf_wrapper missing cred_salt');
+  }
+  const credSalt = base64urlDecode(wrapper.cred_salt);
+  const wrapKey = await deriveAmkWrapKeyFromPrf(prfOutput, credSalt);
+  const aad = buildWrapAadPrf(userId, credentialRawId, 1);
+  const amk = await unwrapAmk(
+    {
+      ct: wrapper.wrapped_amk,
+      nonce: wrapper.nonce,
+      version: wrapper.version,
+    },
+    wrapKey,
+    aad,
+  );
+
+  // Verify commitment so we can't be fed a forged or stale wrapper.
+  const computedCommit = await computeAmkCommit(amk);
+  const expectedCommit = base64urlDecode(wrapper.amk_commit);
+  if (
+    computedCommit.length !== expectedCommit.length ||
+    !computedCommit.every((b, i) => b === expectedCommit[i])
+  ) {
+    throw new Error('PRF wrapper amk_commit verification failed');
+  }
+  // Ignore the credentialId variable here intentionally — it's logged by the
+  // caller for debugging and isn't needed in the unwrap math (the AAD already
+  // binds to credentialRawId).
+  void credentialId;
+
+  await storeAmk(userId, amk);
 }
 
 /** Validate that a verification URL is HTTPS and matches the API origin. */
@@ -325,12 +386,16 @@ export function LoginPage() {
     setState({ step: 'authenticating' });
 
     try {
-      // Step 1: Use a local random challenge just to invoke the passkey picker
+      // Step 1: Use a local random challenge just to invoke the passkey picker.
+      //         Request PRF so we can unlock the AMK in one round-trip on a
+      //         fresh device.
       const localChallenge = new Uint8Array(32);
       crypto.getRandomValues(localChallenge);
       const localChallengeB64 = base64urlEncode(localChallenge);
 
-      const pickerResult = await getPasskeyCredential(localChallengeB64);
+      const pickerResult = await getPasskeyCredential(localChallengeB64, {
+        enablePrf: true,
+      });
 
       // Step 2: Now we have the credential_id, call server login/start
       const startRes = await loginPasskeyStart({
@@ -349,6 +414,29 @@ export function LoginPage() {
         finishRes.user_id,
         finishRes.display_name,
       );
+
+      // Step 5: PRF unlock. If the server returned a wrapper inline AND the
+      //         assertion produced a PRF output AND we don't already have an
+      //         AMK locally, derive the wrap key, unwrap, and store. All-best-
+      //         effort: failure here just falls through to the existing sync-
+      //         link / API-key path.
+      if (finishRes.prf_wrapper && pickerResult.prfOutput) {
+        try {
+          const existing = await loadAmk(finishRes.user_id);
+          if (!existing) {
+            await unwrapAndStorePrfAmk(
+              finishRes.user_id,
+              pickerResult.credentialId,
+              pickerResult.rawId,
+              pickerResult.prfOutput,
+              finishRes.prf_wrapper,
+            );
+          }
+        } catch {
+          // Non-fatal — login itself succeeded.
+        }
+      }
+
       setState({ step: 'done' });
       navigate(redirectTo);
     } catch (err) {

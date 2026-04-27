@@ -19,6 +19,7 @@ import type {
   AmkWrapper,
   EncMetaV1,
   ListPasskeysResponse,
+  PutPrfWrapperRequest,
   UpdateDisplayNameResponse,
 } from '../types';
 
@@ -168,6 +169,35 @@ export async function loginPasskeyFinish(
     },
     signal,
   );
+}
+
+/**
+ * Upload a PRF-wrapped AMK for a passkey credential. Authenticated via
+ * session bearer token. The credential MUST already be PRF-capable
+ * server-side (server has stored its cred_salt during register-finish).
+ */
+export async function putPrfWrapper(
+  sessionToken: string,
+  credentialId: string,
+  req: PutPrfWrapperRequest,
+  signal?: AbortSignal,
+): Promise<void> {
+  const base = getApiBase();
+  const res = await fetch(
+    `${base}/api/v1/auth/passkeys/${encodeURIComponent(credentialId)}/prf-wrapper`,
+    {
+      method: 'PUT',
+      headers: {
+        'content-type': 'application/json',
+        accept: 'application/json',
+        authorization: `Bearer ${sessionToken}`,
+      },
+      body: JSON.stringify(req),
+      credentials: base ? 'include' : 'same-origin',
+      signal,
+    },
+  );
+  if (!res.ok) throw new Error(await readApiError(res));
 }
 
 export async function fetchSession(

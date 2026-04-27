@@ -117,6 +117,16 @@ export interface PasskeyRegisterFinishRequest {
   challenge_id: string;
   credential_id: string;
   public_key: string;
+  /**
+   * PRF capability metadata from the registration ceremony. When `supported`
+   * is true, the server generates a 32-byte cred_salt and returns it as
+   * `prf_cred_salt` in the AuthFinishResponse. See spec/v1/api.md
+   * §"Transport D: PRF wrap".
+   */
+  prf?: {
+    supported: boolean;
+    at_create: boolean;
+  };
 }
 
 export interface PasskeyLoginStartRequest {
@@ -128,11 +138,51 @@ export interface PasskeyLoginFinishRequest {
   credential_id: string;
 }
 
+/**
+ * PRF-wrapped AMK blob. Returned inline in login-finish responses for a
+ * fresh-device single-round-trip unlock; sent (without `cred_salt`) as
+ * the body of PUT /api/v1/auth/passkeys/{credential_id}/prf-wrapper.
+ */
+export interface PrfWrapper {
+  /** 48 bytes (32 AMK + 16 GCM tag), base64url no padding. */
+  wrapped_amk: string;
+  /** 12 bytes, base64url no padding. */
+  nonce: string;
+  /** 32 bytes (`SHA-256("secrt-amk-commit-v1" || amk)`), base64url no padding. */
+  amk_commit: string;
+  /**
+   * 32 bytes, base64url no padding. Present in login-finish responses;
+   * not present in PUT request bodies (client already has it).
+   */
+  cred_salt?: string;
+  version: number;
+}
+
+/** Body for PUT /api/v1/auth/passkeys/{credential_id}/prf-wrapper. */
+export interface PutPrfWrapperRequest {
+  wrapped_amk: string;
+  nonce: string;
+  amk_commit: string;
+  version: number;
+}
+
 export interface AuthFinishResponse {
   session_token: string;
   user_id: string;
   display_name: string;
   expires_at: string;
+  /**
+   * Server-generated 32-byte HKDF salt (base64url) returned in the register-
+   * finish response when the client reported `prf.supported = true`. The
+   * client uses this as the HKDF salt when deriving the AMK wrap key from
+   * the WebAuthn PRF output.
+   */
+  prf_cred_salt?: string;
+  /**
+   * PRF wrapper for the matched credential, returned inline on login-finish
+   * so a fresh-device client can derive the AMK in one round-trip.
+   */
+  prf_wrapper?: PrfWrapper;
 }
 
 export interface SessionResponse {

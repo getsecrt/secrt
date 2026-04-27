@@ -4,17 +4,25 @@ import {
   supportsWebAuthn,
   createPasskeyCredential,
   generateUserId,
+  getPasskeyCredential,
 } from '../../lib/webauthn';
 import {
   registerPasskeyStart,
   registerPasskeyFinish,
   commitAmk,
+  putPrfWrapper,
 } from '../../lib/api';
 import { navigate } from '../../router';
 import { getRedirectParam } from '../../lib/redirect';
 import { isTauri } from '../../lib/config';
-import { generateAmk, computeAmkCommit } from '../../crypto/amk';
-import { base64urlEncode } from '../../crypto/encoding';
+import {
+  generateAmk,
+  computeAmkCommit,
+  deriveAmkWrapKeyFromPrf,
+  buildWrapAadPrf,
+  wrapAmk,
+} from '../../crypto/amk';
+import { base64urlEncode, base64urlDecode } from '../../crypto/encoding';
 import { storeAmk } from '../../lib/amk-store';
 import {
   PasskeyIcon,
@@ -143,6 +151,64 @@ type RegisterState =
   | { step: 'error'; message: string }
   | { step: 'unsupported' };
 
+/**
+ * Wrap the AMK with the PRF-derived key and PUT the wrapper. Handles both
+ * the PRF-on-create happy path (Chrome 147+, Safari 18+, etc.) and the
+ * PRF-on-get-only fallback (older surfaces where PRF is only available at
+ * assertion time, requiring a second ceremony immediately after registration).
+ *
+ * In the fallback path, the get() ceremony is constrained to the just-
+ * registered credential via allowCredentials so the picker can't surface a
+ * different credential — that would silently produce an undecryptable wrapper
+ * (Codex feedback #5). Mismatched credential is rejected with an error.
+ */
+async function wrapAndStorePrfWrapper(
+  sessionToken: string,
+  userId: string,
+  credentialId: string,
+  credentialRawId: Uint8Array,
+  credSaltB64u: string,
+  onCreateOutput: Uint8Array | undefined,
+  amk: Uint8Array,
+  amkCommit: Uint8Array,
+): Promise<void> {
+  let prfOutput = onCreateOutput;
+  if (!prfOutput) {
+    // PRF-on-get-only fallback. Use a fresh local challenge and pin the
+    // assertion to the just-created credential.
+    const localChallenge = new Uint8Array(32);
+    crypto.getRandomValues(localChallenge);
+    const assertion = await getPasskeyCredential(
+      base64urlEncode(localChallenge),
+      {
+        enablePrf: true,
+        allowCredentialIds: [credentialId],
+      },
+    );
+    if (assertion.credentialId !== credentialId) {
+      throw new Error(
+        'PRF fallback returned a different credential — refusing to write a mismatched wrapper',
+      );
+    }
+    if (!assertion.prfOutput) {
+      throw new Error('PRF fallback assertion returned no output');
+    }
+    prfOutput = assertion.prfOutput;
+  }
+
+  const credSalt = base64urlDecode(credSaltB64u);
+  const wrapKey = await deriveAmkWrapKeyFromPrf(prfOutput, credSalt);
+  const aad = buildWrapAadPrf(userId, credentialRawId, 1);
+  const wrapped = await wrapAmk(amk, wrapKey, aad);
+
+  await putPrfWrapper(sessionToken, credentialId, {
+    wrapped_amk: wrapped.ct,
+    nonce: wrapped.nonce,
+    amk_commit: base64urlEncode(amkCommit),
+    version: 1,
+  });
+}
+
 export function RegisterPage() {
   const auth = useAuth();
   const redirectTo = getRedirectParam();
@@ -192,20 +258,29 @@ export function RegisterPage() {
           display_name: displayName.trim(),
         });
 
-        // 2. Create passkey credential in browser
+        // 2. Create passkey credential in browser. Request PRF; the helper
+        //    falls through cleanly when the authenticator drops the extension
+        //    (Bitwarden, 1Password, Firefox ≤147, etc.).
         const userId = generateUserId();
         const credential = await createPasskeyCredential(
           startRes.challenge,
           userId,
           displayName.trim(),
           displayName.trim(),
+          { enablePrf: true },
         );
 
-        // 3. Finish registration — send credential to server
+        // 3. Finish registration — send credential + PRF capability info.
+        //    When supported = true, server generates cred_salt and returns
+        //    it as prf_cred_salt so we can immediately wrap the AMK.
         const finishRes = await registerPasskeyFinish({
           challenge_id: startRes.challenge_id,
           credential_id: credential.credentialId,
           public_key: credential.publicKey,
+          prf: {
+            supported: credential.prfState.supported,
+            at_create: credential.prfState.atCreate,
+          },
         });
 
         // 4. Log in with the returned session
@@ -223,6 +298,28 @@ export function RegisterPage() {
           if (finishRes.session_token) {
             const commit = await computeAmkCommit(amk);
             await commitAmk(finishRes.session_token, base64urlEncode(commit));
+
+            // 6. PRF wrapper: derive wrap key from the PRF output and PUT
+            //    the wrapped AMK so future devices can unlock with one tap.
+            //    Best-effort — failure here just means the user falls back
+            //    to sync-link / API-key path on a new device.
+            if (credential.prfState.supported && finishRes.prf_cred_salt) {
+              try {
+                await wrapAndStorePrfWrapper(
+                  finishRes.session_token,
+                  finishRes.user_id,
+                  credential.credentialId,
+                  credential.rawId,
+                  finishRes.prf_cred_salt,
+                  credential.prfState.onCreateOutput,
+                  amk,
+                  commit,
+                );
+              } catch {
+                // PRF wrapper write failed — user can still register and use
+                // the account; new-device unlock will fall back to sync-link.
+              }
+            }
           }
         } catch {
           // AMK will be generated on first note creation as fallback

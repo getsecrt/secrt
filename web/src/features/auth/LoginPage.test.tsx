@@ -103,6 +103,7 @@ describe('LoginPage', () => {
     const user = userEvent.setup();
     vi.mocked(getPasskeyCredential).mockResolvedValue({
       credentialId: 'cred_login',
+      rawId: new Uint8Array([1, 2, 3, 4]),
     });
     vi.mocked(loginPasskeyStart).mockResolvedValue({
       challenge_id: 'ch_login',
