@@ -3,7 +3,11 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
-    <link rel="icon" type="image/svg+xml" href="%BASE_URL%favicon.svg" />
+    <!-- Responsive favicon: dark variant first (matches when system prefers dark);
+         light variant last so Firefox — which ignores `media` on rel=icon —
+         falls back to the lighter, higher-contrast default. -->
+    <link rel="icon" type="image/svg+xml" href="%BASE_URL%favicon-dark.svg" media="(prefers-color-scheme: dark)" />
+    <link rel="icon" type="image/svg+xml" href="%BASE_URL%favicon.svg" media="(prefers-color-scheme: light)" />
     <meta name="description" content="Share passwords, keys, and sensitive data with zero-knowledge encryption. Secrets self-destruct after being read.">
 
     <!-- Open Graph -->
