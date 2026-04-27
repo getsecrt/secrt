@@ -55,6 +55,15 @@ secrt send gen --ttl 1h
 
 See the [CLI README](crates/secrt-cli/README.md) for full documentation.
 
+## Self-hosting
+
+You can run your own secrt instance on a single small VPS — Caddy + `secrt-server` + PostgreSQL fit comfortably on a 1 GB / 1 vCPU box.
+
+- [`docs/self-hosting.md`](docs/self-hosting.md) — comprehensive deployment guide (Ubuntu 24.04, distilled from a real production runbook). Covers SSH hardening, fail2ban, PostgreSQL tuning, Caddy + automatic TLS, systemd hardening, kernel sysctls, unattended upgrades, CAA records, and HSTS preload submission.
+- [`docs/instance-trust-model.md`](docs/instance-trust-model.md) — what an operator can and can't see. Read this first.
+- [`docs/caddy-privacy-logging.md`](docs/caddy-privacy-logging.md) — deeper dive on the Caddy / access-log slice.
+- [`crates/secrt-server/README.md`](crates/secrt-server/README.md) — full reference for every server env var.
+
 ## Repository structure
 
 ```
