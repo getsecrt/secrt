@@ -1142,6 +1142,15 @@
         "priority": "low",
         "dependencies": [],
         "subtasks": []
+      },
+      {
+        "id": 60,
+        "title": "Review draft PRF trust-implications section in docs/whitepaper.md",
+        "description": "A first-pass section was drafted on 2026-04-27 covering the trust-model implications of PRF-based AMK wrapping. Two locations in docs/whitepaper.md, both marked as draft pending review:\n\n1. New subsection \"PRF-Based AMK Wrapping (Passkey Recovery)\" under \"Encrypted Notes (Account Master Key)\", placed between \"CLI Device Authorization & ECDH Transfer\" and \"Commitment Protocol\". Introduces what PRF wrapping is + the trust-set expansion (passkey provider becomes part of the recovery path) + per-provider tier comparison (Apple/Google/Bitwarden/1Password/Dashlane) + recommendation for hardware-bound passkeys vs synced passkeys vs API-key sync.\n\n2. New bullet in the \"Threat Analysis\" subsection summarising the synced-passkey trust boundary and pointing back at section (1).\n\nTable of contents updated to include the new subsection (with a *(draft — pending review)* marker).\n\nReview goals:\n- Tweak wording/flow to JD's voice — first-pass is in Rachel's voice and reads slightly more academic than the rest of the whitepaper.\n- Confirm the per-provider table is fair and accurate (1Password Secret Key claim, Apple iCloud E2E + recovery design, Google Password Manager recovery path framing, Bitwarden/Dashlane master-password-only framing). These are summary-level claims and worth a sanity-check against current provider docs before the section ships.\n- Confirm the recommendation framing — currently says \"hardware-bound or stick with API-key sync\" for high-stakes threat models. Decide whether to be more or less prescriptive.\n- Decide whether to remove the \"draft — pending review\" markers and ship in the next whitepaper version bump, or keep gated until PRF actually lands in production (current plan: subtasks 1–4 of task #42 land first, login flow follows, then this section becomes accurate-as-shipped instead of accurate-as-designed).\n- The same trust-boundary content should also be reflected in crates/secrt-server/docs/prf-amk-wrapping.md §threat-model — the plan at /Users/jdlien/.claude/plans/yeah-plan-mode-activated-crystalline-mango.md flags this in constraint #3. Keep the two documents aligned in substance even if they differ in tone/audience.\n\nRelated: task #42 (PRF feature work). This task is doc-only and not blocking on #42's implementation.",
+        "status": "pending",
+        "priority": "medium",
+        "dependencies": [42],
+        "subtasks": []
       }
     ]
   }

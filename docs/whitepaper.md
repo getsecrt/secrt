@@ -36,6 +36,7 @@ This white paper describes the threat model, cryptographic architecture, server 
     - [AMK Wrapping & Recovery](#amk-wrapping--recovery)
     - [Cross-Device Sync](#cross-device-sync)
     - [CLI Device Authorization & ECDH Transfer](#cli-device-authorization--ecdh-transfer)
+    - [PRF-Based AMK Wrapping (Passkey Recovery)](#prf-based-amk-wrapping-passkey-recovery) *(draft — pending review)*
     - [Commitment Protocol](#commitment-protocol)
     - [Threat Analysis](#threat-analysis)
 11. [Clients](#clients)
@@ -544,6 +545,64 @@ The flow works as follows:
 
 The ECDH transfer is non-fatal — if it fails (no AMK in the browser, key generation error, etc.), device authorization still succeeds without AMK transfer. The CLI can still retrieve a wrapped AMK later via the API key wrapper endpoint.
 
+### PRF-Based AMK Wrapping (Passkey Recovery)
+
+> **Draft — pending review.** This section describes a recovery path that is in active development and not yet shipped. The cryptographic design is in `spec/v1/api.md` §"AMK wrapping" and `crates/secrt-server/docs/prf-amk-wrapping.md`. Wording, framing, and recommendations here are first-pass and expected to be revised before this section ships in a published whitepaper version.
+
+The API-key wrap path (above) and the ECDH transfer path both require the user to have something in hand on the new device — either an API key, or a browser already holding the AMK that can encode a sync link. For users who only authenticate with a passkey, neither is convenient. The [WebAuthn PRF extension](https://w3c.github.io/webauthn/#prf-extension) (Pseudo-Random Function) lets us add a third recovery path: derive an AMK wrap key directly from the passkey itself.
+
+PRF lets a relying party request that the authenticator emit a deterministic 32-byte secret bound to (a) the credential's private key and (b) a per-RP "evaluation salt" provided by the server. The output is reproducible across devices that hold the same credential and is never extractable except via the authenticator's PRF API. secrt uses this output as input keying material for the AMK wrap key:
+
+```
+prf_output  = HMAC-SHA-256(credential_private_key, eval_input)   # done by authenticator
+wrap_key    = HKDF-SHA-256(prf_output, cred_salt, "secrt-amk-wrap-prf-v1", 32)
+wrapped_amk = AES-256-GCM(wrap_key, random_nonce, AAD, AMK)
+```
+
+`cred_salt` is a 32-byte server-generated random value stored on the passkey row. The AAD is the same domain-tagged construction used for API-key wrappers (`AAD = info || user_id || u16(len(binding_id)) || binding_id || u16(version)`), with `binding_id` being the raw `credential_id` bytes. The wrap format is identical — only the IKM source and HKDF info string differ.
+
+The server stores the wrapped blob and the per-credential `cred_salt`. It cannot derive the wrap key without the PRF output, which it never sees and cannot produce. On a new device authenticating with the same passkey (e.g. a synced Apple/Google passkey, or a hardware key plugged into a different machine), the client requests PRF evaluation during the WebAuthn assertion, derives the wrap key, and unwraps the AMK locally.
+
+#### Trust Implications of PRF Wrapping
+
+PRF wrapping changes which parties are in the trust set for AMK recovery, and it is worth being explicit about the shape of that change.
+
+**The strict zero-knowledge claim against the secrt server is preserved.** The server stores only ciphertext and a per-credential salt. It cannot derive the wrap key, and database compromise alone does not yield AMK plaintext.
+
+**However, the credential private key — and therefore the PRF output — must live somewhere.** For passkeys, the practical options are:
+
+- **Hardware-bound credentials** (YubiKey, TPM-backed Windows Hello with sync disabled, Secure Enclave with platform-restricted use). The private key never leaves the secure element. The trust set for AMK recovery is *just the user* — equivalent in strength to the API-key flow, possibly stronger because PRF requires user verification (biometric or PIN) on every use.
+- **Synced passkeys** (Apple iCloud Keychain, Google Password Manager, Bitwarden, 1Password, Dashlane, etc.). The credential is encrypted and replicated through the provider's infrastructure so it is available across the user's devices. The trust set for AMK recovery now includes the passkey provider — anyone who can extract the credential from the provider's store can derive the wrap key.
+
+For synced passkeys, the strength of the recovery depends on the provider's design:
+
+| Provider | Encryption design | Recovery surface |
+| --- | --- | --- |
+| 1Password | Master password + Secret Key | Strongest of the synced options against the provider itself; the Secret Key adds entropy outside any account-level coercion. |
+| Apple iCloud Keychain | End-to-end encrypted; iCloud Security Code or recovery contact gates restoration | Strong; recovery flows are a real attack surface, and the regulatory environment (e.g. UK Investigatory Powers Act drama with Advanced Data Protection) is non-trivial. |
+| Google Password Manager | On-device encryption available; recovery via Google account | More permissive recovery than Apple's design; depends heavily on Google account hygiene. |
+| Bitwarden / Dashlane | Encrypted with master password | Strength is bounded by the user's master password; encrypted vault dumps that leak are brute-forceable in principle. |
+
+Compared with the existing recovery paths:
+
+- The **API-key sync flow** keeps the wrapping secret on the user's devices only. The secret never crosses a third-party cloud.
+- The **PRF flow with a synced passkey** routes the wrapping secret through the passkey provider's encrypted store. The server still cannot decrypt, but the set of parties that *could* decrypt — if compromised, compelled, or if a future credential-export feature shipped without sufficient gating — is larger.
+
+It is worth noting that the PRF evaluation salt is a fixed public constant (`cred_salt` is per-credential and stored server-side, but the eval input itself is not user-secret). Security comes entirely from the credential private key. An attacker who exfiltrates the credential can reproduce the PRF output offline with no rate limiting and no server interaction, so credential exposure is unrecoverable in the same sense as private-key exposure in any other public-key system.
+
+This trust expansion is not unique to secrt — every zero-knowledge note app that supports passkey-based unlock has the same property, whether or not it is documented. We document it because the difference between secrt and most alternatives in this space is supposed to be the rigour of the threat model, not the absence of one.
+
+#### Recommendation
+
+For most users, PRF with a synced passkey is a meaningful UX improvement (no API key to manage, no manual sync link, automatic recovery on every device that has the passkey) and the trust expansion is acceptable — passkey providers are operated by organizations that have substantial incentives and infrastructure to protect credential material.
+
+For users with high-stakes threat models — journalists, activists, security researchers, anyone whose adversary plausibly includes a passkey provider's operating company or a state actor that can compel one — we recommend either:
+
+- A **hardware-bound passkey** (YubiKey or equivalent) with sync disabled, which collapses the trust set back to user-only; or
+- **Continued use of the API-key sync flow**, which never routes the wrapping secret through a third-party cloud.
+
+PRF wrapping is additive. The API-key wrap, the cross-device sync link, and the ECDH CLI transfer all continue to work, and a single account can hold AMK wrappers via any combination of paths. Users select the recovery posture appropriate to their threat model rather than being forced into the most convenient one.
+
 ### Commitment Protocol
 
 A subtle problem arises with multi-device AMK recovery: what prevents a second device from generating a _different_ AMK and uploading it, effectively forking the user's note encryption into two incompatible key lineages?
@@ -567,6 +626,8 @@ The commitment is blinded (the domain tag prevents rainbow table attacks) and re
 **Sync link interception:** A sync link is a standard one-time secret with a 10-minute TTL. The same protections apply: HTTPS transport, URL fragment key separation, one-time atomic claim. An attacker would need to both intercept the link and claim it before the user does.
 
 **AMK commitment mismatch:** A compromised server could accept a second, attacker-controlled AMK commitment. However, this only affects future notes encrypted with the forked AMK — existing notes remain bound to the original AMK and cannot be re-encrypted without it. Additionally, the attacker would still need a valid API key root secret to wrap and upload the forged AMK, which the server doesn't have.
+
+**Synced-passkey trust boundary (PRF wrap path) — *draft, pending review*.** When AMK recovery is configured via PRF wrapping with a synced passkey (Apple/Google/Bitwarden/1Password/etc.), the trust set for AMK recovery expands to include the passkey provider. The secrt server's strict zero-knowledge property still holds — it cannot decrypt, and database compromise alone does not yield plaintext — but a compromised or compelled passkey provider could exfiltrate the credential private key, reproduce the PRF output, and derive the AMK wrap key. Hardware-bound passkeys (YubiKey, TPM-backed Hello with sync disabled, Secure Enclave with platform-restricted use) and the API-key sync flow do not have this property. See [PRF-Based AMK Wrapping (Passkey Recovery)](#prf-based-amk-wrapping-passkey-recovery) for the full discussion and per-provider tier comparison.
 
 ### Database Schema
 
