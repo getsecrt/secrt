@@ -38,8 +38,8 @@ use crate::domain::secret_rules::{
 use crate::release_poller::ReleaseCache;
 use crate::storage::{
     AmkStore, AmkUpsertResult, AmkWrapperRecord, ApiKeyRecord, ApiKeyRegistrationLimits,
-    ApiKeysStore, AuthStore, SecretQuotaLimits, SecretRecord, SecretsStore, SessionRecord,
-    StorageError, UserId,
+    ApiKeysStore, AuthStore, PrfAmkWrapperRecord, SecretQuotaLimits, SecretRecord, SecretsStore,
+    SessionRecord, StorageError, UserId,
 };
 use crate::MIN_SUPPORTED_CLI_VERSION;
 
@@ -226,6 +226,22 @@ struct PasskeyRegisterFinishRequest {
     challenge_id: String,
     credential_id: String,
     public_key: String,
+    /// PRF capability info from the registration ceremony. When `supported`,
+    /// the server generates `cred_salt` and returns it as `prf_cred_salt` in
+    /// the response so the client can immediately wrap the AMK and PUT the
+    /// wrapper. Optional for backward compatibility with non-PRF clients.
+    #[serde(default)]
+    prf: Option<RegisterPrfMetadata>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RegisterPrfMetadata {
+    /// Authenticator returned PRF output at some point during registration.
+    supported: bool,
+    /// PRF output was available in `extensions.prf.results.first` at create
+    /// time (PRF-on-create) vs. only after a subsequent get() ceremony.
+    at_create: bool,
 }
 
 #[derive(Deserialize)]
@@ -527,6 +543,49 @@ struct AuthFinishResponse {
     user_id: Uuid,
     display_name: String,
     expires_at: DateTime<Utc>,
+    /// Server-generated 32-byte PRF salt (base64url) returned in the register-
+    /// finish response when the client reported `prf.supported = true`. The
+    /// client uses this salt as the HKDF salt when deriving the AMK wrap key
+    /// from the PRF output. Stored on `passkeys.cred_salt`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    prf_cred_salt: Option<String>,
+    /// PRF-wrapped AMK blob inlined in the login-finish response when one
+    /// exists for the matched credential. Lets a fresh-device client unwrap
+    /// the AMK in one round-trip without a separate GET (avoids creating a
+    /// new fresh-session-gated surface — see `spec/v1/api.md` §"Transport D").
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    prf_wrapper: Option<PrfWrapperResponse>,
+}
+
+/// PUT body for `/api/v1/auth/passkeys/{credential_id}/prf-wrapper`.
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct PutPrfWrapperRequest {
+    /// 48 bytes (32 AMK + 16 GCM tag), base64url no padding.
+    wrapped_amk: String,
+    /// 12 bytes, base64url no padding.
+    nonce: String,
+    /// MUST be `1` in v1.
+    version: i16,
+    /// 32 bytes (`SHA-256("secrt-amk-commit-v1" || amk)`), base64url no padding.
+    amk_commit: String,
+}
+
+/// PRF wrapper payload — used both in `PutPrfWrapperRequest` direction and
+/// as the inline `prf_wrapper` field on login-finish responses. The login
+/// shape additionally includes `cred_salt` so the client can rebuild the
+/// HKDF salt without a second round-trip.
+#[derive(Serialize)]
+struct PrfWrapperResponse {
+    /// 48 bytes, base64url no padding.
+    wrapped_amk: String,
+    /// 12 bytes, base64url no padding.
+    nonce: String,
+    /// 32 bytes, base64url no padding.
+    amk_commit: String,
+    /// 32 bytes, base64url no padding. Only present in login-finish responses.
+    cred_salt: String,
+    version: i16,
 }
 
 /// Character set for user codes (no ambiguous chars: 0/O, 1/I/L).
@@ -716,6 +775,10 @@ pub fn build_router(state: Arc<AppState>) -> Router {
         )
         .route("/api/v1/auth/passkeys/{id}", any(handle_passkey_entry))
         .route("/api/v1/auth/passkeys", any(handle_passkeys_list_entry))
+        .route(
+            "/api/v1/auth/passkeys/{credential_id}/prf-wrapper",
+            any(handle_prf_wrapper_entry),
+        )
         .route("/api/v1/auth/device/start", any(handle_device_start_entry))
         .route("/api/v1/auth/device/poll", any(handle_device_poll_entry))
         .route(
@@ -1687,7 +1750,7 @@ pub async fn handle_passkey_register_finish_entry(
         Ok(v) => v,
         Err(_) => return internal_server_error(),
     };
-    if state
+    let passkey = match state
         .auth_store
         .insert_passkey(
             user.id,
@@ -1696,10 +1759,48 @@ pub async fn handle_passkey_register_finish_entry(
             0,
         )
         .await
-        .is_err()
     {
-        return internal_server_error();
-    }
+        Ok(p) => p,
+        Err(_) => return internal_server_error(),
+    };
+
+    // PRF support: when the client reports a PRF-capable authenticator, the
+    // server generates a per-credential 32-byte HKDF salt and stamps it on
+    // the passkey row. The salt is returned in the response so the client
+    // can immediately wrap the AMK and PUT the wrapper. See `spec/v1/api.md`
+    // §"Transport D: PRF wrap".
+    let prf_cred_salt_b64u = if let Some(prf) = payload.prf.as_ref() {
+        if prf.supported {
+            let mut salt = vec![0u8; 32];
+            if SystemRandom::new().fill(&mut salt).is_err() {
+                return internal_server_error();
+            }
+            if state
+                .auth_store
+                .set_passkey_prf_state(passkey.id, user.id, Some(&salt), true, prf.at_create)
+                .await
+                .is_err()
+            {
+                return internal_server_error();
+            }
+            Some(URL_SAFE_NO_PAD.encode(&salt))
+        } else {
+            // Client reported PRF unsupported; persist the (false, false) flags
+            // so the row reflects the observed state. cred_salt stays NULL.
+            if state
+                .auth_store
+                .set_passkey_prf_state(passkey.id, user.id, None, false, prf.at_create)
+                .await
+                .is_err()
+            {
+                return internal_server_error();
+            }
+            None
+        }
+    } else {
+        None
+    };
+
     let (token, expires_at) = match issue_session_token(&state, user.id).await {
         Ok(v) => v,
         Err(resp) => return resp,
@@ -1711,6 +1812,8 @@ pub async fn handle_passkey_register_finish_entry(
             user_id: user.id,
             display_name: user.display_name,
             expires_at,
+            prf_cred_salt: prf_cred_salt_b64u,
+            prf_wrapper: None,
         },
     )
 }
@@ -1829,6 +1932,31 @@ pub async fn handle_passkey_login_finish_entry(
         Ok(v) => v,
         Err(resp) => return resp,
     };
+
+    // Inline the PRF wrapper for this credential when one exists, so a fresh-
+    // device client can derive the AMK in a single round-trip.
+    // See `spec/v1/api.md` §"Transport D: PRF wrap".
+    let prf_wrapper = match state
+        .amk_store
+        .get_prf_wrapper_by_credential_id(user.id, payload.credential_id.trim())
+        .await
+    {
+        Ok(Some(w)) => Some(PrfWrapperResponse {
+            wrapped_amk: URL_SAFE_NO_PAD.encode(&w.wrapped_amk),
+            nonce: URL_SAFE_NO_PAD.encode(&w.nonce),
+            amk_commit: URL_SAFE_NO_PAD.encode(&w.amk_commit),
+            cred_salt: URL_SAFE_NO_PAD.encode(&w.cred_salt),
+            version: w.version,
+        }),
+        Ok(None) => None,
+        Err(e) => {
+            error!(error = %e, "failed to look up PRF wrapper");
+            // A wrapper-lookup failure shouldn't block login; fall through to the
+            // sync-link path. Logging the error is enough for observability.
+            None
+        }
+    };
+
     json_response(
         StatusCode::OK,
         AuthFinishResponse {
@@ -1836,6 +1964,8 @@ pub async fn handle_passkey_login_finish_entry(
             user_id: user.id,
             display_name: user.display_name,
             expires_at,
+            prf_cred_salt: None,
+            prf_wrapper,
         },
     )
 }
@@ -2665,6 +2795,132 @@ fn require_encrypted_notes(state: &AppState) -> Result<(), Response> {
         Ok(())
     } else {
         Err(not_found())
+    }
+}
+
+// --- PRF AMK wrapper endpoints (Transport D) ---
+
+/// `PUT /api/v1/auth/passkeys/{credential_id}/prf-wrapper` — upsert PRF wrapper.
+/// `DELETE` same path — explicit revocation; soft-revoke of the passkey itself
+/// also cascades to the wrapper via `revoke_passkey`.
+///
+/// Auth: session only (PRF wrappers belong to passkey-owning accounts; API-key
+/// auth would be meaningless here).
+pub async fn handle_prf_wrapper_entry(
+    State(state): State<Arc<AppState>>,
+    Path(credential_id): Path<String>,
+    req: Request,
+) -> Response {
+    if let Err(resp) = require_encrypted_notes(&state) {
+        return resp;
+    }
+    match *req.method() {
+        Method::PUT => handle_prf_wrapper_put(state, credential_id, req).await,
+        Method::DELETE => handle_prf_wrapper_delete(state, credential_id, req).await,
+        _ => method_not_allowed(),
+    }
+}
+
+async fn handle_prf_wrapper_put(
+    state: Arc<AppState>,
+    credential_id: String,
+    req: Request,
+) -> Response {
+    let headers = req.headers().clone();
+    let (user_id, _, _) = match require_session_user(&state, &headers).await {
+        Ok(v) => v,
+        Err(resp) => return resp,
+    };
+    let payload: PutPrfWrapperRequest = match read_json_body(req, 8 * 1024, None).await {
+        Ok(v) => v,
+        Err(resp) => return resp,
+    };
+
+    // Strict byte-length validation per spec/v1/api.md §"AMK wrapping".
+    let wrapped_amk = match URL_SAFE_NO_PAD.decode(&payload.wrapped_amk) {
+        Ok(v) if v.len() == 48 => v,
+        _ => return bad_request("wrapped_amk must be base64url-encoded 48 bytes"),
+    };
+    let nonce = match URL_SAFE_NO_PAD.decode(&payload.nonce) {
+        Ok(v) if v.len() == 12 => v,
+        _ => return bad_request("nonce must be base64url-encoded 12 bytes"),
+    };
+    let amk_commit = match URL_SAFE_NO_PAD.decode(&payload.amk_commit) {
+        Ok(v) if v.len() == 32 => v,
+        _ => return bad_request("amk_commit must be base64url-encoded 32 bytes"),
+    };
+    if payload.version != 1 {
+        return bad_request("unsupported version");
+    }
+
+    // Resolve credential_pk via the credential_id from the URL path. The
+    // credential MUST belong to the session user and not be revoked.
+    let passkey = match state
+        .auth_store
+        .get_passkey_by_credential_id(credential_id.trim())
+        .await
+    {
+        Ok(p) => p,
+        Err(StorageError::NotFound) => return not_found(),
+        Err(_) => return internal_server_error(),
+    };
+    if passkey.user_id != user_id || passkey.revoked_at.is_some() {
+        return not_found();
+    }
+    // PRF wrappers can only attach to credentials whose authenticator was
+    // observed to support PRF (cred_salt has been generated for them).
+    // Without a salt, the client couldn't have produced a valid wrapper.
+    if !passkey.prf_supported || passkey.cred_salt.is_none() {
+        return bad_request("credential is not PRF-capable");
+    }
+
+    let record = PrfAmkWrapperRecord {
+        user_id,
+        credential_pk: passkey.id,
+        credential_id: passkey.credential_id.clone(),
+        cred_salt: passkey
+            .cred_salt
+            .clone()
+            .expect("cred_salt presence checked above"),
+        wrapped_amk,
+        nonce,
+        version: payload.version,
+        amk_commit,
+        created_at: Utc::now(),
+    };
+
+    match state.amk_store.upsert_prf_wrapper(record).await {
+        Ok(AmkUpsertResult::Ok) => json_response(StatusCode::OK, serde_json::json!({ "ok": true })),
+        Ok(AmkUpsertResult::CommitMismatch) => error_response(
+            StatusCode::CONFLICT,
+            "a different AMK is already committed for this account",
+        ),
+        Err(e) => {
+            error!(error = %e, "failed to upsert PRF wrapper");
+            internal_server_error()
+        }
+    }
+}
+
+async fn handle_prf_wrapper_delete(
+    state: Arc<AppState>,
+    credential_id: String,
+    req: Request,
+) -> Response {
+    let (user_id, _, _) = match require_session_user(&state, req.headers()).await {
+        Ok(v) => v,
+        Err(resp) => return resp,
+    };
+    match state
+        .amk_store
+        .delete_prf_wrapper_by_credential_id(user_id, credential_id.trim())
+        .await
+    {
+        Ok(_) => StatusCode::NO_CONTENT.into_response(),
+        Err(e) => {
+            error!(error = %e, "failed to delete PRF wrapper");
+            internal_server_error()
+        }
     }
 }
 

@@ -1114,7 +1114,8 @@ paths:
       summary: Revoke a passkey
       description: |
         Deletes a passkey credential. Cannot revoke the last active passkey
-        for the account.
+        for the account. If the credential has a PRF wrapper, the wrapper is
+        deleted in the same transaction.
       tags: [auth]
       security:
         - sessionBearer: []
@@ -1133,6 +1134,74 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "404":
           $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /api/v1/auth/passkeys/{credential_id}/prf-wrapper:
+    put:
+      operationId: putPrfWrapper
+      summary: Upsert PRF-wrapped AMK for a passkey credential
+      description: |
+        Stores a PRF-wrapped AMK blob bound to a specific passkey credential.
+        The client derives the wrap key locally from the WebAuthn PRF output
+        and the server-issued cred_salt; the server only stores ciphertext.
+
+        Atomically anchors the AMK commit (first-writer-wins) and inserts
+        the wrapper. Returns 409 if the submitted amk_commit disagrees with
+        the user's existing anchor. Returns 400 if the credential is not
+        PRF-capable (server has no cred_salt for it).
+
+        See spec/v1/api.md §"Transport D: PRF wrap" for the normative crypto
+        contract.
+      tags: [auth]
+      security:
+        - sessionBearer: []
+      parameters:
+        - name: credential_id
+          in: path
+          required: true
+          schema:
+            type: string
+          description: The passkey credential ID (base64url, as returned by registration).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PutPrfWrapperRequest"
+      responses:
+        "200":
+          description: Wrapper stored
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          description: AMK commit conflict — a different AMK is anchored for this user.
+        "500":
+          $ref: "#/components/responses/InternalError"
+    delete:
+      operationId: deletePrfWrapper
+      summary: Delete PRF wrapper for a passkey credential
+      description: |
+        Idempotent delete. Soft-revoking the parent passkey via the revoke
+        endpoint also deletes the wrapper in the same transaction.
+      tags: [auth]
+      security:
+        - sessionBearer: []
+      parameters:
+        - name: credential_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "204":
+          description: Wrapper deleted (or no-op if it didn't exist).
+        "401":
+          $ref: "#/components/responses/Unauthorized"
         "500":
           $ref: "#/components/responses/InternalError"
 
@@ -1678,6 +1747,28 @@ components:
           type: string
         public_key:
           type: string
+        prf:
+          $ref: "#/components/schemas/RegisterPrfMetadata"
+
+    RegisterPrfMetadata:
+      type: object
+      required: [supported, at_create]
+      additionalProperties: false
+      description: |
+        WebAuthn PRF capability info from the registration ceremony.
+        When `supported` is true, the server generates a 32-byte cred_salt
+        and returns it as `prf_cred_salt` in the AuthFinishResponse so the
+        client can immediately wrap the AMK and PUT the wrapper.
+      properties:
+        supported:
+          type: boolean
+          description: Authenticator returned PRF output at some point.
+        at_create:
+          type: boolean
+          description: |
+            PRF output was available in extensions.prf.results.first at
+            navigator.credentials.create() time (PRF-on-create) vs only
+            after a subsequent get() ceremony.
 
     PasskeyLoginStartRequest:
       type: object
@@ -1721,6 +1812,63 @@ components:
         expires_at:
           type: string
           format: date-time
+        prf_cred_salt:
+          type: string
+          description: |
+            Server-generated 32-byte HKDF salt (base64url, no padding).
+            Returned in the register-finish response when the client reported
+            `prf.supported = true`. The client uses this as the HKDF salt
+            when deriving the AMK wrap key from the WebAuthn PRF output.
+            Stored on `passkeys.cred_salt`.
+        prf_wrapper:
+          $ref: "#/components/schemas/PrfWrapper"
+
+    PrfWrapper:
+      type: object
+      description: |
+        PRF-wrapped AMK blob. Returned inline in login-finish responses for
+        a fresh-device single-round-trip unlock; also accepted as the body
+        of PUT /api/v1/auth/passkeys/{credential_id}/prf-wrapper (without
+        the `cred_salt` field, which the client already has).
+      properties:
+        wrapped_amk:
+          type: string
+          description: 48 bytes (32 AMK + 16 GCM tag), base64url no padding.
+        nonce:
+          type: string
+          description: 12 bytes, base64url no padding.
+        amk_commit:
+          type: string
+          description: |
+            32 bytes (`SHA-256("secrt-amk-commit-v1" || amk)`), base64url
+            no padding. Must match `amk_accounts.amk_commit` for the user.
+        cred_salt:
+          type: string
+          description: |
+            32 bytes, base64url no padding. Present in login-finish responses
+            so the client can derive the wrap key in one round-trip; not
+            present in PUT request bodies (client already has it).
+        version:
+          type: integer
+          description: MUST be `1` in v1.
+
+    PutPrfWrapperRequest:
+      type: object
+      required: [wrapped_amk, nonce, amk_commit, version]
+      additionalProperties: false
+      properties:
+        wrapped_amk:
+          type: string
+          description: 48 bytes, base64url no padding.
+        nonce:
+          type: string
+          description: 12 bytes, base64url no padding.
+        amk_commit:
+          type: string
+          description: 32 bytes, base64url no padding.
+        version:
+          type: integer
+          description: MUST be `1` in v1.
 
     SessionResponse:
       type: object
