@@ -473,80 +473,74 @@
       },
       {
         "id": 37,
-        "title": "Add app preferences to Settings page",
-        "description": "Add a local Preferences section to the existing /settings page rather than creating a separate page. The /settings page currently requires auth (AuthGuard) — remove the auth gate so all users can access it, but conditionally show sections: Preferences cards (default TTL, auto-copy, theme) are visible to everyone; account cards (API keys, passkeys, display name, account deletion) remain visible only to authenticated users. This keeps navigation simple (one settings page) while letting unauthenticated users configure local preferences.\n\nPreferences are local-only (per-device, not synced to server). Store in localStorage for web; use Tauri store plugin for desktop if available, falling back to localStorage. This task does NOT include passphrase management (that's task #38) — it builds the storage layer and UI foundation that #38 extends.\n\nThe existing Nav already links to /settings for authenticated users. For unauthenticated users, add a gear icon or similar entry point so they can reach preferences without logging in.",
+        "title": "Unified Settings page + AMK-wrapped preferences sync",
+        "description": "Build a single /settings route containing Preferences (always visible) and Account (auth-gated) sections, with an AMK-wrapped, server-synced preferences blob (theme, default TTL, language, saved passphrases, etc.). See full plan: .taskmaster/plans/task-37-unified-preferences.md (v2, 2026-04-26).\n\nSupersedes the original task #37 scope and folds in task #38 (saved passphrases). Execution deferred until task #42 (Passkey PRF AMK wrapping) lands — the plan assumes passkey-only auth and PRF-derived AMK, which makes auto-clear-on-logout safe and lets the saved-passphrases feature ride on top of a stronger AMK lifecycle.\n\nKey decisions: single blob (not split prefs vs vault), CAS via ETag/If-Match for conflict-safe writes, auto-decrypt on by default with opt-out, Tauri biometric gating through a single passphrase provider, manual 'Clear local data on this device' button as v1 escape hatch (auto-clear-on-logout in Phase 6 post-PRF). Passphrases ship on both web and Tauri. Globe-icon language menu added to nav once 2+ languages live (after task #40).\n\nReplaces prior subtasks with the 8-phase plan from the design doc.",
         "status": "pending",
         "priority": "high",
-        "dependencies": [],
+        "dependencies": [
+          42
+        ],
         "subtasks": [
           {
             "id": 1,
-            "title": "Create preferences store module",
+            "title": "Phase 0 — Spec + crypto vectors for AMK-wrapped preferences blob",
             "status": "pending",
-            "description": "Build web/src/lib/preferences.ts with get/set/subscribe. Use localStorage (works for both web and Tauri). Keys: default_ttl (string, e.g. '24h'), auto_copy (boolean, default true), theme (string: 'system'|'light'|'dark'). Provide a usePreference(key) hook that returns [value, setValue] and re-renders on change."
+            "description": "Write spec/v1/preferences.md (envelope, normative AAD layout including blob_kind, wire format, CAS semantics). Generate spec/v1/preferences.vectors.json (3-5 deterministic vectors). Implement Preferences struct + seal_preferences/open_preferences in secrt-core; mirror in web/src/crypto/preferences.ts. Both must pass the same vectors before any UI work."
           },
           {
             "id": 2,
-            "title": "Remove AuthGuard from Settings page, add conditional sections",
+            "title": "Phase 1 — Server endpoints with CAS (ETag/If-Match)",
             "status": "pending",
-            "description": "Remove AuthGuard wrapping from the Settings route. In SettingsPage, render Preferences cards unconditionally at the top. Wrap existing account sections (API keys, passkeys, account management) in an auth check — show them only when logged in, or show a 'Log in to manage your account' prompt."
+            "description": "user_preferences Postgres table + migration (with revision column for CAS). GET/PUT handlers at /api/v1/auth/preferences in secrt-server. ETag generation, If-Match/If-None-Match enforcement, 409 on mismatch, 412 on missing precondition, 64 KB ciphertext size cap. OpenAPI updates. Integration tests covering concurrent-write CAS conflict path."
           },
           {
             "id": 3,
-            "title": "Add Preferences card to Settings page",
+            "title": "Phase 2 — Client storage + sync (web + Tauri)",
             "status": "pending",
-            "description": "New card(s) at the top of SettingsPage: General section with default TTL dropdown (matching the TTL options from SendPage's selector) and auto-copy share link toggle. Appearance section with theme selector (system/light/dark — may replace or complement the existing Nav toggle). Use the same card styling as existing settings sections."
+            "description": "web/src/lib/preferences.ts (get/set/subscribe + Preact hook). web/src/lib/preferencesSync.ts (load on login, write-through with ETag, 409-retry up to 3, localStorage ciphertext-only cache). Tauri-only: web/src/lib/passphraseProvider.ts — single biometric-gated provider that reads from keychain, reconciles with AMK blob on app start and on mutations. Logout clears in-memory decrypted blob (does not clear AMK or localStorage cache yet — see Phase 6). Detect and surface 'authenticated but no AMK' state."
           },
           {
             "id": 4,
-            "title": "Wire default TTL into SendPage",
+            "title": "Phase 3 — Settings page restructure",
             "status": "pending",
-            "description": "SendPage's TTL selector should initialize from the saved default_ttl preference instead of its hardcoded default. If no preference saved, keep current default behavior."
+            "description": "Remove AuthGuard from /settings; render Preferences sections unconditionally. Wrap Account sections in auth check with 'Sign in to manage your account' affordance. Build Appearance / General / Sending / Opening / Device-safety section components. Add 'Clear local data on this device' button to Account → Danger Zone (sibling of Delete Account; clears AMK + localStorage prefs cache + session token, then signs out)."
           },
           {
             "id": 5,
-            "title": "Add Settings link to Nav for unauthenticated users",
+            "title": "Phase 4 — Nav, shortcuts, Send/Claim integrations",
             "status": "pending",
-            "description": "Currently Nav only shows Settings link when logged in (via user menu). Add a gear icon or 'Settings' link visible to all users so they can reach preferences without an account. Logged-in users still see it in their user menu as before."
+            "description": "Remove dark-mode toggle from nav (preserve D shortcut). Add gear icon for unauth users routing to /settings. Wire default_ttl + auto_copy_share_link into SendPage. Wire 'Use saved default passphrase' checkbox model into SendPage (no pre-fill of saved value; default checkbox state controlled by always_confirm_send_default preference). Persistent compact indicator near Send action when default passphrase is active. Multi-phase auto-decrypt on Claim (respecting always_ask_before_auto_decrypt; never reveals which passphrase succeeded). Cmd+, / Ctrl+, global shortcut. macOS Tauri menu 'Preferences… ⌘,'."
+          },
+          {
+            "id": 6,
+            "title": "Phase 5 — Tauri biometric gating",
+            "status": "pending",
+            "description": "New Tauri command biometric_authenticate(reason: string) -> bool. macOS uses LAContext.evaluatePolicy; Windows uses Hello; Linux returns false with a reason (gate becomes a no-op with UI note). Wire passphraseProvider to call it whenever prefs.require_biometric is true. Cache successful auth for biometric_cache_seconds (in-memory only). UI for both require_biometric and biometric_cache_seconds preferences in the Device-safety section."
+          },
+          {
+            "id": 7,
+            "title": "Phase 6 — Auto-clear AMK on logout (gated on task #42)",
+            "status": "pending",
+            "description": "Add clearAmk(userId) call to logout() in web/src/lib/auth-context.tsx. Also clear localStorage prefs ciphertext cache. Verify re-login derives AMK via PRF without triggering device-transfer prompt. Update 'Clear local data on this device' button copy if its scope now overlaps materially with default logout behavior. This phase MUST land after task #42 (PRF) — without PRF, this change makes re-login on a fresh-feeling browser require the device-transfer dance, which is a regression."
+          },
+          {
+            "id": 8,
+            "title": "Phase 7 — Globe-icon language menu (gated on task #40)",
+            "status": "pending",
+            "description": "When availableLocales.length >= 2, render globe menu in nav showing current locale (e.g. '🌐 中文 (繁體) ▾'). Dropdown lists locales + 'More preferences…' link routing to /settings#language. Quick-switch writes language.locale to the AMK blob. Out of scope until task #40 (Icelandic localization) extracts strings and wires up i18n infrastructure."
           }
         ]
       },
       {
         "id": 38,
-        "title": "Add saved passphrases and auto-decryption",
-        "description": "Port the CLI's passphrase management to the app. Two features: (1) Default encryption passphrase — automatically applied when creating secrets (user can override or clear per-secret). (2) Decryption passphrases list — when claiming a secret, automatically try: no passphrase → default passphrase → each saved decryption passphrase → prompt user. This mirrors the CLI's multi-phase auto-decryption from config.toml. Passphrases are stored in the OS keychain via existing keyring_set/get commands (with file fallback on broken macOS). The Settings page (task #37) provides the management UI as a new Passphrases card in the Preferences section.\n\nNote: saved passphrases are a desktop-only feature (requires Tauri keyring commands). On web, this section should either be hidden or show a message directing users to the desktop app.\n\nTracking: GitHub issue https://github.com/getsecrt/secrt/issues/28 (this task covers the saved-passphrases UX half; the keychain-storage primitive lives in task #34).",
+        "title": "CLI ↔ AMK preferences sync (passphrase import/export parity)",
+        "description": "Slim follow-up to task #37: wire the CLI to optionally push/pull the AMK-wrapped preferences blob, so users with both CLI and app share the same saved passphrases (and other prefs). Most of the original task #38 scope (auto-decrypt UX, default-passphrase prefill, passphrase management UI) has been folded into #37 v2 plan: .taskmaster/plans/task-37-unified-preferences.md.\n\nRemaining work:\n- 'secrt config sync pull' / 'secrt config sync push' commands (or similar) that fetch/store the AMK blob using the shared Preferences struct from secrt-core.\n- Map between CLI TOML keys and Preferences fields per the mapping table in the plan doc.\n- Decide CLI-only behavior for fields the CLI doesn't honor (use_keychain, api_key, show_input).\n\nDepends on task #37 landing first (introduces the shared Preferences struct, server endpoints, and crypto envelope this task consumes).",
         "status": "pending",
-        "priority": "high",
+        "priority": "low",
         "dependencies": [
-          37,
-          34
+          37
         ],
-        "subtasks": [
-          {
-            "id": 1,
-            "title": "Add passphrase management card to Settings page",
-            "status": "pending",
-            "description": "New 'Passphrases' card in the Preferences section of Settings. Contains: (a) Default encryption passphrase — masked input with show/hide toggle, save/clear buttons. (b) Decryption passphrases — ordered list with add/remove/reorder. All stored via Tauri keyring commands. Desktop-only: hide or show 'desktop app required' on web."
-          },
-          {
-            "id": 2,
-            "title": "Auto-apply default passphrase on send",
-            "status": "pending",
-            "description": "When SendPage loads, check for a saved default passphrase. If present, pre-populate the passphrase field (or apply silently). Show indicator that default passphrase is active. Allow user to clear/override per-secret. Add a 'no passphrase' toggle to explicitly skip."
-          },
-          {
-            "id": 3,
-            "title": "Implement multi-phase auto-decryption on claim",
-            "status": "pending",
-            "description": "When claiming a secret that requires a passphrase, try in order: (1) no passphrase, (2) default passphrase, (3) each decryption passphrase from the saved list. If all fail, show the passphrase prompt as today. Show a brief status like 'Trying saved passphrases...' during auto-attempts. Don't leak which passphrase worked."
-          },
-          {
-            "id": 4,
-            "title": "Add passphrase import/export for CLI config parity",
-            "status": "pending",
-            "description": "Optional: allow importing passphrases from CLI config.toml or exporting to it, so users who use both CLI and app can share their passphrase lists."
-          }
-        ]
+        "subtasks": []
       },
       {
         "id": 39,
@@ -1121,6 +1115,33 @@
             "description": "Out of scope for this task: how/whether the CLI surfaces the discovered server version (e.g. in error messages, in `secrt --version` after a successful API call, or in a future min-supported-server-version compatibility check). Implementation choices range from \"silently record in cache for diagnostics\" to \"include in error footers\" to \"compatibility gate\". Punt to a follow-up task once we have a concrete use case; for now the field is exposed and the CLI can adopt at its own pace."
           }
         ]
+      },
+      {
+        "id": 57,
+        "title": "Flip CSP from Report-Only to enforcing (and add Trusted Types)",
+        "description": "0.16.4 shipped a strict Content-Security-Policy as Report-Only on HTML responses (see crates/secrt-server/src/http/security.rs). Cross-browser soak (Chrome / Safari / Firefox desktop, full app walk on 2026-04-27) found zero real violations — the strict policy is shippable as-written, no widenings needed. After ~1 week of prod soak passes without new reports, flip the header from content-security-policy-report-only to content-security-policy, fold upgrade-insecure-requests back into the main policy, and drop the separate enforcing header. Same release: add require-trusted-types-for 'script'; trusted-types 'none' as Report-Only (web/src/main.tsx already migrated to replaceChildren() to make this safe). A second follow-up release flips Trusted Types to enforcing. Caddy-side CSP has already been removed on both secrt.is and secrt.ca (2026-04-27); deployment guide updated. Ship as a small patch release.",
+        "status": "done",
+        "priority": "medium",
+        "dependencies": [],
+        "subtasks": []
+      },
+      {
+        "id": 58,
+        "title": "Migrate keyring 3.x → keyring-core 1.0 (deferred — re-evaluate 2027-04)",
+        "description": "DECISION (2026-04-27): defer ~12 months. Re-evaluate around 2027-04.\n\nCargo-outdated flags `keyring 4.0.0`, but that's a misleading nag — keyring 4.x has been demoted to a sample/demo crate and applications are explicitly told NOT to upgrade to it. The real successor is `keyring-core` 1.0 plus per-platform backend store crates (apple-native-keyring-store, linux-keyutils-keyring-store, windows-native-keyring-store, dbus-secret-service-keyring-store, zbus-secret-service-keyring-store — all freshly at 1.0.0 as of 2026-04). Upstream guidance: https://github.com/open-source-cooperative/keyring-rs/wiki/Keyring-Core\n\nWHY DEFER:\n- Zero user-visible benefit. Our keychain surface (set/get/delete password + NoEntry match) is fully covered by keyring 3.6.3.\n- 3.x is not deprecated for security reasons, just for ecosystem reorganisation. No CVE pressure.\n- The new ecosystem (keyring-core + 5 separate store crates) is brand-new at 1.0 with sparse migration docs and limited downstream battle-testing.\n- Migration adds a runtime init step (`set_default_store`) — forgetting it becomes a runtime failure rather than a compile error.\n- Cross-platform retest cost (macOS/Linux/Windows) outweighs the upside today.\n\nRE-EVALUATE WHEN any of these become true:\n- A security advisory lands on keyring 3.x.\n- The store crates accumulate meaningful downstream adoption (check via crates.io reverse-deps; rough threshold: a handful of well-known apps shipping production binaries on keyring-core).\n- Upstream publishes a concrete migration cookbook (the wiki currently gestures at it without code).\n- Rust ecosystem starts treating keyring 3.x as legacy in tooling output.\n\nCURRENT USAGE (for whoever picks this up):\n- crates/secrt-cli/Cargo.toml:24 — `keyring = { version = \"3\", optional = true, features = [\"apple-native\", \"linux-native\", \"windows-native\"] }`, gated behind the `keychain` feature.\n- crates/secrt-app/Cargo.toml:21 — `keyring = \"3\"` (no explicit features).\n- crates/secrt-cli/src/keychain.rs:7 — uses `keyring::Entry` + get_password/set_password/delete_credential.\n- crates/secrt-app/src/lib.rs:215-325 — Tauri commands `keyring_set/get/delete` plus the `keyring_probe_detects_broken_keychain` macOS-Tahoe probe. Pattern-matches on `keyring::Error::NoEntry`.\n\nESTIMATED MIGRATION SIZE when revisited: ~half-day mechanical edit + cross-platform smoke test, assuming the new store crates have stabilised. Ship as its own chore PR — never bundle with anything user-facing.",
+        "status": "deferred",
+        "priority": "low",
+        "dependencies": [],
+        "subtasks": []
+      },
+      {
+        "id": 59,
+        "title": "Make `html_responses_carry_csp_and_no_store` test resilient to unbuilt SPA",
+        "description": "The test in crates/secrt-server/tests/api_behavior.rs asserts the CSP contains 'sha256-' source hashes. That only holds when web/dist/ is populated (so the embedded SPA index.html has its inline FOUC <script>). In CI, the test job runs `cargo nextest run` without first running `pnpm build`, so the server falls back to the stub template at crates/secrt-server/templates/index.html which has no inline scripts → no hashes → assertion fails.\n\nThis fails on every CI run (failed in 0.16.4, 0.16.5). Releases are unaffected because release-server.yml builds the frontend before building the server. But main stays red on CI.\n\nFix options: (a) gate the 'sha256-' assertion behind a check for inline scripts in the served HTML (simplest); (b) make CI run `pnpm build` before `cargo test`; (c) split the test — assert build_csp behaviour with a fixed HTML fixture, separately assert the served CSP shape without specific hashes.\n\nRecommend (a) — smallest change, tests stay self-contained.",
+        "status": "pending",
+        "priority": "low",
+        "dependencies": [],
+        "subtasks": []
       }
     ]
   }
