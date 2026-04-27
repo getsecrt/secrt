@@ -1,0 +1,366 @@
+<!doctype html>
+<!--
+  PRF Spike — disposable, local-only prototype.
+  Verifies WebAuthn PRF extension behavior on real devices before any app code is touched.
+  DO NOT DEPLOY. DO NOT IMPORT FROM THE APP.
+  Tracking: task #42, plan phase A. See crates/secrt-server/docs/prf-amk-wrapping.md.
+-->
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="robots" content="noindex, nofollow" />
+    <title>secrt PRF spike</title>
+    <style>
+      :root {
+        font-family:
+          ui-sans-serif,
+          system-ui,
+          -apple-system,
+          sans-serif;
+      }
+      body {
+        max-width: 44rem;
+        margin: 1.5rem auto;
+        padding: 0 1rem;
+        color: #0f172a;
+      }
+      h1 {
+        font-size: 1.25rem;
+      }
+      h2 {
+        font-size: 1rem;
+        margin-top: 1.5rem;
+      }
+      button {
+        font: inherit;
+        padding: 0.5rem 0.9rem;
+        border: 1px solid #475569;
+        background: #f1f5f9;
+        border-radius: 6px;
+        cursor: pointer;
+        margin: 0 0.4rem 0.4rem 0;
+      }
+      button:hover {
+        background: #e2e8f0;
+      }
+      pre {
+        background: #0f172a;
+        color: #f8fafc;
+        padding: 0.75rem;
+        border-radius: 6px;
+        overflow-x: auto;
+        white-space: pre-wrap;
+        word-break: break-all;
+        font-size: 0.85rem;
+        line-height: 1.4;
+      }
+      .pill {
+        display: inline-block;
+        padding: 0.1rem 0.5rem;
+        border-radius: 999px;
+        font-size: 0.75rem;
+        background: #fef3c7;
+        color: #78350f;
+        border: 1px solid #fcd34d;
+      }
+      .ok {
+        background: #dcfce7;
+        color: #166534;
+        border-color: #86efac;
+      }
+      .fail {
+        background: #fee2e2;
+        color: #991b1b;
+        border-color: #fca5a5;
+      }
+      .fp {
+        font-family: ui-monospace, monospace;
+        font-weight: 600;
+      }
+      .row {
+        margin: 0.6rem 0;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>secrt — WebAuthn PRF spike <span class="pill">disposable</span></h1>
+    <p>
+      Verifies that the PRF extension produces a deterministic 32-byte secret per
+      <code>(credential, eval salt)</code> pair, and that synced passkeys produce the same
+      output across devices. Single device: confirm wrap/unwrap roundtrip. Cross device:
+      compare PRF fingerprints by eye.
+    </p>
+
+    <h2>Constants (visible for cross-device reproducibility)</h2>
+    <div class="row">
+      <code>PRF_EVAL_SALT</code> = SHA-256("secrt.is/v1/amk-prf-eval-salt") =
+      <span class="fp" id="evalSaltDisplay">…</span>
+    </div>
+    <div class="row">
+      <code>CRED_SALT</code> = <span class="fp" id="credSaltDisplay">…</span> (hardcoded; in
+      production this is server-generated per credential)
+    </div>
+
+    <h2>Actions</h2>
+    <p>
+      <button id="register">1. Register passkey (PRF-on-create)</button>
+      <button id="login">2. Login &amp; derive PRF (this-device credential)</button>
+      <button id="loginDiscoverable">3. Login (any synced credential — for cross-device tests)</button>
+      <button id="reset">Reset local state</button>
+    </p>
+
+    <h2>Log</h2>
+    <pre id="log"></pre>
+
+    <script type="module">
+      // ───────── helpers ─────────
+      const enc = new TextEncoder();
+      const log = (msg, cls) => {
+        const pre = document.getElementById('log');
+        const span = document.createElement('span');
+        if (cls) {
+          span.className = cls;
+        }
+        span.textContent = msg + '\n';
+        pre.appendChild(span);
+      };
+      const hex = (bytes) =>
+        [...new Uint8Array(bytes)]
+          .map((b) => b.toString(16).padStart(2, '0'))
+          .join('');
+      const fromHex = (s) =>
+        new Uint8Array(s.match(/.{2}/g).map((b) => parseInt(b, 16)));
+      const toB64u = (bytes) =>
+        btoa(String.fromCharCode(...new Uint8Array(bytes)))
+          .replaceAll('+', '-')
+          .replaceAll('/', '_')
+          .replaceAll('=', '');
+      const fromB64u = (s) => {
+        const b64 = s.replaceAll('-', '+').replaceAll('_', '/');
+        const pad = b64.length % 4 ? '='.repeat(4 - (b64.length % 4)) : '';
+        return Uint8Array.from(atob(b64 + pad), (c) => c.charCodeAt(0));
+      };
+      async function sha256(bytes) {
+        return new Uint8Array(await crypto.subtle.digest('SHA-256', bytes));
+      }
+      async function fingerprint(bytes) {
+        const d = await sha256(bytes);
+        return hex(d.slice(0, 8));
+      }
+      async function hkdfSha256(ikm, salt, info, len) {
+        const ikmKey = await crypto.subtle.importKey(
+          'raw',
+          ikm,
+          'HKDF',
+          false,
+          ['deriveBits'],
+        );
+        const out = await crypto.subtle.deriveBits(
+          { name: 'HKDF', hash: 'SHA-256', salt, info: enc.encode(info) },
+          ikmKey,
+          len * 8,
+        );
+        return new Uint8Array(out);
+      }
+
+      // ───────── constants ─────────
+      const PRF_EVAL_SALT = await sha256(enc.encode('secrt.is/v1/amk-prf-eval-salt'));
+      // Hardcoded so two devices opening this same file produce the same wrap_key.
+      // In production cred_salt is server-generated per credential and stored on
+      // the passkey row; the client receives it in the register-finish response.
+      const CRED_SALT = fromHex(
+        'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+      );
+      const HKDF_INFO = 'secrt-amk-wrap-prf-v1';
+
+      document.getElementById('evalSaltDisplay').textContent = hex(PRF_EVAL_SALT);
+      document.getElementById('credSaltDisplay').textContent = hex(CRED_SALT);
+
+      // ───────── PRF feature detection ─────────
+      function describePrfExt(ext) {
+        if (!ext) return 'undefined (browser does not support PRF)';
+        const enabled = ext.enabled === true;
+        const hasResults = !!ext.results?.first;
+        return `enabled=${enabled} hasResultsFirst=${hasResults}`;
+      }
+
+      // ───────── register ─────────
+      document.getElementById('register').addEventListener('click', async () => {
+        try {
+          const challenge = crypto.getRandomValues(new Uint8Array(32));
+          const userId = crypto.getRandomValues(new Uint8Array(16));
+          const cred = await navigator.credentials.create({
+            publicKey: {
+              challenge,
+              rp: { name: 'secrt-prf-spike', id: location.hostname },
+              user: { id: userId, name: 'spike@local', displayName: 'PRF Spike' },
+              pubKeyCredParams: [
+                { alg: -7, type: 'public-key' },
+                { alg: -257, type: 'public-key' },
+              ],
+              authenticatorSelection: {
+                residentKey: 'required',
+                userVerification: 'required',
+              },
+              extensions: { prf: { eval: { first: PRF_EVAL_SALT } } },
+              timeout: 60000,
+            },
+          });
+          const ext = cred.getClientExtensionResults().prf;
+          const credIdB64u = toB64u(cred.rawId);
+          localStorage.setItem('prf-spike-cred-id', credIdB64u);
+          log(`✓ Registered. credentialId(b64u): ${credIdB64u}`);
+          log(`  PRF extension: ${describePrfExt(ext)}`);
+
+          if (ext?.results?.first) {
+            const prfOut = new Uint8Array(ext.results.first);
+            const fp = await fingerprint(prfOut);
+            log(`  PRF fingerprint (SHA-256[0..8]): ${fp}`, 'ok');
+            await wrapAndStore(prfOut);
+          } else if (ext?.enabled === true) {
+            log(
+              '  PRF-on-create not provided. Click Login to retrieve via get() ceremony.',
+              'pill',
+            );
+          } else {
+            log(
+              '  PRF NOT supported on this surface. Sync-link path would be required for new devices.',
+              'fail',
+            );
+          }
+        } catch (e) {
+          log(`✗ register failed: ${e.message ?? e}`, 'fail');
+        }
+      });
+
+      // ───────── login ─────────
+      document.getElementById('login').addEventListener('click', async () => {
+        try {
+          const credIdB64u = localStorage.getItem('prf-spike-cred-id');
+          if (!credIdB64u) {
+            log('No credential registered. Click Register first.', 'fail');
+            return;
+          }
+          const credId = fromB64u(credIdB64u);
+          const challenge = crypto.getRandomValues(new Uint8Array(32));
+          const asr = await navigator.credentials.get({
+            publicKey: {
+              challenge,
+              rpId: location.hostname,
+              userVerification: 'required',
+              allowCredentials: [{ id: credId, type: 'public-key' }],
+              extensions: { prf: { eval: { first: PRF_EVAL_SALT } } },
+              timeout: 60000,
+            },
+          });
+          const ext = asr.getClientExtensionResults().prf;
+          log(`✓ Asserted. PRF extension: ${describePrfExt(ext)}`);
+          if (!ext?.results?.first) {
+            log('  No PRF output. Cannot derive wrap key.', 'fail');
+            return;
+          }
+          const prfOut = new Uint8Array(ext.results.first);
+          const fp = await fingerprint(prfOut);
+          log(`  PRF fingerprint (SHA-256[0..8]): ${fp}`, 'ok');
+
+          const stored = JSON.parse(
+            localStorage.getItem('prf-spike-wrapped') ?? 'null',
+          );
+          if (!stored) {
+            log('  No wrapped blob yet. Wrapping now (PRF-on-get path).');
+            await wrapAndStore(prfOut);
+            return;
+          }
+          const wrapKey = await hkdfSha256(prfOut, CRED_SALT, HKDF_INFO, 32);
+          const aesKey = await crypto.subtle.importKey(
+            'raw',
+            wrapKey,
+            'AES-GCM',
+            false,
+            ['encrypt', 'decrypt'],
+          );
+          try {
+            const pt = await crypto.subtle.decrypt(
+              { name: 'AES-GCM', iv: fromHex(stored.nonce) },
+              aesKey,
+              fromHex(stored.ct),
+            );
+            const got = hex(new Uint8Array(pt));
+            const ok = got === stored.amk;
+            log(`  unwrap roundtrip: ${ok ? 'OK' : 'MISMATCH'}`, ok ? 'ok' : 'fail');
+            if (ok) {
+              log(`  AMK fingerprint: ${await fingerprint(fromHex(got))}`);
+            }
+          } catch (e) {
+            log(`  unwrap FAILED: ${e.message ?? e}`, 'fail');
+          }
+        } catch (e) {
+          log(`✗ login failed: ${e.message ?? e}`, 'fail');
+        }
+      });
+
+      // ───────── login (discoverable, cross-device) ─────────
+      document.getElementById('loginDiscoverable').addEventListener('click', async () => {
+        try {
+          const challenge = crypto.getRandomValues(new Uint8Array(32));
+          const asr = await navigator.credentials.get({
+            publicKey: {
+              challenge,
+              rpId: location.hostname,
+              userVerification: 'required',
+              // No allowCredentials → picker shows all discoverable creds for this RP.
+              extensions: { prf: { eval: { first: PRF_EVAL_SALT } } },
+              timeout: 60000,
+            },
+          });
+          const credIdB64u = toB64u(asr.rawId);
+          const ext = asr.getClientExtensionResults().prf;
+          log(`✓ Discoverable login. credentialId(b64u): ${credIdB64u}`);
+          log(`  PRF extension: ${describePrfExt(ext)}`);
+          if (!ext?.results?.first) {
+            log('  No PRF output. Cannot compute fingerprint.', 'fail');
+            return;
+          }
+          const prfOut = new Uint8Array(ext.results.first);
+          const fp = await fingerprint(prfOut);
+          log(`  PRF fingerprint (SHA-256[0..8]): ${fp}`, 'ok');
+          log(
+            '  Compare this fingerprint to the one shown when this credential was registered on its original device. Match = synced-passkey PRF determinism confirmed.',
+          );
+        } catch (e) {
+          log(`✗ discoverable login failed: ${e.message ?? e}`, 'fail');
+        }
+      });
+
+      // ───────── wrapAndStore ─────────
+      async function wrapAndStore(prfOut) {
+        const fakeAmk = crypto.getRandomValues(new Uint8Array(32));
+        const wrapKey = await hkdfSha256(prfOut, CRED_SALT, HKDF_INFO, 32);
+        const aesKey = await crypto.subtle.importKey(
+          'raw',
+          wrapKey,
+          'AES-GCM',
+          false,
+          ['encrypt', 'decrypt'],
+        );
+        const nonce = crypto.getRandomValues(new Uint8Array(12));
+        const ct = new Uint8Array(
+          await crypto.subtle.encrypt({ name: 'AES-GCM', iv: nonce }, aesKey, fakeAmk),
+        );
+        localStorage.setItem(
+          'prf-spike-wrapped',
+          JSON.stringify({ amk: hex(fakeAmk), ct: hex(ct), nonce: hex(nonce) }),
+        );
+        log(`  ✓ wrapped fake AMK. AMK fingerprint: ${await fingerprint(fakeAmk)}`, 'ok');
+      }
+
+      // ───────── reset ─────────
+      document.getElementById('reset').addEventListener('click', () => {
+        localStorage.removeItem('prf-spike-cred-id');
+        localStorage.removeItem('prf-spike-wrapped');
+        log('Cleared local state. (Authenticator credential is NOT deleted.)');
+      });
+    </script>
+  </body>
+</html>
