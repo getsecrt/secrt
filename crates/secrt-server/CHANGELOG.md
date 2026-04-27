@@ -2,9 +2,23 @@
 
 ## Unreleased
 
+## 0.16.4 — 2026-04-26
+
 ### Added
 
 - **"About secrt" entry in the More Information menu.** The `/about` page existed but had no nav entry point, making it functionally invisible. Now appears in both the desktop dropdown and the mobile menu group, between "Privacy Policy" and the external links. Uses a new `CircleInfoIcon`. The menu trigger now also highlights when on `/about`.
+
+### Security
+
+- **Strict Content-Security-Policy on HTML responses, shipped as Report-Only.** A new `crates/secrt-server/src/http/security.rs` module computes the policy once at server startup by SHA-256-hashing every inline `<script>` in the embedded `index.html` and emitting the hashes as `'sha256-…'` sources in `script-src` — so the CSP is strict (no `'unsafe-inline'`) without any build-time hash bookkeeping. Initial policy: `default-src 'none'; script-src 'self' 'wasm-unsafe-eval' 'sha256-…'; style-src 'self'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self'; manifest-src 'self'; worker-src 'self'; form-action 'none'; base-uri 'none'; frame-ancestors 'none'; object-src 'none'`. Ships as `Content-Security-Policy-Report-Only` for one release so any unanticipated violations surface in the browser console without breaking flows; will flip to enforcing in a follow-up patch. `'wasm-unsafe-eval'` is the CSP3-narrow source needed by Argon2's WebAssembly module — it allows WASM compilation but not JS `eval()`/`Function()`/`setTimeout(string)`.
+- **`Content-Security-Policy: upgrade-insecure-requests` (enforcing) on HTML responses.** Transforming directive that has no Report-Only semantics (browsers warn and ignore it there), so it ships as its own enforcing header. Rewrites `http://` subresource URLs to `https://`; localhost is exempt per spec.
+- **`Cross-Origin-Opener-Policy: same-origin`, `Cross-Origin-Resource-Policy: same-origin`, and `Permissions-Policy` denying camera, geolocation, microphone, payment, USB, sensors, and `interest-cohort`.** Always-on browser-hardening headers that close cross-origin window/document attack surface and deny access to sensor/payment APIs the app never uses. Defense-in-depth — small attack-surface reduction at zero runtime cost.
+- **`Cache-Control: no-store` on every HTML response.** Prevents the browser/disk cache from resurrecting the SPA shell (and especially the claim page) after navigation. Content-hashed JS/CSS bundles still cache forever via existing `assets.rs` rules; only the HTML doc is no-stored.
+- **Drift-guard test (`embedded_index_csp_covers_every_inline_script`)** in `http/security.rs` — re-extracts every inline `<script>` from the served `index.html`, recomputes its hash, and asserts each appears in the live `csp_value()`. If anyone adds a new inline script, the test fails until the CSP regenerates (which it does automatically on next server start).
+
+### Changed
+
+- **`web/src/main.tsx`** uses `replaceChildren()` instead of `innerHTML = ''` for HMR pre-mount cleanup. Functionally identical — both clear all children — but the explicit DOM call removes the only `innerHTML` write in the codebase, prepping for a future `require-trusted-types-for 'script'` directive.
 
 ## 0.16.3 — 2026-04-26
 

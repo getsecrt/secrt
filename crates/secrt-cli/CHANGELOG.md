@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.16.4 — 2026-04-26
+
 ### Fixed
 
 - **`secrt config init` template no longer references a 404'ing docs URL.** The header comment now points at the README's Configuration section on GitHub (`https://github.com/getsecrt/secrt/blob/main/crates/secrt-cli/README.md#configuration`) instead of the dead `https://secrt.ca/docs/config`. Closes GH#41.

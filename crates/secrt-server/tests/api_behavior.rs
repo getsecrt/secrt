@@ -424,6 +424,80 @@ async fn method_not_allowed_and_headers() {
         Some("DENY")
     );
     assert!(resp.headers().get("x-request-id").is_some());
+
+    // Always-on browser hardening headers (apply to non-HTML responses too).
+    assert_eq!(
+        resp.headers()
+            .get("cross-origin-opener-policy")
+            .and_then(|v| v.to_str().ok()),
+        Some("same-origin")
+    );
+    assert_eq!(
+        resp.headers()
+            .get("cross-origin-resource-policy")
+            .and_then(|v| v.to_str().ok()),
+        Some("same-origin")
+    );
+    let pp = resp
+        .headers()
+        .get("permissions-policy")
+        .and_then(|v| v.to_str().ok())
+        .expect("permissions-policy header");
+    for token in [
+        "camera=()",
+        "geolocation=()",
+        "microphone=()",
+        "interest-cohort=()",
+    ] {
+        assert!(
+            pp.contains(token),
+            "permissions-policy missing {token}: {pp}"
+        );
+    }
+
+    // CSP and no-store cache must NOT appear on non-HTML responses.
+    assert!(
+        resp.headers()
+            .get("content-security-policy-report-only")
+            .is_none(),
+        "CSP should be HTML-only"
+    );
+    assert!(
+        resp.headers().get("content-security-policy").is_none(),
+        "enforcing CSP not yet enabled"
+    );
+}
+
+#[tokio::test]
+async fn html_responses_carry_csp_and_no_store() {
+    let app = test_app_with_store(Arc::new(MemStore::default()), test_config());
+
+    let req = Request::builder()
+        .method("GET")
+        .uri("/")
+        .body(Body::empty())
+        .expect("request");
+    let resp = app.clone().oneshot(req).await.expect("response");
+    assert_eq!(resp.status(), StatusCode::OK);
+
+    let csp = resp
+        .headers()
+        .get("content-security-policy-report-only")
+        .and_then(|v| v.to_str().ok())
+        .expect("CSP-Report-Only header on HTML");
+    assert!(csp.contains("default-src 'none'"), "CSP: {csp}");
+    assert!(csp.contains("'sha256-"), "CSP: {csp}");
+    assert!(csp.contains("frame-ancestors 'none'"), "CSP: {csp}");
+    assert!(csp.contains("object-src 'none'"), "CSP: {csp}");
+    assert!(!csp.contains("'unsafe-inline'"), "CSP: {csp}");
+    assert!(!csp.contains("'unsafe-eval'"), "CSP: {csp}");
+
+    let cache = resp
+        .headers()
+        .get("cache-control")
+        .and_then(|v| v.to_str().ok())
+        .expect("cache-control header on HTML");
+    assert!(cache.contains("no-store"), "cache-control: {cache}");
 }
 
 #[tokio::test]

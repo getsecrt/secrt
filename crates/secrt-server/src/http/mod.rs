@@ -27,6 +27,8 @@ use tower_http::services::ServeDir;
 use tracing::{error, info, warn};
 use uuid::Uuid;
 
+mod security;
+
 use crate::config::Config;
 use crate::domain::auth::Authenticator;
 use crate::domain::limiter::Limiter;
@@ -769,6 +771,7 @@ async fn request_middleware(
     insert_header(resp.headers_mut(), "x-content-type-options", "nosniff");
     insert_header(resp.headers_mut(), "referrer-policy", "no-referrer");
     insert_header(resp.headers_mut(), "x-frame-options", "DENY");
+    security::apply_security_headers(&mut resp);
 
     // Advisory CLI-version headers — let any CLI client refresh its
     // update-check cache from any response, no extra round trip.

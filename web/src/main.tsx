@@ -9,6 +9,6 @@ if (!root) {
 }
 
 // Clear any existing tree first (prevents HMR double-mount)
-root.innerHTML = '';
+root.replaceChildren();
 render(<App />, root);
 registerServiceWorker();
