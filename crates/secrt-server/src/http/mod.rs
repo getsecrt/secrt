@@ -35,6 +35,10 @@ use crate::domain::limiter::Limiter;
 use crate::domain::secret_rules::{
     format_bytes, generate_id, validate_envelope, OwnerHasher, SecretRuleError,
 };
+use crate::domain::webauthn::{
+    parse_registration, verify_assertion, AssertionContext, AssertionRequest, ParsedRegistration,
+    VerifyError,
+};
 use crate::release_poller::ReleaseCache;
 use crate::storage::{
     AmkStore, AmkUpsertResult, AmkWrapperRecord, ApiKeyRecord, ApiKeyRegistrationLimits,
@@ -225,11 +229,16 @@ struct PasskeyStartResponse {
 struct PasskeyRegisterFinishRequest {
     challenge_id: String,
     credential_id: String,
-    public_key: String,
+    /// base64url of the raw `authenticatorData` bytes (parsed out of
+    /// `attestationObject` by the client). Carries attested credential data
+    /// with the embedded COSE_Key. Server validates per spec/v1/server.md §6.2.
+    authenticator_data: String,
+    /// base64url of the literal `clientDataJSON` bytes the browser produced.
+    client_data_json: String,
     /// PRF capability info from the registration ceremony. When `supported`,
     /// the server generates `cred_salt` and returns it as `prf_cred_salt` in
     /// the response so the client can immediately wrap the AMK and PUT the
-    /// wrapper. Optional for backward compatibility with non-PRF clients.
+    /// wrapper.
     #[serde(default)]
     prf: Option<RegisterPrfMetadata>,
 }
@@ -255,11 +264,16 @@ struct PasskeyLoginStartRequest {
 struct PasskeyLoginFinishRequest {
     challenge_id: String,
     credential_id: String,
+    /// base64url of `AuthenticatorAssertionResponse.authenticatorData`.
+    authenticator_data: String,
+    /// base64url of the literal `clientDataJSON` bytes the browser produced.
+    client_data_json: String,
+    /// base64url of the DER-encoded ECDSA signature (ES256) over
+    /// `authenticatorData || SHA-256(clientDataJSON)`.
+    signature: String,
     /// PRF capability info from this assertion. Lets the server (a) return a
     /// `prf_cred_salt` to upgrade a pre-PRF credential and (b) hand the salt
-    /// back when no wrapper exists yet so the client can wrap+PUT. Optional
-    /// for backward compat with non-PRF clients. See `spec/v1/api.md`
-    /// §"Transport D: PRF wrap" — the upgrade path.
+    /// back when no wrapper exists yet so the client can wrap+PUT.
     #[serde(default)]
     prf: Option<RegisterPrfMetadata>,
 }
@@ -379,7 +393,11 @@ struct UpdatePasskeyLabelRequest {
 struct PasskeyAddFinishRequest {
     challenge_id: String,
     credential_id: String,
-    public_key: String,
+    /// base64url of the raw `authenticatorData` (with attested credential
+    /// data + COSE_Key). Same shape as register-finish.
+    authenticator_data: String,
+    /// base64url of `clientDataJSON`.
+    client_data_json: String,
     /// PRF capability info from the add-passkey ceremony. Mirrors the
     /// register-finish field — when `supported`, the server stamps the
     /// passkey row with a fresh `cred_salt` and returns it as
@@ -1568,16 +1586,22 @@ const CHALLENGE_LEN: usize = 32;
 #[derive(Serialize, Deserialize)]
 struct RegisterChallengePayload {
     display_name: String,
+    /// The base64url-encoded challenge bytes the server returned to the
+    /// client at /start. Persisted so /finish can compare against
+    /// clientDataJSON.challenge per spec/v1/server.md §6.2.
+    challenge: String,
 }
 
 #[derive(Serialize, Deserialize)]
 struct LoginChallengePayload {
     credential_id: String,
+    challenge: String,
 }
 
 #[derive(Serialize, Deserialize)]
 struct AddPasskeyChallengePayload {
     user_id: String,
+    challenge: String,
 }
 
 struct ParsedSessionToken {
@@ -1590,6 +1614,106 @@ fn random_b64(len: usize) -> Result<String, ()> {
     let mut b = vec![0u8; len];
     rng.fill(&mut b).map_err(|_| ())?;
     Ok(URL_SAFE_NO_PAD.encode(b))
+}
+
+/// Derive the WebAuthn RP ID from `public_base_url`. Strips scheme, path,
+/// and port — browsers reject ports in `rp.id`. For `https://secrt.is` →
+/// `secrt.is`; for `http://localhost:8080` → `localhost`.
+fn derive_rp_id(public_base_url: &str) -> &str {
+    let s = public_base_url
+        .strip_prefix("https://")
+        .or_else(|| public_base_url.strip_prefix("http://"))
+        .unwrap_or(public_base_url);
+    let s = s.split('/').next().unwrap_or(s);
+    s.split(':').next().unwrap_or(s)
+}
+
+/// Expected `clientDataJSON.origin` value. Trims trailing slash so we
+/// match the canonical form a browser produces.
+fn derive_expected_origin(public_base_url: &str) -> &str {
+    public_base_url.trim_end_matches('/')
+}
+
+/// Decode the base64url-encoded register/add wire fields and run them
+/// through the verifier. Returns `()` on failure — the handler maps any
+/// error to opaque `401`. The discriminator is logged so observability
+/// is preserved.
+fn decode_and_verify_registration(
+    cfg: &Config,
+    expected_challenge_b64u: &str,
+    authenticator_data_b64u: &str,
+    client_data_json_b64u: &str,
+) -> Result<ParsedRegistration, ()> {
+    let auth_data = URL_SAFE_NO_PAD
+        .decode(authenticator_data_b64u.trim())
+        .map_err(|_| {
+            warn!("passkey register: authenticator_data not valid base64url");
+        })?;
+    let cdj = URL_SAFE_NO_PAD
+        .decode(client_data_json_b64u.trim())
+        .map_err(|_| {
+            warn!("passkey register: client_data_json not valid base64url");
+        })?;
+
+    parse_registration(
+        &auth_data,
+        &cdj,
+        expected_challenge_b64u,
+        derive_expected_origin(&cfg.public_base_url),
+        derive_rp_id(&cfg.public_base_url),
+    )
+    .map_err(|err| log_verify_error("passkey register", err))
+}
+
+/// Decode the login wire fields and run them through `verify_assertion`.
+/// Returns the new sign_count on success.
+#[allow(clippy::too_many_arguments)]
+fn decode_and_verify_assertion(
+    cfg: &Config,
+    expected_challenge_b64u: &str,
+    stored_pubkey_b64u: &str,
+    stored_sign_count: u32,
+    authenticator_data_b64u: &str,
+    client_data_json_b64u: &str,
+    signature_b64u: &str,
+) -> Result<u32, ()> {
+    let auth_data = URL_SAFE_NO_PAD
+        .decode(authenticator_data_b64u.trim())
+        .map_err(|_| {
+            warn!("passkey login: authenticator_data not valid base64url");
+        })?;
+    let cdj = URL_SAFE_NO_PAD
+        .decode(client_data_json_b64u.trim())
+        .map_err(|_| {
+            warn!("passkey login: client_data_json not valid base64url");
+        })?;
+    let sig = URL_SAFE_NO_PAD.decode(signature_b64u.trim()).map_err(|_| {
+        warn!("passkey login: signature not valid base64url");
+    })?;
+    let pubkey = URL_SAFE_NO_PAD
+        .decode(stored_pubkey_b64u.trim())
+        .map_err(|_| {
+            warn!("passkey login: stored public_key not valid base64url");
+        })?;
+
+    let ctx = AssertionContext {
+        stored_pubkey_sec1: &pubkey,
+        stored_sign_count,
+        expected_challenge_b64u,
+        expected_origin: derive_expected_origin(&cfg.public_base_url),
+        expected_rp_id: derive_rp_id(&cfg.public_base_url),
+    };
+    let req = AssertionRequest {
+        authenticator_data: &auth_data,
+        client_data_json: &cdj,
+        signature: &sig,
+    };
+    verify_assertion(&ctx, &req).map_err(|err| log_verify_error("passkey login", err))
+}
+
+fn log_verify_error(scope: &str, err: VerifyError) {
+    // Discriminator is logged server-side only — never surfaced over the wire.
+    warn!(scope, error = err.as_str(), "webauthn verification failed");
 }
 
 fn session_token_from_headers(headers: &HeaderMap) -> Option<ParsedSessionToken> {
@@ -1708,6 +1832,7 @@ pub async fn handle_passkey_register_start_entry(
     };
     let challenge_json = match serde_json::to_string(&RegisterChallengePayload {
         display_name: payload.display_name,
+        challenge: challenge.clone(),
     }) {
         Ok(v) => v,
         Err(_) => return internal_server_error(),
@@ -1748,8 +1873,8 @@ pub async fn handle_passkey_register_finish_entry(
         Ok(v) => v,
         Err(resp) => return resp,
     };
-    if payload.credential_id.trim().is_empty() || payload.public_key.trim().is_empty() {
-        return bad_request("credential_id and public_key are required");
+    if payload.credential_id.trim().is_empty() {
+        return bad_request("credential_id is required");
     }
 
     let challenge = match state
@@ -1760,14 +1885,25 @@ pub async fn handle_passkey_register_finish_entry(
         Ok(v) => v,
         Err(_) => return bad_request("invalid or expired challenge"),
     };
-    let parsed: RegisterChallengePayload = match serde_json::from_str(&challenge.challenge_json) {
+    let parsed_challenge: RegisterChallengePayload =
+        match serde_json::from_str(&challenge.challenge_json) {
+            Ok(v) => v,
+            Err(_) => return internal_server_error(),
+        };
+
+    let parsed_reg = match decode_and_verify_registration(
+        &state.cfg,
+        &parsed_challenge.challenge,
+        &payload.authenticator_data,
+        &payload.client_data_json,
+    ) {
         Ok(v) => v,
-        Err(_) => return internal_server_error(),
+        Err(()) => return unauthorized(),
     };
 
     let user = match state
         .auth_store
-        .create_user(parsed.display_name.trim())
+        .create_user(parsed_challenge.display_name.trim())
         .await
     {
         Ok(v) => v,
@@ -1777,9 +1913,9 @@ pub async fn handle_passkey_register_finish_entry(
         .auth_store
         .insert_passkey(
             user.id,
-            payload.credential_id.trim(),
-            payload.public_key.trim(),
-            0,
+            &URL_SAFE_NO_PAD.encode(&parsed_reg.credential_id),
+            &URL_SAFE_NO_PAD.encode(&parsed_reg.public_key_sec1),
+            parsed_reg.sign_count as i64,
         )
         .await
     {
@@ -1873,6 +2009,7 @@ pub async fn handle_passkey_login_start_entry(
     };
     let challenge_json = match serde_json::to_string(&LoginChallengePayload {
         credential_id: payload.credential_id.trim().to_string(),
+        challenge: challenge.clone(),
     }) {
         Ok(v) => v,
         Err(_) => return internal_server_error(),
@@ -1939,9 +2076,23 @@ pub async fn handle_passkey_login_finish_entry(
     if passkey.revoked_at.is_some() {
         return unauthorized();
     }
+
+    let new_sign_count = match decode_and_verify_assertion(
+        &state.cfg,
+        &c.challenge,
+        &passkey.public_key,
+        passkey.sign_count as u32,
+        &payload.authenticator_data,
+        &payload.client_data_json,
+        &payload.signature,
+    ) {
+        Ok(v) => v,
+        Err(()) => return unauthorized(),
+    };
+
     if state
         .auth_store
-        .update_passkey_sign_count(payload.credential_id.trim(), passkey.sign_count + 1)
+        .update_passkey_sign_count(payload.credential_id.trim(), new_sign_count as i64)
         .await
         .is_err()
     {
@@ -2432,6 +2583,7 @@ pub async fn handle_passkey_add_start_entry(
     };
     let challenge_json = match serde_json::to_string(&AddPasskeyChallengePayload {
         user_id: user_id.to_string(),
+        challenge: challenge.clone(),
     }) {
         Ok(v) => v,
         Err(_) => return internal_server_error(),
@@ -2476,8 +2628,8 @@ pub async fn handle_passkey_add_finish_entry(
         Ok(v) => v,
         Err(resp) => return resp,
     };
-    if payload.credential_id.trim().is_empty() || payload.public_key.trim().is_empty() {
-        return bad_request("credential_id and public_key are required");
+    if payload.credential_id.trim().is_empty() {
+        return bad_request("credential_id is required");
     }
     let challenge = match state
         .auth_store
@@ -2488,20 +2640,32 @@ pub async fn handle_passkey_add_finish_entry(
         Err(_) => return bad_request("invalid or expired challenge"),
     };
     // Verify the challenge belongs to this user
-    let parsed: AddPasskeyChallengePayload = match serde_json::from_str(&challenge.challenge_json) {
-        Ok(v) => v,
-        Err(_) => return internal_server_error(),
-    };
-    if parsed.user_id != user_id.to_string() {
+    let parsed_challenge: AddPasskeyChallengePayload =
+        match serde_json::from_str(&challenge.challenge_json) {
+            Ok(v) => v,
+            Err(_) => return internal_server_error(),
+        };
+    if parsed_challenge.user_id != user_id.to_string() {
         return unauthorized();
     }
+
+    let parsed_reg = match decode_and_verify_registration(
+        &state.cfg,
+        &parsed_challenge.challenge,
+        &payload.authenticator_data,
+        &payload.client_data_json,
+    ) {
+        Ok(v) => v,
+        Err(()) => return unauthorized(),
+    };
+
     let passkey = match state
         .auth_store
         .insert_passkey(
             user_id,
-            payload.credential_id.trim(),
-            payload.public_key.trim(),
-            0,
+            &URL_SAFE_NO_PAD.encode(&parsed_reg.credential_id),
+            &URL_SAFE_NO_PAD.encode(&parsed_reg.public_key_sec1),
+            parsed_reg.sign_count as i64,
         )
         .await
     {
