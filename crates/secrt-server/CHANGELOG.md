@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+## 0.17.2 — 2026-04-28
+
+### Added
+
+- **Per-IP rate limiter on the unauthenticated passkey ceremony /start endpoints.** `/api/v1/auth/passkeys/register/start` and `/api/v1/auth/passkeys/login/start` now share a `passkey_ceremony_limiter` (defaults: 0.5 rps, burst 6 — `PASSKEY_CEREMONY_RATE` / `PASSKEY_CEREMONY_BURST`). Each call inserts a `webauthn_challenges` row with a 10-minute TTL; without this gate, an attacker can spam-fill the table even if no challenge ever progresses to /finish. Regression tests at `crates/secrt-server/tests/api_auth_passkeys.rs::passkey_{login,register}_start_is_rate_limited` lock the behavior in.
+
 ## 0.17.1 — 2026-04-28
 
 ### Changed

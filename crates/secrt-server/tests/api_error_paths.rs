@@ -55,6 +55,8 @@ fn cfg() -> Config {
         apikey_register_account_max_per_day: 20,
         apikey_register_ip_max_per_hour: 5,
         apikey_register_ip_max_per_day: 20,
+        passkey_ceremony_rate: 1000.0,
+        passkey_ceremony_burst: 1000,
         encrypted_notes_enabled: false,
 
         github_poll_interval_seconds: 0,

@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 0.17.2 — 2026-04-28
+
+No CLI-facing changes. Workspace version bump to keep the CLI in lockstep with the server release, which adds a per-IP rate limiter on the unauthenticated passkey ceremony /start endpoints — see `crates/secrt-server/CHANGELOG.md`.
+
 ## 0.17.1 — 2026-04-28
 
 No CLI-facing changes. Workspace version bump to keep the CLI in lockstep with the server release, which switches passkey login to a single-prompt discoverable-credential flow — see `crates/secrt-server/CHANGELOG.md`.

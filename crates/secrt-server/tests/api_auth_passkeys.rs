@@ -693,3 +693,48 @@ async fn authed_routes_accept_ak2_and_reject_legacy_sk() {
     let create_legacy_resp = app.clone().oneshot(create_legacy).await.expect("response");
     assert_eq!(create_legacy_resp.status(), StatusCode::UNAUTHORIZED);
 }
+
+#[tokio::test]
+async fn passkey_login_start_is_rate_limited() {
+    // Discoverable-credential /login/start accepts an empty body, so it is
+    // the cheapest route to fill webauthn_challenges. Confirm the per-IP
+    // limiter actually fires.
+    let mut cfg = test_config();
+    cfg.passkey_ceremony_rate = 0.0;
+    cfg.passkey_ceremony_burst = 0;
+    let app = test_app_with_store(Arc::new(MemStore::default()), cfg);
+
+    let req = Request::builder()
+        .method("POST")
+        .uri("/api/v1/auth/passkeys/login/start")
+        .header("content-type", "application/json")
+        .body(Body::from("{}"))
+        .expect("request");
+    let resp = app
+        .clone()
+        .oneshot(with_remote(req, [198, 51, 100, 99], 4242))
+        .await
+        .expect("response");
+    assert_eq!(resp.status(), StatusCode::TOO_MANY_REQUESTS);
+}
+
+#[tokio::test]
+async fn passkey_register_start_is_rate_limited() {
+    let mut cfg = test_config();
+    cfg.passkey_ceremony_rate = 0.0;
+    cfg.passkey_ceremony_burst = 0;
+    let app = test_app_with_store(Arc::new(MemStore::default()), cfg);
+
+    let req = Request::builder()
+        .method("POST")
+        .uri("/api/v1/auth/passkeys/register/start")
+        .header("content-type", "application/json")
+        .body(Body::from(json!({ "display_name": "Spam" }).to_string()))
+        .expect("request");
+    let resp = app
+        .clone()
+        .oneshot(with_remote(req, [198, 51, 100, 100], 4243))
+        .await
+        .expect("response");
+    assert_eq!(resp.status(), StatusCode::TOO_MANY_REQUESTS);
+}

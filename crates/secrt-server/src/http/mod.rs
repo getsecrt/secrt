@@ -59,6 +59,10 @@ pub struct AppState {
     pub claim_limiter: Limiter,
     pub api_limiter: Limiter,
     pub apikey_register_limiter: Limiter,
+    /// Per-IP gate for the unauthenticated passkey ceremony /start endpoints.
+    /// Each /start call inserts a `webauthn_challenges` row with a 10-minute
+    /// TTL — without this limiter, an attacker can spam-fill that table.
+    pub passkey_ceremony_limiter: Limiter,
     pub owner_hasher: OwnerHasher,
     pub privacy_checked: Arc<AtomicBool>,
     /// Snapshot of the latest known CLI release, refreshed by the GitHub
@@ -85,6 +89,10 @@ impl AppState {
                 cfg.apikey_register_rate,
                 cfg.apikey_register_burst,
             ),
+            passkey_ceremony_limiter: Limiter::new(
+                cfg.passkey_ceremony_rate,
+                cfg.passkey_ceremony_burst,
+            ),
             owner_hasher: OwnerHasher::new(),
             privacy_checked: Arc::new(AtomicBool::new(false)),
             auth: Authenticator::new(cfg.api_key_pepper.clone(), api_keys.clone()),
@@ -104,6 +112,7 @@ impl AppState {
         self.claim_limiter.start_gc(interval, max_idle);
         self.api_limiter.start_gc(interval, max_idle);
         self.apikey_register_limiter.start_gc(interval, max_idle);
+        self.passkey_ceremony_limiter.start_gc(interval, max_idle);
     }
 
     pub fn stop_limiter_gc(&self) {
@@ -111,6 +120,7 @@ impl AppState {
         self.claim_limiter.stop();
         self.api_limiter.stop();
         self.apikey_register_limiter.stop();
+        self.passkey_ceremony_limiter.stop();
     }
 }
 
@@ -1822,6 +1832,15 @@ pub async fn handle_passkey_register_start_entry(
     if req.method() != Method::POST {
         return method_not_allowed();
     }
+
+    // Rate-limit per IP. /start cheaply inserts a webauthn_challenges row
+    // with a 10-minute TTL — without this gate, an attacker can spam-fill
+    // the table.
+    let ip = get_client_ip(req.headers(), request_connect_addr(&req));
+    if !state.passkey_ceremony_limiter.allow(&ip) {
+        return rate_limited();
+    }
+
     let payload: PasskeyRegisterStartRequest = match read_json_body(req, 8 * 1024, None).await {
         Ok(v) => v,
         Err(resp) => return resp,
@@ -1991,6 +2010,15 @@ pub async fn handle_passkey_login_start_entry(
     if req.method() != Method::POST {
         return method_not_allowed();
     }
+
+    // Rate-limit per IP. The discoverable-credential flow accepts an
+    // empty body, so /login/start is even cheaper to spam than the
+    // register variant; gate it before doing any other work.
+    let ip = get_client_ip(req.headers(), request_connect_addr(&req));
+    if !state.passkey_ceremony_limiter.allow(&ip) {
+        return rate_limited();
+    }
+
     // Body is optional; clients on the discoverable-credential flow POST
     // an empty/absent body, while older clients may still send a
     // credential_id hint. We accept both shapes — the body is
@@ -5490,6 +5518,8 @@ mod tests {
             apikey_register_account_max_per_day: 20,
             apikey_register_ip_max_per_hour: 5,
             apikey_register_ip_max_per_day: 20,
+            passkey_ceremony_rate: 100.0,
+            passkey_ceremony_burst: 100,
             encrypted_notes_enabled: false,
 
             github_poll_interval_seconds: 0,

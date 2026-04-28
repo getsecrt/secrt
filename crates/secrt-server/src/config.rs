@@ -41,6 +41,13 @@ pub struct Config {
     pub apikey_register_ip_max_per_hour: i64,
     pub apikey_register_ip_max_per_day: i64,
 
+    /// Per-IP rate limit for the unauthenticated passkey ceremony /start
+    /// endpoints (`/auth/passkeys/register/start`, `/auth/passkeys/login/start`).
+    /// Each call inserts a row into `webauthn_challenges` with a 10-minute
+    /// TTL — without a limiter, an attacker can spam-fill that table.
+    pub passkey_ceremony_rate: f64,
+    pub passkey_ceremony_burst: usize,
+
     /// Feature flags
     pub encrypted_notes_enabled: bool,
 
@@ -163,6 +170,12 @@ impl Config {
                 "APIKEY_REGISTER_IP_MAX_PER_DAY",
                 20,
             ),
+
+            // 0.5 rps with burst 6 → ~30/min sustained per IP, plenty for a
+            // legitimate user fumbling the picker, tight enough to make the
+            // challenges-table fill attack uneconomical.
+            passkey_ceremony_rate: getenv_f64_default("PASSKEY_CEREMONY_RATE", 0.5),
+            passkey_ceremony_burst: getenv_usize_default("PASSKEY_CEREMONY_BURST", 6),
 
             encrypted_notes_enabled: getenv_bool_default("ENCRYPTED_NOTES_ENABLED", true),
 

@@ -964,6 +964,11 @@ pub fn test_config() -> Config {
         apikey_register_account_max_per_day: 20,
         apikey_register_ip_max_per_hour: 5,
         apikey_register_ip_max_per_day: 20,
+        // Tests run many ceremonies back-to-back from the same in-process
+        // "IP"; default to a high rate so the limiter doesn't trip. Tests
+        // that exercise the limiter override these directly.
+        passkey_ceremony_rate: 100.0,
+        passkey_ceremony_burst: 100,
         encrypted_notes_enabled: false,
 
         github_poll_interval_seconds: 0,
