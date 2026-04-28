@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 0.17.1 — 2026-04-28
+
+No CLI-facing changes. Workspace version bump to keep the CLI in lockstep with the server release, which switches passkey login to a single-prompt discoverable-credential flow — see `crates/secrt-server/CHANGELOG.md`.
+
 ## 0.17.0 — 2026-04-28
 
 No CLI-facing changes. Workspace version bump to keep the CLI release in lockstep with the server release, which enforces real WebAuthn assertion verification on all passkey `/finish` endpoints — see `crates/secrt-server/CHANGELOG.md`. The CLI does not exercise passkey endpoints, so the wire-format break does not affect CLI users; `MIN_SUPPORTED_CLI_VERSION` is unchanged.

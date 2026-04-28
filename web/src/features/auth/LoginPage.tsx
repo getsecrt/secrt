@@ -387,43 +387,26 @@ export function LoginPage() {
     setState({ step: 'authenticating' });
 
     try {
-      // Step 1: Use a local random challenge to invoke the passkey picker.
-      //         The user picks a credential here; we read its credential_id
-      //         to ask the server for a properly-scoped login challenge.
-      //         (FIXME: a single-prompt login would require /login/start to
-      //         accept no credential_id — discoverable-credential flow. Two
-      //         prompts is acceptable while we have no real users.)
-      const localChallenge = new Uint8Array(32);
-      crypto.getRandomValues(localChallenge);
-      const localChallengeB64 = base64urlEncode(localChallenge);
+      // Discoverable-credential flow: a single navigator.credentials.get()
+      // call. The server issues a fresh challenge with no credential
+      // pre-binding; the assertion's signature is what ties the
+      // credential to the session. iCloud Passwords prompts for the
+      // account password on EVERY get() call, so any second call is a
+      // visible UX regression — keep this single-call.
+      const startRes = await loginPasskeyStart({});
 
-      const pickerResult = await getPasskeyCredential(localChallengeB64, {
+      const assertion = await getPasskeyCredential(startRes.challenge, {
         enablePrf: true,
-      });
-
-      // Step 2: Now we have the credential_id, ask the server for a login
-      //         challenge bound to that credential.
-      const startRes = await loginPasskeyStart({
-        credential_id: pickerResult.credentialId,
-      });
-
-      // Step 3: Re-assert against the server's challenge so the signature
-      //         carries clientDataJSON.challenge == server's value. We pin
-      //         allowCredentials to the credential the user already picked
-      //         so this doesn't reopen the picker.
-      const serverAssertion = await getPasskeyCredential(startRes.challenge, {
-        enablePrf: true,
-        allowCredentialIds: [pickerResult.credentialId],
       });
 
       const finishRes = await loginPasskeyFinish({
         challenge_id: startRes.challenge_id,
-        credential_id: serverAssertion.credentialId,
-        authenticator_data: serverAssertion.authenticatorData,
-        client_data_json: serverAssertion.clientDataJSON,
-        signature: serverAssertion.signature,
+        credential_id: assertion.credentialId,
+        authenticator_data: assertion.authenticatorData,
+        client_data_json: assertion.clientDataJSON,
+        signature: assertion.signature,
         prf: {
-          supported: !!serverAssertion.prfOutput,
+          supported: !!assertion.prfOutput,
           at_create: false,
         },
       });
@@ -440,15 +423,15 @@ export function LoginPage() {
       //          AMK locally, derive the wrap key, unwrap, and store. All-
       //          best-effort: failure here just falls through to the existing
       //          sync-link / API-key path.
-      if (finishRes.prf_wrapper && pickerResult.prfOutput) {
+      if (finishRes.prf_wrapper && assertion.prfOutput) {
         try {
           const existing = await loadAmk(finishRes.user_id);
           if (!existing) {
             await unwrapAndStorePrfAmk(
               finishRes.user_id,
-              pickerResult.credentialId,
-              pickerResult.rawId,
-              pickerResult.prfOutput,
+              assertion.credentialId,
+              assertion.rawId,
+              assertion.prfOutput,
               finishRes.prf_wrapper,
             );
           }
@@ -466,7 +449,7 @@ export function LoginPage() {
       if (
         finishRes.prf_cred_salt &&
         !finishRes.prf_wrapper &&
-        pickerResult.prfOutput
+        assertion.prfOutput
       ) {
         try {
           const amk = await loadAmk(finishRes.user_id);
@@ -475,10 +458,10 @@ export function LoginPage() {
             await wrapAndStorePrfWrapper(
               finishRes.session_token,
               finishRes.user_id,
-              pickerResult.credentialId,
-              pickerResult.rawId,
+              assertion.credentialId,
+              assertion.rawId,
               finishRes.prf_cred_salt,
-              pickerResult.prfOutput,
+              assertion.prfOutput,
               amk,
               amkCommit,
             );

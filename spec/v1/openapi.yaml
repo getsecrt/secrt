@@ -1804,11 +1804,15 @@ components:
 
     PasskeyLoginStartRequest:
       type: object
-      required: [credential_id]
       additionalProperties: false
       properties:
         credential_id:
           type: string
+          description: |
+            Optional advisory hint. When sent, the server pre-validates the
+            credential exists and isn't revoked. Discoverable-credential
+            clients (v0.17.1+ web frontend) omit this entirely — the
+            credential is bound by the assertion's signature in /login/finish.
 
     PasskeyLoginFinishRequest:
       type: object

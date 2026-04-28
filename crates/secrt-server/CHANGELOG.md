@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+## 0.17.1 — 2026-04-28
+
+### Changed
+
+- **Single-prompt passkey login.** `POST /api/v1/auth/passkeys/login/start` now accepts an empty body — `credential_id` is an optional advisory hint, no longer required. The web frontend uses this discoverable-credential flow to do a single `navigator.credentials.get()` against the server's challenge instead of two (one for the picker, one bound to the server challenge). The previous two-call flow forced iCloud Passwords users through the macOS account-password prompt twice on every login. The credential binding is now established solely by the assertion's signature in `/login/finish`. Spec: `spec/v1/server.md` §6.2 (login start), `spec/v1/api.md`.
+
 ## 0.17.0 — 2026-04-28
 
 ### Changed

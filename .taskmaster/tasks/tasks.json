@@ -1210,8 +1210,8 @@
           {
             "id": 9,
             "title": "Single-prompt login UX",
-            "status": "pending",
-            "description": "Current login does TWO navigator.credentials.get() calls \u2014 one for picker, one for server-challenge re-assertion. Acceptable today (allowCredentials makes the second silent on most platforms) but a single-prompt discoverable-credential flow would feel cleaner. Requires server change: drop credential_id from /login/start, generate the challenge with no pre-binding; /finish trusts the signature for binding. FIXME comment in web/src/features/auth/LoginPage.tsx."
+            "status": "done",
+            "description": "Shipped in 0.17.1 \u2014 discoverable-credential flow. /login/start makes credential_id optional; client does a single navigator.credentials.get() against the server's challenge. The /finish credential binding now comes solely from the signature. Triggered by iCloud Passwords' policy of prompting for the OS account password on every get() call."
           },
           {
             "id": 10,

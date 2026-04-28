@@ -253,10 +253,16 @@ struct RegisterPrfMetadata {
     at_create: bool,
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Default)]
 #[serde(deny_unknown_fields)]
 struct PasskeyLoginStartRequest {
-    credential_id: String,
+    /// Optional advisory hint. When present, the server pre-validates the
+    /// credential exists and isn't revoked so the client can fail fast.
+    /// Discoverable-credential clients (the web frontend in v0.17.1+) omit
+    /// this entirely — the credential is bound by the assertion's signature
+    /// over the issued challenge, not by anything in /start.
+    #[serde(default)]
+    credential_id: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -1594,7 +1600,8 @@ struct RegisterChallengePayload {
 
 #[derive(Serialize, Deserialize)]
 struct LoginChallengePayload {
-    credential_id: String,
+    /// The base64url-encoded challenge bytes the server returned at /start.
+    /// Compared against `clientDataJSON.challenge` in /finish.
     challenge: String,
 }
 
@@ -1984,21 +1991,35 @@ pub async fn handle_passkey_login_start_entry(
     if req.method() != Method::POST {
         return method_not_allowed();
     }
+    // Body is optional; clients on the discoverable-credential flow POST
+    // an empty/absent body, while older clients may still send a
+    // credential_id hint. We accept both shapes — the body is
+    // deserialized as Default when absent or empty.
     let payload: PasskeyLoginStartRequest = match read_json_body(req, 8 * 1024, None).await {
         Ok(v) => v,
         Err(resp) => return resp,
     };
-    let passkey = match state
-        .auth_store
-        .get_passkey_by_credential_id(payload.credential_id.trim())
-        .await
+
+    // Optional pre-validation: if the client sent a credential_id, fail
+    // fast on revoked or unknown rows. Discoverable clients omit this
+    // and rely on /finish to surface the same errors.
+    let mut user_id: Option<UserId> = None;
+    if let Some(cred) = payload
+        .credential_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
     {
-        Ok(v) => v,
-        Err(_) => return bad_request("unknown credential"),
-    };
-    if passkey.revoked_at.is_some() {
-        return unauthorized();
+        let passkey = match state.auth_store.get_passkey_by_credential_id(cred).await {
+            Ok(v) => v,
+            Err(_) => return bad_request("unknown credential"),
+        };
+        if passkey.revoked_at.is_some() {
+            return unauthorized();
+        }
+        user_id = Some(passkey.user_id);
     }
+
     let challenge_id = match random_b64(CHALLENGE_LEN) {
         Ok(v) => v,
         Err(_) => return internal_server_error(),
@@ -2008,7 +2029,6 @@ pub async fn handle_passkey_login_start_entry(
         Err(_) => return internal_server_error(),
     };
     let challenge_json = match serde_json::to_string(&LoginChallengePayload {
-        credential_id: payload.credential_id.trim().to_string(),
         challenge: challenge.clone(),
     }) {
         Ok(v) => v,
@@ -2019,7 +2039,7 @@ pub async fn handle_passkey_login_start_entry(
         .auth_store
         .insert_challenge(
             &challenge_id,
-            Some(passkey.user_id),
+            user_id,
             "passkey-login",
             &challenge_json,
             expires_at,
@@ -2062,9 +2082,9 @@ pub async fn handle_passkey_login_finish_entry(
         Ok(v) => v,
         Err(_) => return internal_server_error(),
     };
-    if c.credential_id.trim() != payload.credential_id.trim() {
-        return unauthorized();
-    }
+    // No challenge↔credential binding check: the assertion's signature
+    // (verified below) is what ties the credential to the session. The
+    // /start handler may not even know which credential will be used.
     let passkey = match state
         .auth_store
         .get_passkey_by_credential_id(payload.credential_id.trim())

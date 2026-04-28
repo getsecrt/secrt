@@ -137,7 +137,13 @@ export interface PasskeyRegisterFinishRequest {
 }
 
 export interface PasskeyLoginStartRequest {
-  credential_id: string;
+  /**
+   * Optional advisory hint. When sent, the server pre-validates the
+   * credential exists and isn't revoked. The discoverable-credential
+   * web flow (v0.17.1+) omits this entirely — the credential is bound
+   * to the session by the assertion's signature in /login/finish.
+   */
+  credential_id?: string;
 }
 
 export interface PasskeyLoginFinishRequest {

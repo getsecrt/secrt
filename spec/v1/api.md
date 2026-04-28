@@ -373,11 +373,13 @@ Failures return `401 unauthorized` (no detail). The challenge is consumed regard
 
 `POST /api/v1/auth/passkeys/login/start`
 
-Request:
+Request (all fields optional):
 
 ```json
-{ "credential_id": "<base64url>" }
+{}
 ```
+
+`credential_id` is an optional advisory hint. When sent, the server pre-validates the credential exists and isn't revoked. Discoverable-credential clients (v0.17.1+ web frontend) POST an empty body — the credential is bound to the session by the assertion's signature in `/login/finish`, not by anything in `/login/start`. Sending an empty body is preferred because it lets the client make a single `navigator.credentials.get()` call against the server's challenge (some platform authenticators — notably iCloud Passwords — prompt for the OS password on every `get()`, so two calls means two prompts).
 
 Response: same `{ challenge_id, challenge, expires_at }` shape as register/start.
 

@@ -123,9 +123,9 @@ describe('LoginPage', () => {
     render(<LoginPage />);
     await user.click(screen.getByText('Sign in with Passkey'));
 
-    expect(loginPasskeyStart).toHaveBeenCalledWith({
-      credential_id: 'cred_login',
-    });
+    // Discoverable-credential flow: /login/start is called with no
+    // body fields — the credential is bound by the assertion's signature.
+    expect(loginPasskeyStart).toHaveBeenCalledWith({});
     expect(loginPasskeyFinish).toHaveBeenCalledWith({
       challenge_id: 'ch_login',
       credential_id: 'cred_login',

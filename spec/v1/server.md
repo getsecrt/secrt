@@ -305,11 +305,15 @@ Passkey registration, login, and add-passkey ceremonies all complete with a `/fi
 5. Parse the embedded COSE_Key as EC2 P-256 (`kty=2`, `alg=-7`, `crv=1`); extract the 32-byte X and Y coordinates. Reject any other shape.
 6. Persist: the `credentialId` bytes (base64url) and the SEC1-uncompressed public key bytes (`0x04 || X || Y`, base64url). Initial `sign_count` is the value from `authenticatorData`.
 
+**Login start (`/auth/passkeys/login/start`):**
+
+The request body's `credential_id` field is optional. Discoverable-credential clients (the v0.17.1+ web frontend) omit it; the server issues a fresh challenge with no credential pre-binding. When supplied, the server pre-validates the credential exists and isn't revoked so the client can fail fast — the bound credential is still ultimately verified by the assertion signature in `/finish`, not by anything `/start` checks.
+
 **Login finish (`/auth/passkeys/login/finish`):**
 
 1. Consume the challenge (`purpose = "passkey-login"`); reject if absent or expired.
 2. base64url-decode `authenticator_data`, `client_data_json`, and `signature`.
-3. Look up the passkey row by the request's `credential_id`; reject if missing or revoked.
+3. Look up the passkey row by the request's `credential_id`; reject if missing or revoked. The credential binding is established by the signature verifying against this row's stored public key — the `/start` request body is intentionally not bound to the credential.
 4. Parse `clientDataJSON` as above; reject if `type` is not `"webauthn.get"`, if challenge or origin do not match.
 5. Parse `authenticatorData`: layout `rpIdHash(32) || flags(1) || signCount(4)`. Reject if length is short, if rpIdHash mismatches, or if the `UP` flag is clear.
 6. Reject if the new `signCount` is less than or equal to the stored `sign_count` (cloned-authenticator signal). The first assertion against a row whose stored count is 0 may have signCount 0, but only when the prior stored value was 0.
