@@ -8,6 +8,7 @@ vi.mock('../../router', () => ({
 }));
 
 import { PrivacyPage } from './PrivacyPage';
+import { getSecurityEmail } from '../../lib/config';
 
 describe('PrivacyPage', () => {
   afterEach(() => {
@@ -33,10 +34,8 @@ describe('PrivacyPage', () => {
   });
 
   it('contains contact email link derived from current host', () => {
-    // happy-dom default host is "localhost" — assert the helper renders it
-    // and wires up the mailto: with the same value.
     render(<PrivacyPage />);
-    const expected = `security@${window.location.host.replace(/^www\./, '').split(':')[0]}`;
+    const expected = getSecurityEmail();
     const emailLink = screen.getByText(expected);
     expect(emailLink).toHaveAttribute('href', `mailto:${expected}`);
   });
