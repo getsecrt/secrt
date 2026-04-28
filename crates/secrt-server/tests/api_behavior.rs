@@ -486,7 +486,11 @@ async fn html_responses_carry_csp_and_no_store() {
         .and_then(|v| v.to_str().ok())
         .expect("enforcing CSP header on HTML");
     assert!(csp.contains("default-src 'none'"), "CSP: {csp}");
-    assert!(csp.contains("'sha256-"), "CSP: {csp}");
+    // Per-inline-script `'sha256-…'` sources are unit-tested in
+    // `crates/secrt-server/src/http/security.rs` against a fixture HTML;
+    // asserting it here too would couple this integration test to whether
+    // CI happened to build `web/dist` (the embedded fallback template has
+    // no inline scripts), without adding real coverage.
     assert!(csp.contains("frame-ancestors 'none'"), "CSP: {csp}");
     assert!(csp.contains("object-src 'none'"), "CSP: {csp}");
     assert!(csp.contains("upgrade-insecure-requests"), "CSP: {csp}");
