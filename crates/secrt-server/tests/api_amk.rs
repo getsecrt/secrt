@@ -7,6 +7,7 @@ use axum::http::{Request, StatusCode};
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use base64::Engine;
 use chrono::{Duration, Utc};
+use helpers::webauthn::TestPasskey;
 use helpers::{test_app_with_store, test_config, with_remote, MemStore};
 use secrt_server::config::Config;
 use secrt_server::storage::SecretRecord;
@@ -28,36 +29,10 @@ fn amk_config() -> Config {
 
 // --- Passkey/session helpers (mirrors api_auth_passkeys.rs pattern) ---
 
-async fn passkey_register_flow(app: &axum::Router, display_name: &str, cred_id: &str) -> String {
-    let start_req = Request::builder()
-        .method("POST")
-        .uri("/api/v1/auth/passkeys/register/start")
-        .header("content-type", "application/json")
-        .body(Body::from(
-            json!({"display_name": display_name}).to_string(),
-        ))
-        .expect("request");
-    let start_resp = app.clone().oneshot(start_req).await.expect("response");
-    assert_eq!(start_resp.status(), StatusCode::OK);
-    let start_json = response_json(start_resp).await;
-    let challenge_id = start_json["challenge_id"]
-        .as_str()
-        .expect("challenge_id")
-        .to_string();
-
-    let finish_req = Request::builder()
-        .method("POST")
-        .uri("/api/v1/auth/passkeys/register/finish")
-        .header("content-type", "application/json")
-        .body(Body::from(
-            json!({"challenge_id": challenge_id, "credential_id": cred_id, "public_key": "pk"})
-                .to_string(),
-        ))
-        .expect("request");
-    let finish_resp = app.clone().oneshot(finish_req).await.expect("response");
-    assert_eq!(finish_resp.status(), StatusCode::OK);
-    let finish_json = response_json(finish_resp).await;
-    finish_json["session_token"]
+async fn passkey_register_flow(app: &axum::Router, display_name: &str) -> String {
+    let pk = TestPasskey::generate();
+    let v = pk.register(app, display_name).await;
+    v["session_token"]
         .as_str()
         .expect("session_token")
         .to_string()
@@ -92,9 +67,8 @@ async fn create_user_with_api_key(
     _store: &Arc<MemStore>,
     app: &axum::Router,
     name: &str,
-    cred_id: &str,
 ) -> (String, String, String) {
-    let session_token = passkey_register_flow(app, name, cred_id).await;
+    let session_token = passkey_register_flow(app, name).await;
     // Derive an auth token to register
     let root = [42u8; 32];
     let auth = secrt_core::derive_auth_token(&root).expect("derive auth token");
@@ -159,8 +133,7 @@ async fn amk_wrapper_put_api_key_auth_success() {
     let store = Arc::new(MemStore::default());
     let app = test_app_with_store(store.clone(), amk_config());
 
-    let (_session, wire_key, prefix) =
-        create_user_with_api_key(&store, &app, "Alice", "cred-amk-1").await;
+    let (_session, wire_key, prefix) = create_user_with_api_key(&store, &app, "Alice").await;
 
     let req = Request::builder()
         .method("PUT")
@@ -195,8 +168,7 @@ async fn amk_wrapper_put_session_auth_with_prefix_success() {
     let store = Arc::new(MemStore::default());
     let app = test_app_with_store(store.clone(), amk_config());
 
-    let (session_token, _wire_key, prefix) =
-        create_user_with_api_key(&store, &app, "Bob", "cred-amk-2").await;
+    let (session_token, _wire_key, prefix) = create_user_with_api_key(&store, &app, "Bob").await;
 
     let req = Request::builder()
         .method("PUT")
@@ -224,7 +196,7 @@ async fn amk_wrapper_put_session_auth_no_prefix_400() {
     let store = Arc::new(MemStore::default());
     let app = test_app_with_store(store.clone(), amk_config());
 
-    let session_token = passkey_register_flow(&app, "Carol", "cred-amk-3").await;
+    let session_token = passkey_register_flow(&app, "Carol").await;
 
     let req = Request::builder()
         .method("PUT")
@@ -251,8 +223,7 @@ async fn amk_wrapper_put_wrong_wrapped_amk_length_400() {
     let store = Arc::new(MemStore::default());
     let app = test_app_with_store(store.clone(), amk_config());
 
-    let (_session, wire_key, _prefix) =
-        create_user_with_api_key(&store, &app, "Dan", "cred-amk-4").await;
+    let (_session, wire_key, _prefix) = create_user_with_api_key(&store, &app, "Dan").await;
 
     let req = Request::builder()
         .method("PUT")
@@ -281,8 +252,7 @@ async fn amk_wrapper_put_wrong_nonce_length_400() {
     let store = Arc::new(MemStore::default());
     let app = test_app_with_store(store.clone(), amk_config());
 
-    let (_session, wire_key, _prefix) =
-        create_user_with_api_key(&store, &app, "Eve", "cred-amk-5").await;
+    let (_session, wire_key, _prefix) = create_user_with_api_key(&store, &app, "Eve").await;
 
     let req = Request::builder()
         .method("PUT")
@@ -311,8 +281,7 @@ async fn amk_wrapper_put_wrong_amk_commit_length_400() {
     let store = Arc::new(MemStore::default());
     let app = test_app_with_store(store.clone(), amk_config());
 
-    let (_session, wire_key, _prefix) =
-        create_user_with_api_key(&store, &app, "Fay", "cred-amk-6").await;
+    let (_session, wire_key, _prefix) = create_user_with_api_key(&store, &app, "Fay").await;
 
     let req = Request::builder()
         .method("PUT")
@@ -341,8 +310,7 @@ async fn amk_wrapper_put_bad_version_400() {
     let store = Arc::new(MemStore::default());
     let app = test_app_with_store(store.clone(), amk_config());
 
-    let (_session, wire_key, _prefix) =
-        create_user_with_api_key(&store, &app, "Gus", "cred-amk-7").await;
+    let (_session, wire_key, _prefix) = create_user_with_api_key(&store, &app, "Gus").await;
 
     let req = Request::builder()
         .method("PUT")
@@ -388,8 +356,7 @@ async fn amk_wrapper_get_not_found_404() {
     let store = Arc::new(MemStore::default());
     let app = test_app_with_store(store.clone(), amk_config());
 
-    let (_session, wire_key, _prefix) =
-        create_user_with_api_key(&store, &app, "Hal", "cred-amk-8").await;
+    let (_session, wire_key, _prefix) = create_user_with_api_key(&store, &app, "Hal").await;
 
     let req = Request::builder()
         .method("GET")
@@ -407,8 +374,7 @@ async fn amk_wrapper_put_then_get_roundtrip() {
     let store = Arc::new(MemStore::default());
     let app = test_app_with_store(store.clone(), amk_config());
 
-    let (_session, wire_key, _prefix) =
-        create_user_with_api_key(&store, &app, "Ivy", "cred-amk-9").await;
+    let (_session, wire_key, _prefix) = create_user_with_api_key(&store, &app, "Ivy").await;
 
     // PUT wrapper
     let put_req = Request::builder()
@@ -469,8 +435,7 @@ async fn amk_wrappers_list_api_key_only_401() {
     let store = Arc::new(MemStore::default());
     let app = test_app_with_store(store.clone(), amk_config());
 
-    let (_session, wire_key, _prefix) =
-        create_user_with_api_key(&store, &app, "Jay", "cred-amk-10").await;
+    let (_session, wire_key, _prefix) = create_user_with_api_key(&store, &app, "Jay").await;
 
     // /amk/wrappers requires session auth, not API key
     let req = Request::builder()
@@ -489,8 +454,7 @@ async fn amk_wrappers_list_session_auth_success() {
     let store = Arc::new(MemStore::default());
     let app = test_app_with_store(store.clone(), amk_config());
 
-    let (session_token, wire_key, prefix) =
-        create_user_with_api_key(&store, &app, "Kay", "cred-amk-11").await;
+    let (session_token, wire_key, prefix) = create_user_with_api_key(&store, &app, "Kay").await;
 
     // First, upsert a wrapper
     let put_req = Request::builder()
@@ -550,8 +514,7 @@ async fn amk_exists_no_wrappers_false() {
     let store = Arc::new(MemStore::default());
     let app = test_app_with_store(store.clone(), amk_config());
 
-    let (_session, wire_key, _prefix) =
-        create_user_with_api_key(&store, &app, "Leo", "cred-amk-12").await;
+    let (_session, wire_key, _prefix) = create_user_with_api_key(&store, &app, "Leo").await;
 
     let req = Request::builder()
         .method("GET")
@@ -571,8 +534,7 @@ async fn amk_exists_has_wrapper_true() {
     let store = Arc::new(MemStore::default());
     let app = test_app_with_store(store.clone(), amk_config());
 
-    let (_session, wire_key, _prefix) =
-        create_user_with_api_key(&store, &app, "Mia", "cred-amk-13").await;
+    let (_session, wire_key, _prefix) = create_user_with_api_key(&store, &app, "Mia").await;
 
     // Upsert a wrapper
     let put_req = Request::builder()
@@ -616,7 +578,7 @@ async fn amk_commit_success() {
     let store = Arc::new(MemStore::default());
     let app = test_app_with_store(store.clone(), amk_config());
 
-    let session_token = passkey_register_flow(&app, "Commit1", "cred-commit-1").await;
+    let session_token = passkey_register_flow(&app, "Commit1").await;
 
     let req = Request::builder()
         .method("POST")
@@ -639,7 +601,7 @@ async fn amk_commit_first_writer_wins() {
     let store = Arc::new(MemStore::default());
     let app = test_app_with_store(store.clone(), amk_config());
 
-    let session_token = passkey_register_flow(&app, "Commit2", "cred-commit-2").await;
+    let session_token = passkey_register_flow(&app, "Commit2").await;
 
     // First commit
     let req1 = Request::builder()
@@ -674,7 +636,7 @@ async fn amk_commit_idempotent() {
     let store = Arc::new(MemStore::default());
     let app = test_app_with_store(store.clone(), amk_config());
 
-    let session_token = passkey_register_flow(&app, "Commit3", "cred-commit-3").await;
+    let session_token = passkey_register_flow(&app, "Commit3").await;
 
     for _ in 0..2 {
         let req = Request::builder()
@@ -714,7 +676,7 @@ async fn amk_exists_committed_no_wrapper_true() {
     let store = Arc::new(MemStore::default());
     let app = test_app_with_store(store.clone(), amk_config());
 
-    let session_token = passkey_register_flow(&app, "CommitOnly", "cred-commit-4").await;
+    let session_token = passkey_register_flow(&app, "CommitOnly").await;
 
     // Commit without any wrapper
     let commit_req = Request::builder()
@@ -800,8 +762,7 @@ async fn secret_meta_put_not_owner_404() {
     let store = Arc::new(MemStore::default());
     let app = test_app_with_store(store.clone(), amk_config());
 
-    let (_session, wire_key, _prefix) =
-        create_user_with_api_key(&store, &app, "Nina", "cred-amk-14").await;
+    let (_session, wire_key, _prefix) = create_user_with_api_key(&store, &app, "Nina").await;
 
     // Insert a secret owned by someone else
     insert_test_secret(&store, "other-secret", "other-owner");
@@ -836,8 +797,7 @@ async fn secret_meta_put_invalid_version_400() {
     let store = Arc::new(MemStore::default());
     let app = test_app_with_store(store.clone(), amk_config());
 
-    let (_session, wire_key, prefix) =
-        create_user_with_api_key(&store, &app, "Ova", "cred-amk-15").await;
+    let (_session, wire_key, prefix) = create_user_with_api_key(&store, &app, "Ova").await;
 
     insert_test_secret(&store, "my-secret-v", &owner_key_for_api_prefix(&prefix));
 
@@ -871,8 +831,7 @@ async fn secret_meta_put_invalid_nonce_length_400() {
     let store = Arc::new(MemStore::default());
     let app = test_app_with_store(store.clone(), amk_config());
 
-    let (_session, wire_key, prefix) =
-        create_user_with_api_key(&store, &app, "Pat", "cred-amk-16").await;
+    let (_session, wire_key, prefix) = create_user_with_api_key(&store, &app, "Pat").await;
 
     insert_test_secret(&store, "my-secret-n", &owner_key_for_api_prefix(&prefix));
 
@@ -908,8 +867,7 @@ async fn secret_meta_put_invalid_salt_length_400() {
     let store = Arc::new(MemStore::default());
     let app = test_app_with_store(store.clone(), amk_config());
 
-    let (_session, wire_key, prefix) =
-        create_user_with_api_key(&store, &app, "Quin", "cred-amk-17").await;
+    let (_session, wire_key, prefix) = create_user_with_api_key(&store, &app, "Quin").await;
 
     insert_test_secret(&store, "my-secret-s", &owner_key_for_api_prefix(&prefix));
 
@@ -945,8 +903,7 @@ async fn secret_meta_put_ct_exceeds_8kib_400() {
     let store = Arc::new(MemStore::default());
     let app = test_app_with_store(store.clone(), amk_config());
 
-    let (_session, wire_key, prefix) =
-        create_user_with_api_key(&store, &app, "Rex", "cred-amk-18").await;
+    let (_session, wire_key, prefix) = create_user_with_api_key(&store, &app, "Rex").await;
 
     insert_test_secret(&store, "my-secret-big", &owner_key_for_api_prefix(&prefix));
 
@@ -982,8 +939,7 @@ async fn secret_meta_put_invalid_base64_400() {
     let store = Arc::new(MemStore::default());
     let app = test_app_with_store(store.clone(), amk_config());
 
-    let (_session, wire_key, prefix) =
-        create_user_with_api_key(&store, &app, "Sam", "cred-amk-19").await;
+    let (_session, wire_key, prefix) = create_user_with_api_key(&store, &app, "Sam").await;
 
     insert_test_secret(&store, "my-secret-b64", &owner_key_for_api_prefix(&prefix));
 
@@ -1017,8 +973,7 @@ async fn secret_meta_put_valid_update_200() {
     let store = Arc::new(MemStore::default());
     let app = test_app_with_store(store.clone(), amk_config());
 
-    let (_session, wire_key, prefix) =
-        create_user_with_api_key(&store, &app, "Tina", "cred-amk-20").await;
+    let (_session, wire_key, prefix) = create_user_with_api_key(&store, &app, "Tina").await;
 
     insert_test_secret(&store, "my-secret-ok", &owner_key_for_api_prefix(&prefix));
 
@@ -1060,8 +1015,7 @@ async fn amk_endpoints_404_when_feature_disabled() {
     cfg.encrypted_notes_enabled = false;
     let app = test_app_with_store(store.clone(), cfg);
 
-    let (_session, wire_key, _prefix) =
-        create_user_with_api_key(&store, &app, "Vic", "cred-amk-21").await;
+    let (_session, wire_key, _prefix) = create_user_with_api_key(&store, &app, "Vic").await;
 
     // PUT /amk/wrapper
     let req = Request::builder()
@@ -1198,8 +1152,7 @@ async fn get_secret_metadata_not_owner_404() {
     let store = Arc::new(MemStore::default());
     let app = test_app_with_store(store.clone(), test_config());
 
-    let (_session, wire_key, _prefix) =
-        create_user_with_api_key(&store, &app, "Wes", "cred-amk-22").await;
+    let (_session, wire_key, _prefix) = create_user_with_api_key(&store, &app, "Wes").await;
 
     insert_test_secret(&store, "someone-elses-secret", "other-owner-key");
 
@@ -1219,8 +1172,7 @@ async fn get_secret_metadata_success() {
     let store = Arc::new(MemStore::default());
     let app = test_app_with_store(store.clone(), test_config());
 
-    let (_session, wire_key, prefix) =
-        create_user_with_api_key(&store, &app, "Xia", "cred-amk-23").await;
+    let (_session, wire_key, prefix) = create_user_with_api_key(&store, &app, "Xia").await;
 
     let owner_key = owner_key_for_api_prefix(&prefix);
     insert_test_secret(&store, "my-owned-secret", &owner_key);

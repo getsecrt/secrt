@@ -151,6 +151,260 @@ pub fn build_client_data_json(type_: &str, challenge_b64u: &str, origin: &str) -
     .expect("serialize clientDataJSON")
 }
 
+// ── End-to-end test passkey ─────────────────────────────────────────────
+//
+// Higher-level wrapper that owns a TestKeyPair plus the credential_id and
+// sign_count. Provides full /start → /finish round-trip helpers so test
+// files can register or log in with one call instead of hand-assembling
+// wire payloads.
+
+use axum::body::{to_bytes, Body};
+use axum::http::{Request, StatusCode};
+use axum::Router;
+use serde_json::{json, Value};
+use tower::ServiceExt;
+
+pub struct TestPasskey {
+    pub keypair: TestKeyPair,
+    pub credential_id: Vec<u8>,
+    pub sign_count: u32,
+}
+
+impl TestPasskey {
+    pub fn generate() -> Self {
+        Self {
+            keypair: TestKeyPair::generate(),
+            credential_id: random_credential_id(),
+            sign_count: 0,
+        }
+    }
+
+    pub fn with_credential_id(cid: Vec<u8>) -> Self {
+        Self {
+            keypair: TestKeyPair::generate(),
+            credential_id: cid,
+            sign_count: 0,
+        }
+    }
+
+    pub fn credential_id_b64u(&self) -> String {
+        URL_SAFE_NO_PAD.encode(&self.credential_id)
+    }
+
+    /// Run a full registration ceremony. Returns the parsed JSON of the
+    /// `/register/finish` response (has `session_token`, `user_id`, etc.).
+    /// Panics on transport failure or non-2xx; tests that need to assert
+    /// failure should use the lower-level `*_start` / `register_finish`
+    /// helpers below.
+    pub async fn register(&self, app: &Router, display_name: &str) -> Value {
+        let resp = self.register_finish(app, display_name, None).await;
+        assert_eq!(
+            resp.0,
+            StatusCode::OK,
+            "register_finish status: {:?}",
+            resp.1
+        );
+        resp.1
+    }
+
+    /// Run a full login ceremony. Returns the parsed JSON of the
+    /// `/login/finish` response.
+    pub async fn login(&mut self, app: &Router) -> Value {
+        let resp = self.login_finish(app, None).await;
+        assert_eq!(resp.0, StatusCode::OK, "login_finish status: {:?}", resp.1);
+        resp.1
+    }
+
+    /// Run a full add-passkey ceremony with a session token. Returns the
+    /// parsed JSON of `/add/finish`.
+    pub async fn add(&self, app: &Router, session_token: &str) -> Value {
+        let resp = self.add_finish(app, session_token, None).await;
+        assert_eq!(resp.0, StatusCode::OK, "add_finish status: {:?}", resp.1);
+        resp.1
+    }
+
+    /// Lower-level register with explicit PRF metadata, returns
+    /// (status, body). Suitable for tests asserting failure paths.
+    pub async fn register_finish(
+        &self,
+        app: &Router,
+        display_name: &str,
+        prf: Option<Value>,
+    ) -> (StatusCode, Value) {
+        let (challenge_id, challenge_b64u) = passkey_register_start(app, display_name).await;
+        let auth_data = build_register_authenticator_data(
+            TEST_RP_ID,
+            FLAG_UP | FLAG_UV,
+            self.sign_count,
+            &[0u8; 16],
+            &self.credential_id,
+            &self.keypair.cose_key(),
+        );
+        let cdj = build_client_data_json("webauthn.create", &challenge_b64u, TEST_ORIGIN);
+        let mut body = json!({
+            "challenge_id": challenge_id,
+            "credential_id": self.credential_id_b64u(),
+            "authenticator_data": URL_SAFE_NO_PAD.encode(&auth_data),
+            "client_data_json": URL_SAFE_NO_PAD.encode(&cdj),
+        });
+        if let Some(p) = prf {
+            body["prf"] = p;
+        }
+        post_json(app, "/api/v1/auth/passkeys/register/finish", &body, None).await
+    }
+
+    pub async fn login_finish(&mut self, app: &Router, prf: Option<Value>) -> (StatusCode, Value) {
+        let cred_b64u = self.credential_id_b64u();
+        let (challenge_id, challenge_b64u) = passkey_login_start(app, &cred_b64u).await;
+
+        // Use stored sign_count + 1 so monotonicity holds across repeat logins.
+        let new_count = self.sign_count + 1;
+        let auth_data = build_authenticator_data(TEST_RP_ID, FLAG_UP | FLAG_UV, new_count);
+        let cdj = build_client_data_json("webauthn.get", &challenge_b64u, TEST_ORIGIN);
+        let sig = self.keypair.sign(&auth_data, &cdj);
+
+        let mut body = json!({
+            "challenge_id": challenge_id,
+            "credential_id": cred_b64u,
+            "authenticator_data": URL_SAFE_NO_PAD.encode(&auth_data),
+            "client_data_json": URL_SAFE_NO_PAD.encode(&cdj),
+            "signature": URL_SAFE_NO_PAD.encode(&sig),
+        });
+        if let Some(p) = prf {
+            body["prf"] = p;
+        }
+        let result = post_json(app, "/api/v1/auth/passkeys/login/finish", &body, None).await;
+        if result.0 == StatusCode::OK {
+            self.sign_count = new_count;
+        }
+        result
+    }
+
+    pub async fn add_finish(
+        &self,
+        app: &Router,
+        session_token: &str,
+        prf: Option<Value>,
+    ) -> (StatusCode, Value) {
+        let (challenge_id, challenge_b64u) = passkey_add_start(app, session_token).await;
+
+        let auth_data = build_register_authenticator_data(
+            TEST_RP_ID,
+            FLAG_UP | FLAG_UV,
+            self.sign_count,
+            &[0u8; 16],
+            &self.credential_id,
+            &self.keypair.cose_key(),
+        );
+        let cdj = build_client_data_json("webauthn.create", &challenge_b64u, TEST_ORIGIN);
+        let mut body = json!({
+            "challenge_id": challenge_id,
+            "credential_id": self.credential_id_b64u(),
+            "authenticator_data": URL_SAFE_NO_PAD.encode(&auth_data),
+            "client_data_json": URL_SAFE_NO_PAD.encode(&cdj),
+        });
+        if let Some(p) = prf {
+            body["prf"] = p;
+        }
+        post_json(
+            app,
+            "/api/v1/auth/passkeys/add/finish",
+            &body,
+            Some(session_token),
+        )
+        .await
+    }
+}
+
+fn random_credential_id() -> Vec<u8> {
+    use ring::rand::SecureRandom;
+    let mut buf = [0u8; 16];
+    SystemRandom::new().fill(&mut buf).expect("rng");
+    buf.to_vec()
+}
+
+/// `/register/start` — returns (challenge_id, challenge_b64u) from a single round-trip.
+pub async fn passkey_register_start(app: &Router, display_name: &str) -> (String, String) {
+    let (status, body) = post_json(
+        app,
+        "/api/v1/auth/passkeys/register/start",
+        &json!({ "display_name": display_name }),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "register/start: {body:?}");
+    (
+        body["challenge_id"]
+            .as_str()
+            .expect("challenge_id")
+            .to_string(),
+        body["challenge"].as_str().expect("challenge").to_string(),
+    )
+}
+
+pub async fn passkey_login_start(app: &Router, credential_id_b64u: &str) -> (String, String) {
+    let (status, body) = post_json(
+        app,
+        "/api/v1/auth/passkeys/login/start",
+        &json!({ "credential_id": credential_id_b64u }),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "login/start: {body:?}");
+    (
+        body["challenge_id"]
+            .as_str()
+            .expect("challenge_id")
+            .to_string(),
+        body["challenge"].as_str().expect("challenge").to_string(),
+    )
+}
+
+pub async fn passkey_add_start(app: &Router, session_token: &str) -> (String, String) {
+    let (status, body) = post_json(
+        app,
+        "/api/v1/auth/passkeys/add/start",
+        &json!({}),
+        Some(session_token),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "add/start: {body:?}");
+    (
+        body["challenge_id"]
+            .as_str()
+            .expect("challenge_id")
+            .to_string(),
+        body["challenge"].as_str().expect("challenge").to_string(),
+    )
+}
+
+pub async fn post_json(
+    app: &Router,
+    uri: &str,
+    body: &Value,
+    bearer: Option<&str>,
+) -> (StatusCode, Value) {
+    let mut builder = Request::builder()
+        .method("POST")
+        .uri(uri)
+        .header("content-type", "application/json");
+    if let Some(token) = bearer {
+        builder = builder.header("authorization", format!("Bearer {token}"));
+    }
+    let req = builder.body(Body::from(body.to_string())).expect("request");
+    let resp = app.clone().oneshot(req).await.expect("response");
+    let status = resp.status();
+    let bytes = to_bytes(resp.into_body(), usize::MAX)
+        .await
+        .expect("body bytes");
+    let body: Value = if bytes.is_empty() {
+        Value::Null
+    } else {
+        serde_json::from_slice(&bytes).unwrap_or(Value::Null)
+    };
+    (status, body)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

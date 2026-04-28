@@ -4,6 +4,7 @@ use std::sync::Arc;
 
 use axum::body::{to_bytes, Body};
 use axum::http::{Request, StatusCode};
+use helpers::webauthn::TestPasskey;
 use helpers::{test_app_with_store, test_config, MemStore};
 use serde_json::{json, Value};
 use tower::ServiceExt;
@@ -15,40 +16,17 @@ async fn response_json(resp: axum::response::Response) -> Value {
     serde_json::from_slice(&bytes).expect("json")
 }
 
-/// Register a passkey and return a session token.
-async fn passkey_register_flow(app: &axum::Router, display_name: &str, cred_id: &str) -> String {
-    let start_req = Request::builder()
-        .method("POST")
-        .uri("/api/v1/auth/passkeys/register/start")
-        .header("content-type", "application/json")
-        .body(Body::from(
-            json!({"display_name": display_name}).to_string(),
-        ))
-        .expect("request");
-    let start_resp = app.clone().oneshot(start_req).await.expect("response");
-    assert_eq!(start_resp.status(), StatusCode::OK);
-    let start_json = response_json(start_resp).await;
-    let challenge_id = start_json["challenge_id"]
-        .as_str()
-        .expect("challenge_id")
-        .to_string();
-
-    let finish_req = Request::builder()
-        .method("POST")
-        .uri("/api/v1/auth/passkeys/register/finish")
-        .header("content-type", "application/json")
-        .body(Body::from(
-            json!({"challenge_id": challenge_id, "credential_id": cred_id, "public_key": "pk"})
-                .to_string(),
-        ))
-        .expect("request");
-    let finish_resp = app.clone().oneshot(finish_req).await.expect("response");
-    assert_eq!(finish_resp.status(), StatusCode::OK);
-    let finish_json = response_json(finish_resp).await;
-    finish_json["session_token"]
+/// Register a passkey and return the keypair and session token. The
+/// keypair is returned so callers can derive the credential_id_b64u for
+/// later mutation/lookup.
+async fn passkey_register_flow(app: &axum::Router, display_name: &str) -> (TestPasskey, String) {
+    let pk = TestPasskey::generate();
+    let v = pk.register(app, display_name).await;
+    let token = v["session_token"]
         .as_str()
         .expect("session_token")
-        .to_string()
+        .to_string();
+    (pk, token)
 }
 
 fn authed_get(uri: &str, token: &str) -> Request<Body> {
@@ -99,7 +77,7 @@ async fn list_passkeys_requires_auth() {
 async fn list_passkeys_wrong_method_405() {
     let store = Arc::new(MemStore::default());
     let app = test_app_with_store(store, test_config());
-    let token = passkey_register_flow(&app, "Alice", "cred-list-405").await;
+    let (_cred_list_405_pk, token) = passkey_register_flow(&app, "Alice").await;
 
     let req = authed_json("POST", "/api/v1/auth/passkeys", &token, json!({}));
     let resp = app.oneshot(req).await.expect("response");
@@ -110,7 +88,7 @@ async fn list_passkeys_wrong_method_405() {
 async fn list_passkeys_returns_user_passkeys() {
     let store = Arc::new(MemStore::default());
     let app = test_app_with_store(store, test_config());
-    let token = passkey_register_flow(&app, "Alice", "cred-list-1").await;
+    let (_cred_list_1_pk, token) = passkey_register_flow(&app, "Alice").await;
 
     let resp = app
         .clone()
@@ -130,8 +108,8 @@ async fn list_passkeys_excludes_other_users() {
     let store = Arc::new(MemStore::default());
     let app = test_app_with_store(store, test_config());
 
-    let token_a = passkey_register_flow(&app, "Alice", "cred-iso-a").await;
-    let _token_b = passkey_register_flow(&app, "Bob", "cred-iso-b").await;
+    let (_cred_iso_a_pk, token_a) = passkey_register_flow(&app, "Alice").await;
+    let (_cred_iso_b_pk, _token_b) = passkey_register_flow(&app, "Bob").await;
 
     let resp = app
         .clone()
@@ -165,7 +143,7 @@ async fn passkey_add_start_requires_auth() {
 async fn passkey_add_start_wrong_method_405() {
     let store = Arc::new(MemStore::default());
     let app = test_app_with_store(store, test_config());
-    let token = passkey_register_flow(&app, "Alice", "cred-add-405").await;
+    let (_cred_add_405_pk, token) = passkey_register_flow(&app, "Alice").await;
 
     let resp = app
         .clone()
@@ -179,7 +157,7 @@ async fn passkey_add_start_wrong_method_405() {
 async fn passkey_add_start_returns_challenge() {
     let store = Arc::new(MemStore::default());
     let app = test_app_with_store(store, test_config());
-    let token = passkey_register_flow(&app, "Alice", "cred-add-start").await;
+    let (_cred_add_start_pk, token) = passkey_register_flow(&app, "Alice").await;
 
     let resp = app
         .clone()
@@ -219,7 +197,7 @@ async fn passkey_add_finish_requires_auth() {
 async fn passkey_add_finish_wrong_method_405() {
     let store = Arc::new(MemStore::default());
     let app = test_app_with_store(store, test_config());
-    let token = passkey_register_flow(&app, "Alice", "cred-add-fin-405").await;
+    let (_cred_add_fin_405_pk, token) = passkey_register_flow(&app, "Alice").await;
 
     let resp = app
         .clone()
@@ -233,38 +211,11 @@ async fn passkey_add_finish_wrong_method_405() {
 async fn passkey_add_full_flow() {
     let store = Arc::new(MemStore::default());
     let app = test_app_with_store(store.clone(), test_config());
-    let token = passkey_register_flow(&app, "Alice", "cred-add-flow").await;
+    let (_cred_add_flow_pk, token) = passkey_register_flow(&app, "Alice").await;
 
-    // Start: get a challenge
-    let start_resp = app
-        .clone()
-        .oneshot(authed_post("/api/v1/auth/passkeys/add/start", &token))
-        .await
-        .expect("response");
-    assert_eq!(start_resp.status(), StatusCode::OK);
-    let start_body = response_json(start_resp).await;
-    let challenge_id = start_body["challenge_id"]
-        .as_str()
-        .expect("challenge_id")
-        .to_string();
-
-    // Finish: register the new passkey
-    let finish_resp = app
-        .clone()
-        .oneshot(authed_json(
-            "POST",
-            "/api/v1/auth/passkeys/add/finish",
-            &token,
-            json!({
-                "challenge_id": challenge_id,
-                "credential_id": "cred-add-flow-2",
-                "public_key": "pk2"
-            }),
-        ))
-        .await
-        .expect("response");
-    assert_eq!(finish_resp.status(), StatusCode::OK);
-    let finish_body = response_json(finish_resp).await;
+    // Drive the full add-passkey ceremony with a fresh keypair.
+    let add_pk = TestPasskey::generate();
+    let finish_body = add_pk.add(&app, &token).await;
     assert_eq!(finish_body["ok"], true);
     assert!(finish_body["passkey"]["id"].is_number());
     assert!(finish_body["passkey"].get("created_at").is_some());
@@ -284,7 +235,7 @@ async fn passkey_add_full_flow() {
 async fn passkey_add_finish_rejects_empty_credential_id() {
     let store = Arc::new(MemStore::default());
     let app = test_app_with_store(store, test_config());
-    let token = passkey_register_flow(&app, "Alice", "cred-add-empty").await;
+    let (_cred_add_empty_pk, token) = passkey_register_flow(&app, "Alice").await;
 
     // Get a valid challenge first
     let start_resp = app
@@ -304,7 +255,8 @@ async fn passkey_add_finish_rejects_empty_credential_id() {
             json!({
                 "challenge_id": challenge_id,
                 "credential_id": "",
-                "public_key": "pk"
+                "authenticator_data": "AA",
+                "client_data_json": "AA",
             }),
         ))
         .await
@@ -316,7 +268,7 @@ async fn passkey_add_finish_rejects_empty_credential_id() {
 async fn passkey_add_finish_rejects_invalid_challenge() {
     let store = Arc::new(MemStore::default());
     let app = test_app_with_store(store, test_config());
-    let token = passkey_register_flow(&app, "Alice", "cred-add-bad-ch").await;
+    let (_cred_add_bad_ch_pk, token) = passkey_register_flow(&app, "Alice").await;
 
     let resp = app
         .clone()
@@ -327,7 +279,8 @@ async fn passkey_add_finish_rejects_invalid_challenge() {
             json!({
                 "challenge_id": "nonexistent",
                 "credential_id": "c",
-                "public_key": "pk"
+                "authenticator_data": "AA",
+                "client_data_json": "AA",
             }),
         ))
         .await
@@ -356,7 +309,7 @@ async fn rename_passkey_requires_auth() {
 async fn rename_passkey_wrong_method_405() {
     let store = Arc::new(MemStore::default());
     let app = test_app_with_store(store, test_config());
-    let token = passkey_register_flow(&app, "Alice", "cred-rename-405").await;
+    let (_cred_rename_405_pk, token) = passkey_register_flow(&app, "Alice").await;
 
     let resp = app
         .clone()
@@ -370,7 +323,7 @@ async fn rename_passkey_wrong_method_405() {
 async fn rename_passkey_success() {
     let store = Arc::new(MemStore::default());
     let app = test_app_with_store(store.clone(), test_config());
-    let token = passkey_register_flow(&app, "Alice", "cred-rename-ok").await;
+    let (_cred_rename_ok_pk, token) = passkey_register_flow(&app, "Alice").await;
 
     // Get the passkey ID from list
     let list_resp = app
@@ -406,7 +359,7 @@ async fn rename_passkey_success() {
 async fn rename_passkey_trims_whitespace() {
     let store = Arc::new(MemStore::default());
     let app = test_app_with_store(store.clone(), test_config());
-    let token = passkey_register_flow(&app, "Alice", "cred-rename-trim").await;
+    let (_cred_rename_trim_pk, token) = passkey_register_flow(&app, "Alice").await;
 
     let list_resp = app
         .clone()
@@ -437,7 +390,7 @@ async fn rename_passkey_trims_whitespace() {
 async fn rename_passkey_too_long_400() {
     let store = Arc::new(MemStore::default());
     let app = test_app_with_store(store, test_config());
-    let token = passkey_register_flow(&app, "Alice", "cred-rename-long").await;
+    let (_cred_rename_long_pk, token) = passkey_register_flow(&app, "Alice").await;
 
     let list_resp = app
         .clone()
@@ -465,7 +418,7 @@ async fn rename_passkey_too_long_400() {
 async fn rename_passkey_not_found_404() {
     let store = Arc::new(MemStore::default());
     let app = test_app_with_store(store, test_config());
-    let token = passkey_register_flow(&app, "Alice", "cred-rename-404").await;
+    let (_cred_rename_404_pk, token) = passkey_register_flow(&app, "Alice").await;
 
     let resp = app
         .clone()
@@ -485,15 +438,16 @@ async fn rename_passkey_cross_user_isolation() {
     let store = Arc::new(MemStore::default());
     let app = test_app_with_store(store.clone(), test_config());
 
-    let _token_a = passkey_register_flow(&app, "Alice", "cred-xuser-a").await;
-    let token_b = passkey_register_flow(&app, "Bob", "cred-xuser-b").await;
+    let (cred_xuser_a_pk, _token_a) = passkey_register_flow(&app, "Alice").await;
+    let (_cred_xuser_b_pk, token_b) = passkey_register_flow(&app, "Bob").await;
+    let alice_cid = cred_xuser_a_pk.credential_id_b64u();
 
     // Get Alice's passkey ID
     let alice_pk_id = {
         let passkeys = store.passkeys.lock().expect("lock");
         passkeys
             .values()
-            .find(|p| p.credential_id == "cred-xuser-a")
+            .find(|p| p.credential_id == alice_cid)
             .expect("alice pk")
             .id
     };
@@ -532,7 +486,7 @@ async fn revoke_passkey_requires_auth() {
 async fn revoke_passkey_wrong_method_405() {
     let store = Arc::new(MemStore::default());
     let app = test_app_with_store(store, test_config());
-    let token = passkey_register_flow(&app, "Alice", "cred-revoke-405").await;
+    let (_cred_revoke_405_pk, token) = passkey_register_flow(&app, "Alice").await;
 
     let resp = app
         .clone()
@@ -546,7 +500,7 @@ async fn revoke_passkey_wrong_method_405() {
 async fn revoke_last_passkey_returns_400() {
     let store = Arc::new(MemStore::default());
     let app = test_app_with_store(store.clone(), test_config());
-    let token = passkey_register_flow(&app, "Alice", "cred-revoke-last").await;
+    let (_cred_revoke_last_pk, token) = passkey_register_flow(&app, "Alice").await;
 
     // Get the single passkey ID
     let list_resp = app
@@ -573,32 +527,11 @@ async fn revoke_last_passkey_returns_400() {
 async fn revoke_passkey_success_with_multiple() {
     let store = Arc::new(MemStore::default());
     let app = test_app_with_store(store.clone(), test_config());
-    let token = passkey_register_flow(&app, "Alice", "cred-revoke-ok").await;
+    let (_cred_revoke_ok_pk, token) = passkey_register_flow(&app, "Alice").await;
 
     // Add a second passkey via the add flow
-    let start_resp = app
-        .clone()
-        .oneshot(authed_post("/api/v1/auth/passkeys/add/start", &token))
-        .await
-        .expect("response");
-    let start_body = response_json(start_resp).await;
-    let challenge_id = start_body["challenge_id"].as_str().unwrap().to_string();
-
-    let finish_resp = app
-        .clone()
-        .oneshot(authed_json(
-            "POST",
-            "/api/v1/auth/passkeys/add/finish",
-            &token,
-            json!({
-                "challenge_id": challenge_id,
-                "credential_id": "cred-revoke-ok-2",
-                "public_key": "pk2"
-            }),
-        ))
-        .await
-        .expect("response");
-    assert_eq!(finish_resp.status(), StatusCode::OK);
+    let second_pk = TestPasskey::generate();
+    let _ = second_pk.add(&app, &token).await;
 
     // Get the first passkey's ID
     let list_resp = app
@@ -639,15 +572,16 @@ async fn revoke_passkey_cross_user_isolation() {
     let store = Arc::new(MemStore::default());
     let app = test_app_with_store(store.clone(), test_config());
 
-    let _token_a = passkey_register_flow(&app, "Alice", "cred-rev-xuser-a").await;
-    let token_b = passkey_register_flow(&app, "Bob", "cred-rev-xuser-b").await;
+    let (cred_rev_xuser_a_pk, _token_a) = passkey_register_flow(&app, "Alice").await;
+    let (_cred_rev_xuser_b_pk, token_b) = passkey_register_flow(&app, "Bob").await;
+    let alice_cid = cred_rev_xuser_a_pk.credential_id_b64u();
 
     // Get Alice's passkey ID
     let alice_pk_id = {
         let passkeys = store.passkeys.lock().expect("lock");
         passkeys
             .values()
-            .find(|p| p.credential_id == "cred-rev-xuser-a")
+            .find(|p| p.credential_id == alice_cid)
             .expect("alice pk")
             .id
     };
@@ -687,7 +621,7 @@ async fn update_display_name_requires_auth() {
 async fn update_display_name_get_405() {
     let store = Arc::new(MemStore::default());
     let app = test_app_with_store(store, test_config());
-    let token = passkey_register_flow(&app, "Alice", "cred-dn-405").await;
+    let (_cred_dn_405_pk, token) = passkey_register_flow(&app, "Alice").await;
 
     let resp = app
         .clone()
@@ -701,7 +635,7 @@ async fn update_display_name_get_405() {
 async fn update_display_name_success() {
     let store = Arc::new(MemStore::default());
     let app = test_app_with_store(store.clone(), test_config());
-    let token = passkey_register_flow(&app, "Alice", "cred-dn-ok").await;
+    let (_cred_dn_ok_pk, token) = passkey_register_flow(&app, "Alice").await;
 
     let resp = app
         .clone()
@@ -728,7 +662,7 @@ async fn update_display_name_success() {
 async fn update_display_name_trims_whitespace() {
     let store = Arc::new(MemStore::default());
     let app = test_app_with_store(store.clone(), test_config());
-    let token = passkey_register_flow(&app, "Alice", "cred-dn-trim").await;
+    let (_cred_dn_trim_pk, token) = passkey_register_flow(&app, "Alice").await;
 
     let resp = app
         .clone()
@@ -749,7 +683,7 @@ async fn update_display_name_trims_whitespace() {
 async fn update_display_name_empty_400() {
     let store = Arc::new(MemStore::default());
     let app = test_app_with_store(store, test_config());
-    let token = passkey_register_flow(&app, "Alice", "cred-dn-empty").await;
+    let (_cred_dn_empty_pk, token) = passkey_register_flow(&app, "Alice").await;
 
     let resp = app
         .clone()
@@ -768,7 +702,7 @@ async fn update_display_name_empty_400() {
 async fn update_display_name_whitespace_only_400() {
     let store = Arc::new(MemStore::default());
     let app = test_app_with_store(store, test_config());
-    let token = passkey_register_flow(&app, "Alice", "cred-dn-ws").await;
+    let (_cred_dn_ws_pk, token) = passkey_register_flow(&app, "Alice").await;
 
     let resp = app
         .clone()
@@ -787,7 +721,7 @@ async fn update_display_name_whitespace_only_400() {
 async fn update_display_name_too_long_400() {
     let store = Arc::new(MemStore::default());
     let app = test_app_with_store(store, test_config());
-    let token = passkey_register_flow(&app, "Alice", "cred-dn-long").await;
+    let (_cred_dn_long_pk, token) = passkey_register_flow(&app, "Alice").await;
 
     let long_name = "x".repeat(101);
     let resp = app
@@ -807,7 +741,7 @@ async fn update_display_name_too_long_400() {
 async fn update_display_name_exactly_100_chars_ok() {
     let store = Arc::new(MemStore::default());
     let app = test_app_with_store(store, test_config());
-    let token = passkey_register_flow(&app, "Alice", "cred-dn-100").await;
+    let (_cred_dn_100_pk, token) = passkey_register_flow(&app, "Alice").await;
 
     let name_100 = "x".repeat(100);
     let resp = app

@@ -16,6 +16,7 @@ use axum::body::{to_bytes, Body};
 use axum::http::{Request, StatusCode};
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use base64::Engine;
+use helpers::webauthn::TestPasskey;
 use helpers::{test_app_with_store, test_config, MemStore};
 use serde_json::{json, Value};
 use tower::ServiceExt;
@@ -26,6 +27,7 @@ fn prf_test_config() -> secrt_server::config::Config {
     cfg
 }
 
+#[allow(dead_code)]
 async fn response_json(resp: axum::response::Response) -> Value {
     let bytes = to_bytes(resp.into_body(), usize::MAX)
         .await
@@ -48,54 +50,31 @@ fn valid_amk_commit() -> String {
     b64u(&[0xEFu8; 32])
 }
 
-/// Register a passkey with PRF metadata. Returns (session_token, prf_cred_salt_b64u).
+/// Register a passkey with PRF metadata. Returns the TestPasskey (so the
+/// caller knows the credential_id_b64u and can log back in), the session
+/// token, and the optional `prf_cred_salt` from the response.
 async fn register_with_prf(
     app: &axum::Router,
     display_name: &str,
-    credential_id: &str,
     prf_supported: bool,
-) -> (String, Option<String>) {
-    let start_req = Request::builder()
-        .method("POST")
-        .uri("/api/v1/auth/passkeys/register/start")
-        .header("content-type", "application/json")
-        .body(Body::from(
-            json!({ "display_name": display_name }).to_string(),
-        ))
-        .expect("request");
-    let start_resp = app.clone().oneshot(start_req).await.expect("response");
-    assert_eq!(start_resp.status(), StatusCode::OK);
-    let challenge_id = response_json(start_resp).await["challenge_id"]
-        .as_str()
-        .expect("challenge_id")
-        .to_string();
-
-    let mut body = json!({
-        "challenge_id": challenge_id,
-        "credential_id": credential_id,
-        "public_key": "pk-test",
-    });
-    if prf_supported {
-        body["prf"] = json!({ "supported": true, "at_create": true });
-    }
-    let finish_req = Request::builder()
-        .method("POST")
-        .uri("/api/v1/auth/passkeys/register/finish")
-        .header("content-type", "application/json")
-        .body(Body::from(body.to_string()))
-        .expect("request");
-    let finish_resp = app.clone().oneshot(finish_req).await.expect("response");
-    assert_eq!(finish_resp.status(), StatusCode::OK);
-    let json = response_json(finish_resp).await;
-    let session_token = json["session_token"]
+) -> (TestPasskey, String, Option<String>) {
+    let pk = TestPasskey::generate();
+    let prf = if prf_supported {
+        Some(json!({ "supported": true, "at_create": true }))
+    } else {
+        None
+    };
+    let (status, body) = pk.register_finish(app, display_name, prf).await;
+    assert_eq!(status, StatusCode::OK, "register_finish: {body:?}");
+    let session_token = body["session_token"]
         .as_str()
         .expect("session_token")
         .to_string();
-    let prf_cred_salt = json
+    let prf_cred_salt = body
         .get("prf_cred_salt")
         .and_then(|v| v.as_str())
         .map(|s| s.to_string());
-    (session_token, prf_cred_salt)
+    (pk, session_token, prf_cred_salt)
 }
 
 fn put_prf_wrapper_req(credential_id: &str, session_token: &str, body: Value) -> Request<Body> {
@@ -115,7 +94,8 @@ async fn register_finish_returns_cred_salt_when_prf_supported() {
     let store = Arc::new(MemStore::default());
     let app = test_app_with_store(store, prf_test_config());
 
-    let (_session, prf_cred_salt) = register_with_prf(&app, "Alice", "cred-prf-1", true).await;
+    let (cred_prf_1_pk, _session, prf_cred_salt) = register_with_prf(&app, "Alice", true).await;
+    let _cred_prf_1_cid = cred_prf_1_pk.credential_id_b64u();
     let salt = prf_cred_salt.expect("server should return prf_cred_salt");
     let decoded = URL_SAFE_NO_PAD
         .decode(salt.as_bytes())
@@ -128,7 +108,8 @@ async fn register_finish_omits_cred_salt_when_prf_not_supported() {
     let store = Arc::new(MemStore::default());
     let app = test_app_with_store(store, prf_test_config());
 
-    let (_session, prf_cred_salt) = register_with_prf(&app, "Bob", "cred-prf-2", false).await;
+    let (cred_prf_2_pk, _session, prf_cred_salt) = register_with_prf(&app, "Bob", false).await;
+    let _cred_prf_2_cid = cred_prf_2_pk.credential_id_b64u();
     assert!(
         prf_cred_salt.is_none(),
         "cred_salt should not be present when PRF unsupported"
@@ -142,34 +123,10 @@ async fn register_finish_omits_cred_salt_when_prf_field_absent() {
 
     // Backward compat: an old client that doesn't send the prf field at all
     // must still register successfully with no PRF salt.
-    let start_req = Request::builder()
-        .method("POST")
-        .uri("/api/v1/auth/passkeys/register/start")
-        .header("content-type", "application/json")
-        .body(Body::from(json!({ "display_name": "Cara" }).to_string()))
-        .expect("request");
-    let challenge_id = response_json(app.clone().oneshot(start_req).await.expect("response")).await
-        ["challenge_id"]
-        .as_str()
-        .expect("challenge_id")
-        .to_string();
-    let finish_req = Request::builder()
-        .method("POST")
-        .uri("/api/v1/auth/passkeys/register/finish")
-        .header("content-type", "application/json")
-        .body(Body::from(
-            json!({
-                "challenge_id": challenge_id,
-                "credential_id": "cred-prf-3",
-                "public_key": "pk-test",
-            })
-            .to_string(),
-        ))
-        .expect("request");
-    let resp = app.clone().oneshot(finish_req).await.expect("response");
-    assert_eq!(resp.status(), StatusCode::OK);
-    let json = response_json(resp).await;
-    assert!(json.get("prf_cred_salt").is_none());
+    let pk = TestPasskey::generate();
+    let (status, body) = pk.register_finish(&app, "Cara", None).await;
+    assert_eq!(status, StatusCode::OK, "register_finish: {body:?}");
+    assert!(body.get("prf_cred_salt").is_none());
 }
 
 // ── PUT wrapper validation ──────────────────────────────────────────
@@ -199,10 +156,11 @@ async fn put_prf_wrapper_unauthenticated_returns_401() {
 #[tokio::test]
 async fn put_prf_wrapper_rejects_short_ciphertext() {
     let app = test_app_with_store(Arc::new(MemStore::default()), prf_test_config());
-    let (session_token, _) = register_with_prf(&app, "Alice", "cred-short-ct", true).await;
+    let (cred_short_ct_pk, session_token, _) = register_with_prf(&app, "Alice", true).await;
+    let cred_short_ct_cid = cred_short_ct_pk.credential_id_b64u();
 
     let req = put_prf_wrapper_req(
-        "cred-short-ct",
+        &cred_short_ct_cid,
         &session_token,
         json!({
             "wrapped_amk": b64u(&[0xABu8; 47]), // 1 byte short
@@ -218,10 +176,11 @@ async fn put_prf_wrapper_rejects_short_ciphertext() {
 #[tokio::test]
 async fn put_prf_wrapper_rejects_long_ciphertext() {
     let app = test_app_with_store(Arc::new(MemStore::default()), prf_test_config());
-    let (session_token, _) = register_with_prf(&app, "Alice", "cred-long-ct", true).await;
+    let (cred_long_ct_pk, session_token, _) = register_with_prf(&app, "Alice", true).await;
+    let cred_long_ct_cid = cred_long_ct_pk.credential_id_b64u();
 
     let req = put_prf_wrapper_req(
-        "cred-long-ct",
+        &cred_long_ct_cid,
         &session_token,
         json!({
             "wrapped_amk": b64u(&[0xABu8; 49]),
@@ -237,10 +196,11 @@ async fn put_prf_wrapper_rejects_long_ciphertext() {
 #[tokio::test]
 async fn put_prf_wrapper_rejects_wrong_nonce_length() {
     let app = test_app_with_store(Arc::new(MemStore::default()), prf_test_config());
-    let (session_token, _) = register_with_prf(&app, "Alice", "cred-bad-nonce", true).await;
+    let (cred_bad_nonce_pk, session_token, _) = register_with_prf(&app, "Alice", true).await;
+    let cred_bad_nonce_cid = cred_bad_nonce_pk.credential_id_b64u();
 
     let req = put_prf_wrapper_req(
-        "cred-bad-nonce",
+        &cred_bad_nonce_cid,
         &session_token,
         json!({
             "wrapped_amk": valid_wrapped_amk(),
@@ -256,10 +216,11 @@ async fn put_prf_wrapper_rejects_wrong_nonce_length() {
 #[tokio::test]
 async fn put_prf_wrapper_rejects_wrong_commit_length() {
     let app = test_app_with_store(Arc::new(MemStore::default()), prf_test_config());
-    let (session_token, _) = register_with_prf(&app, "Alice", "cred-bad-commit", true).await;
+    let (cred_bad_commit_pk, session_token, _) = register_with_prf(&app, "Alice", true).await;
+    let cred_bad_commit_cid = cred_bad_commit_pk.credential_id_b64u();
 
     let req = put_prf_wrapper_req(
-        "cred-bad-commit",
+        &cred_bad_commit_cid,
         &session_token,
         json!({
             "wrapped_amk": valid_wrapped_amk(),
@@ -275,10 +236,11 @@ async fn put_prf_wrapper_rejects_wrong_commit_length() {
 #[tokio::test]
 async fn put_prf_wrapper_rejects_unsupported_version() {
     let app = test_app_with_store(Arc::new(MemStore::default()), prf_test_config());
-    let (session_token, _) = register_with_prf(&app, "Alice", "cred-bad-ver", true).await;
+    let (cred_bad_ver_pk, session_token, _) = register_with_prf(&app, "Alice", true).await;
+    let cred_bad_ver_cid = cred_bad_ver_pk.credential_id_b64u();
 
     let req = put_prf_wrapper_req(
-        "cred-bad-ver",
+        &cred_bad_ver_cid,
         &session_token,
         json!({
             "wrapped_amk": valid_wrapped_amk(),
@@ -294,10 +256,11 @@ async fn put_prf_wrapper_rejects_unsupported_version() {
 #[tokio::test]
 async fn put_prf_wrapper_rejects_malformed_base64url() {
     let app = test_app_with_store(Arc::new(MemStore::default()), prf_test_config());
-    let (session_token, _) = register_with_prf(&app, "Alice", "cred-bad-b64", true).await;
+    let (cred_bad_b64_pk, session_token, _) = register_with_prf(&app, "Alice", true).await;
+    let cred_bad_b64_cid = cred_bad_b64_pk.credential_id_b64u();
 
     let req = put_prf_wrapper_req(
-        "cred-bad-b64",
+        &cred_bad_b64_cid,
         &session_token,
         json!({
             "wrapped_amk": "not!valid!base64url!",
@@ -313,7 +276,8 @@ async fn put_prf_wrapper_rejects_malformed_base64url() {
 #[tokio::test]
 async fn put_prf_wrapper_rejects_unknown_credential() {
     let app = test_app_with_store(Arc::new(MemStore::default()), prf_test_config());
-    let (session_token, _) = register_with_prf(&app, "Alice", "cred-known", true).await;
+    let (cred_known_pk, session_token, _) = register_with_prf(&app, "Alice", true).await;
+    let _cred_known_cid = cred_known_pk.credential_id_b64u();
 
     // PUT against a credential that doesn't exist
     let req = put_prf_wrapper_req(
@@ -334,13 +298,15 @@ async fn put_prf_wrapper_rejects_unknown_credential() {
 async fn put_prf_wrapper_rejects_credential_not_owned_by_session() {
     let app = test_app_with_store(Arc::new(MemStore::default()), prf_test_config());
     // Alice registers a credential
-    let (alice_session, _) = register_with_prf(&app, "Alice", "cred-alice", true).await;
+    let (cred_alice_pk, alice_session, _) = register_with_prf(&app, "Alice", true).await;
+    let _cred_alice_cid = cred_alice_pk.credential_id_b64u();
     // Bob registers their own
-    let (_bob_session, _) = register_with_prf(&app, "Bob", "cred-bob", true).await;
+    let (cred_bob_pk, _bob_session, _) = register_with_prf(&app, "Bob", true).await;
+    let cred_bob_cid = cred_bob_pk.credential_id_b64u();
 
     // Alice tries to PUT a wrapper for Bob's credential
     let req = put_prf_wrapper_req(
-        "cred-bob",
+        &cred_bob_cid,
         &alice_session,
         json!({
             "wrapped_amk": valid_wrapped_amk(),
@@ -357,11 +323,12 @@ async fn put_prf_wrapper_rejects_credential_not_owned_by_session() {
 async fn put_prf_wrapper_rejects_non_prf_credential() {
     let app = test_app_with_store(Arc::new(MemStore::default()), prf_test_config());
     // Register without PRF — server won't generate cred_salt or set prf_supported
-    let (session_token, _prf_cred_salt) =
-        register_with_prf(&app, "Alice", "cred-no-prf", false).await;
+    let (cred_no_prf_pk, session_token, _prf_cred_salt) =
+        register_with_prf(&app, "Alice", false).await;
+    let cred_no_prf_cid = cred_no_prf_pk.credential_id_b64u();
 
     let req = put_prf_wrapper_req(
-        "cred-no-prf",
+        &cred_no_prf_cid,
         &session_token,
         json!({
             "wrapped_amk": valid_wrapped_amk(),
@@ -377,10 +344,11 @@ async fn put_prf_wrapper_rejects_non_prf_credential() {
 #[tokio::test]
 async fn put_prf_wrapper_rejects_unknown_field() {
     let app = test_app_with_store(Arc::new(MemStore::default()), prf_test_config());
-    let (session_token, _) = register_with_prf(&app, "Alice", "cred-extra", true).await;
+    let (cred_extra_pk, session_token, _) = register_with_prf(&app, "Alice", true).await;
+    let cred_extra_cid = cred_extra_pk.credential_id_b64u();
 
     let req = put_prf_wrapper_req(
-        "cred-extra",
+        &cred_extra_cid,
         &session_token,
         json!({
             "wrapped_amk": valid_wrapped_amk(),
@@ -411,7 +379,8 @@ async fn delete_prf_wrapper_unauthenticated_returns_401() {
 #[tokio::test]
 async fn delete_prf_wrapper_returns_204_when_no_row() {
     let app = test_app_with_store(Arc::new(MemStore::default()), prf_test_config());
-    let (session_token, _) = register_with_prf(&app, "Alice", "cred-del-1", true).await;
+    let (cred_del_1_pk, session_token, _) = register_with_prf(&app, "Alice", true).await;
+    let _cred_del_1_cid = cred_del_1_pk.credential_id_b64u();
     let req = Request::builder()
         .method("DELETE")
         .uri("/api/v1/auth/passkeys/cred-del-1/prf-wrapper")
@@ -428,7 +397,8 @@ async fn delete_prf_wrapper_returns_204_when_no_row() {
 #[tokio::test]
 async fn prf_wrapper_endpoint_rejects_get() {
     let app = test_app_with_store(Arc::new(MemStore::default()), prf_test_config());
-    let (session_token, _) = register_with_prf(&app, "Alice", "cred-get", true).await;
+    let (cred_get_pk, session_token, _) = register_with_prf(&app, "Alice", true).await;
+    let _cred_get_cid = cred_get_pk.credential_id_b64u();
     let req = Request::builder()
         .method("GET")
         .uri("/api/v1/auth/passkeys/cred-get/prf-wrapper")
@@ -446,11 +416,13 @@ async fn put_then_login_returns_wrapper_inline() {
     let store = Arc::new(MemStore::default());
     let app = test_app_with_store(store.clone(), prf_test_config());
 
-    let (session_token, prf_cred_salt) = register_with_prf(&app, "Alice", "cred-rt", true).await;
+    let (mut cred_rt_pk, session_token, prf_cred_salt) =
+        register_with_prf(&app, "Alice", true).await;
+    let cred_rt_cid = cred_rt_pk.credential_id_b64u();
     assert!(prf_cred_salt.is_some(), "register must return cred_salt");
 
     let put_req = put_prf_wrapper_req(
-        "cred-rt",
+        &cred_rt_cid,
         &session_token,
         json!({
             "wrapped_amk": valid_wrapped_amk(),
@@ -462,38 +434,10 @@ async fn put_then_login_returns_wrapper_inline() {
     let put_resp = app.clone().oneshot(put_req).await.expect("response");
     assert_eq!(put_resp.status(), StatusCode::OK);
 
-    // Now run login (no real WebAuthn signature; tests the bearer flow as-is,
-    // matching today's spec/v1/server.md §6 which documents this is the case).
-    let login_start = Request::builder()
-        .method("POST")
-        .uri("/api/v1/auth/passkeys/login/start")
-        .header("content-type", "application/json")
-        .body(Body::from(
-            json!({ "credential_id": "cred-rt" }).to_string(),
-        ))
-        .expect("request");
-    let start_resp = app.clone().oneshot(login_start).await.expect("response");
-    assert_eq!(start_resp.status(), StatusCode::OK);
-    let challenge_id = response_json(start_resp).await["challenge_id"]
-        .as_str()
-        .expect("challenge_id")
-        .to_string();
-
-    let login_finish = Request::builder()
-        .method("POST")
-        .uri("/api/v1/auth/passkeys/login/finish")
-        .header("content-type", "application/json")
-        .body(Body::from(
-            json!({
-                "challenge_id": challenge_id,
-                "credential_id": "cred-rt",
-            })
-            .to_string(),
-        ))
-        .expect("request");
-    let finish_resp = app.clone().oneshot(login_finish).await.expect("response");
-    assert_eq!(finish_resp.status(), StatusCode::OK);
-    let json = response_json(finish_resp).await;
+    // Run a real login ceremony — register/finish issued the keypair we
+    // just stored, so login_finish here exercises the full WebAuthn
+    // verification path against that key.
+    let json = cred_rt_pk.login(&app).await;
 
     let wrapper = json
         .get("prf_wrapper")
@@ -518,36 +462,10 @@ async fn login_without_wrapper_omits_prf_wrapper_field() {
     let store = Arc::new(MemStore::default());
     let app = test_app_with_store(store, prf_test_config());
 
-    let (_session, _) = register_with_prf(&app, "Alice", "cred-no-wrap", true).await;
+    let (mut cred_no_wrap_pk, _session, _) = register_with_prf(&app, "Alice", true).await;
+    let _cred_no_wrap_cid = cred_no_wrap_pk.credential_id_b64u();
 
-    let login_start = Request::builder()
-        .method("POST")
-        .uri("/api/v1/auth/passkeys/login/start")
-        .header("content-type", "application/json")
-        .body(Body::from(
-            json!({ "credential_id": "cred-no-wrap" }).to_string(),
-        ))
-        .expect("request");
-    let start_resp = app.clone().oneshot(login_start).await.expect("response");
-    let challenge_id = response_json(start_resp).await["challenge_id"]
-        .as_str()
-        .expect("challenge_id")
-        .to_string();
-
-    let login_finish = Request::builder()
-        .method("POST")
-        .uri("/api/v1/auth/passkeys/login/finish")
-        .header("content-type", "application/json")
-        .body(Body::from(
-            json!({
-                "challenge_id": challenge_id,
-                "credential_id": "cred-no-wrap",
-            })
-            .to_string(),
-        ))
-        .expect("request");
-    let finish_resp = app.clone().oneshot(login_finish).await.expect("response");
-    let json = response_json(finish_resp).await;
+    let json = cred_no_wrap_pk.login(&app).await;
     assert!(
         json.get("prf_wrapper").is_none(),
         "no wrapper PUT yet, response should omit prf_wrapper"
@@ -556,44 +474,17 @@ async fn login_without_wrapper_omits_prf_wrapper_field() {
 
 // ── §4.5 upgrade path: pre-PRF credential gets retrofitted on next login ─
 
-/// Helper: drive the login start+finish handshake with an optional `prf`
-/// metadata block. Returns the parsed login-finish JSON body.
+/// Helper: drive the full login start+finish ceremony for an existing
+/// TestPasskey with an optional `prf` metadata block. Returns the parsed
+/// login-finish JSON body.
 async fn login_with_prf(
     app: &axum::Router,
-    credential_id: &str,
+    pk: &mut TestPasskey,
     prf_payload: Option<Value>,
 ) -> Value {
-    let login_start = Request::builder()
-        .method("POST")
-        .uri("/api/v1/auth/passkeys/login/start")
-        .header("content-type", "application/json")
-        .body(Body::from(
-            json!({ "credential_id": credential_id }).to_string(),
-        ))
-        .expect("request");
-    let start_resp = app.clone().oneshot(login_start).await.expect("response");
-    assert_eq!(start_resp.status(), StatusCode::OK);
-    let challenge_id = response_json(start_resp).await["challenge_id"]
-        .as_str()
-        .expect("challenge_id")
-        .to_string();
-
-    let mut body = json!({
-        "challenge_id": challenge_id,
-        "credential_id": credential_id,
-    });
-    if let Some(prf) = prf_payload {
-        body["prf"] = prf;
-    }
-    let finish_req = Request::builder()
-        .method("POST")
-        .uri("/api/v1/auth/passkeys/login/finish")
-        .header("content-type", "application/json")
-        .body(Body::from(body.to_string()))
-        .expect("request");
-    let finish_resp = app.clone().oneshot(finish_req).await.expect("response");
-    assert_eq!(finish_resp.status(), StatusCode::OK);
-    response_json(finish_resp).await
+    let (status, body) = pk.login_finish(app, prf_payload).await;
+    assert_eq!(status, StatusCode::OK, "login_finish: {body:?}");
+    body
 }
 
 #[tokio::test]
@@ -606,14 +497,16 @@ async fn login_finish_upgrades_pre_prf_credential() {
     let app = test_app_with_store(store.clone(), prf_test_config());
 
     // Register without PRF (mimics a 0.16.7-or-earlier registration).
-    let (_session, prf_cred_salt) = register_with_prf(&app, "Eve", "cred-upgrade", false).await;
+    let (mut cred_upgrade_pk, _session, prf_cred_salt) =
+        register_with_prf(&app, "Eve", false).await;
+    let cred_upgrade_cid = cred_upgrade_pk.credential_id_b64u();
     assert!(prf_cred_salt.is_none(), "precondition: row is pre-PRF");
 
     // Pre-state: row has no salt, prf_supported=false.
     {
         use secrt_server::storage::AuthStore;
         let pk = store
-            .get_passkey_by_credential_id("cred-upgrade")
+            .get_passkey_by_credential_id(&cred_upgrade_cid)
             .await
             .expect("passkey");
         assert!(pk.cred_salt.is_none());
@@ -623,7 +516,7 @@ async fn login_finish_upgrades_pre_prf_credential() {
     // Login reporting PRF support — should trigger the upgrade.
     let json = login_with_prf(
         &app,
-        "cred-upgrade",
+        &mut cred_upgrade_pk,
         Some(json!({ "supported": true, "at_create": false })),
     )
     .await;
@@ -645,7 +538,7 @@ async fn login_finish_upgrades_pre_prf_credential() {
     {
         use secrt_server::storage::AuthStore;
         let pk = store
-            .get_passkey_by_credential_id("cred-upgrade")
+            .get_passkey_by_credential_id(&cred_upgrade_cid)
             .await
             .expect("passkey");
         assert_eq!(
@@ -669,12 +562,14 @@ async fn login_finish_returns_existing_salt_when_capable_but_no_wrapper() {
     let store = Arc::new(MemStore::default());
     let app = test_app_with_store(store.clone(), prf_test_config());
 
-    let (_session, original_salt) = register_with_prf(&app, "Frank", "cred-rewrap", true).await;
+    let (mut cred_rewrap_pk, _session, original_salt) =
+        register_with_prf(&app, "Frank", true).await;
+    let _cred_rewrap_cid = cred_rewrap_pk.credential_id_b64u();
     let original_salt = original_salt.expect("registered with PRF");
 
     let json = login_with_prf(
         &app,
-        "cred-rewrap",
+        &mut cred_rewrap_pk,
         Some(json!({ "supported": true, "at_create": false })),
     )
     .await;
@@ -693,11 +588,12 @@ async fn login_finish_skips_upgrade_when_assertion_lacks_prf() {
     let store = Arc::new(MemStore::default());
     let app = test_app_with_store(store.clone(), prf_test_config());
 
-    let (_session, _) = register_with_prf(&app, "Grace", "cred-no-prf", false).await;
+    let (mut cred_no_prf_pk, _session, _) = register_with_prf(&app, "Grace", false).await;
+    let cred_no_prf_cid = cred_no_prf_pk.credential_id_b64u();
 
     let json = login_with_prf(
         &app,
-        "cred-no-prf",
+        &mut cred_no_prf_pk,
         Some(json!({ "supported": false, "at_create": false })),
     )
     .await;
@@ -708,7 +604,7 @@ async fn login_finish_skips_upgrade_when_assertion_lacks_prf() {
     // Row remains pre-PRF.
     use secrt_server::storage::AuthStore;
     let pk = store
-        .get_passkey_by_credential_id("cred-no-prf")
+        .get_passkey_by_credential_id(&cred_no_prf_cid)
         .await
         .expect("passkey");
     assert!(pk.cred_salt.is_none());
@@ -723,9 +619,10 @@ async fn login_finish_omits_cred_salt_when_wrapper_already_inline() {
     let store = Arc::new(MemStore::default());
     let app = test_app_with_store(store.clone(), prf_test_config());
 
-    let (session_token, _) = register_with_prf(&app, "Helen", "cred-w", true).await;
+    let (mut cred_w_pk, session_token, _) = register_with_prf(&app, "Helen", true).await;
+    let cred_w_cid = cred_w_pk.credential_id_b64u();
     let put_req = put_prf_wrapper_req(
-        "cred-w",
+        &cred_w_cid,
         &session_token,
         json!({
             "wrapped_amk": valid_wrapped_amk(),
@@ -739,7 +636,7 @@ async fn login_finish_omits_cred_salt_when_wrapper_already_inline() {
 
     let json = login_with_prf(
         &app,
-        "cred-w",
+        &mut cred_w_pk,
         Some(json!({ "supported": true, "at_create": false })),
     )
     .await;
@@ -758,43 +655,21 @@ async fn add_passkey_finish_returns_cred_salt_when_prf_supported() {
     let app = test_app_with_store(store.clone(), prf_test_config());
 
     // Establish a session via register so we can call add-finish.
-    let (session_token, _) = register_with_prf(&app, "Iris", "cred-original", false).await;
+    let (_cred_original_pk, session_token, _) = register_with_prf(&app, "Iris", false).await;
 
-    // add-start
-    let add_start = Request::builder()
-        .method("POST")
-        .uri("/api/v1/auth/passkeys/add/start")
-        .header("authorization", format!("Bearer {session_token}"))
-        .body(Body::empty())
-        .expect("request");
-    let start_resp = app.clone().oneshot(add_start).await.expect("response");
-    assert_eq!(start_resp.status(), StatusCode::OK);
-    let challenge_id = response_json(start_resp).await["challenge_id"]
-        .as_str()
-        .expect("challenge_id")
-        .to_string();
+    // add-finish: drive the full ceremony with a fresh keypair.
+    let add_pk = TestPasskey::generate();
+    let add_cid = add_pk.credential_id_b64u();
+    let (status, body) = add_pk
+        .add_finish(
+            &app,
+            &session_token,
+            Some(json!({ "supported": true, "at_create": true })),
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK, "add_finish: {body:?}");
 
-    // add-finish with PRF metadata
-    let add_finish = Request::builder()
-        .method("POST")
-        .uri("/api/v1/auth/passkeys/add/finish")
-        .header("authorization", format!("Bearer {session_token}"))
-        .header("content-type", "application/json")
-        .body(Body::from(
-            json!({
-                "challenge_id": challenge_id,
-                "credential_id": "cred-add-prf",
-                "public_key": "pk-test",
-                "prf": { "supported": true, "at_create": true },
-            })
-            .to_string(),
-        ))
-        .expect("request");
-    let finish_resp = app.clone().oneshot(add_finish).await.expect("response");
-    assert_eq!(finish_resp.status(), StatusCode::OK);
-    let json = response_json(finish_resp).await;
-
-    let salt_b64u = json
+    let salt_b64u = body
         .get("prf_cred_salt")
         .and_then(|v| v.as_str())
         .expect("add-finish must return prf_cred_salt when PRF supported");
@@ -805,7 +680,7 @@ async fn add_passkey_finish_returns_cred_salt_when_prf_supported() {
 
     use secrt_server::storage::AuthStore;
     let pk = store
-        .get_passkey_by_credential_id("cred-add-prf")
+        .get_passkey_by_credential_id(&add_cid)
         .await
         .expect("passkey");
     assert_eq!(pk.cred_salt.as_deref(), Some(salt.as_slice()));

@@ -6,7 +6,7 @@ use axum::body::{to_bytes, Body};
 use axum::http::{Request, StatusCode};
 use base64::Engine;
 use chrono::{Duration, Utc};
-use helpers::webauthn::TestKeyPair;
+use helpers::webauthn::TestPasskey;
 use helpers::{create_api_key, test_app_with_store, test_config, with_remote, MemStore};
 use secrt_server::storage::UserId;
 use serde_json::{json, Value};
@@ -19,126 +19,25 @@ async fn response_json(resp: axum::response::Response) -> Value {
     serde_json::from_slice(&bytes).expect("json")
 }
 
-async fn passkey_register_finish_response(
-    app: &axum::Router,
-    display_name: &str,
-    credential_id: &str,
-) -> Value {
-    let start_req = Request::builder()
-        .method("POST")
-        .uri("/api/v1/auth/passkeys/register/start")
-        .header("content-type", "application/json")
-        .body(Body::from(
-            json!({
-                "display_name": display_name,
-            })
-            .to_string(),
-        ))
-        .expect("request");
-    let start_resp = app.clone().oneshot(start_req).await.expect("response");
-    assert_eq!(start_resp.status(), StatusCode::OK);
-    let start_json = response_json(start_resp).await;
-    let challenge_id = start_json["challenge_id"]
-        .as_str()
-        .expect("challenge_id")
-        .to_string();
-
-    let kp = TestKeyPair::generate();
-    let finish_req = Request::builder()
-        .method("POST")
-        .uri("/api/v1/auth/passkeys/register/finish")
-        .header("content-type", "application/json")
-        .body(Body::from(
-            json!({
-                "challenge_id": challenge_id,
-                "credential_id": credential_id,
-                "public_key": kp.cose_key_b64u(),
-            })
-            .to_string(),
-        ))
-        .expect("request");
-    let finish_resp = app.clone().oneshot(finish_req).await.expect("response");
-    assert_eq!(finish_resp.status(), StatusCode::OK);
-    response_json(finish_resp).await
-}
-
-async fn passkey_register_flow(
-    app: &axum::Router,
-    display_name: &str,
-    credential_id: &str,
-) -> String {
-    let finish_json = passkey_register_finish_response(app, display_name, credential_id).await;
-    assert!(finish_json.get("user_id").is_some());
-    finish_json["session_token"]
+/// Run a full registration ceremony and return the keypair (so the caller
+/// can log in afterwards) plus the session token.
+async fn passkey_register_flow(app: &axum::Router, display_name: &str) -> (TestPasskey, String) {
+    let pk = TestPasskey::generate();
+    let v = pk.register(app, display_name).await;
+    assert!(v.get("user_id").is_some());
+    let token = v["session_token"]
         .as_str()
         .expect("session_token")
-        .to_string()
-}
-
-async fn passkey_login_finish_response(app: &axum::Router, credential_id: &str) -> Value {
-    let start_req = Request::builder()
-        .method("POST")
-        .uri("/api/v1/auth/passkeys/login/start")
-        .header("content-type", "application/json")
-        .body(Body::from(
-            json!({
-                "credential_id": credential_id,
-            })
-            .to_string(),
-        ))
-        .expect("request");
-    let start_resp = app.clone().oneshot(start_req).await.expect("response");
-    assert_eq!(start_resp.status(), StatusCode::OK);
-    let start_json = response_json(start_resp).await;
-    let challenge_id = start_json["challenge_id"]
-        .as_str()
-        .expect("challenge_id")
         .to_string();
-
-    let finish_req = Request::builder()
-        .method("POST")
-        .uri("/api/v1/auth/passkeys/login/finish")
-        .header("content-type", "application/json")
-        .body(Body::from(
-            json!({
-                "challenge_id": challenge_id,
-                "credential_id": credential_id,
-            })
-            .to_string(),
-        ))
-        .expect("request");
-    let finish_resp = app.clone().oneshot(finish_req).await.expect("response");
-    assert_eq!(finish_resp.status(), StatusCode::OK);
-    response_json(finish_resp).await
+    (pk, token)
 }
 
-async fn passkey_login_flow(app: &axum::Router, credential_id: &str) -> String {
-    let finish_json = passkey_login_finish_response(app, credential_id).await;
-    assert!(finish_json.get("user_id").is_some());
-    finish_json["session_token"]
+async fn passkey_login_flow(app: &axum::Router, pk: &mut TestPasskey) -> String {
+    let v = pk.login(app).await;
+    assert!(v.get("user_id").is_some());
+    v["session_token"]
         .as_str()
         .expect("session_token")
-        .to_string()
-}
-
-async fn passkey_login_start_only(app: &axum::Router, credential_id: &str) -> String {
-    let start_req = Request::builder()
-        .method("POST")
-        .uri("/api/v1/auth/passkeys/login/start")
-        .header("content-type", "application/json")
-        .body(Body::from(
-            json!({
-                "credential_id": credential_id,
-            })
-            .to_string(),
-        ))
-        .expect("request");
-    let start_resp = app.clone().oneshot(start_req).await.expect("response");
-    assert_eq!(start_resp.status(), StatusCode::OK);
-    let start_json = response_json(start_resp).await;
-    start_json["challenge_id"]
-        .as_str()
-        .expect("challenge_id")
         .to_string()
 }
 
@@ -186,11 +85,11 @@ fn user_id_for_session(store: &Arc<MemStore>, token: &str) -> UserId {
 async fn passkey_register_login_and_session_happy_path() {
     let store = Arc::new(MemStore::default());
     let app = test_app_with_store(store.clone(), test_config());
-    let session_token = passkey_register_flow(&app, "Alice", "cred-a").await;
+    let (mut pk, session_token) = passkey_register_flow(&app, "Alice").await;
     assert!(session_token.starts_with("uss_"));
     let register_user_id = user_id_for_session(&store, &session_token);
 
-    let login_token = passkey_login_flow(&app, "cred-a").await;
+    let login_token = passkey_login_flow(&app, &mut pk).await;
     assert!(login_token.starts_with("uss_"));
     let login_user_id = user_id_for_session(&store, &login_token);
     assert_eq!(login_user_id, register_user_id);
@@ -211,13 +110,14 @@ async fn passkey_register_login_and_session_happy_path() {
 #[tokio::test]
 async fn passkey_finish_responses_return_public_session_fields_only() {
     let app = test_app_with_store(Arc::new(MemStore::default()), test_config());
-    let register_finish = passkey_register_finish_response(&app, "Alice", "cred-redact").await;
+    let mut pk = TestPasskey::generate();
+    let register_finish = pk.register(&app, "Alice").await;
     assert!(register_finish["session_token"].as_str().is_some());
     assert_eq!(register_finish["display_name"].as_str(), Some("Alice"));
     assert!(register_finish["expires_at"].as_str().is_some());
     assert!(register_finish.get("user_id").is_some());
 
-    let login_finish = passkey_login_finish_response(&app, "cred-redact").await;
+    let login_finish = pk.login(&app).await;
     assert!(login_finish["session_token"].as_str().is_some());
     assert_eq!(login_finish["display_name"].as_str(), Some("Alice"));
     assert!(login_finish["expires_at"].as_str().is_some());
@@ -228,7 +128,7 @@ async fn passkey_finish_responses_return_public_session_fields_only() {
 async fn session_expiry_and_logout_invalidate_session() {
     let store = Arc::new(MemStore::default());
     let app = test_app_with_store(store.clone(), test_config());
-    let session_token = passkey_register_flow(&app, "Bob", "cred-b").await;
+    let session_token = passkey_register_flow(&app, "Bob").await.1;
 
     let logout_req = Request::builder()
         .method("POST")
@@ -249,7 +149,7 @@ async fn session_expiry_and_logout_invalidate_session() {
     let session_body = response_json(session_resp).await;
     assert_eq!(session_body["authenticated"].as_bool(), Some(false));
 
-    let fresh_token = passkey_register_flow(&app, "Bobby", "cred-b2").await;
+    let fresh_token = passkey_register_flow(&app, "Bobby").await.1;
     let sid = fresh_token
         .trim_start_matches("uss_")
         .split('.')
@@ -277,7 +177,7 @@ async fn session_expiry_and_logout_invalidate_session() {
 async fn register_apikey_success_requires_valid_session() {
     let store = Arc::new(MemStore::default());
     let app = test_app_with_store(store.clone(), test_config());
-    let session_token = passkey_register_flow(&app, "Carol", "cred-c").await;
+    let session_token = passkey_register_flow(&app, "Carol").await.1;
     let user_id = user_id_for_session(&store, &session_token);
     let auth_token = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode([7u8; 32]);
 
@@ -308,7 +208,7 @@ async fn register_apikey_rejects_missing_session_and_bad_auth_token() {
         .expect("response");
     assert_eq!(missing_session_resp.status(), StatusCode::UNAUTHORIZED);
 
-    let session_token = passkey_register_flow(&app, "Dana", "cred-d").await;
+    let session_token = passkey_register_flow(&app, "Dana").await.1;
     let bad_req = Request::builder()
         .method("POST")
         .uri("/api/v1/apikeys/register")
@@ -334,7 +234,7 @@ async fn register_apikey_account_hourly_cap_blocks_sixth() {
     cfg.apikey_register_ip_max_per_hour = 100;
     cfg.apikey_register_ip_max_per_day = 100;
     let app = test_app_with_store(Arc::new(MemStore::default()), cfg);
-    let session_token = passkey_register_flow(&app, "Eve", "cred-e").await;
+    let session_token = passkey_register_flow(&app, "Eve").await.1;
 
     for i in 0..5u8 {
         let tok = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode([i; 32]);
@@ -360,7 +260,7 @@ async fn register_apikey_account_daily_cap_blocks_twenty_first() {
     cfg.apikey_register_ip_max_per_hour = 100;
     cfg.apikey_register_ip_max_per_day = 100;
     let app = test_app_with_store(Arc::new(MemStore::default()), cfg);
-    let session_token = passkey_register_flow(&app, "Frank", "cred-f").await;
+    let session_token = passkey_register_flow(&app, "Frank").await.1;
 
     for i in 0..20u8 {
         let tok = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode([i; 32]);
@@ -386,7 +286,7 @@ async fn register_apikey_ip_hourly_and_daily_caps_are_enforced() {
     cfg_hour.apikey_register_ip_max_per_hour = 5;
     cfg_hour.apikey_register_ip_max_per_day = 100;
     let app_hour = test_app_with_store(Arc::new(MemStore::default()), cfg_hour);
-    let session_hour = passkey_register_flow(&app_hour, "Grace", "cred-g").await;
+    let session_hour = passkey_register_flow(&app_hour, "Grace").await.1;
 
     for i in 0..5u8 {
         let tok = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode([i; 32]);
@@ -409,7 +309,7 @@ async fn register_apikey_ip_hourly_and_daily_caps_are_enforced() {
     cfg_day.apikey_register_ip_max_per_hour = 100;
     cfg_day.apikey_register_ip_max_per_day = 20;
     let app_day = test_app_with_store(Arc::new(MemStore::default()), cfg_day);
-    let session_day = passkey_register_flow(&app_day, "Heidi", "cred-h").await;
+    let session_day = passkey_register_flow(&app_day, "Heidi").await.1;
 
     for i in 0..20u8 {
         let tok = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode([i; 32]);
@@ -429,7 +329,7 @@ async fn register_apikey_ip_hourly_and_daily_caps_are_enforced() {
 async fn auth_session_rejects_tampered_token_secret() {
     let store = Arc::new(MemStore::default());
     let app = test_app_with_store(store, test_config());
-    let session_token = passkey_register_flow(&app, "Ivan", "cred-i").await;
+    let session_token = passkey_register_flow(&app, "Ivan").await.1;
     let mut parts = session_token.trim_start_matches("uss_").split('.');
     let sid = parts.next().expect("sid");
     let tampered = format!("uss_{sid}.tampered");
@@ -449,7 +349,7 @@ async fn auth_session_rejects_tampered_token_secret() {
 async fn logout_rejects_tampered_token_secret_and_preserves_session() {
     let store = Arc::new(MemStore::default());
     let app = test_app_with_store(store, test_config());
-    let session_token = passkey_register_flow(&app, "Ivy", "cred-ivy").await;
+    let session_token = passkey_register_flow(&app, "Ivy").await.1;
 
     let mut parts = session_token.trim_start_matches("uss_").split('.');
     let sid = parts.next().expect("sid");
@@ -480,10 +380,11 @@ async fn logout_rejects_tampered_token_secret_and_preserves_session() {
 async fn passkey_login_start_rejects_revoked_passkey() {
     let store = Arc::new(MemStore::default());
     let app = test_app_with_store(store.clone(), test_config());
-    let _ = passkey_register_flow(&app, "Judy", "cred-j").await;
+    let (pk, _) = passkey_register_flow(&app, "Judy").await;
+    let cred_id_b64u = pk.credential_id_b64u();
     {
         let mut passkeys = store.passkeys.lock().expect("passkeys mutex");
-        let p = passkeys.get_mut("cred-j").expect("passkey");
+        let p = passkeys.get_mut(&cred_id_b64u).expect("passkey");
         p.revoked_at = Some(Utc::now());
     }
 
@@ -491,20 +392,24 @@ async fn passkey_login_start_rejects_revoked_passkey() {
         .method("POST")
         .uri("/api/v1/auth/passkeys/login/start")
         .header("content-type", "application/json")
-        .body(Body::from(json!({"credential_id":"cred-j"}).to_string()))
+        .body(Body::from(
+            json!({ "credential_id": cred_id_b64u }).to_string(),
+        ))
         .expect("request");
     let resp = app.clone().oneshot(req).await.expect("response");
     assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
 }
 
 #[tokio::test]
-async fn passkey_login_finish_uses_challenge_id_bearer_semantics_in_v1() {
+async fn passkey_login_finish_rejects_unknown_challenge_id() {
+    // Even with a valid credential_id and well-formed wire body, an
+    // unrecognised or expired `challenge_id` must fail. This captures the
+    // non-cryptographic precondition of /finish: challenges are single-use
+    // and tied to a /start call.
     let store = Arc::new(MemStore::default());
     let app = test_app_with_store(store, test_config());
-    let _ = passkey_register_flow(&app, "Kara", "cred-kara").await;
+    let (mut pk, _) = passkey_register_flow(&app, "Kara").await;
 
-    // v1 semantics are challenge-id bearer based: unknown challenge_id fails even
-    // when credential_id is valid.
     let missing_req = Request::builder()
         .method("POST")
         .uri("/api/v1/auth/passkeys/login/finish")
@@ -512,7 +417,10 @@ async fn passkey_login_finish_uses_challenge_id_bearer_semantics_in_v1() {
         .body(Body::from(
             json!({
                 "challenge_id": "missing",
-                "credential_id": "cred-kara"
+                "credential_id": pk.credential_id_b64u(),
+                "authenticator_data": "AA",
+                "client_data_json": "AA",
+                "signature": "AA",
             })
             .to_string(),
         ))
@@ -520,30 +428,35 @@ async fn passkey_login_finish_uses_challenge_id_bearer_semantics_in_v1() {
     let missing_resp = app.clone().oneshot(missing_req).await.expect("response");
     assert_eq!(missing_resp.status(), StatusCode::BAD_REQUEST);
 
-    let challenge_id = passkey_login_start_only(&app, "cred-kara").await;
-    let ok_req = Request::builder()
-        .method("POST")
-        .uri("/api/v1/auth/passkeys/login/finish")
-        .header("content-type", "application/json")
-        .body(Body::from(
-            json!({
-                "challenge_id": challenge_id,
-                "credential_id": "cred-kara"
-            })
-            .to_string(),
-        ))
-        .expect("request");
-    let ok_resp = app.clone().oneshot(ok_req).await.expect("response");
-    assert_eq!(ok_resp.status(), StatusCode::OK);
+    // Real /start → /finish round trip succeeds.
+    let v = pk.login(&app).await;
+    assert!(v["session_token"].as_str().is_some());
 }
 
 #[tokio::test]
 async fn passkey_finish_paths_cover_mismatch_revoked_and_bad_challenge_json() {
     let store = Arc::new(MemStore::default());
     let app = test_app_with_store(store.clone(), test_config());
-    let _ = passkey_register_flow(&app, "Kim", "cred-k").await;
+    let (pk, _) = passkey_register_flow(&app, "Kim").await;
+    let cred_id_b64u = pk.credential_id_b64u();
 
-    let mismatch_challenge = passkey_login_start_only(&app, "cred-k").await;
+    // Mismatch: /start with this credential_id, /finish with a different one
+    // → server consumes challenge, sees the credential_id field doesn't
+    // match what /start logged → 401.
+    let start_req = Request::builder()
+        .method("POST")
+        .uri("/api/v1/auth/passkeys/login/start")
+        .header("content-type", "application/json")
+        .body(Body::from(
+            json!({ "credential_id": &cred_id_b64u }).to_string(),
+        ))
+        .expect("request");
+    let start_resp = app.clone().oneshot(start_req).await.expect("response");
+    assert_eq!(start_resp.status(), StatusCode::OK);
+    let mismatch_challenge = response_json(start_resp).await["challenge_id"]
+        .as_str()
+        .expect("challenge_id")
+        .to_string();
     let mismatch_req = Request::builder()
         .method("POST")
         .uri("/api/v1/auth/passkeys/login/finish")
@@ -551,7 +464,10 @@ async fn passkey_finish_paths_cover_mismatch_revoked_and_bad_challenge_json() {
         .body(Body::from(
             json!({
                 "challenge_id": mismatch_challenge,
-                "credential_id": "cred-other"
+                "credential_id": "different-cred",
+                "authenticator_data": "AA",
+                "client_data_json": "AA",
+                "signature": "AA",
             })
             .to_string(),
         ))
@@ -559,27 +475,28 @@ async fn passkey_finish_paths_cover_mismatch_revoked_and_bad_challenge_json() {
     let mismatch_resp = app.clone().oneshot(mismatch_req).await.expect("response");
     assert_eq!(mismatch_resp.status(), StatusCode::UNAUTHORIZED);
 
-    let revoked_challenge = passkey_login_start_only(&app, "cred-k").await;
+    // Revoked: stamp revoked_at, then call /login/start directly. The
+    // server refuses revoked credentials at /start, before any /finish
+    // verification runs.
     {
         let mut passkeys = store.passkeys.lock().expect("passkeys mutex");
-        let p = passkeys.get_mut("cred-k").expect("passkey");
+        let p = passkeys.get_mut(&cred_id_b64u).expect("passkey");
         p.revoked_at = Some(Utc::now());
     }
     let revoked_req = Request::builder()
         .method("POST")
-        .uri("/api/v1/auth/passkeys/login/finish")
+        .uri("/api/v1/auth/passkeys/login/start")
         .header("content-type", "application/json")
         .body(Body::from(
-            json!({
-                "challenge_id": revoked_challenge,
-                "credential_id": "cred-k"
-            })
-            .to_string(),
+            json!({ "credential_id": &cred_id_b64u }).to_string(),
         ))
         .expect("request");
     let revoked_resp = app.clone().oneshot(revoked_req).await.expect("response");
     assert_eq!(revoked_resp.status(), StatusCode::UNAUTHORIZED);
 
+    // Bad challenge_json: insert a corrupted record directly into the
+    // challenges store, then call /finish. Server consumes the challenge,
+    // tries to parse challenge_json, and returns 500.
     {
         let mut challenges = store.challenges.lock().expect("challenges mutex");
         challenges.insert(
@@ -602,7 +519,10 @@ async fn passkey_finish_paths_cover_mismatch_revoked_and_bad_challenge_json() {
         .body(Body::from(
             json!({
                 "challenge_id": "bad-json-login",
-                "credential_id": "cred-k"
+                "credential_id": cred_id_b64u,
+                "authenticator_data": "AA",
+                "client_data_json": "AA",
+                "signature": "AA",
             })
             .to_string(),
         ))
@@ -638,7 +558,8 @@ async fn passkey_register_finish_bad_challenge_json_and_session_pepper_error() {
             json!({
                 "challenge_id": "bad-json-register",
                 "credential_id": "cred-rj",
-                "public_key": "pk-rj"
+                "authenticator_data": "AA",
+                "client_data_json": "AA",
             })
             .to_string(),
         ))
@@ -650,48 +571,15 @@ async fn passkey_register_finish_bad_challenge_json_and_session_pepper_error() {
         .expect("response");
     assert_eq!(bad_json_resp.status(), StatusCode::INTERNAL_SERVER_ERROR);
 
+    // session-pepper-empty: a successful register-finish (real verification +
+    // user creation) must fail to mint a session token because the pepper is
+    // empty → 500. Use the high-level helper to drive the ceremony.
     let mut cfg = test_config();
     cfg.session_token_pepper = String::new();
     let app_bad_pepper = test_app_with_store(Arc::new(MemStore::default()), cfg);
-    let start_req = Request::builder()
-        .method("POST")
-        .uri("/api/v1/auth/passkeys/register/start")
-        .header("content-type", "application/json")
-        .body(Body::from(
-            json!({
-                "display_name": "Liam",
-            })
-            .to_string(),
-        ))
-        .expect("request");
-    let start_resp = app_bad_pepper
-        .clone()
-        .oneshot(start_req)
-        .await
-        .expect("response");
-    assert_eq!(start_resp.status(), StatusCode::OK);
-    let start_json = response_json(start_resp).await;
-    let challenge_id = start_json["challenge_id"].as_str().expect("challenge id");
-
-    let finish_req = Request::builder()
-        .method("POST")
-        .uri("/api/v1/auth/passkeys/register/finish")
-        .header("content-type", "application/json")
-        .body(Body::from(
-            json!({
-                "challenge_id": challenge_id,
-                "credential_id": "cred-liam",
-                "public_key": "pk-liam",
-            })
-            .to_string(),
-        ))
-        .expect("request");
-    let finish_resp = app_bad_pepper
-        .clone()
-        .oneshot(finish_req)
-        .await
-        .expect("response");
-    assert_eq!(finish_resp.status(), StatusCode::INTERNAL_SERVER_ERROR);
+    let pk = TestPasskey::generate();
+    let (status, _body) = pk.register_finish(&app_bad_pepper, "Liam", None).await;
+    assert_eq!(status, StatusCode::INTERNAL_SERVER_ERROR);
 }
 
 #[tokio::test]
@@ -710,13 +598,13 @@ async fn logout_unknown_sid_and_apikey_register_rate_limit_and_validation() {
     cfg_rate.apikey_register_rate = 0.0;
     cfg_rate.apikey_register_burst = 0;
     let app_rate = test_app_with_store(Arc::new(MemStore::default()), cfg_rate);
-    let session_token = passkey_register_flow(&app_rate, "Mia", "cred-mia").await;
+    let session_token = passkey_register_flow(&app_rate, "Mia").await.1;
     let auth_token = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode([2u8; 32]);
     let limited = register_apikey(&app_rate, &session_token, &auth_token).await;
     assert_eq!(limited.status(), StatusCode::TOO_MANY_REQUESTS);
 
     let app_validation = test_app_with_store(Arc::new(MemStore::default()), test_config());
-    let session_token_validation = passkey_register_flow(&app_validation, "Nia", "cred-nia").await;
+    let session_token_validation = passkey_register_flow(&app_validation, "Nia").await.1;
     let bad_ct_req = Request::builder()
         .method("POST")
         .uri("/api/v1/apikeys/register")
@@ -737,8 +625,7 @@ async fn logout_unknown_sid_and_apikey_register_rate_limit_and_validation() {
     let mut cfg_pepper = test_config();
     cfg_pepper.api_key_pepper = String::new();
     let app_bad_pepper = test_app_with_store(Arc::new(MemStore::default()), cfg_pepper);
-    let session_token_bad_pepper =
-        passkey_register_flow(&app_bad_pepper, "Omar", "cred-omar").await;
+    let session_token_bad_pepper = passkey_register_flow(&app_bad_pepper, "Omar").await.1;
     let req = Request::builder()
         .method("POST")
         .uri("/api/v1/apikeys/register")
