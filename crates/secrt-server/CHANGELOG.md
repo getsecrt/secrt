@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+## 0.16.9 — 2026-04-27
+
+### Added
+
+- **PRF upgrade path for pre-PRF credentials.** `POST /api/v1/auth/passkeys/login/finish` now accepts an optional `prf` field describing the assertion's PRF capability. When the assertion reports PRF support and the credential row predates PRF (`cred_salt = NULL`), the server stamps the row with a fresh 32-byte salt and returns it as `prf_cred_salt` so the client can wrap+PUT on this very login. When the row is already PRF-capable but has no wrapper, the existing salt is returned without overwriting. Pre-PRF credentials registered before 0.16.8 are now retrofitted transparently on the next sign-in from a PRF-capable browser. Spec: `spec/v1/api.md` §"Transport D — Upgrade path for pre-PRF credentials".
+- **Add-passkey PRF wiring.** `POST /api/v1/auth/passkeys/add/finish` now accepts the same `prf` field and returns `prf_cred_salt` when supported, mirroring register-finish. Credentials added from Settings are PRF-enabled at create time without needing an upgrade round-trip.
+- **`prf_supported` on `PasskeyItem` list responses.** Surfaces in the Settings UI as a "Sign-in only" warning badge for credentials that don't support one-tap notes-key unlock on new devices.
+
+### Fixed
+
+- **CSP integration test no longer asserts on a build artifact.** `html_responses_carry_csp_and_no_store` previously required `web/dist` to exist (so `csp_value()` could compute hashes from inline scripts in the served `index.html`). Without `web/dist` the embedded fallback template has zero inline scripts, no `'sha256-…'` source emitted, and the assertion failed. The same property is unit-tested in `crates/secrt-server/src/http/security.rs` against fixture HTML, so the integration assertion was duplicated coverage that happened to be the only thing in CI requiring a frontend build. Drops the duplicate; CI is green again on all three OSes without paying ~30s × 3 to build the frontend before Rust tests.
+
 ## 0.16.8 — 2026-04-27
 
 ### Added
