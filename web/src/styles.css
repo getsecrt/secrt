@@ -348,6 +348,11 @@
     /* Centre the inner card (upper-biased) */
     @apply fixed inset-0 flex items-start justify-center px-4 pb-4 text-text;
     padding-top: clamp(2.5rem, calc(20vh - 40px), 10rem);
+    /* Trap scroll inside the dialog. Without this, wheel/touchmove on the
+       backdrop chain up to <body>, scrolling the page behind the modal.
+       When the dialog's own content is shorter than the viewport, this
+       turns scroll into a no-op rather than letting it leak through. */
+    overscroll-behavior: contain;
 
     /* Keep dialog in top-layer during exit animation */
     transition:
@@ -404,6 +409,16 @@
         transform: scale(0.96);
       }
     }
+  }
+
+  /* Lock body scroll while any dialog is open. Belt-and-suspenders with
+     the `overscroll-behavior: contain` above: that handles scroll
+     chaining when the dialog itself receives the event; this handles
+     the case where the wheel/touchmove is delivered straight to <body>
+     (some Firefox configs, some touch surfaces). Browser support for
+     `:has()`: Chrome 105+, Safari 15.4+, Firefox 121+. */
+  html:has(dialog[open]) {
+    overflow: hidden;
   }
 
   .secret-row {
