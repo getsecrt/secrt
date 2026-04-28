@@ -297,7 +297,7 @@ export function RegisterPage() {
     <div class="space-y-4">
       <form class="card space-y-6" onSubmit={handleSubmit}>
         <CardHeading
-          title="Log In"
+          title="Sign In"
           icon={<PasskeyIcon class="size-10" />}
           subtitle={
             'Register with a passkey for higher limits, larger file uploads, and secret management.'
@@ -373,7 +373,7 @@ export function RegisterPage() {
             );
           }}
         >
-          Log In
+          Sign In
         </a>
       </p>
     </div>

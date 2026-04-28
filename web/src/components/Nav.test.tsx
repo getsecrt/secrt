@@ -60,35 +60,35 @@ describe('Nav', () => {
     expect(screen.getAllByTestId('theme-toggle').length).toBeGreaterThan(0);
   });
 
-  it('shows Log In link when not authenticated', () => {
+  it('shows Sign In link when not authenticated', () => {
     render(<Nav />);
-    expect(screen.getAllByText('Log In').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('Sign In').length).toBeGreaterThan(0);
   });
 
-  it('shows displayName and Log out when authenticated', async () => {
+  it('shows displayName and Sign out when authenticated', async () => {
     const user = userEvent.setup();
     mockAuth.authenticated = true;
     mockAuth.displayName = 'alice';
     render(<Nav />);
     expect(screen.getAllByText('alice').length).toBeGreaterThan(0);
     await user.click(screen.getByRole('button', { name: 'alice' }));
-    expect(screen.getAllByText('Log out').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('Sign out').length).toBeGreaterThan(0);
   });
 
   it('hides auth section while loading', () => {
     mockAuth.loading = true;
     render(<Nav />);
-    expect(screen.queryByText('Log in')).toBeNull();
-    expect(screen.queryByText('Log out')).toBeNull();
+    expect(screen.queryByText('Sign in')).toBeNull();
+    expect(screen.queryByText('Sign out')).toBeNull();
   });
 
-  it('calls logout and navigates to "/" on Log out click', async () => {
+  it('calls logout and navigates to "/" on Sign out click', async () => {
     const user = userEvent.setup();
     mockAuth.authenticated = true;
     mockAuth.displayName = 'bob';
     render(<Nav />);
     await user.click(screen.getByRole('button', { name: 'bob' }));
-    const logoutBtns = screen.getAllByText('Log out');
+    const logoutBtns = screen.getAllByText('Sign out');
     await user.click(logoutBtns[0]);
     expect(mockLogout).toHaveBeenCalled();
     expect(mockNavigate).toHaveBeenCalledWith('/');

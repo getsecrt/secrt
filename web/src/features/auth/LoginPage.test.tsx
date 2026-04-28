@@ -83,8 +83,8 @@ describe('LoginPage', () => {
 
   it('renders login page', () => {
     render(<LoginPage />);
-    expect(screen.getByText('Log In')).toBeInTheDocument();
-    expect(screen.getByText('Log in with Passkey')).toBeInTheDocument();
+    expect(screen.getByText('Sign In')).toBeInTheDocument();
+    expect(screen.getByText('Sign in with Passkey')).toBeInTheDocument();
   });
 
   it('redirects when already authenticated', () => {
@@ -118,7 +118,7 @@ describe('LoginPage', () => {
     });
 
     render(<LoginPage />);
-    await user.click(screen.getByText('Log in with Passkey'));
+    await user.click(screen.getByText('Sign in with Passkey'));
 
     expect(loginPasskeyStart).toHaveBeenCalledWith({
       credential_id: 'cred_login',
@@ -143,7 +143,7 @@ describe('LoginPage', () => {
     );
 
     render(<LoginPage />);
-    await user.click(screen.getByText('Log in with Passkey'));
+    await user.click(screen.getByText('Sign in with Passkey'));
 
     expect(screen.getByRole('alert')).toHaveTextContent(
       'This passkey is not recognized',
@@ -157,7 +157,7 @@ describe('LoginPage', () => {
     );
 
     render(<LoginPage />);
-    await user.click(screen.getByText('Log in with Passkey'));
+    await user.click(screen.getByText('Sign in with Passkey'));
 
     expect(screen.getByRole('alert')).toHaveTextContent('network error');
   });
@@ -168,9 +168,11 @@ describe('LoginPage', () => {
     vi.mocked(getPasskeyCredential).mockRejectedValue(err);
 
     render(<LoginPage />);
-    await user.click(screen.getByText('Log in with Passkey'));
+    await user.click(screen.getByText('Sign in with Passkey'));
 
-    expect(screen.getByRole('alert')).toHaveTextContent('Login was cancelled');
+    expect(screen.getByRole('alert')).toHaveTextContent(
+      'Sign-in was cancelled',
+    );
   });
 
   it('has link to register page', async () => {
@@ -198,7 +200,7 @@ describe('LoginPage', () => {
 
       const user = userEvent.setup();
       render(<LoginPage />);
-      await user.click(screen.getByText('Log in via Browser'));
+      await user.click(screen.getByText('Sign in via Browser'));
 
       await waitFor(() => {
         expect(appLoginStart).toHaveBeenCalled();
@@ -244,7 +246,7 @@ describe('LoginPage', () => {
 
       const user = userEvent.setup();
       render(<LoginPage />);
-      await user.click(screen.getByText('Log in via Browser'));
+      await user.click(screen.getByText('Sign in via Browser'));
 
       await waitFor(() => {
         expect(screen.getByText('WXYZ-9999')).toBeInTheDocument();

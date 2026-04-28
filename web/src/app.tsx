@@ -35,7 +35,7 @@ export function App() {
       sync: 'Sync Key — secrt',
       'how-it-works': 'How It Works — secrt',
       privacy: 'Privacy — secrt',
-      login: 'Log In — secrt',
+      login: 'Sign In — secrt',
       register: 'Register — secrt',
       dashboard: 'Dashboard — secrt',
       settings: 'Settings — secrt',

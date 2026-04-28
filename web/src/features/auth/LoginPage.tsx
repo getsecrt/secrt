@@ -265,7 +265,7 @@ function TauriLoginFlow() {
               if (msg.includes('expired_token')) {
                 setState({
                   step: 'error',
-                  message: 'Login session expired. Please try again.',
+                  message: 'Sign-in session expired. Please try again.',
                 });
                 return;
               }
@@ -294,9 +294,9 @@ function TauriLoginFlow() {
     <div class="space-y-4">
       <div class="card space-y-6 text-center">
         <CardHeading
-          title="Log In"
+          title="Sign In"
           icon={<PasskeyIcon class="size-10" />}
-          subtitle="Log in via your system browser using your passkey."
+          subtitle="Sign in via your system browser using your passkey."
           class="mb-4"
         />
 
@@ -339,7 +339,7 @@ function TauriLoginFlow() {
           >
             {state.step === 'starting'
               ? 'Starting\u2026'
-              : 'Log in via Browser'}
+              : 'Sign in via Browser'}
           </button>
         )}
       </div>
@@ -481,9 +481,9 @@ export function LoginPage() {
       navigate(redirectTo);
     } catch (err) {
       if (err instanceof DOMException && err.name === 'NotAllowedError') {
-        setState({ step: 'error', message: 'Login was cancelled.' });
+        setState({ step: 'error', message: 'Sign-in was cancelled.' });
       } else {
-        const raw = err instanceof Error ? err.message : 'Login failed.';
+        const raw = err instanceof Error ? err.message : 'Sign-in failed.';
         setState({ step: 'error', message: friendlyLoginError(raw) });
       }
     }
@@ -506,7 +506,7 @@ export function LoginPage() {
     <div class="space-y-4">
       <div class="card space-y-6 text-center">
         <CardHeading
-          title="Log In"
+          title="Sign In"
           icon={<PasskeyIcon class="size-10" />}
           subtitle={
             'Use your passkey to sign in anonymously.\nYour browser will show available passkeys.'
@@ -530,7 +530,7 @@ export function LoginPage() {
           onClick={handleLogin}
           disabled={busy}
         >
-          {busy ? 'Authenticating\u2026' : 'Log in with Passkey'}
+          {busy ? 'Authenticating\u2026' : 'Sign in with Passkey'}
         </button>
       </div>
 

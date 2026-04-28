@@ -162,7 +162,7 @@ function UserMenu({
             }}
           >
             <LogoutIcon class="size-4" aria-hidden="true" />
-            Log out
+            Sign out
           </button>
         </div>
       )}
@@ -440,7 +440,7 @@ export function Nav() {
                 <NavLink href="/login" active={isActive('login')}>
                   <span class={navItemClass}>
                     <PasskeyIcon class="size-4" aria-hidden="true" />
-                    Log In
+                    Sign In
                   </span>
                 </NavLink>
               ))}
@@ -508,7 +508,7 @@ export function Nav() {
                     onClick={handleLogout}
                   >
                     <LogoutIcon class="size-4" aria-hidden="true" />
-                    Log out
+                    Sign out
                   </button>
                 </div>
               )}
@@ -517,7 +517,7 @@ export function Nav() {
                 <NavLink href="/login" active={isActive('login')}>
                   <span class={navItemClass}>
                     <PasskeyIcon class="size-4" aria-hidden="true" />
-                    Log In / Register
+                    Sign In / Register
                   </span>
                 </NavLink>
               )}

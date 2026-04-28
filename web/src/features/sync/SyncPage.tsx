@@ -108,7 +108,7 @@ export function SyncPage({ id }: SyncPageProps) {
           setStatus({
             step: 'error',
             message:
-              'This sync link belongs to a different account.\nLog in as the correct user and try again.',
+              'This sync link belongs to a different account.\nSign in as the correct user and try again.',
           });
           return;
         }
