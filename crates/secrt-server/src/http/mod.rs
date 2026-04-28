@@ -255,6 +255,13 @@ struct PasskeyLoginStartRequest {
 struct PasskeyLoginFinishRequest {
     challenge_id: String,
     credential_id: String,
+    /// PRF capability info from this assertion. Lets the server (a) return a
+    /// `prf_cred_salt` to upgrade a pre-PRF credential and (b) hand the salt
+    /// back when no wrapper exists yet so the client can wrap+PUT. Optional
+    /// for backward compat with non-PRF clients. See `spec/v1/api.md`
+    /// §"Transport D: PRF wrap" — the upgrade path.
+    #[serde(default)]
+    prf: Option<RegisterPrfMetadata>,
 }
 
 #[derive(Serialize)]
@@ -367,12 +374,22 @@ struct PasskeyAddFinishRequest {
     challenge_id: String,
     credential_id: String,
     public_key: String,
+    /// PRF capability info from the add-passkey ceremony. Mirrors the
+    /// register-finish field — when `supported`, the server stamps the
+    /// passkey row with a fresh `cred_salt` and returns it as
+    /// `prf_cred_salt` so the client can wrap+PUT immediately.
+    #[serde(default)]
+    prf: Option<RegisterPrfMetadata>,
 }
 
 #[derive(Serialize)]
 struct PasskeyAddFinishResponse {
     ok: bool,
     passkey: PasskeyListItem,
+    /// Server-generated 32-byte HKDF salt (base64url). Mirrors
+    /// `AuthFinishResponse::prf_cred_salt` for the add-passkey flow.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    prf_cred_salt: Option<String>,
 }
 
 // --- Device authorization flow types ---
@@ -1957,6 +1974,45 @@ pub async fn handle_passkey_login_finish_entry(
         }
     };
 
+    // PRF upgrade path (§"Transport D" — pre-PRF credential getting retrofit).
+    // When the assertion reports PRF support but the passkey row predates the
+    // PRF columns (`cred_salt = NULL`), generate a fresh salt now and stamp
+    // the row. Hand the salt back so the client can wrap+PUT the AMK on this
+    // very login. Also returned (without stamping) when the row is already
+    // PRF-capable but no wrapper exists — lets a client that revoked its
+    // wrapper rewrap on next login.
+    //
+    // Skipped when a wrapper is already inline (the wrapper carries its own
+    // cred_salt, so duplicating it serves no purpose).
+    let prf_cred_salt = if prf_wrapper.is_some() {
+        None
+    } else if let Some(prf) = payload.prf.as_ref() {
+        if prf.supported {
+            match passkey.cred_salt.as_ref() {
+                Some(salt) => Some(URL_SAFE_NO_PAD.encode(salt)),
+                None => {
+                    let mut salt = vec![0u8; 32];
+                    if SystemRandom::new().fill(&mut salt).is_err() {
+                        return internal_server_error();
+                    }
+                    if state
+                        .auth_store
+                        .set_passkey_prf_state(passkey.id, user.id, Some(&salt), true, false)
+                        .await
+                        .is_err()
+                    {
+                        return internal_server_error();
+                    }
+                    Some(URL_SAFE_NO_PAD.encode(&salt))
+                }
+            }
+        } else {
+            None
+        }
+    } else {
+        None
+    };
+
     json_response(
         StatusCode::OK,
         AuthFinishResponse {
@@ -1964,7 +2020,7 @@ pub async fn handle_passkey_login_finish_entry(
             user_id: user.id,
             display_name: user.display_name,
             expires_at,
-            prf_cred_salt: None,
+            prf_cred_salt,
             prf_wrapper,
         },
     )
@@ -2445,6 +2501,40 @@ pub async fn handle_passkey_add_finish_entry(
         Ok(v) => v,
         Err(_) => return internal_server_error(),
     };
+
+    // Mirror register-finish: stamp PRF state on the new row when the
+    // ceremony reported PRF support, generate cred_salt for one-tap unlock
+    // on future logins from new devices.
+    let prf_cred_salt = if let Some(prf) = payload.prf.as_ref() {
+        if prf.supported {
+            let mut salt = vec![0u8; 32];
+            if SystemRandom::new().fill(&mut salt).is_err() {
+                return internal_server_error();
+            }
+            if state
+                .auth_store
+                .set_passkey_prf_state(passkey.id, user_id, Some(&salt), true, prf.at_create)
+                .await
+                .is_err()
+            {
+                return internal_server_error();
+            }
+            Some(URL_SAFE_NO_PAD.encode(&salt))
+        } else {
+            if state
+                .auth_store
+                .set_passkey_prf_state(passkey.id, user_id, None, false, prf.at_create)
+                .await
+                .is_err()
+            {
+                return internal_server_error();
+            }
+            None
+        }
+    } else {
+        None
+    };
+
     json_response(
         StatusCode::OK,
         PasskeyAddFinishResponse {
@@ -2454,6 +2544,7 @@ pub async fn handle_passkey_add_finish_entry(
                 label: passkey.label,
                 created_at: passkey.created_at,
             },
+            prf_cred_salt,
         },
     )
 }

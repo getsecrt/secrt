@@ -340,17 +340,26 @@ Client                              Server
 
 Happens when a user registered a passkey on Firefox 146, then later authenticates on Chrome + Windows Hello. Same credential (synced or device-bound), new capability.
 
-```
-Login completes normally; after session established:
-  asr.getClientExtensionResults().prf.results.first exists BUT
-  passkeys.prf_supported = false (or cred_salt is NULL)
-  AND user has AMK in IndexedDB (client can prove it by re-deriving commit)
+**Implemented in 0.16.8:** the upgrade is folded into the standard login-finish path rather than a separate PATCH endpoint. The client sends the assertion's PRF state in the `prf` field on `POST /auth/passkeys/login/finish`; when the row predates PRF (`cred_salt = NULL`), the server generates a fresh 32-byte salt, stamps the row with `prf_supported = true`, and returns it as `prf_cred_salt` in the response. The client wraps the AMK (already in IndexedDB on a known device — that's *why* this is the upgrade case rather than a fresh-device login) and `PUT`s the wrapper. Best-effort: failure here is non-fatal, login itself succeeds, and the next login with this credential will retry.
 
-  → offer to enable:
-    - generate cred_salt server-side (PATCH /passkeys/{id} to set cred_salt + prf_supported=true)
-    - wrap local AMK with HKDF(prf_out, new_cred_salt, ...)
-    - PUT /passkeys/{id}/prf-wrapper
-    - Now this credential supports passkey-login on new devices
+The same `prf` field is accepted on `POST /auth/passkeys/add/finish` so credentials added from Settings get a `cred_salt` and wrapper at create time, mirroring register-finish.
+
+```
+Client                                        Server
+-------                                       ------
+loginPasskeyFinish({
+  challenge_id, credential_id,
+  prf: { supported: true, at_create: false }
+})
+                                              looks up passkey row
+                                              row.cred_salt is NULL ∧ prf.supported
+                                              → cred_salt = randombytes(32)
+                                              → set_passkey_prf_state(...)
+                                              → respond with prf_cred_salt
+loadAmk(user_id) → amk
+computeAmkCommit(amk)
+wrapAndStorePrfWrapper(...)
+                                              upsert_prf_wrapper(...)
 ```
 
 ### 4.6 CLI bootstrap via `secrt auth login` (browser-mediated ECDH + PRF)

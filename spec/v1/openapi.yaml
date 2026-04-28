@@ -1548,6 +1548,8 @@ components:
         public_key:
           type: string
           description: WebAuthn public key (non-empty)
+        prf:
+          $ref: "#/components/schemas/RegisterPrfMetadata"
 
     PasskeyAddFinishResponse:
       type: object
@@ -1557,6 +1559,13 @@ components:
           type: boolean
         passkey:
           $ref: "#/components/schemas/PasskeyItem"
+        prf_cred_salt:
+          type: string
+          description: |
+            Server-generated 32-byte HKDF salt (base64url, no padding).
+            Mirrors AuthFinishResponse.prf_cred_salt: returned when the
+            ceremony reported `prf.supported = true` so the client can
+            wrap the AMK and PUT the wrapper for the new credential.
 
     RenamePasskeyRequest:
       type: object
@@ -1788,6 +1797,15 @@ components:
           description: Opaque challenge identifier issued by login/start
         credential_id:
           type: string
+        prf:
+          $ref: "#/components/schemas/RegisterPrfMetadata"
+          description: |
+            PRF capability info from the assertion. When `supported = true`
+            and the credential row predates PRF (cred_salt is NULL), the
+            server stamps the row with a fresh salt and returns it as
+            `prf_cred_salt` (the §"Transport D" upgrade path). Also returns
+            the existing salt when the row is already PRF-capable but no
+            wrapper exists, letting the client rewrap.
 
     PasskeyStartResponse:
       type: object
@@ -1816,10 +1834,12 @@ components:
           type: string
           description: |
             Server-generated 32-byte HKDF salt (base64url, no padding).
-            Returned in the register-finish response when the client reported
-            `prf.supported = true`. The client uses this as the HKDF salt
-            when deriving the AMK wrap key from the WebAuthn PRF output.
-            Stored on `passkeys.cred_salt`.
+            Returned (a) in register-finish when the client reported
+            `prf.supported = true`, and (b) in login-finish on the §"Transport D"
+            upgrade path — the assertion reported PRF support, the credential
+            row had no `cred_salt` yet, and the server has just stamped one.
+            The client uses this as the HKDF salt when deriving the AMK wrap
+            key from the WebAuthn PRF output. Stored on `passkeys.cred_salt`.
         prf_wrapper:
           $ref: "#/components/schemas/PrfWrapper"
 

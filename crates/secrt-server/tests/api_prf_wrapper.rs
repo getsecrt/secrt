@@ -553,3 +553,262 @@ async fn login_without_wrapper_omits_prf_wrapper_field() {
         "no wrapper PUT yet, response should omit prf_wrapper"
     );
 }
+
+// ── §4.5 upgrade path: pre-PRF credential gets retrofitted on next login ─
+
+/// Helper: drive the login start+finish handshake with an optional `prf`
+/// metadata block. Returns the parsed login-finish JSON body.
+async fn login_with_prf(
+    app: &axum::Router,
+    credential_id: &str,
+    prf_payload: Option<Value>,
+) -> Value {
+    let login_start = Request::builder()
+        .method("POST")
+        .uri("/api/v1/auth/passkeys/login/start")
+        .header("content-type", "application/json")
+        .body(Body::from(
+            json!({ "credential_id": credential_id }).to_string(),
+        ))
+        .expect("request");
+    let start_resp = app.clone().oneshot(login_start).await.expect("response");
+    assert_eq!(start_resp.status(), StatusCode::OK);
+    let challenge_id = response_json(start_resp).await["challenge_id"]
+        .as_str()
+        .expect("challenge_id")
+        .to_string();
+
+    let mut body = json!({
+        "challenge_id": challenge_id,
+        "credential_id": credential_id,
+    });
+    if let Some(prf) = prf_payload {
+        body["prf"] = prf;
+    }
+    let finish_req = Request::builder()
+        .method("POST")
+        .uri("/api/v1/auth/passkeys/login/finish")
+        .header("content-type", "application/json")
+        .body(Body::from(body.to_string()))
+        .expect("request");
+    let finish_resp = app.clone().oneshot(finish_req).await.expect("response");
+    assert_eq!(finish_resp.status(), StatusCode::OK);
+    response_json(finish_resp).await
+}
+
+#[tokio::test]
+async fn login_finish_upgrades_pre_prf_credential() {
+    // Pre-PRF passkey: registered without the `prf` field, so its row has
+    // `cred_salt = NULL` and `prf_supported = false`. On a later login from
+    // a PRF-capable browser, the server should stamp the row with a fresh
+    // salt and return it as `prf_cred_salt` so the client can wrap+PUT.
+    let store = Arc::new(MemStore::default());
+    let app = test_app_with_store(store.clone(), prf_test_config());
+
+    // Register without PRF (mimics a 0.16.7-or-earlier registration).
+    let (_session, prf_cred_salt) = register_with_prf(&app, "Eve", "cred-upgrade", false).await;
+    assert!(prf_cred_salt.is_none(), "precondition: row is pre-PRF");
+
+    // Pre-state: row has no salt, prf_supported=false.
+    {
+        use secrt_server::storage::AuthStore;
+        let pk = store
+            .get_passkey_by_credential_id("cred-upgrade")
+            .await
+            .expect("passkey");
+        assert!(pk.cred_salt.is_none());
+        assert!(!pk.prf_supported);
+    }
+
+    // Login reporting PRF support — should trigger the upgrade.
+    let json = login_with_prf(
+        &app,
+        "cred-upgrade",
+        Some(json!({ "supported": true, "at_create": false })),
+    )
+    .await;
+
+    let salt_b64u = json
+        .get("prf_cred_salt")
+        .and_then(|v| v.as_str())
+        .expect("upgrade should return prf_cred_salt");
+    let salt = URL_SAFE_NO_PAD
+        .decode(salt_b64u.as_bytes())
+        .expect("base64url decodable");
+    assert_eq!(salt.len(), 32, "cred_salt must be 32 bytes");
+    assert!(
+        json.get("prf_wrapper").is_none(),
+        "no wrapper exists yet on upgrade — client wraps+PUTs"
+    );
+
+    // Post-state: row has the salt and prf_supported=true.
+    {
+        use secrt_server::storage::AuthStore;
+        let pk = store
+            .get_passkey_by_credential_id("cred-upgrade")
+            .await
+            .expect("passkey");
+        assert_eq!(
+            pk.cred_salt.as_deref(),
+            Some(salt.as_slice()),
+            "row salt must match what server returned"
+        );
+        assert!(pk.prf_supported);
+        assert!(
+            !pk.prf_at_create,
+            "upgrade is on assertion, not create — at_create=false"
+        );
+    }
+}
+
+#[tokio::test]
+async fn login_finish_returns_existing_salt_when_capable_but_no_wrapper() {
+    // Already-PRF-capable row with no wrapper (e.g., user revoked their
+    // wrapper). Login should return the *existing* cred_salt so the client
+    // can rewrap, without overwriting the row.
+    let store = Arc::new(MemStore::default());
+    let app = test_app_with_store(store.clone(), prf_test_config());
+
+    let (_session, original_salt) = register_with_prf(&app, "Frank", "cred-rewrap", true).await;
+    let original_salt = original_salt.expect("registered with PRF");
+
+    let json = login_with_prf(
+        &app,
+        "cred-rewrap",
+        Some(json!({ "supported": true, "at_create": false })),
+    )
+    .await;
+
+    assert_eq!(
+        json.get("prf_cred_salt").and_then(|v| v.as_str()),
+        Some(original_salt.as_str()),
+        "must return the existing salt verbatim, not a new one"
+    );
+    assert!(json.get("prf_wrapper").is_none());
+}
+
+#[tokio::test]
+async fn login_finish_skips_upgrade_when_assertion_lacks_prf() {
+    // Pre-PRF row, login reports PRF unsupported. No upgrade.
+    let store = Arc::new(MemStore::default());
+    let app = test_app_with_store(store.clone(), prf_test_config());
+
+    let (_session, _) = register_with_prf(&app, "Grace", "cred-no-prf", false).await;
+
+    let json = login_with_prf(
+        &app,
+        "cred-no-prf",
+        Some(json!({ "supported": false, "at_create": false })),
+    )
+    .await;
+
+    assert!(json.get("prf_cred_salt").is_none());
+    assert!(json.get("prf_wrapper").is_none());
+
+    // Row remains pre-PRF.
+    use secrt_server::storage::AuthStore;
+    let pk = store
+        .get_passkey_by_credential_id("cred-no-prf")
+        .await
+        .expect("passkey");
+    assert!(pk.cred_salt.is_none());
+    assert!(!pk.prf_supported);
+}
+
+#[tokio::test]
+async fn login_finish_omits_cred_salt_when_wrapper_already_inline() {
+    // PUT a wrapper, then login. Response carries `prf_wrapper` (with its
+    // own cred_salt); standalone `prf_cred_salt` is omitted to avoid
+    // duplicating the same value in two fields.
+    let store = Arc::new(MemStore::default());
+    let app = test_app_with_store(store.clone(), prf_test_config());
+
+    let (session_token, _) = register_with_prf(&app, "Helen", "cred-w", true).await;
+    let put_req = put_prf_wrapper_req(
+        "cred-w",
+        &session_token,
+        json!({
+            "wrapped_amk": valid_wrapped_amk(),
+            "nonce": valid_nonce(),
+            "amk_commit": valid_amk_commit(),
+            "version": 1,
+        }),
+    );
+    let put_resp = app.clone().oneshot(put_req).await.expect("response");
+    assert_eq!(put_resp.status(), StatusCode::OK);
+
+    let json = login_with_prf(
+        &app,
+        "cred-w",
+        Some(json!({ "supported": true, "at_create": false })),
+    )
+    .await;
+    assert!(json.get("prf_wrapper").is_some());
+    assert!(
+        json.get("prf_cred_salt").is_none(),
+        "wrapper carries cred_salt; standalone field is redundant"
+    );
+}
+
+// ── add-passkey-finish PRF wiring (mirrors register-finish) ─────────
+
+#[tokio::test]
+async fn add_passkey_finish_returns_cred_salt_when_prf_supported() {
+    let store = Arc::new(MemStore::default());
+    let app = test_app_with_store(store.clone(), prf_test_config());
+
+    // Establish a session via register so we can call add-finish.
+    let (session_token, _) = register_with_prf(&app, "Iris", "cred-original", false).await;
+
+    // add-start
+    let add_start = Request::builder()
+        .method("POST")
+        .uri("/api/v1/auth/passkeys/add/start")
+        .header("authorization", format!("Bearer {session_token}"))
+        .body(Body::empty())
+        .expect("request");
+    let start_resp = app.clone().oneshot(add_start).await.expect("response");
+    assert_eq!(start_resp.status(), StatusCode::OK);
+    let challenge_id = response_json(start_resp).await["challenge_id"]
+        .as_str()
+        .expect("challenge_id")
+        .to_string();
+
+    // add-finish with PRF metadata
+    let add_finish = Request::builder()
+        .method("POST")
+        .uri("/api/v1/auth/passkeys/add/finish")
+        .header("authorization", format!("Bearer {session_token}"))
+        .header("content-type", "application/json")
+        .body(Body::from(
+            json!({
+                "challenge_id": challenge_id,
+                "credential_id": "cred-add-prf",
+                "public_key": "pk-test",
+                "prf": { "supported": true, "at_create": true },
+            })
+            .to_string(),
+        ))
+        .expect("request");
+    let finish_resp = app.clone().oneshot(add_finish).await.expect("response");
+    assert_eq!(finish_resp.status(), StatusCode::OK);
+    let json = response_json(finish_resp).await;
+
+    let salt_b64u = json
+        .get("prf_cred_salt")
+        .and_then(|v| v.as_str())
+        .expect("add-finish must return prf_cred_salt when PRF supported");
+    let salt = URL_SAFE_NO_PAD
+        .decode(salt_b64u.as_bytes())
+        .expect("base64url decodable");
+    assert_eq!(salt.len(), 32);
+
+    use secrt_server::storage::AuthStore;
+    let pk = store
+        .get_passkey_by_credential_id("cred-add-prf")
+        .await
+        .expect("passkey");
+    assert_eq!(pk.cred_salt.as_deref(), Some(salt.as_slice()));
+    assert!(pk.prf_supported);
+    assert!(pk.prf_at_create);
+}
