@@ -29,7 +29,7 @@ export function AboutPage() {
     <div class="card text-center">
       <CardHeading title="About Secrt" />
 
-      <p class="mb-4 font-mono text-sm font-bold">V{version}</p>
+      <p class="mb-4 font-mono text-sm font-bold">Version {version}</p>
 
       <p class="mb-6 text-sm leading-relaxed text-muted">
         For any questions, concerns, or to report urgent security issues, email
@@ -48,7 +48,7 @@ export function AboutPage() {
           }}
           class="inline-flex min-w-26 flex-col items-center rounded-md border border-neutral-500/15 bg-white/50 p-1.5 text-sm text-muted transition-colors hover:border-neutral-500/25 hover:bg-white hover:text-text dark:bg-neutral-700/20 dark:hover:bg-neutral-700/30"
         >
-          <GearIcon class="size-4" />
+          <GearIcon class="size-5" />
           How it Works
         </a>
 
@@ -58,7 +58,7 @@ export function AboutPage() {
           rel="noopener noreferrer"
           class="inline-flex min-w-26 flex-col items-center rounded-md border border-neutral-500/15 bg-white/50 p-1.5 text-sm text-muted transition-colors hover:border-neutral-500/25 hover:bg-white hover:text-text dark:bg-neutral-700/20 dark:hover:bg-neutral-700/30"
         >
-          <LockIcon class="size-4" />
+          <LockIcon class="size-5" />
           Security Policy
         </a>
 
@@ -70,7 +70,7 @@ export function AboutPage() {
           }}
           class="inline-flex min-w-26 flex-col items-center rounded-md border border-neutral-500/15 bg-white/50 p-1.5 text-sm text-muted transition-colors hover:border-neutral-500/25 hover:bg-white hover:text-text dark:bg-neutral-700/20 dark:hover:bg-neutral-700/30"
         >
-          <EyeSlashIcon class="size-4" />
+          <EyeSlashIcon class="size-5" />
           Privacy Policy
         </a>
 
@@ -80,7 +80,7 @@ export function AboutPage() {
           rel="noopener noreferrer"
           class="inline-flex min-w-26 flex-col items-center rounded-md border border-neutral-500/15 bg-white/50 p-1.5 text-sm text-muted transition-colors hover:border-neutral-500/25 hover:bg-white hover:text-text dark:bg-neutral-700/20 dark:hover:bg-neutral-700/30"
         >
-          <DocumentIcon class="size-4" />
+          <DocumentIcon class="size-5" />
           Whitepaper
         </a>
 
@@ -90,7 +90,7 @@ export function AboutPage() {
           rel="noopener noreferrer"
           class="inline-flex min-w-26 flex-col items-center rounded-md border border-neutral-500/15 bg-white/50 p-1.5 text-sm text-muted transition-colors hover:border-neutral-500/25 hover:bg-white hover:text-text dark:bg-neutral-700/20 dark:hover:bg-neutral-700/30"
         >
-          <GitHubIcon class="size-4" />
+          <GitHubIcon class="size-5" />
           Source Code
         </a>
       </div>
