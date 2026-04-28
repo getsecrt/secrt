@@ -424,14 +424,22 @@ pub fn verify_assertion(
         return Err(VerifyError::UserPresentFlagNotSet);
     }
 
-    // Sign-count rule (W3C WebAuthn §6.1.1): if the new value is non-zero, it
-    // must be strictly greater than the stored value. A new value of 0 is
-    // allowed only when the stored value is also 0 (some authenticators —
-    // notably Apple's synced passkeys — never increment).
+    // Sign-count rule (W3C WebAuthn §6.1.1).
+    //
+    // A strict reading of the spec says "new <= stored" is a clone signal
+    // and the RP can reject. In practice, many real authenticators don't
+    // keep a counter at all and emit `sign_count = 0` on every assertion
+    // — Apple iCloud Keychain (the synced-passkey case), various FIDO2
+    // keys, and others. Treat 0 as "no counter available": skip the
+    // regression check and don't let the stored value go backwards.
+    //
+    // Truth table for what is enforced:
+    //   new == 0                           → allow, keep stored as-is
+    //   new > 0  && stored == 0            → allow, store new
+    //   new > stored (both positive)       → allow, store new
+    //   new <= stored (both positive)      → reject (cloned-authenticator)
     let new_sign_count = prefix.sign_count;
-    if !(new_sign_count == 0 && ctx.stored_sign_count == 0)
-        && new_sign_count <= ctx.stored_sign_count
-    {
+    if new_sign_count > 0 && ctx.stored_sign_count > 0 && new_sign_count <= ctx.stored_sign_count {
         return Err(VerifyError::SignCountRegressed);
     }
 
@@ -443,7 +451,10 @@ pub fn verify_assertion(
     pk.verify(&signed, req.signature)
         .map_err(|_| VerifyError::InvalidSignature)?;
 
-    Ok(new_sign_count)
+    // Persist max(stored, new) so a counter-less authenticator (sign_count=0)
+    // can't accidentally regress what a counter-tracking authenticator on the
+    // same credential established.
+    Ok(new_sign_count.max(ctx.stored_sign_count))
 }
 
 #[cfg(test)]

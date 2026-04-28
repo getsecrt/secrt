@@ -316,7 +316,7 @@ The request body's `credential_id` field is optional. Discoverable-credential cl
 3. Look up the passkey row by the request's `credential_id`; reject if missing or revoked. The credential binding is established by the signature verifying against this row's stored public key — the `/start` request body is intentionally not bound to the credential.
 4. Parse `clientDataJSON` as above; reject if `type` is not `"webauthn.get"`, if challenge or origin do not match.
 5. Parse `authenticatorData`: layout `rpIdHash(32) || flags(1) || signCount(4)`. Reject if length is short, if rpIdHash mismatches, or if the `UP` flag is clear.
-6. Reject if the new `signCount` is less than or equal to the stored `sign_count` (cloned-authenticator signal). The first assertion against a row whose stored count is 0 may have signCount 0, but only when the prior stored value was 0.
+6. Sign-count handling (W3C WebAuthn §6.1.1, with the standard real-world carveout): if the assertion's `signCount` is 0, treat the authenticator as counter-less — accept the assertion and keep the stored value unchanged. Otherwise, if both the stored and incoming counts are positive and the incoming value is `≤` the stored value, reject as a cloned-authenticator signal. On success, persist `max(stored, new)`. The carveout is needed because synced-passkey providers (Apple iCloud Keychain, several FIDO2 keys) emit `signCount = 0` on every assertion; without it, every iCloud login after the first would 401 once the stored count went positive.
 7. Verify the ECDSA signature with the stored public key over `authenticatorData || SHA-256(clientDataJSON)`. Reject on any verifier error.
 8. Persist the new `sign_count`. Issue the session token.
 

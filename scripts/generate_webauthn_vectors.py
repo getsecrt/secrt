@@ -381,6 +381,39 @@ def make_up_flag_clear() -> Vector:
     )
 
 
+def make_sign_count_zero_synced_passkey() -> Vector:
+    """Synced-passkey authenticators (Apple iCloud Keychain, etc.) emit
+    sign_count=0 on every assertion. The verifier must accept this even
+    when the stored count is positive, and must NOT regress the stored
+    value back to 0."""
+    priv = ec.generate_private_key(ec.SECP256R1())
+    x, y = public_xy(priv)
+    challenge = os.urandom(32)
+    auth = authenticator_data_login(RP_ID, FLAG_UP | FLAG_UV, 0)  # sign_count=0
+    cdj = client_data_json("webauthn.get", challenge, ORIGIN)
+    sig = sign_assertion(priv, auth, cdj)
+    return Vector(
+        name="login_sign_count_zero_synced_passkey",
+        kind="verify",
+        notes="Counter-less authenticator (sign_count=0 on the wire) with a "
+              "stored count of 7. Verifier MUST accept and persist max(7, 0) "
+              "= 7 — the stored value can't regress, but the assertion is "
+              "valid. Without this carveout, every iCloud Keychain login "
+              "after the first would 401 in production.",
+        inputs={
+            "stored_pubkey_b64u": b64u(sec1_uncompressed(x, y)),
+            "stored_sign_count": 7,
+            "rp_id": RP_ID,
+            "origin": ORIGIN,
+            "expected_challenge_b64u": b64u(challenge),
+            "authenticator_data_b64u": b64u(auth),
+            "client_data_json_b64u": b64u(cdj),
+            "signature_b64u": b64u(sig),
+        },
+        expected={"ok": True, "new_sign_count": 7},
+    )
+
+
 def make_sign_count_regression() -> Vector:
     priv = ec.generate_private_key(ec.SECP256R1())
     x, y = public_xy(priv)
@@ -531,6 +564,7 @@ def main() -> int:
         make_bad_rp_id_hash(),
         make_up_flag_clear(),
         make_sign_count_regression(),
+        make_sign_count_zero_synced_passkey(),
         make_signature_tamper(),
         make_bad_challenge(),
         make_bad_origin(),

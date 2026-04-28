@@ -9,14 +9,14 @@
       "inputs": {
         "rp_id": "secrt.is",
         "origin": "https://secrt.is",
-        "expected_challenge_b64u": "H6ueU5qLEw_dj-F2KBSY58IqRIY-BmEeSyZWVeSBwVM",
-        "authenticator_data_b64u": "eNl_She8_UY2Si5DFKtley9bY59yG_KsDi9BeJ0iokFFAAAAAAAAAAAAAAAAAAAAAAAAAAAAEN2XeN6I8BZuEmrYaO7gRoGlAQIDJiABIVggmiHWJK8-HeUstAY8S89NGz_jo6BS3B1r51XxclkrLCEiWCASZ_aOZa0ZK_DVzaxxgtkND7EOn0yg-uQtcYaX4zrh8w",
-        "client_data_json_b64u": "eyJ0eXBlIjoid2ViYXV0aG4uY3JlYXRlIiwiY2hhbGxlbmdlIjoiSDZ1ZVU1cUxFd19kai1GMktCU1k1OElxUklZLUJtRWVTeVpXVmVTQndWTSIsIm9yaWdpbiI6Imh0dHBzOi8vc2VjcnQuaXMifQ"
+        "expected_challenge_b64u": "ZmYlWLGbDiRCOZ5Q6aFYQiHN64uTabnV1UsGl0HYbB8",
+        "authenticator_data_b64u": "eNl_She8_UY2Si5DFKtley9bY59yG_KsDi9BeJ0iokFFAAAAAAAAAAAAAAAAAAAAAAAAAAAAEFMF_3pye7WyJLtAfaKPQe2lAQIDJiABIVgg0KzZFmCvLjc6SWggp58sYPs-Xk877pbHgl5VYr-XaB0iWCCRGrUB2nPqztxBLpxIUA-jjtvvSD47bxjCw0YbiFmQAw",
+        "client_data_json_b64u": "eyJ0eXBlIjoid2ViYXV0aG4uY3JlYXRlIiwiY2hhbGxlbmdlIjoiWm1ZbFdMR2JEaVJDT1o1UTZhRllRaUhONjR1VGFiblYxVXNHbDBIWWJCOCIsIm9yaWdpbiI6Imh0dHBzOi8vc2VjcnQuaXMifQ"
       },
       "expected": {
         "ok": true,
-        "credential_id_b64u": "3Zd43ojwFm4Satho7uBGgQ",
-        "stored_pubkey_b64u": "BJoh1iSvPh3lLLQGPEvPTRs_46OgUtwda-dV8XJZKywhEmf2jmWtGSvw1c2scYLZDQ-xDp9MoPrkLXGGl-M64fM",
+        "credential_id_b64u": "UwX_enJ7tbIku0B9oo9B7Q",
+        "stored_pubkey_b64u": "BNCs2RZgry43OkloIKefLGD7Pl5PO-6Wx4JeVWK_l2gdkRq1Adpz6s7cQS6cSFAPo47b70g-O28YwsNGG4hZkAM",
         "sign_count": 0
       }
     },
@@ -27,9 +27,9 @@
       "inputs": {
         "rp_id": "secrt.is",
         "origin": "https://secrt.is",
-        "expected_challenge_b64u": "2z--S-DDxGMfzlTi7n3hqWkUXk1weJvAB7Z6LeV4QAE",
-        "authenticator_data_b64u": "eNl_She8_UY2Si5DFKtley9bY59yG_KsDi9BeJ0iokFFAAAAAAAAAAAAAAAAAAAAAAAAAAAAEGmR21eDf3u2AKBfxpGfZNilAQIDJiACIVggKUnbnOaHgmtZcNQJbx5FGjjk4RjPYbLRWQ_tcHNcwQQiWCAW2H1UZ-PVdPIGw_TsSTsY9cD0g6ZyWjc29YRtnxBh8g",
-        "client_data_json_b64u": "eyJ0eXBlIjoid2ViYXV0aG4uY3JlYXRlIiwiY2hhbGxlbmdlIjoiMnotLVMtRER4R01memxUaTduM2hxV2tVWGsxd2VKdkFCN1o2TGVWNFFBRSIsIm9yaWdpbiI6Imh0dHBzOi8vc2VjcnQuaXMifQ"
+        "expected_challenge_b64u": "FIIvl4P-fAQ6W83nZDamdn-qVs9KvHC4aZLSY5SvtfI",
+        "authenticator_data_b64u": "eNl_She8_UY2Si5DFKtley9bY59yG_KsDi9BeJ0iokFFAAAAAAAAAAAAAAAAAAAAAAAAAAAAEEGwyOolXMbTD3DXRxQ7ZMmlAQIDJiACIVggYEdOSVizmcghPW8NkH8n47XXp2VtM3a7S9EjyCF1eeYiWCAclDmucc3yK97wPXvSgjHglnuMzUtIB0Gg5-CcvF374Q",
+        "client_data_json_b64u": "eyJ0eXBlIjoid2ViYXV0aG4uY3JlYXRlIiwiY2hhbGxlbmdlIjoiRklJdmw0UC1mQVE2VzgzblpEYW1kbi1xVnM5S3ZIQzRhWkxTWTVTdnRmSSIsIm9yaWdpbiI6Imh0dHBzOi8vc2VjcnQuaXMifQ"
       },
       "expected": {
         "ok": false,
@@ -41,14 +41,14 @@
       "kind": "verify",
       "notes": "Happy-path assertion. UP|UV set, sign_count=1 > stored 0, valid signature over authenticatorData||SHA256(clientDataJSON).",
       "inputs": {
-        "stored_pubkey_b64u": "BMo3st8C7fNr7wWWiBGQvbkH3vUCobhAz0FT6geZ06GP8PQcjcWQn_tLIx16ZFb1I5BsDv6Wxdn14YlKg4geVqg",
+        "stored_pubkey_b64u": "BMv9NFJV-6WJIUs8f0JC0vHyeEVtQv-a-kGNFUiEqRi5jw4uV8beLzs4SybhTuMOEyIrKhQFroW-M2pcUNzHFDw",
         "stored_sign_count": 0,
         "rp_id": "secrt.is",
         "origin": "https://secrt.is",
-        "expected_challenge_b64u": "L_LvH-vfhl1ZXDzlFc62mIYp_1p_MXGzjE0MrZGXbgc",
+        "expected_challenge_b64u": "xCBfcqeFC-KADI_aDQKTTnTamyzkVehzNd8_ewrBTx0",
         "authenticator_data_b64u": "eNl_She8_UY2Si5DFKtley9bY59yG_KsDi9BeJ0iokEFAAAAAQ",
-        "client_data_json_b64u": "eyJ0eXBlIjoid2ViYXV0aG4uZ2V0IiwiY2hhbGxlbmdlIjoiTF9MdkgtdmZobDFaWER6bEZjNjJtSVlwXzFwX01YR3pqRTBNclpHWGJnYyIsIm9yaWdpbiI6Imh0dHBzOi8vc2VjcnQuaXMifQ",
-        "signature_b64u": "MEQCIFbp5iGf0LUo0F8Uj7ekNcgecCrlK48RgSI-3-a-IK-fAiBEYjqobxL8rLQ1gAupOCxXQcT5QWpc6Qi_2lvA7qYwWQ"
+        "client_data_json_b64u": "eyJ0eXBlIjoid2ViYXV0aG4uZ2V0IiwiY2hhbGxlbmdlIjoieENCZmNxZUZDLUtBRElfYURRS1RUblRhbXl6a1ZlaHpOZDhfZXdyQlR4MCIsIm9yaWdpbiI6Imh0dHBzOi8vc2VjcnQuaXMifQ",
+        "signature_b64u": "MEQCIGHzcCmjz9P7bg8wkhKW4taHT7B2WI6eCjl_qDG4hXbcAiArkBltdknjTDZXpvu7KH3LcUbcdXls8by5SCrZtpRn1Q"
       },
       "expected": {
         "ok": true,
@@ -60,14 +60,14 @@
       "kind": "verify",
       "notes": "rpIdHash does not match the expected RP ID. Signature is still self-consistent (signed over the corrupted auth_data), so this catches verifiers that skip the rpIdHash check.",
       "inputs": {
-        "stored_pubkey_b64u": "BM729H_Bq8mKWJ95GvNdJ8MkFmVqNnRc5npBdU1eAkd_oU7lfI8PLQt62abOlpI0G8y-1WfhvZFCONMzQOIS0BE",
+        "stored_pubkey_b64u": "BJP3Wpj1DuR-OekHdI4nzhCOBSjPQl_OU8IwUlYqDR6G45vcGQyaH1DYFxDKvWNYdsbrFFjcgCR-VWDvzEwQ8wU",
         "stored_sign_count": 0,
         "rp_id": "secrt.is",
         "origin": "https://secrt.is",
-        "expected_challenge_b64u": "zlRbkhnjb0zJErYqP3CpPwcC7t6Zocl5zwEuwh8gGYo",
+        "expected_challenge_b64u": "jGm-mwsCWk2a00vo2FqojKr0i4_GNCzBv-hC0UI159o",
         "authenticator_data_b64u": "nBgN4M1pnueIl8R8_bPn7h11kG4xt3RqR0fepTaQmDcFAAAAAQ",
-        "client_data_json_b64u": "eyJ0eXBlIjoid2ViYXV0aG4uZ2V0IiwiY2hhbGxlbmdlIjoiemxSYmtobmpiMHpKRXJZcVAzQ3BQd2NDN3Q2Wm9jbDV6d0V1d2g4Z0dZbyIsIm9yaWdpbiI6Imh0dHBzOi8vc2VjcnQuaXMifQ",
-        "signature_b64u": "MEQCIAozl2W5XuQdeU7a8AZfHWPvfYwGSGLqjS20LHP0qrqeAiAep7LRV51C42lVt7MaSldHWcMg8e3q85bFo62bs5Lllw"
+        "client_data_json_b64u": "eyJ0eXBlIjoid2ViYXV0aG4uZ2V0IiwiY2hhbGxlbmdlIjoiakdtLW13c0NXazJhMDB2bzJGcW9qS3IwaTRfR05DekJ2LWhDMFVJMTU5byIsIm9yaWdpbiI6Imh0dHBzOi8vc2VjcnQuaXMifQ",
+        "signature_b64u": "MEUCIDrFqXKtoKm_rLtg-o6D6GyzO0Nli-2s1YaRcaVD1dhvAiEA29znxjKeGdAiRoP4HSUVhVAo7gnOzBxDc9tlnKGqPhQ"
       },
       "expected": {
         "ok": false,
@@ -79,14 +79,14 @@
       "kind": "verify",
       "notes": "UP (User Present) bit cleared. WebAuthn requires UP=1 for any user-initiated assertion. Verifier must reject.",
       "inputs": {
-        "stored_pubkey_b64u": "BNQvVDvmNm_s08JBtBkGHRcjhrdjcwf4QRzrbl0IPKD1LD07SI-LNzPlv8DxQ86tm4d_ax7sGVu2ggm9hDcWuWQ",
+        "stored_pubkey_b64u": "BNSMyw3KUlxWuFECEgILQgFW1OPYHacLf-t0SQPcboA_ELfXsTCtrvSm62cdC7-TOOGgb4npbqbkavQoHNAcq9U",
         "stored_sign_count": 0,
         "rp_id": "secrt.is",
         "origin": "https://secrt.is",
-        "expected_challenge_b64u": "jvg-hEA_A3Cb5-MDlRn8kGyJwJstJllN2Ah9-seKgtE",
+        "expected_challenge_b64u": "WUF3zxLy1opJp0JouZD83yOy5KUp-xXipLoKHlHQfaM",
         "authenticator_data_b64u": "eNl_She8_UY2Si5DFKtley9bY59yG_KsDi9BeJ0iokEEAAAAAQ",
-        "client_data_json_b64u": "eyJ0eXBlIjoid2ViYXV0aG4uZ2V0IiwiY2hhbGxlbmdlIjoianZnLWhFQV9BM0NiNS1NRGxSbjhrR3lKd0pzdEpsbE4yQWg5LXNlS2d0RSIsIm9yaWdpbiI6Imh0dHBzOi8vc2VjcnQuaXMifQ",
-        "signature_b64u": "MEYCIQDn7FZasXgXnRYAKXMn4MQ2UmpTelt2JEKlUPcqHdvfZgIhALCJ5l0JtC9F24rDgpzJTy0-11tyKsvlReiRhpcSgEN4"
+        "client_data_json_b64u": "eyJ0eXBlIjoid2ViYXV0aG4uZ2V0IiwiY2hhbGxlbmdlIjoiV1VGM3p4THkxb3BKcDBKb3VaRDgzeU95NUtVcC14WGlwTG9LSGxIUWZhTSIsIm9yaWdpbiI6Imh0dHBzOi8vc2VjcnQuaXMifQ",
+        "signature_b64u": "MEQCIH8acxHMmBx3FGK9d4Kwr6oIjsVZu8C3iRut15B36OXRAiA_oHZ_dq458DhpXvT67yd-fP15nylF-My30GzLZOQsVw"
       },
       "expected": {
         "ok": false,
@@ -98,14 +98,14 @@
       "kind": "verify",
       "notes": "sign_count moved BACKWARDS (new=5, stored=10). WebAuthn \u00a76.1.1 requires the verifier to treat this as a cloned-authenticator signal and refuse the assertion. Some implementations only warn when stored > 0 and incoming = 0; this fixture is unambiguous.",
       "inputs": {
-        "stored_pubkey_b64u": "BF5ll-DAbdsSmi1_UZtTAKUDCh_B-hhCYrGAlqonjiw0V1EGSsi-TgQ1K-8grHsPD-IjsVxTv55H4h3UWYcqiIg",
+        "stored_pubkey_b64u": "BEUEHO2lj1l4C6gq4nAxkkHVx1QninhB9oGjUwrPMfynosBU_R6DYoHXG2CAeFCDCH5EpL9sP1SCzXtxVToTEWI",
         "stored_sign_count": 10,
         "rp_id": "secrt.is",
         "origin": "https://secrt.is",
-        "expected_challenge_b64u": "eM4kHwlBAfyDNjrLuZo50hj0mDXEYC68_hmMttJIhO8",
+        "expected_challenge_b64u": "MiQQ1bgSyPCyzb0GRyImSH9Lr2mNwVtC9QMAmQGRxh0",
         "authenticator_data_b64u": "eNl_She8_UY2Si5DFKtley9bY59yG_KsDi9BeJ0iokEFAAAABQ",
-        "client_data_json_b64u": "eyJ0eXBlIjoid2ViYXV0aG4uZ2V0IiwiY2hhbGxlbmdlIjoiZU00a0h3bEJBZnlETmpyTHVabzUwaGowbURYRVlDNjhfaG1NdHRKSWhPOCIsIm9yaWdpbiI6Imh0dHBzOi8vc2VjcnQuaXMifQ",
-        "signature_b64u": "MEUCIGskQn6Yj-k3mHBdRrLjhFPhL8GLwLZmKUpY7vstVPWHAiEA3tgje125iXPkmziHuzHr34CaeAxshZW0rrBvgsHHt_4"
+        "client_data_json_b64u": "eyJ0eXBlIjoid2ViYXV0aG4uZ2V0IiwiY2hhbGxlbmdlIjoiTWlRUTFiZ1N5UEN5emIwR1J5SW1TSDlMcjJtTndWdEM5UU1BbVFHUnhoMCIsIm9yaWdpbiI6Imh0dHBzOi8vc2VjcnQuaXMifQ",
+        "signature_b64u": "MEYCIQDz2e_ERlVwm8OutnP1kqz6wb5SSEuNscXkmJQn34pV7wIhANQdu5AUF_aN5CBfPPFrrjfS43yNitM8UxF52TwPa1mO"
       },
       "expected": {
         "ok": false,
@@ -113,18 +113,37 @@
       }
     },
     {
+      "name": "login_sign_count_zero_synced_passkey",
+      "kind": "verify",
+      "notes": "Counter-less authenticator (sign_count=0 on the wire) with a stored count of 7. Verifier MUST accept and persist max(7, 0) = 7 \u2014 the stored value can't regress, but the assertion is valid. Without this carveout, every iCloud Keychain login after the first would 401 in production.",
+      "inputs": {
+        "stored_pubkey_b64u": "BGqBevqCf_yC8bmUzu1VvTld-QAprRu4Zq_B30GXw5qgjT3WcFuN0nGAddYYDSQU5AZuwfvo6os4PrHeO9J2W_Y",
+        "stored_sign_count": 7,
+        "rp_id": "secrt.is",
+        "origin": "https://secrt.is",
+        "expected_challenge_b64u": "leycMq40dOpOBDfKlIp_SzXBzxVu0R41yQUtEDvvNwE",
+        "authenticator_data_b64u": "eNl_She8_UY2Si5DFKtley9bY59yG_KsDi9BeJ0iokEFAAAAAA",
+        "client_data_json_b64u": "eyJ0eXBlIjoid2ViYXV0aG4uZ2V0IiwiY2hhbGxlbmdlIjoibGV5Y01xNDBkT3BPQkRmS2xJcF9TelhCenhWdTBSNDF5UVV0RUR2dk53RSIsIm9yaWdpbiI6Imh0dHBzOi8vc2VjcnQuaXMifQ",
+        "signature_b64u": "MEUCIQCdWKgdJkdrvZCT6wtbeVHaEkIIB4q2nkPNljhNxcPjFwIgHmuGVAmdnhRuqXFvL-1DcQawpEjoFnw9JiWbMNkAS1g"
+      },
+      "expected": {
+        "ok": true,
+        "new_sign_count": 7
+      }
+    },
+    {
       "name": "login_signature_tamper",
       "kind": "verify",
       "notes": "Final byte of the signature flipped. ring's verifier must reject. (Note: ECDSA DER's malleability surfaces as InvalidSignature.)",
       "inputs": {
-        "stored_pubkey_b64u": "BGG_afQHrHP-1hAWqH7EVWlPLoFj9w-m1WH4iPPQlohsHbvdm_PpPjqV9Q_GCBmPaEeNoNNb7_QChKpa5J-a2Y0",
+        "stored_pubkey_b64u": "BIyH2YDhVVGAOZjg81k7sVtuXdHzCWh_GKEfmJd8gq645LEUUVkqvOU6r6-X_Dwi-8NyGPWaQg_AmlSBJWGMDms",
         "stored_sign_count": 0,
         "rp_id": "secrt.is",
         "origin": "https://secrt.is",
-        "expected_challenge_b64u": "mnXHcopaf3VwfA5Crs1AT3V6QM__FlvJ1z_jrSVFVHo",
+        "expected_challenge_b64u": "2tkBu4LlE0tisqxHQMkpskXGdkXpxb8ByhO0lUEXvNA",
         "authenticator_data_b64u": "eNl_She8_UY2Si5DFKtley9bY59yG_KsDi9BeJ0iokEFAAAAAQ",
-        "client_data_json_b64u": "eyJ0eXBlIjoid2ViYXV0aG4uZ2V0IiwiY2hhbGxlbmdlIjoibW5YSGNvcGFmM1Z3ZkE1Q3JzMUFUM1Y2UU1fX0Zsdkoxel9qclNWRlZIbyIsIm9yaWdpbiI6Imh0dHBzOi8vc2VjcnQuaXMifQ",
-        "signature_b64u": "MEYCIQCaOxTqu2mmfxRSmW8TGvn3TTPcHIdz3xf6qHnTkm3e_wIhAMdHgcO_DtKg10jIne8rbgp0N9ZAMCOQmoANR8iMzfkv"
+        "client_data_json_b64u": "eyJ0eXBlIjoid2ViYXV0aG4uZ2V0IiwiY2hhbGxlbmdlIjoiMnRrQnU0TGxFMHRpc3F4SFFNa3Bza1hHZGtYcHhiOEJ5aE8wbFVFWHZOQSIsIm9yaWdpbiI6Imh0dHBzOi8vc2VjcnQuaXMifQ",
+        "signature_b64u": "MEQCIGIGzGStkMvzlP79CYlwViKqI467dEbdH3ofQ2M_ssRdAiAKKBPF7WQAZFtmQiGhrBn0U6TTvsimLYqeBHlfWmaS5A"
       },
       "expected": {
         "ok": false,
@@ -136,14 +155,14 @@
       "kind": "verify",
       "notes": "clientDataJSON.challenge does not match the server's expected challenge. Signature is self-consistent. Catches replay attempts.",
       "inputs": {
-        "stored_pubkey_b64u": "BDstc8QYdZek5JP9B_7ivRzUoKon57aVwhK-LGV-0UmokNt2wUWuyGIuYVet93YOLCvmLKqPGfT-3-9Xvi8labg",
+        "stored_pubkey_b64u": "BAlLDLyvRI1QImKyHIgTrlD79YjbzuRvw9ze9JwRP8OXlTG99YJNWtPIiYwZYWN8uvkzm-BMs44Kuhl2cMtqmVk",
         "stored_sign_count": 0,
         "rp_id": "secrt.is",
         "origin": "https://secrt.is",
-        "expected_challenge_b64u": "Bnq5-IsDmz28tTK9jfsGWtM9ZbkF_EtykmfQEeOjlCg",
+        "expected_challenge_b64u": "bPQVgiL3f99U9rNA0Jckwch6NLqsE3hfTfpSAF-_26U",
         "authenticator_data_b64u": "eNl_She8_UY2Si5DFKtley9bY59yG_KsDi9BeJ0iokEFAAAAAQ",
-        "client_data_json_b64u": "eyJ0eXBlIjoid2ViYXV0aG4uZ2V0IiwiY2hhbGxlbmdlIjoiRXRnU3hMeDFndVo1Z0EtTGRQbVRsQ3UwTE4yRTlibHppREZVZzg0UEhyTSIsIm9yaWdpbiI6Imh0dHBzOi8vc2VjcnQuaXMifQ",
-        "signature_b64u": "MEUCIAWTcclaR6IAoR0oy-p3WEczo8x5TRGvU1vaozm7UF37AiEAtAmMWvhUU8H57rSvcFEVmwaiLx-Ta0Gay98Bi4xTNQA"
+        "client_data_json_b64u": "eyJ0eXBlIjoid2ViYXV0aG4uZ2V0IiwiY2hhbGxlbmdlIjoibEp2TEZzSzdtd3RfTFZkTDVoV3V6bi1FbEFUN2tXTm50OW54OE4wb1pOVSIsIm9yaWdpbiI6Imh0dHBzOi8vc2VjcnQuaXMifQ",
+        "signature_b64u": "MEUCICVsgjCPasn6GysifonWArzYVu_Aq-yQqTQU63sTJXoXAiEAlcsMNPRRryYb8mxgp8IlPVkGXFlM2hbTthAf2E1FtA0"
       },
       "expected": {
         "ok": false,
@@ -155,14 +174,14 @@
       "kind": "verify",
       "notes": "clientDataJSON.origin does not match the expected origin. Catches the cross-site authenticator-relay scenario.",
       "inputs": {
-        "stored_pubkey_b64u": "BLwqGfbqhIn_uwJrVdayIRuzh4Plce_Ye1eiNl2_efE9CyAGeuUCo3vNEdPPfNrp6Mlvcptyh32AKCRbhz6D3H4",
+        "stored_pubkey_b64u": "BP6JKdPIGclGIQGb5nmxiDxq096WdY-bB1U9N_JNaQtJuhwYFnugRFbBXBYVj9tDBB5TMtvIhIj0PXzQF0jyTLo",
         "stored_sign_count": 0,
         "rp_id": "secrt.is",
         "origin": "https://secrt.is",
-        "expected_challenge_b64u": "a0UaoJgMuihx9J2YrqMCtmlGe6xGgCrJRHzOcoRHc98",
+        "expected_challenge_b64u": "Dy1rUfEz1TjgsWNNXKf_dbKeGK6Xstaz35-OplDLxYo",
         "authenticator_data_b64u": "eNl_She8_UY2Si5DFKtley9bY59yG_KsDi9BeJ0iokEFAAAAAQ",
-        "client_data_json_b64u": "eyJ0eXBlIjoid2ViYXV0aG4uZ2V0IiwiY2hhbGxlbmdlIjoiYTBVYW9KZ011aWh4OUoyWXJxTUN0bWxHZTZ4R2dDckpSSHpPY29SSGM5OCIsIm9yaWdpbiI6Imh0dHBzOi8vZXZpbC5leGFtcGxlIn0",
-        "signature_b64u": "MEQCIFpf7PkCg3WqiPMYwChwCE70wv9TBjJFGTLSwC1Fo6USAiBr1NcCEeXM0GnlIAheehsoo5HMvv5BTyAOcfxnFiysqA"
+        "client_data_json_b64u": "eyJ0eXBlIjoid2ViYXV0aG4uZ2V0IiwiY2hhbGxlbmdlIjoiRHkxclVmRXoxVGpnc1dOTlhLZl9kYktlR0s2WHN0YXozNS1PcGxETHhZbyIsIm9yaWdpbiI6Imh0dHBzOi8vZXZpbC5leGFtcGxlIn0",
+        "signature_b64u": "MEUCIQDEq54ydNZbyHe2_cwaKIe9WTEHHuSD5KVv7Xw5A4NtVgIgHR6WQNwv9Bz9I-iqZE_58SPQ8eNsJjrEYcg2dJ1d6xg"
       },
       "expected": {
         "ok": false,

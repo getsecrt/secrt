@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+## 0.17.3 — 2026-04-28
+
+### Fixed
+
+- **iCloud Keychain (and other counter-less authenticators) no longer 401 after the first sign-in.** The verifier rejected any assertion whose `signCount` was less than or equal to the stored value, which is a strict reading of W3C WebAuthn §6.1.1 — but synced-passkey providers (Apple iCloud Keychain, several FIDO2 keys) emit `signCount = 0` on every assertion and are effectively counter-less. Once the stored count went positive, every subsequent iCloud login on the same credential was rejected as a cloned-authenticator signal. The verifier now treats `signCount = 0` as "no counter available": it accepts the assertion, persists `max(stored, new)`, and only fires `SignCountRegressed` when both stored and incoming counts are positive and the incoming value has stalled or gone backwards. New spec vector `login_sign_count_zero_synced_passkey` locks the behavior in. Spec: `spec/v1/server.md` §6.2 (login finish step 6).
+
 ## 0.17.2 — 2026-04-28
 
 ### Added

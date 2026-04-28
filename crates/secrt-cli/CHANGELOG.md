@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 0.17.3 — 2026-04-28
+
+No CLI-facing changes. Workspace bump in lockstep with the server release that fixes iCloud Keychain login regression — see `crates/secrt-server/CHANGELOG.md`.
+
 ## 0.17.2 — 2026-04-28
 
 No CLI-facing changes. Workspace version bump to keep the CLI in lockstep with the server release, which adds a per-IP rate limiter on the unauthenticated passkey ceremony /start endpoints — see `crates/secrt-server/CHANGELOG.md`.
