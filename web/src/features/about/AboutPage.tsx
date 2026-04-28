@@ -29,9 +29,7 @@ export function AboutPage() {
     <div class="card text-center">
       <CardHeading title="About Secrt" />
 
-      <p class="mb-4 text-sm font-bold">
-        Version <span class="font-mono">{version}</span>
-      </p>
+      <p class="mb-4 font-mono text-sm font-bold">V{version}</p>
 
       <p class="mb-6 text-sm leading-relaxed text-muted">
         For any questions, concerns, or to report urgent security issues, email
@@ -41,14 +39,14 @@ export function AboutPage() {
         </a>
       </p>
 
-      <div class="flex flex-wrap items-center justify-center gap-4">
+      <div class="flex flex-wrap items-center justify-center gap-3">
         <a
           href="/how-it-works"
           onClick={(e: MouseEvent) => {
             e.preventDefault();
             navigate('/how-it-works');
           }}
-          class="inline-flex flex-col items-center rounded border border-neutral-500/15 bg-neutral-500/10 p-1.5 text-sm text-muted transition-colors hover:border-neutral-500/25 hover:bg-neutral-300/15 hover:text-text"
+          class="inline-flex min-w-26 flex-col items-center rounded-md border border-neutral-500/15 bg-white/50 p-1.5 text-sm text-muted transition-colors hover:border-neutral-500/25 hover:bg-white hover:text-text dark:bg-neutral-700/20 dark:hover:bg-neutral-700/30"
         >
           <GearIcon class="size-4" />
           How it Works
@@ -58,7 +56,7 @@ export function AboutPage() {
           href="https://github.com/getsecrt/secrt/blob/main/SECURITY.md"
           target="_blank"
           rel="noopener noreferrer"
-          class="link-subtle inline-flex flex-col items-center text-sm text-muted transition-colors hover:text-text"
+          class="inline-flex min-w-26 flex-col items-center rounded-md border border-neutral-500/15 bg-white/50 p-1.5 text-sm text-muted transition-colors hover:border-neutral-500/25 hover:bg-white hover:text-text dark:bg-neutral-700/20 dark:hover:bg-neutral-700/30"
         >
           <LockIcon class="size-4" />
           Security Policy
@@ -70,7 +68,7 @@ export function AboutPage() {
             e.preventDefault();
             navigate('/privacy');
           }}
-          class="link-subtle inline-flex flex-col items-center text-sm text-muted transition-colors hover:text-text"
+          class="inline-flex min-w-26 flex-col items-center rounded-md border border-neutral-500/15 bg-white/50 p-1.5 text-sm text-muted transition-colors hover:border-neutral-500/25 hover:bg-white hover:text-text dark:bg-neutral-700/20 dark:hover:bg-neutral-700/30"
         >
           <EyeSlashIcon class="size-4" />
           Privacy Policy
@@ -80,7 +78,7 @@ export function AboutPage() {
           href="https://github.com/getsecrt/secrt/blob/main/docs/whitepaper.md"
           target="_blank"
           rel="noopener noreferrer"
-          class="link-subtle inline-flex flex-col items-center text-sm text-muted transition-colors hover:text-text"
+          class="inline-flex min-w-26 flex-col items-center rounded-md border border-neutral-500/15 bg-white/50 p-1.5 text-sm text-muted transition-colors hover:border-neutral-500/25 hover:bg-white hover:text-text dark:bg-neutral-700/20 dark:hover:bg-neutral-700/30"
         >
           <DocumentIcon class="size-4" />
           Whitepaper
@@ -90,7 +88,7 @@ export function AboutPage() {
           href="https://github.com/getsecrt/secrt"
           target="_blank"
           rel="noopener noreferrer"
-          class="link-subtle inline-flex flex-col items-center text-sm text-muted transition-colors hover:text-text"
+          class="inline-flex min-w-26 flex-col items-center rounded-md border border-neutral-500/15 bg-white/50 p-1.5 text-sm text-muted transition-colors hover:border-neutral-500/25 hover:bg-white hover:text-text dark:bg-neutral-700/20 dark:hover:bg-neutral-700/30"
         >
           <GitHubIcon class="size-4" />
           Source Code
