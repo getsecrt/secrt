@@ -217,7 +217,7 @@ function ApiKeysCard() {
       )}
 
       {loading && keys.length === 0 ? (
-        <p class="text-muted">Loading...</p>
+        <p class="text-center text-muted">Loading...</p>
       ) : keys.length === 0 ? (
         <p class="text-center text-muted">No API keys yet.</p>
       ) : (
@@ -468,7 +468,7 @@ function PasskeysCard() {
       )}
 
       {loading && passkeys.length === 0 ? (
-        <p class="text-muted">Loading...</p>
+        <p class="text-center text-muted">Loading...</p>
       ) : passkeys.length === 0 ? (
         <p class="text-center text-muted">No passkeys.</p>
       ) : (
