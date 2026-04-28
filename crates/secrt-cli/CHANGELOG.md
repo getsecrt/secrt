@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 0.17.0 — 2026-04-28
+
+No CLI-facing changes. Workspace version bump to keep the CLI release in lockstep with the server release, which enforces real WebAuthn assertion verification on all passkey `/finish` endpoints — see `crates/secrt-server/CHANGELOG.md`. The CLI does not exercise passkey endpoints, so the wire-format break does not affect CLI users; `MIN_SUPPORTED_CLI_VERSION` is unchanged.
+
 ## 0.16.9 — 2026-04-27
 
 No CLI-facing changes. Workspace version bump to keep the CLI release in lockstep with the server release, which adds the WebAuthn PRF upgrade path for pre-PRF credentials, wires PRF into the add-passkey flow, surfaces `prf_supported` on passkey list items, and tightens the CSP integration test — see `crates/secrt-server/CHANGELOG.md`.
