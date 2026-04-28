@@ -1,4 +1,4 @@
-use std::io::IsTerminal;
+use std::io::{BufRead, IsTerminal, Write};
 use std::process::ExitCode;
 use std::sync::Arc;
 
@@ -23,6 +23,7 @@ enum Action {
     UsersShow { user_id: String },
     ApikeysList { user_id: Option<String>, limit: i64 },
     TopUsers { by: TopUsersBy, limit: i64 },
+    Reset,
 }
 
 #[derive(Clone, Copy)]
@@ -118,6 +119,7 @@ fn parse_action(args: &[String]) -> Option<Action> {
                 limit: parse_flag_i64(args, "--limit", 10),
             })
         }
+        "reset" => Some(Action::Reset),
         _ => None,
     }
 }
@@ -263,6 +265,7 @@ async fn main() -> ExitCode {
             cmd_apikeys_list(&store, user_id.as_deref(), limit).await
         }
         Action::TopUsers { by, limit } => cmd_top_users(&store, by, limit).await,
+        Action::Reset => cmd_reset(&store, &cfg).await,
     }
 }
 
@@ -594,6 +597,126 @@ async fn cmd_top_users(store: &Arc<PgStore>, by: TopUsersBy, limit: i64) -> Exit
     ExitCode::SUCCESS
 }
 
+// ── Reset (destructive) ──────────────────────────────────────────────
+
+/// Tables wiped by `reset`. Order doesn't matter because we use CASCADE,
+/// but listing them explicitly serves as documentation of what gets nuked.
+const RESET_TABLES: &[&str] = &[
+    "amk_wrappers",
+    "amk_accounts",
+    "prf_amk_wrappers",
+    "api_key_registrations",
+    "api_keys",
+    "sessions",
+    "webauthn_challenges",
+    "passkeys",
+    "users",
+    "secrets",
+];
+
+/// Extract the apex hostname from a base URL like `https://secrt.is` →
+/// `secrt.is`. Used as the typed-confirmation token so the operator must
+/// name the host they're about to wipe.
+fn extract_apex(base_url: &str) -> String {
+    base_url
+        .strip_prefix("https://")
+        .or_else(|| base_url.strip_prefix("http://"))
+        .unwrap_or(base_url)
+        .split('/')
+        .next()
+        .unwrap_or(base_url)
+        .trim()
+        .to_string()
+}
+
+async fn cmd_reset(store: &Arc<PgStore>, cfg: &Config) -> ExitCode {
+    let c = colors();
+    let apex = extract_apex(&cfg.public_base_url);
+    let expected = format!("RESET {apex}");
+
+    eprintln!();
+    eprintln!(
+        "{}{}DANGER: this command will DELETE ALL DATA in the secrt database.{}",
+        c.bold, c.red, c.reset
+    );
+    eprintln!();
+    eprintln!("{}Target:{}", c.bold, c.reset);
+    eprintln!(
+        "  Public URL:  {}{}{}",
+        c.cyan, cfg.public_base_url, c.reset
+    );
+    eprintln!(
+        "  Database:    {}{}@{}:{}/{}{}",
+        c.cyan, cfg.db_user, cfg.db_host, cfg.db_port, cfg.db_name, c.reset
+    );
+    eprintln!();
+    eprintln!(
+        "{}Tables to be truncated (RESTART IDENTITY CASCADE):{}",
+        c.bold, c.reset
+    );
+    for t in RESET_TABLES {
+        eprintln!("  - {t}");
+    }
+    eprintln!();
+    eprintln!(
+        "{}This wipes every account, passkey, session, secret, API key, and AMK wrapper.{}",
+        c.yellow, c.reset
+    );
+    eprintln!(
+        "{}It is irreversible. There are no backups inside this command.{}",
+        c.yellow, c.reset
+    );
+    eprintln!();
+    eprintln!(
+        "To proceed, type exactly: {}{}{}{}",
+        c.bold, c.red, expected, c.reset
+    );
+    eprint!("> ");
+    if std::io::stderr().flush().is_err() {
+        eprintln!("flush error");
+        return ExitCode::FAILURE;
+    }
+
+    let stdin = std::io::stdin();
+    let mut line = String::new();
+    if stdin.lock().read_line(&mut line).is_err() {
+        eprintln!("read error");
+        return ExitCode::FAILURE;
+    }
+    if line.trim() != expected {
+        eprintln!("{}aborted (input did not match){}", c.yellow, c.reset);
+        return ExitCode::from(2);
+    }
+
+    let client = match store.pool().get().await {
+        Ok(c) => c,
+        Err(err) => {
+            eprintln!("db connection error: {err}");
+            return ExitCode::FAILURE;
+        }
+    };
+
+    let stmt = format!(
+        "TRUNCATE TABLE {} RESTART IDENTITY CASCADE",
+        RESET_TABLES.join(", ")
+    );
+    match client.batch_execute(&stmt).await {
+        Ok(()) => {
+            eprintln!(
+                "{}reset complete — {} tables truncated.{}",
+                c.green,
+                RESET_TABLES.len(),
+                c.reset
+            );
+            ExitCode::SUCCESS
+        }
+        Err(err) => {
+            eprintln!("{}truncate failed:{} {err}", c.red, c.reset);
+            ExitCode::FAILURE
+        }
+    }
+}
+
 // ── Utility ──────────────────────────────────────────────────────────
 
 fn truncate(s: &str, max: usize) -> String {
@@ -618,4 +741,19 @@ fn usage() {
     eprintln!("  apikeys list [--user ID] [--limit N]  List API keys");
     eprintln!("  apikey revoke <prefix>             Revoke an API key");
     eprintln!("  top-users [--by secrets|bytes|keys] [--limit N]");
+    eprintln!("  reset                              DESTRUCTIVE: wipe all data (interactive)");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn extract_apex_strips_scheme_and_path() {
+        assert_eq!(extract_apex("https://secrt.is"), "secrt.is");
+        assert_eq!(extract_apex("https://secrt.is/"), "secrt.is");
+        assert_eq!(extract_apex("https://secrt.ca/admin"), "secrt.ca");
+        assert_eq!(extract_apex("http://localhost:8080"), "localhost:8080");
+        assert_eq!(extract_apex("example.com"), "example.com");
+    }
 }
