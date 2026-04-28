@@ -20,3 +20,4 @@ web/coverage
 .claude/.credentials.json
 .claude/*.lock
 crates/secrt-app/gen/
+.venv-fixtures/
