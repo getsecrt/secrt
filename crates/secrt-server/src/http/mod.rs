@@ -1733,6 +1733,16 @@ fn log_verify_error(scope: &str, err: VerifyError) {
     warn!(scope, error = err.as_str(), "webauthn verification failed");
 }
 
+/// First 8 chars of a base64url credential_id — enough to correlate with
+/// the `passkeys` table without dumping the whole identifier into logs.
+/// `credential_id` is a public WebAuthn handle, not sensitive; truncating
+/// is just to keep log lines tight.
+fn cred_id_prefix(cred_id_b64u: &str) -> String {
+    let trimmed = cred_id_b64u.trim();
+    let n = trimmed.len().min(8);
+    trimmed[..n].to_string()
+}
+
 fn session_token_from_headers(headers: &HeaderMap) -> Option<ParsedSessionToken> {
     let authz = headers.get(AUTHORIZATION).and_then(|v| v.to_str().ok())?;
     if authz.len() < 7 || !authz[..7].eq_ignore_ascii_case("Bearer ") {
@@ -1990,6 +2000,13 @@ pub async fn handle_passkey_register_finish_entry(
         Ok(v) => v,
         Err(resp) => return resp,
     };
+    info!(
+        event = "passkey_registered",
+        user_id = %user.id,
+        cred_id_prefix = cred_id_prefix(&URL_SAFE_NO_PAD.encode(&parsed_reg.credential_id)),
+        prf = prf_cred_salt_b64u.is_some(),
+        "passkey registered"
+    );
     json_response(
         StatusCode::OK,
         AuthFinishResponse {
@@ -2218,6 +2235,15 @@ pub async fn handle_passkey_login_finish_entry(
         None
     };
 
+    info!(
+        event = "passkey_login",
+        user_id = %user.id,
+        cred_id_prefix = cred_id_prefix(&payload.credential_id),
+        prf_wrapper = prf_wrapper.is_some(),
+        prf_upgrade = prf_cred_salt.is_some(),
+        new_sign_count = new_sign_count,
+        "passkey login"
+    );
     json_response(
         StatusCode::OK,
         AuthFinishResponse {
@@ -2754,6 +2780,14 @@ pub async fn handle_passkey_add_finish_entry(
         None
     };
 
+    info!(
+        event = "passkey_added",
+        user_id = %user_id,
+        cred_id_prefix = cred_id_prefix(&URL_SAFE_NO_PAD.encode(&parsed_reg.credential_id)),
+        prf = prf_cred_salt.is_some(),
+        passkey_id = passkey.id,
+        "passkey added"
+    );
     json_response(
         StatusCode::OK,
         PasskeyAddFinishResponse {

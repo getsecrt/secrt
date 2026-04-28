@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+## 0.17.4 — 2026-04-28
+
+### Added
+
+- **Structured info logs on the three passkey `/finish` paths.** `passkey_registered`, `passkey_added`, and `passkey_login` events now carry `user_id`, an 8-char `cred_id_prefix`, and PRF state (`prf=on/off`, `prf_wrapper=true/false`, `prf_upgrade=true/false` as appropriate). Lets you correlate a request with the `passkeys` table row without grepping HTTP logs for follow-up `/prf-wrapper` PUTs. The credential_id is a public WebAuthn handle, not sensitive — only the prefix is logged to keep lines short.
+
 ## 0.17.3 — 2026-04-28
 
 ### Fixed

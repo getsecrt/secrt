@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 0.17.4 — 2026-04-28
+
+No CLI-facing changes. Workspace bump in lockstep with the server release that adds structured passkey ceremony logs — see `crates/secrt-server/CHANGELOG.md`.
+
 ## 0.17.3 — 2026-04-28
 
 No CLI-facing changes. Workspace bump in lockstep with the server release that fixes iCloud Keychain login regression — see `crates/secrt-server/CHANGELOG.md`.
