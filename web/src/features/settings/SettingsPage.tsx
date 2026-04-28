@@ -472,77 +472,77 @@ function PasskeysCard() {
         <p class="text-center text-muted">No passkeys.</p>
       ) : (
         <>
-        <div class="overflow-x-auto">
-          <table class="w-full">
-            <thead>
-              <tr class="border-b border-border text-left text-muted">
-                <th class="pr-3 pb-2 font-medium">Label</th>
-                <th class="pr-3 pb-2 font-medium">Created</th>
-                <th class="pb-2 font-medium"></th>
-              </tr>
-            </thead>
-            <tbody>
-              {passkeys.map((pk) => (
-                <tr key={pk.id} class="border-b border-border/50">
-                  <td class="py-2 pr-3">
-                    <button
-                      type="button"
-                      class="hover:text-primary ml-1 inline-flex items-center gap-1.5 text-left transition-colors"
-                      title="Click to rename"
-                      onClick={() => openRenameModal(pk)}
-                    >
-                      <PasskeyIcon class="size-4 shrink-0 text-muted" />
-                      <span>{passkeyLabel(pk)}</span>
-                    </button>
-                    {pk.prf_supported && (
-                      <span
-                        class="ml-2 inline-block rounded-full bg-blue-100 px-2 py-0.5 text-xs font-medium text-blue-700 dark:bg-blue-900/30 dark:text-blue-300"
-                        title="Supports one-tap unlock on new devices via WebAuthn PRF"
-                      >
-                        One-tap
-                      </span>
-                    )}
-                  </td>
-                  <td class="py-2 pr-3 whitespace-nowrap">
-                    {formatDate(pk.created_at)}
-                  </td>
-                  <td class="py-2 text-right">
-                    {passkeys.length > 1 && (
+          <div class="overflow-x-auto">
+            <table class="w-full">
+              <thead>
+                <tr class="border-b border-border text-left text-muted">
+                  <th class="pr-3 pb-2 font-medium">Label</th>
+                  <th class="pr-3 pb-2 font-medium">Created</th>
+                  <th class="pb-2 font-medium"></th>
+                </tr>
+              </thead>
+              <tbody>
+                {passkeys.map((pk) => (
+                  <tr key={pk.id} class="border-b border-border/50">
+                    <td class="flex items-center py-2 pr-3">
                       <button
                         type="button"
-                        class="btn-destructive-subtle"
-                        disabled={revokingId === pk.id}
-                        title="Revoke passkey"
-                        onClick={() => handleRevoke(pk.id)}
+                        class="link-subtle ml-1 inline-flex cursor-pointer items-center gap-1.5 text-left transition-colors hover:text-black dark:hover:text-white"
+                        title="Click to rename"
+                        onClick={() => openRenameModal(pk)}
                       >
-                        <CircleXmarkIcon class="size-4 text-error" />
-                        {revokingId === pk.id ? 'Revoking...' : 'Revoke'}
+                        <PasskeyIcon class="size-6 shrink-0 text-muted" />
+                        <span>{passkeyLabel(pk)}</span>
                       </button>
-                    )}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-        <div class="mt-3 flex flex-wrap items-center justify-end gap-x-4 gap-y-1 text-xs">
-          <button
-            type="button"
-            class="inline-flex items-center gap-1 text-muted transition-colors hover:text-text"
-            onClick={() => setTrustModalOpen(true)}
-          >
-            <CircleInfoIcon class="size-3.5" />
-            About passkey security
-          </button>
-          <button
-            type="button"
-            class="inline-flex items-center gap-1 text-muted transition-colors hover:text-text"
-            onClick={() => setUnlockModalOpen(true)}
-          >
-            <CircleInfoIcon class="size-3.5" />
-            About new-device unlock
-          </button>
-        </div>
+                      {pk.prf_supported && (
+                        <span
+                          class="ml-2 inline-block rounded-full bg-blue-100 px-2 py-0.5 text-xs font-medium text-blue-700 dark:bg-blue-900/30 dark:text-blue-300"
+                          title="Supports one-tap unlock on new devices via WebAuthn PRF"
+                        >
+                          One-tap
+                        </span>
+                      )}
+                    </td>
+                    <td class="py-2 pr-3 whitespace-nowrap">
+                      {formatDate(pk.created_at)}
+                    </td>
+                    <td class="py-2 text-right">
+                      {passkeys.length > 1 && (
+                        <button
+                          type="button"
+                          class="btn-destructive-subtle"
+                          disabled={revokingId === pk.id}
+                          title="Revoke passkey"
+                          onClick={() => handleRevoke(pk.id)}
+                        >
+                          <CircleXmarkIcon class="size-4 text-error" />
+                          {revokingId === pk.id ? 'Revoking...' : 'Revoke'}
+                        </button>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <div class="mt-3 flex flex-wrap items-center justify-around gap-x-4 gap-y-1 text-xs">
+            <button
+              type="button"
+              class="link-subtle inline-flex items-center gap-1 text-muted transition-colors hover:text-text"
+              onClick={() => setTrustModalOpen(true)}
+            >
+              <CircleInfoIcon class="size-3.5" />
+              About passkey security
+            </button>
+            <button
+              type="button"
+              class="link-subtle inline-flex items-center gap-1 text-muted transition-colors hover:text-text"
+              onClick={() => setUnlockModalOpen(true)}
+            >
+              <CircleInfoIcon class="size-3.5" />
+              About new-device unlock
+            </button>
+          </div>
         </>
       )}
 
@@ -573,11 +573,11 @@ function PasskeysCard() {
           </p>
           <p>
             If you use a synced passkey provider (iCloud Keychain, Google
-            Password Manager, 1Password, Bitwarden, etc.), the provider is
-            part of your trust boundary: they can sync your credential to
-            your other devices, and a compromise of the provider could
-            expose it. The encrypted contents of your account stay zero-
-            knowledge to the secrt server regardless.
+            Password Manager, 1Password, Bitwarden, etc.), the provider is part
+            of your trust boundary: they can sync your credential to your other
+            devices, and a compromise of the provider could expose it. The
+            encrypted contents of your account stay zero- knowledge to the secrt
+            server regardless.
           </p>
           <p>
             If you use a hardware key (YubiKey) or platform Hello/Touch ID
@@ -590,7 +590,7 @@ function PasskeysCard() {
               href="https://github.com/getsecrt/secrt/blob/main/docs/whitepaper.md#passkey-authentication-no-passwords"
               target="_blank"
               rel="noopener noreferrer"
-              class="text-primary hover:underline"
+              class="link text-primary hover:underline"
             >
               project whitepaper
             </a>
@@ -621,31 +621,30 @@ function PasskeysCard() {
         <div class="space-y-3 text-sm">
           <p>
             Passkeys with the <strong>One-tap</strong> badge support unlocking
-            your encrypted notes on a brand-new device with a single passkey
-            tap — no API key, no sync link. This uses the WebAuthn PRF
-            extension to derive a wrap key from the passkey itself, which
-            the server can never see.
+            your encrypted notes on a brand-new device with a single passkey tap
+            — no API key, no sync link. This uses the WebAuthn PRF extension to
+            derive a wrap key from the passkey itself, which the server can
+            never see.
           </p>
           <p>
-            Passkeys without the badge still log you in, but unlocking notes
-            on a new device requires the existing sync-link flow (one-time
-            URL from a device that already has the key) or an API key.
+            Passkeys without the badge still log you in, but unlocking notes on
+            a new device requires a sync-link flow (one-time URL from a device
+            that already has the key) or an API key.
           </p>
           <p>
-            Some password managers don't yet forward the PRF extension to
-            secrt. If you registered with a manager that doesn't, the badge
-            won't appear and new-device unlock will use the sync-link path.
-            This is a transient compatibility gap, not a security issue —
-            your account works either way.
+            Some password managers don't yet forward the PRF extension to secrt.
+            If you registered with a manager that doesn't, the badge won't
+            appear and new-device unlock will use the sync-link path. This is a
+            transient compatibility gap, not a security issue — your account
+            works either way.
           </p>
           <p class="text-xs text-muted">
-            Cryptographic details and the per-provider trust analysis are in
-            the{' '}
+            Cryptographic details and the per-provider trust analysis are in the{' '}
             <a
               href="https://github.com/getsecrt/secrt/blob/main/docs/whitepaper.md#prf-based-amk-wrapping-passkey-recovery"
               target="_blank"
               rel="noopener noreferrer"
-              class="text-primary hover:underline"
+              class="link text-primary hover:underline"
             >
               whitepaper section on PRF-based AMK wrapping
             </a>
@@ -764,7 +763,7 @@ function AccountCard() {
 
       <div class="space-y-1">
         <label class="label" for="display-name">
-          <UserIcon class="size-4 opacity-60" aria-hidden="true" />
+          <UserIcon class="size-5 opacity-60" aria-hidden="true" />
           Change Display Name
         </label>
         <div class="relative">
