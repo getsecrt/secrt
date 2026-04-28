@@ -23,9 +23,10 @@ info:
     - `/api/v1/secrets` and `/api/v1/secrets/check`: session first, API key fallback
     - `/api/v1/secrets/{id}/burn`: API key first, session fallback
 
-    v1 passkey auth currently uses challenge-id bearer semantics in `/finish`
-    endpoints (valid, unexpired `challenge_id` + credential linkage). WebAuthn
-    cryptographic assertion verification is out of scope for v1.
+    Passkey `/finish` endpoints cryptographically verify the WebAuthn
+    assertion (or attested credential data, for register/add) against the
+    stored credential public key per `spec/v1/server.md` §6.2. ES256 / EC2
+    P-256 only at v1. Verification failures map to opaque `401 unauthorized`.
 
     ## Policy Tiers
 
@@ -1544,7 +1545,7 @@ components:
 
     PasskeyAddFinishRequest:
       type: object
-      required: [challenge_id, credential_id, public_key]
+      required: [challenge_id, credential_id, authenticator_data, client_data_json]
       additionalProperties: false
       properties:
         challenge_id:
@@ -1552,10 +1553,16 @@ components:
           description: Challenge identifier from add/start
         credential_id:
           type: string
-          description: WebAuthn credential ID (non-empty)
-        public_key:
+          description: WebAuthn credential ID, base64url-no-pad
+        authenticator_data:
           type: string
-          description: WebAuthn public key (non-empty)
+          description: |
+            base64url-no-pad of the raw authenticatorData bytes (parsed out
+            of the attestationObject by the client). Carries the attested
+            credential data section with the embedded COSE_Key.
+        client_data_json:
+          type: string
+          description: base64url-no-pad of the literal clientDataJSON bytes the browser produced.
         prf:
           $ref: "#/components/schemas/RegisterPrfMetadata"
 
@@ -1754,7 +1761,7 @@ components:
 
     PasskeyRegisterFinishRequest:
       type: object
-      required: [challenge_id, credential_id, public_key]
+      required: [challenge_id, credential_id, authenticator_data, client_data_json]
       additionalProperties: false
       properties:
         challenge_id:
@@ -1762,8 +1769,16 @@ components:
           description: Opaque challenge identifier issued by register/start
         credential_id:
           type: string
-        public_key:
+          description: base64url-no-pad
+        authenticator_data:
           type: string
+          description: |
+            base64url-no-pad of the raw authenticatorData bytes (parsed out
+            of the attestationObject by the client). Carries the attested
+            credential data section with the embedded COSE_Key.
+        client_data_json:
+          type: string
+          description: base64url-no-pad of the literal clientDataJSON bytes the browser produced.
         prf:
           $ref: "#/components/schemas/RegisterPrfMetadata"
 
@@ -1797,7 +1812,12 @@ components:
 
     PasskeyLoginFinishRequest:
       type: object
-      required: [challenge_id, credential_id]
+      required:
+        - challenge_id
+        - credential_id
+        - authenticator_data
+        - client_data_json
+        - signature
       additionalProperties: false
       properties:
         challenge_id:
@@ -1805,6 +1825,20 @@ components:
           description: Opaque challenge identifier issued by login/start
         credential_id:
           type: string
+          description: base64url-no-pad
+        authenticator_data:
+          type: string
+          description: |
+            base64url-no-pad of AuthenticatorAssertionResponse.authenticatorData.
+            Layout: rpIdHash(32) || flags(1) || signCount(4 BE).
+        client_data_json:
+          type: string
+          description: base64url-no-pad of the literal clientDataJSON bytes.
+        signature:
+          type: string
+          description: |
+            base64url-no-pad of the DER-encoded ECDSA signature (ES256) over
+            authenticator_data || SHA-256(client_data_json).
         prf:
           $ref: "#/components/schemas/RegisterPrfMetadata"
           description: |

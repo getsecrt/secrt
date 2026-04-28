@@ -257,7 +257,7 @@ Notes:
 - If `API_KEY_PEPPER` is unset, API-key auth cannot succeed.
 - API key `scopes` are stored but not currently enforced by runtime handlers.
 - Passkey session tokens use `Authorization: Bearer uss_<sid>.<secret>` and are valid for 24h.
-- Passkey `/finish` handlers in v1 are challenge-id bearer flows: they consume a valid, unexpired `challenge_id` and verify credential linkage, but do not verify WebAuthn signatures.
+- Passkey `/finish` handlers verify the WebAuthn ceremony: they consume the challenge, then independently verify the assertion against the stored credential public key as described in §6.2.
 - `GET/POST /api/v1/secrets` and `GET /api/v1/secrets/check` try session auth first, then API key fallback.
 - `POST /api/v1/secrets/{id}/burn` tries API key auth first, then session fallback.
 
@@ -290,7 +290,37 @@ Storage reuse: device-auth challenges are stored in the `webauthn_challenges` ta
 5. Update challenge status to `"approved"` with the generated prefix.
 6. Return `{ "ok": true }`.
 
-### 6.2. App Login Flow
+### 6.2. Passkey WebAuthn Verification
+
+Passkey registration, login, and add-passkey ceremonies all complete with a `/finish` handler that verifies the WebAuthn assertion. The same verification rules apply to all three; the only differences are which challenge purpose is consumed and what is persisted afterwards.
+
+**Algorithm support (v1):** ES256 (COSE alg `-7`) over EC2 P-256. RS256 and other COSE algorithms are rejected. This covers Apple, Google, Windows Hello (when configured for ES256), 1Password, and Bitwarden authenticators. Adding RS256 is mechanical and gated on a real-user request.
+
+**Registration finish (`/auth/passkeys/register/finish`, `/auth/passkeys/add/finish`):**
+
+1. Consume the challenge (`purpose = "passkey-register"` or `"passkey-add"`); reject if absent or expired.
+2. base64url-decode `authenticator_data` and `client_data_json` from the request body.
+3. Parse `clientDataJSON`: required string fields `type`, `challenge`, `origin`. Reject if `type` is not `"webauthn.create"`, if `challenge` does not match the issued challenge bytes, or if `origin` is not the configured origin (apex of `public_base_url`).
+4. Parse `authenticatorData`: layout `rpIdHash(32) || flags(1) || signCount(4) || aaguid(16) || credIdLen(2) || credentialId || credentialPublicKey(COSE_Key CBOR)`. Reject if length is short, if rpIdHash does not match SHA-256 of the configured RP ID, if the `UP` (User Present) flag bit is clear, or if the `AT` (Attested credential data) flag bit is clear.
+5. Parse the embedded COSE_Key as EC2 P-256 (`kty=2`, `alg=-7`, `crv=1`); extract the 32-byte X and Y coordinates. Reject any other shape.
+6. Persist: the `credentialId` bytes (base64url) and the SEC1-uncompressed public key bytes (`0x04 || X || Y`, base64url). Initial `sign_count` is the value from `authenticatorData`.
+
+**Login finish (`/auth/passkeys/login/finish`):**
+
+1. Consume the challenge (`purpose = "passkey-login"`); reject if absent or expired.
+2. base64url-decode `authenticator_data`, `client_data_json`, and `signature`.
+3. Look up the passkey row by the request's `credential_id`; reject if missing or revoked.
+4. Parse `clientDataJSON` as above; reject if `type` is not `"webauthn.get"`, if challenge or origin do not match.
+5. Parse `authenticatorData`: layout `rpIdHash(32) || flags(1) || signCount(4)`. Reject if length is short, if rpIdHash mismatches, or if the `UP` flag is clear.
+6. Reject if the new `signCount` is less than or equal to the stored `sign_count` (cloned-authenticator signal). The first assertion against a row whose stored count is 0 may have signCount 0, but only when the prior stored value was 0.
+7. Verify the ECDSA signature with the stored public key over `authenticatorData || SHA-256(clientDataJSON)`. Reject on any verifier error.
+8. Persist the new `sign_count`. Issue the session token.
+
+**Error semantics.** All verification failures map to `401 unauthorized` with no detail leaked to the client (the discriminator is logged server-side). Distinguishing "bad signature" from "wrong rpIdHash" gives an attacker a free oracle; the spec contract is opaque-401-on-any-failure.
+
+**Test vectors.** `spec/v1/webauthn.vectors.json` is the normative fixture set, generated from an independent reference implementation (`scripts/generate_webauthn_vectors.py`). Implementations must pass all `register` and `verify` cases — both the happy paths (which return parsed credentials / new sign_counts) and the negative cases (which return the documented error variants).
+
+### 6.3. App Login Flow
 
 App login enables desktop applications to obtain a session token via browser-based passkey authentication. Challenges are stored in `webauthn_challenges` with `purpose = "app-login"` and 10-minute expiry.
 

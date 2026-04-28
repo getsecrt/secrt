@@ -301,11 +301,113 @@ Passkey endpoints establish authenticated browser sessions and account identity:
 - `GET /api/v1/auth/session`
 - `POST /api/v1/auth/logout`
 
-v1 passkey model note:
+**WebAuthn verification model.** All `/finish` handlers cryptographically verify the WebAuthn assertion (or, for register/add, the attested credential data) per `spec/v1/server.md` §6.2. ES256 / EC2 P-256 only at v1. Verification failures return opaque `401`.
 
-- v1 does **not** perform WebAuthn cryptographic assertion verification in `/finish`.
-- `/start` issues random `challenge_id` and opaque `challenge`.
-- `/finish` authorizes via valid unexpired `challenge_id` + expected credential linkage.
+**Browser → server transport.** The browser surfaces the raw bytes from `navigator.credentials.create()` / `navigator.credentials.get()`:
+
+| Wire field            | Source                                                                                |
+| --------------------- | ------------------------------------------------------------------------------------- |
+| `authenticator_data`  | base64url of `AuthenticatorAssertionResponse.authenticatorData` (login) or the raw `authData` parsed out of `AuthenticatorAttestationResponse.attestationObject` (register/add). |
+| `client_data_json`    | base64url of `*.clientDataJSON` (the literal byte string the browser produced).       |
+| `signature`           | base64url of `AuthenticatorAssertionResponse.signature` (login only — DER-encoded ECDSA). |
+| `credential_id`       | base64url of the credential ID. The server uses this to look up the stored row.       |
+
+Register/add finish does NOT carry a separate `public_key` field — the COSE_Key is embedded in `authenticator_data`'s attested credential data section and the server extracts it.
+
+#### Register — start
+
+`POST /api/v1/auth/passkeys/register/start`
+
+Unauthenticated. Issues a `challenge_id` + opaque `challenge` for the WebAuthn ceremony.
+
+Request:
+
+```json
+{ "display_name": "Alice" }
+```
+
+Response (`200`):
+
+```json
+{
+  "challenge_id": "<base64url>",
+  "challenge": "<base64url 32-byte challenge>",
+  "expires_at": "2026-04-27T22:40:00Z"
+}
+```
+
+Challenge expires after 10 minutes.
+
+#### Register — finish
+
+`POST /api/v1/auth/passkeys/register/finish`
+
+Request:
+
+```json
+{
+  "challenge_id": "<base64url>",
+  "credential_id": "<base64url>",
+  "authenticator_data": "<base64url, contains attested credential data + COSE_Key>",
+  "client_data_json": "<base64url>",
+  "prf": { "supported": false, "at_create": false }
+}
+```
+
+`prf` is optional; see `prf-amk-wrapping.md` for the full semantics.
+
+Response (`200`): same shape as before — session token, user ID, display name, expires_at, optional `prf_cred_salt` / `prf_wrapper`.
+
+Verification (`spec/v1/server.md` §6.2):
+
+- `clientDataJSON.type` must equal `"webauthn.create"`.
+- `clientDataJSON.challenge` must equal the issued challenge.
+- `clientDataJSON.origin` must equal the configured origin.
+- `authenticatorData.rpIdHash` must equal SHA-256 of the configured RP ID.
+- `authenticatorData` flags must have UP=1 and AT=1.
+- The embedded COSE_Key must be EC2 P-256 ES256 (`kty=2`, `alg=-7`, `crv=1`).
+
+Failures return `401 unauthorized` (no detail). The challenge is consumed regardless.
+
+#### Login — start
+
+`POST /api/v1/auth/passkeys/login/start`
+
+Request:
+
+```json
+{ "credential_id": "<base64url>" }
+```
+
+Response: same `{ challenge_id, challenge, expires_at }` shape as register/start.
+
+#### Login — finish
+
+`POST /api/v1/auth/passkeys/login/finish`
+
+Request:
+
+```json
+{
+  "challenge_id": "<base64url>",
+  "credential_id": "<base64url>",
+  "authenticator_data": "<base64url>",
+  "client_data_json": "<base64url>",
+  "signature": "<base64url DER ECDSA>",
+  "prf": { "supported": false, "at_create": false }
+}
+```
+
+Response (`200`): unchanged — session token, optional `prf_wrapper` / `prf_cred_salt`. See PRF section for details.
+
+Verification:
+
+- `clientDataJSON.type` = `"webauthn.get"`, challenge / origin match.
+- `authenticatorData.rpIdHash` matches; UP flag set.
+- New `signCount` strictly greater than stored `sign_count`.
+- ECDSA signature verifies with the stored public key over `authenticatorData || SHA-256(clientDataJSON)`.
+
+Failures return `401 unauthorized` with no body detail. The challenge is consumed regardless of outcome to prevent replay.
 
 ### Device Authorization (CLI login flow)
 
@@ -674,10 +776,14 @@ Request:
 ```json
 {
   "challenge_id": "<base64url>",
-  "credential_id": "<non-empty string>",
-  "public_key": "<non-empty string>"
+  "credential_id": "<base64url>",
+  "authenticator_data": "<base64url, contains attested credential data + COSE_Key>",
+  "client_data_json": "<base64url>",
+  "prf": { "supported": false, "at_create": false }
 }
 ```
+
+Verification rules are identical to register/finish (§6.2): the wire shape and acceptance criteria are the same — only the challenge purpose (`"passkey-add"`) and the post-success response shape differ.
 
 Response (`200`):
 
@@ -694,7 +800,7 @@ Response (`200`):
 
 Other outcomes:
 
-- `400` if `challenge_id` is invalid/expired, or `credential_id`/`public_key` is empty.
+- `401 unauthorized` if any verification step fails (challenge consumed regardless).
 
 #### Rename passkey
 
