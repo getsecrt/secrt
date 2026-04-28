@@ -355,6 +355,12 @@ struct PasskeyListItem {
     id: i64,
     label: String,
     created_at: DateTime<Utc>,
+    /// True when this credential has been observed to support the WebAuthn
+    /// PRF extension. Surfaced in the UI as a "one-tap unlock" capability
+    /// indicator. False for credentials registered before PRF shipped or
+    /// on browsers/managers that don't forward the PRF extension.
+    #[serde(default)]
+    prf_supported: bool,
 }
 
 #[derive(Serialize)]
@@ -2347,6 +2353,7 @@ pub async fn handle_passkeys_list_entry(
                     id: p.id,
                     label: p.label,
                     created_at: p.created_at,
+                    prf_supported: p.prf_supported,
                 })
                 .collect(),
         },
@@ -2543,6 +2550,7 @@ pub async fn handle_passkey_add_finish_entry(
                 id: passkey.id,
                 label: passkey.label,
                 created_at: passkey.created_at,
+                prf_supported: prf_cred_salt.is_some(),
             },
             prf_cred_salt,
         },

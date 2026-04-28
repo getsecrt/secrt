@@ -276,6 +276,13 @@ export interface PasskeyItem {
   id: number;
   label: string;
   created_at: string;
+  /**
+   * True when this credential has been observed to support the WebAuthn
+   * PRF extension. Surfaced as a "one-tap unlock" capability badge.
+   * Defaults to false for credentials registered before PRF shipped or
+   * on browsers/managers that don't forward the PRF extension.
+   */
+  prf_supported?: boolean;
 }
 
 export interface ListPasskeysResponse {

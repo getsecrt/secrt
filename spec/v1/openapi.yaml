@@ -1524,6 +1524,14 @@ components:
         created_at:
           type: string
           format: date-time
+        prf_supported:
+          type: boolean
+          default: false
+          description: |
+            True when this credential has been observed to support the
+            WebAuthn PRF extension. Surfaced in the UI as a "one-tap unlock"
+            capability indicator. Defaults to false for backward compat with
+            credentials registered before PRF shipped.
 
     ListPasskeysResponse:
       type: object

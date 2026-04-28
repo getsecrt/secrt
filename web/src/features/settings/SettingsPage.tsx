@@ -490,6 +490,14 @@ function PasskeysCard() {
                       <PasskeyIcon class="size-4 shrink-0 text-muted" />
                       <span>{passkeyLabel(pk)}</span>
                     </button>
+                    {pk.prf_supported && (
+                      <span
+                        class="ml-2 inline-block rounded-full bg-blue-100 px-2 py-0.5 text-xs font-medium text-blue-700 dark:bg-blue-900/30 dark:text-blue-300"
+                        title="Supports one-tap unlock on new devices via WebAuthn PRF"
+                      >
+                        One-tap
+                      </span>
+                    )}
                   </td>
                   <td class="py-2 pr-3 whitespace-nowrap">
                     {formatDate(pk.created_at)}
