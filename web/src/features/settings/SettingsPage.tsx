@@ -34,6 +34,7 @@ import {
   PasskeyIcon,
   UserIcon,
   XMarkIcon,
+  CircleInfoIcon,
 } from '../../components/Icons';
 import { SyncNotesKeyButton } from '../../components/SyncNotesKeyButton';
 import { CardHeading } from '../../components/CardHeading';
@@ -286,6 +287,8 @@ function PasskeysCard() {
   const [modalPasskey, setModalPasskey] = useState<PasskeyItem | null>(null);
   const [modalLabel, setModalLabel] = useState('');
   const [savingLabel, setSavingLabel] = useState(false);
+  const [trustModalOpen, setTrustModalOpen] = useState(false);
+  const [unlockModalOpen, setUnlockModalOpen] = useState(false);
 
   const fetchPasskeys = useCallback(async (): Promise<PasskeyItem[]> => {
     if (!auth.sessionToken) return [];
@@ -468,6 +471,7 @@ function PasskeysCard() {
       ) : passkeys.length === 0 ? (
         <p class="text-center text-muted">No passkeys.</p>
       ) : (
+        <>
         <div class="overflow-x-auto">
           <table class="w-full">
             <thead>
@@ -521,7 +525,134 @@ function PasskeysCard() {
             </tbody>
           </table>
         </div>
+        <div class="mt-3 flex flex-wrap items-center justify-end gap-x-4 gap-y-1 text-xs">
+          <button
+            type="button"
+            class="inline-flex items-center gap-1 text-muted transition-colors hover:text-text"
+            onClick={() => setTrustModalOpen(true)}
+          >
+            <CircleInfoIcon class="size-3.5" />
+            About passkey security
+          </button>
+          <button
+            type="button"
+            class="inline-flex items-center gap-1 text-muted transition-colors hover:text-text"
+            onClick={() => setUnlockModalOpen(true)}
+          >
+            <CircleInfoIcon class="size-3.5" />
+            About new-device unlock
+          </button>
+        </div>
+        </>
       )}
+
+      {/* About passkey security modal */}
+      <Modal
+        open={trustModalOpen}
+        onClose={() => setTrustModalOpen(false)}
+        dismissible
+        aria-label="About passkey security"
+      >
+        <button
+          type="button"
+          class="absolute top-3 right-3 rounded p-1 text-muted transition-colors hover:text-text"
+          onClick={() => setTrustModalOpen(false)}
+          aria-label="Close"
+        >
+          <XMarkIcon class="size-5" />
+        </button>
+        <CardHeading
+          icon={<PasskeyIcon class="size-10" />}
+          title="About passkey security"
+        />
+        <div class="space-y-3 text-sm">
+          <p>
+            secrt uses passkeys instead of passwords. The passkey itself never
+            leaves the device or password manager that holds it — the server
+            only ever sees a public key and a signature.
+          </p>
+          <p>
+            If you use a synced passkey provider (iCloud Keychain, Google
+            Password Manager, 1Password, Bitwarden, etc.), the provider is
+            part of your trust boundary: they can sync your credential to
+            your other devices, and a compromise of the provider could
+            expose it. The encrypted contents of your account stay zero-
+            knowledge to the secrt server regardless.
+          </p>
+          <p>
+            If you use a hardware key (YubiKey) or platform Hello/Touch ID
+            without sync, the trust boundary is just you and your device.
+          </p>
+          <p class="text-xs text-muted">
+            Full details, including a per-provider comparison and the AMK
+            wrapping cryptography, are in the{' '}
+            <a
+              href="https://github.com/getsecrt/secrt/blob/main/docs/whitepaper.md#passkey-authentication-no-passwords"
+              target="_blank"
+              rel="noopener noreferrer"
+              class="text-primary hover:underline"
+            >
+              project whitepaper
+            </a>
+            .
+          </p>
+        </div>
+      </Modal>
+
+      {/* About new-device unlock modal */}
+      <Modal
+        open={unlockModalOpen}
+        onClose={() => setUnlockModalOpen(false)}
+        dismissible
+        aria-label="About new-device unlock"
+      >
+        <button
+          type="button"
+          class="absolute top-3 right-3 rounded p-1 text-muted transition-colors hover:text-text"
+          onClick={() => setUnlockModalOpen(false)}
+          aria-label="Close"
+        >
+          <XMarkIcon class="size-5" />
+        </button>
+        <CardHeading
+          icon={<PasskeyIcon class="size-10" />}
+          title="About new-device unlock"
+        />
+        <div class="space-y-3 text-sm">
+          <p>
+            Passkeys with the <strong>One-tap</strong> badge support unlocking
+            your encrypted notes on a brand-new device with a single passkey
+            tap — no API key, no sync link. This uses the WebAuthn PRF
+            extension to derive a wrap key from the passkey itself, which
+            the server can never see.
+          </p>
+          <p>
+            Passkeys without the badge still log you in, but unlocking notes
+            on a new device requires the existing sync-link flow (one-time
+            URL from a device that already has the key) or an API key.
+          </p>
+          <p>
+            Some password managers don't yet forward the PRF extension to
+            secrt. If you registered with a manager that doesn't, the badge
+            won't appear and new-device unlock will use the sync-link path.
+            This is a transient compatibility gap, not a security issue —
+            your account works either way.
+          </p>
+          <p class="text-xs text-muted">
+            Cryptographic details and the per-provider trust analysis are in
+            the{' '}
+            <a
+              href="https://github.com/getsecrt/secrt/blob/main/docs/whitepaper.md#prf-based-amk-wrapping-passkey-recovery"
+              target="_blank"
+              rel="noopener noreferrer"
+              class="text-primary hover:underline"
+            >
+              whitepaper section on PRF-based AMK wrapping
+            </a>
+            .
+          </p>
+        </div>
+      </Modal>
 
       {/* Rename passkey modal */}
       <Modal
