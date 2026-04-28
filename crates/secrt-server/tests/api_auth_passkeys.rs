@@ -6,6 +6,7 @@ use axum::body::{to_bytes, Body};
 use axum::http::{Request, StatusCode};
 use base64::Engine;
 use chrono::{Duration, Utc};
+use helpers::webauthn::TestKeyPair;
 use helpers::{create_api_key, test_app_with_store, test_config, with_remote, MemStore};
 use secrt_server::storage::UserId;
 use serde_json::{json, Value};
@@ -42,6 +43,7 @@ async fn passkey_register_finish_response(
         .expect("challenge_id")
         .to_string();
 
+    let kp = TestKeyPair::generate();
     let finish_req = Request::builder()
         .method("POST")
         .uri("/api/v1/auth/passkeys/register/finish")
@@ -50,7 +52,7 @@ async fn passkey_register_finish_response(
             json!({
                 "challenge_id": challenge_id,
                 "credential_id": credential_id,
-                "public_key": "pk-test",
+                "public_key": kp.cose_key_b64u(),
             })
             .to_string(),
         ))

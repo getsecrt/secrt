@@ -1,5 +1,7 @@
 #![allow(dead_code)]
 
+pub mod webauthn;
+
 use std::collections::HashMap;
 use std::hash::{DefaultHasher, Hash, Hasher};
 use std::sync::{Arc, Mutex};
