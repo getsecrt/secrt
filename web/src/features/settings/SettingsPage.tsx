@@ -25,6 +25,7 @@ import {
 } from '../../crypto/amk';
 import { base64urlEncode } from '../../crypto/encoding';
 import { storeAmk, loadAmk, clearAmk } from '../../lib/amk-store';
+import { wrapAndStorePrfWrapper } from '../../lib/passkey-prf';
 import {
   TrashIcon,
   ClipboardIcon,
@@ -356,12 +357,48 @@ function PasskeysCard() {
         userId,
         auth.displayName ?? 'User',
         auth.displayName ?? 'User',
+        { enablePrf: true },
       );
-      await addPasskeyFinish(auth.sessionToken, {
+      const finishRes = await addPasskeyFinish(auth.sessionToken, {
         challenge_id,
         credential_id: reg.credentialId,
         public_key: reg.publicKey,
+        prf: {
+          supported: reg.prfState.supported,
+          at_create: reg.prfState.atCreate,
+        },
       });
+
+      // PRF wrapper for the new credential. Mirrors RegisterPage: when the
+      // ceremony was PRF-capable AND the user has the AMK loaded locally
+      // (settings is gated behind AuthGuard so they should), wrap and PUT.
+      // Best-effort — the passkey itself is already added if this fails.
+      if (
+        reg.prfState.supported &&
+        finishRes.prf_cred_salt &&
+        auth.userId &&
+        auth.sessionToken
+      ) {
+        try {
+          const amk = await loadAmk(auth.userId);
+          if (amk) {
+            const amkCommit = await computeAmkCommit(amk);
+            await wrapAndStorePrfWrapper(
+              auth.sessionToken,
+              auth.userId,
+              reg.credentialId,
+              reg.rawId,
+              finishRes.prf_cred_salt,
+              reg.prfState.onCreateOutput,
+              amk,
+              amkCommit,
+            );
+          }
+        } catch {
+          // Non-fatal — passkey is added; wrapper will be missing until a
+          // future login retrofit (the §4.5 upgrade path also covers this).
+        }
+      }
       const updated = await fetchPasskeys();
       // Open rename modal for the newly added passkey (highest id)
       if (updated.length > 0) {

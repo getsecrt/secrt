@@ -4,26 +4,19 @@ import {
   supportsWebAuthn,
   createPasskeyCredential,
   generateUserId,
-  getPasskeyCredential,
 } from '../../lib/webauthn';
 import {
   registerPasskeyStart,
   registerPasskeyFinish,
   commitAmk,
-  putPrfWrapper,
 } from '../../lib/api';
 import { navigate } from '../../router';
 import { getRedirectParam } from '../../lib/redirect';
 import { isTauri } from '../../lib/config';
-import {
-  generateAmk,
-  computeAmkCommit,
-  deriveAmkWrapKeyFromPrf,
-  buildWrapAadPrf,
-  wrapAmk,
-} from '../../crypto/amk';
-import { base64urlEncode, base64urlDecode } from '../../crypto/encoding';
+import { generateAmk, computeAmkCommit } from '../../crypto/amk';
+import { base64urlEncode } from '../../crypto/encoding';
 import { storeAmk } from '../../lib/amk-store';
+import { wrapAndStorePrfWrapper } from '../../lib/passkey-prf';
 import {
   PasskeyIcon,
   ShuffleIcon,
@@ -150,64 +143,6 @@ type RegisterState =
   | { step: 'done' }
   | { step: 'error'; message: string }
   | { step: 'unsupported' };
-
-/**
- * Wrap the AMK with the PRF-derived key and PUT the wrapper. Handles both
- * the PRF-on-create happy path (Chrome 147+, Safari 18+, etc.) and the
- * PRF-on-get-only fallback (older surfaces where PRF is only available at
- * assertion time, requiring a second ceremony immediately after registration).
- *
- * In the fallback path, the get() ceremony is constrained to the just-
- * registered credential via allowCredentials so the picker can't surface a
- * different credential — that would silently produce an undecryptable wrapper
- * (Codex feedback #5). Mismatched credential is rejected with an error.
- */
-async function wrapAndStorePrfWrapper(
-  sessionToken: string,
-  userId: string,
-  credentialId: string,
-  credentialRawId: Uint8Array,
-  credSaltB64u: string,
-  onCreateOutput: Uint8Array | undefined,
-  amk: Uint8Array,
-  amkCommit: Uint8Array,
-): Promise<void> {
-  let prfOutput = onCreateOutput;
-  if (!prfOutput) {
-    // PRF-on-get-only fallback. Use a fresh local challenge and pin the
-    // assertion to the just-created credential.
-    const localChallenge = new Uint8Array(32);
-    crypto.getRandomValues(localChallenge);
-    const assertion = await getPasskeyCredential(
-      base64urlEncode(localChallenge),
-      {
-        enablePrf: true,
-        allowCredentialIds: [credentialId],
-      },
-    );
-    if (assertion.credentialId !== credentialId) {
-      throw new Error(
-        'PRF fallback returned a different credential — refusing to write a mismatched wrapper',
-      );
-    }
-    if (!assertion.prfOutput) {
-      throw new Error('PRF fallback assertion returned no output');
-    }
-    prfOutput = assertion.prfOutput;
-  }
-
-  const credSalt = base64urlDecode(credSaltB64u);
-  const wrapKey = await deriveAmkWrapKeyFromPrf(prfOutput, credSalt);
-  const aad = buildWrapAadPrf(userId, credentialRawId, 1);
-  const wrapped = await wrapAmk(amk, wrapKey, aad);
-
-  await putPrfWrapper(sessionToken, credentialId, {
-    wrapped_amk: wrapped.ct,
-    nonce: wrapped.nonce,
-    amk_commit: base64urlEncode(amkCommit),
-    version: 1,
-  });
-}
 
 export function RegisterPage() {
   const auth = useAuth();

@@ -136,6 +136,17 @@ export interface PasskeyLoginStartRequest {
 export interface PasskeyLoginFinishRequest {
   challenge_id: string;
   credential_id: string;
+  /**
+   * PRF capability info from the assertion. Lets the server (a) upgrade a
+   * pre-PRF credential by stamping a fresh `cred_salt` and returning it as
+   * `prf_cred_salt` so the client can wrap the AMK on this very login,
+   * and (b) hand back the stored salt when no wrapper exists yet so the
+   * client can rewrap. See `spec/v1/api.md` §"Transport D".
+   */
+  prf?: {
+    supported: boolean;
+    at_create: boolean;
+  };
 }
 
 /**

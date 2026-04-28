@@ -19,6 +19,7 @@ import {
   computeAmkCommit,
 } from '../../crypto/amk';
 import { loadAmk, storeAmk } from '../../lib/amk-store';
+import { wrapAndStorePrfWrapper } from '../../lib/passkey-prf';
 import { navigate } from '../../router';
 import { getRedirectParam } from '../../lib/redirect';
 import { isTauri, getApiBase } from '../../lib/config';
@@ -402,10 +403,18 @@ export function LoginPage() {
         credential_id: pickerResult.credentialId,
       });
 
-      // Step 3: Complete login with server challenge
+      // Step 3: Complete login with server challenge. Send the assertion's
+      //         PRF capability so the server can (a) inline a wrapper for
+      //         one-tap unlock, or (b) retrofit a pre-PRF credential (§4.5
+      //         upgrade path) by stamping a fresh `cred_salt` and returning
+      //         it as `prf_cred_salt`.
       const finishRes = await loginPasskeyFinish({
         challenge_id: startRes.challenge_id,
         credential_id: pickerResult.credentialId,
+        prf: {
+          supported: !!pickerResult.prfOutput,
+          at_create: false,
+        },
       });
 
       // Step 4: Store session
@@ -415,11 +424,11 @@ export function LoginPage() {
         finishRes.display_name,
       );
 
-      // Step 5: PRF unlock. If the server returned a wrapper inline AND the
-      //         assertion produced a PRF output AND we don't already have an
-      //         AMK locally, derive the wrap key, unwrap, and store. All-best-
-      //         effort: failure here just falls through to the existing sync-
-      //         link / API-key path.
+      // Step 5a: PRF unlock. If the server returned a wrapper inline AND the
+      //          assertion produced a PRF output AND we don't already have an
+      //          AMK locally, derive the wrap key, unwrap, and store. All-
+      //          best-effort: failure here just falls through to the existing
+      //          sync-link / API-key path.
       if (finishRes.prf_wrapper && pickerResult.prfOutput) {
         try {
           const existing = await loadAmk(finishRes.user_id);
@@ -434,6 +443,37 @@ export function LoginPage() {
           }
         } catch {
           // Non-fatal — login itself succeeded.
+        }
+      }
+
+      // Step 5b: PRF upgrade (§"Transport D" §4.5). Server returned a
+      //          cred_salt with no wrapper — this credential is now
+      //          PRF-capable but has no wrapper yet. If we have the AMK
+      //          loaded (i.e., this is a known device, not a fresh one),
+      //          wrap it and PUT so future fresh-device logins get one-tap
+      //          unlock. Best-effort: the user is already logged in.
+      if (
+        finishRes.prf_cred_salt &&
+        !finishRes.prf_wrapper &&
+        pickerResult.prfOutput
+      ) {
+        try {
+          const amk = await loadAmk(finishRes.user_id);
+          if (amk) {
+            const amkCommit = await computeAmkCommit(amk);
+            await wrapAndStorePrfWrapper(
+              finishRes.session_token,
+              finishRes.user_id,
+              pickerResult.credentialId,
+              pickerResult.rawId,
+              finishRes.prf_cred_salt,
+              pickerResult.prfOutput,
+              amk,
+              amkCommit,
+            );
+          }
+        } catch {
+          // Non-fatal — login itself succeeded; upgrade can retry next login.
         }
       }
 

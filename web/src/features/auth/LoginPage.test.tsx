@@ -126,6 +126,7 @@ describe('LoginPage', () => {
     expect(loginPasskeyFinish).toHaveBeenCalledWith({
       challenge_id: 'ch_login',
       credential_id: 'cred_login',
+      prf: { supported: false, at_create: false },
     });
     expect(mockAuth.login).toHaveBeenCalledWith(
       'uss_login.tok',

@@ -548,11 +548,18 @@ export async function addPasskeyStart(
 
 export async function addPasskeyFinish(
   token: string,
-  req: { challenge_id: string; credential_id: string; public_key: string },
+  req: {
+    challenge_id: string;
+    credential_id: string;
+    public_key: string;
+    prf?: { supported: boolean; at_create: boolean };
+  },
   signal?: AbortSignal,
 ): Promise<{
   ok: boolean;
   passkey: { id: number; label: string; created_at: string };
+  /** Server-generated 32-byte HKDF salt (base64url). Present iff PRF supported. */
+  prf_cred_salt?: string;
 }> {
   return requestJson(
     '/api/v1/auth/passkeys/add/finish',
