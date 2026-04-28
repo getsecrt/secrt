@@ -44,7 +44,15 @@ export interface PrfRegisterState {
 
 export interface CreatePasskeyResult {
   credentialId: string;
-  publicKey: string;
+  /**
+   * base64url of the raw `authenticatorData` bytes parsed out of
+   * `attestationObject`. Carries the attested credential data section
+   * with the COSE_Key the server extracts and persists. See
+   * spec/v1/server.md §6.2.
+   */
+  authenticatorData: string;
+  /** base64url of the literal `clientDataJSON` bytes the browser produced. */
+  clientDataJSON: string;
   rawId: Uint8Array;
   prfState: PrfRegisterState;
 }
@@ -96,8 +104,16 @@ export async function createPasskeyCredential(
   if (!credential) throw new Error('Credential creation returned null');
 
   const response = credential.response as AuthenticatorAttestationResponse;
-  const publicKeyBytes = response.getPublicKey?.();
-  if (!publicKeyBytes) throw new Error('No public key in attestation response');
+  // getAuthenticatorData() returns the raw authData bytes (parsed out of the
+  // CBOR attestationObject by the browser). Modern browsers only — Chrome 85+,
+  // Firefox 119+, Safari 17.4+. We don't support attestation, so the rest of
+  // the attestationObject (fmt, attStmt) is intentionally discarded.
+  const authData = response.getAuthenticatorData?.();
+  if (!authData) {
+    throw new Error(
+      'Browser does not support response.getAuthenticatorData() — please upgrade',
+    );
+  }
 
   const ext =
     typeof credential.getClientExtensionResults === 'function'
@@ -130,7 +146,8 @@ export async function createPasskeyCredential(
 
   return {
     credentialId: base64urlEncode(new Uint8Array(credential.rawId)),
-    publicKey: base64urlEncode(new Uint8Array(publicKeyBytes)),
+    authenticatorData: base64urlEncode(new Uint8Array(authData)),
+    clientDataJSON: base64urlEncode(new Uint8Array(response.clientDataJSON)),
     rawId: new Uint8Array(credential.rawId),
     prfState,
   };
@@ -138,6 +155,16 @@ export async function createPasskeyCredential(
 
 export interface GetPasskeyResult {
   credentialId: string;
+  /** base64url of `AuthenticatorAssertionResponse.authenticatorData`. */
+  authenticatorData: string;
+  /** base64url of the literal `clientDataJSON` bytes. */
+  clientDataJSON: string;
+  /**
+   * base64url of the DER-encoded ECDSA signature (ES256) over
+   * `authenticatorData || SHA-256(clientDataJSON)`. Server verifies against
+   * the stored COSE_Key.
+   */
+  signature: string;
   rawId: Uint8Array;
   /**
    * 32-byte PRF output from the assertion when the PRF extension was
@@ -193,6 +220,7 @@ export async function getPasskeyCredential(
 
   if (!credential) throw new Error('Credential assertion returned null');
 
+  const response = credential.response as AuthenticatorAssertionResponse;
   const ext =
     typeof credential.getClientExtensionResults === 'function'
       ? credential.getClientExtensionResults()
@@ -204,6 +232,11 @@ export async function getPasskeyCredential(
 
   return {
     credentialId: base64urlEncode(new Uint8Array(credential.rawId)),
+    authenticatorData: base64urlEncode(
+      new Uint8Array(response.authenticatorData),
+    ),
+    clientDataJSON: base64urlEncode(new Uint8Array(response.clientDataJSON)),
+    signature: base64urlEncode(new Uint8Array(response.signature)),
     rawId: new Uint8Array(credential.rawId),
     prfOutput,
   };

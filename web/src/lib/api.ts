@@ -551,7 +551,8 @@ export async function addPasskeyFinish(
   req: {
     challenge_id: string;
     credential_id: string;
-    public_key: string;
+    authenticator_data: string;
+    client_data_json: string;
     prf?: { supported: boolean; at_create: boolean };
   },
   signal?: AbortSignal,

@@ -103,6 +103,9 @@ describe('LoginPage', () => {
     const user = userEvent.setup();
     vi.mocked(getPasskeyCredential).mockResolvedValue({
       credentialId: 'cred_login',
+      authenticatorData: 'YXV0aA',
+      clientDataJSON: 'Y2RqCg',
+      signature: 'c2lnCg',
       rawId: new Uint8Array([1, 2, 3, 4]),
     });
     vi.mocked(loginPasskeyStart).mockResolvedValue({
@@ -126,6 +129,9 @@ describe('LoginPage', () => {
     expect(loginPasskeyFinish).toHaveBeenCalledWith({
       challenge_id: 'ch_login',
       credential_id: 'cred_login',
+      authenticator_data: 'YXV0aA',
+      client_data_json: 'Y2RqCg',
+      signature: 'c2lnCg',
       prf: { supported: false, at_create: false },
     });
     expect(mockAuth.login).toHaveBeenCalledWith(

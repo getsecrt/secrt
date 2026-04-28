@@ -26,14 +26,18 @@ describe('supportsWebAuthn', () => {
 
 describe('createPasskeyCredential', () => {
   const fakeRawId = new Uint8Array([1, 2, 3, 4]);
-  const fakePublicKey = new Uint8Array([10, 20, 30]);
+  const fakeAuthData = new Uint8Array([0xa, 0xb, 0xc]);
+  const fakeClientData = new Uint8Array(
+    new TextEncoder().encode('{"type":"webauthn.create"}'),
+  );
 
   beforeEach(() => {
     vi.stubGlobal('PublicKeyCredential', class {});
     const mockCreate = vi.fn().mockResolvedValue({
       rawId: fakeRawId.buffer,
       response: {
-        getPublicKey: () => fakePublicKey.buffer,
+        getAuthenticatorData: () => fakeAuthData.buffer,
+        clientDataJSON: fakeClientData.buffer,
       },
     });
     vi.stubGlobal('navigator', {
@@ -46,7 +50,7 @@ describe('createPasskeyCredential', () => {
     vi.unstubAllGlobals();
   });
 
-  it('returns base64url credential ID and public key', async () => {
+  it('returns base64url credentialId, authenticatorData, and clientDataJSON', async () => {
     const result = await createPasskeyCredential(
       base64urlEncode(new Uint8Array([99])),
       base64urlEncode(new Uint8Array([1])),
@@ -54,7 +58,8 @@ describe('createPasskeyCredential', () => {
       'Test User',
     );
     expect(result.credentialId).toBe(base64urlEncode(fakeRawId));
-    expect(result.publicKey).toBe(base64urlEncode(fakePublicKey));
+    expect(result.authenticatorData).toBe(base64urlEncode(fakeAuthData));
+    expect(result.clientDataJSON).toBe(base64urlEncode(fakeClientData));
   });
 
   it('throws when create returns null', async () => {
@@ -67,30 +72,45 @@ describe('createPasskeyCredential', () => {
     ).rejects.toThrow('Credential creation returned null');
   });
 
-  it('throws when getPublicKey is missing', async () => {
+  it('throws when getAuthenticatorData is missing', async () => {
     vi.stubGlobal('navigator', {
       ...navigator,
       credentials: {
         create: vi.fn().mockResolvedValue({
           rawId: fakeRawId.buffer,
-          response: { getPublicKey: undefined },
+          response: {
+            getAuthenticatorData: undefined,
+            clientDataJSON: fakeClientData.buffer,
+          },
         }),
       },
     });
     await expect(
       createPasskeyCredential('Y2hhbA', 'dXNlcg', 'u', 'U'),
-    ).rejects.toThrow('No public key');
+    ).rejects.toThrow('getAuthenticatorData');
   });
 });
 
 describe('getPasskeyCredential', () => {
   const fakeRawId = new Uint8Array([5, 6, 7]);
+  const fakeAuthData = new Uint8Array([0xaa, 0xbb]);
+  const fakeClientData = new Uint8Array(
+    new TextEncoder().encode('{"type":"webauthn.get"}'),
+  );
+  const fakeSig = new Uint8Array([0xcc, 0xdd]);
 
   beforeEach(() => {
     vi.stubGlobal('navigator', {
       ...navigator,
       credentials: {
-        get: vi.fn().mockResolvedValue({ rawId: fakeRawId.buffer }),
+        get: vi.fn().mockResolvedValue({
+          rawId: fakeRawId.buffer,
+          response: {
+            authenticatorData: fakeAuthData.buffer,
+            clientDataJSON: fakeClientData.buffer,
+            signature: fakeSig.buffer,
+          },
+        }),
       },
     });
   });
@@ -99,9 +119,12 @@ describe('getPasskeyCredential', () => {
     vi.unstubAllGlobals();
   });
 
-  it('returns base64url credential ID', async () => {
+  it('returns assertion fields as base64url', async () => {
     const result = await getPasskeyCredential('Y2hhbGxlbmdl');
     expect(result.credentialId).toBe(base64urlEncode(fakeRawId));
+    expect(result.authenticatorData).toBe(base64urlEncode(fakeAuthData));
+    expect(result.clientDataJSON).toBe(base64urlEncode(fakeClientData));
+    expect(result.signature).toBe(base64urlEncode(fakeSig));
   });
 
   it('throws when get returns null', async () => {

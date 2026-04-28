@@ -211,7 +211,8 @@ export function RegisterPage() {
         const finishRes = await registerPasskeyFinish({
           challenge_id: startRes.challenge_id,
           credential_id: credential.credentialId,
-          public_key: credential.publicKey,
+          authenticator_data: credential.authenticatorData,
+          client_data_json: credential.clientDataJSON,
           prf: {
             supported: credential.prfState.supported,
             at_create: credential.prfState.atCreate,

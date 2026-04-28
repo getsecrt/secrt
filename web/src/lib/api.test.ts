@@ -505,7 +505,8 @@ describe('registerPasskeyFinish', () => {
     const result = await registerPasskeyFinish({
       challenge_id: 'ch_1',
       credential_id: 'cred_1',
-      public_key: 'pk_1',
+      authenticator_data: 'YXV0aA',
+      client_data_json: 'Y2RqCg',
     });
     expect(result).toEqual(mockAuthFinish);
     expect('user_id' in (result as unknown as Record<string, unknown>)).toBe(
@@ -538,6 +539,9 @@ describe('loginPasskeyFinish', () => {
     const result = await loginPasskeyFinish({
       challenge_id: 'ch_2',
       credential_id: 'cred_xyz',
+      authenticator_data: 'YXV0aA',
+      client_data_json: 'Y2RqCg',
+      signature: 'c2lnCg',
     });
     expect(result).toEqual(mockAuthFinish);
     expect('user_id' in (result as unknown as Record<string, unknown>)).toBe(

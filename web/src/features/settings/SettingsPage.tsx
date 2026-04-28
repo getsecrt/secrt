@@ -365,7 +365,8 @@ function PasskeysCard() {
       const finishRes = await addPasskeyFinish(auth.sessionToken, {
         challenge_id,
         credential_id: reg.credentialId,
-        public_key: reg.publicKey,
+        authenticator_data: reg.authenticatorData,
+        client_data_json: reg.clientDataJSON,
         prf: {
           supported: reg.prfState.supported,
           at_create: reg.prfState.atCreate,

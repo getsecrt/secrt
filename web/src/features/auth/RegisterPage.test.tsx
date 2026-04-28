@@ -114,7 +114,8 @@ describe('RegisterPage', () => {
     });
     vi.mocked(createPasskeyCredential).mockResolvedValue({
       credentialId: 'cred_abc',
-      publicKey: 'pk_xyz',
+      authenticatorData: 'YXV0aA',
+      clientDataJSON: 'Y2RqCg',
       rawId: new Uint8Array([1, 2, 3, 4]),
       prfState: { supported: false, atCreate: false },
     });

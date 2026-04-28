@@ -116,7 +116,14 @@ export interface ChallengeResponse {
 export interface PasskeyRegisterFinishRequest {
   challenge_id: string;
   credential_id: string;
-  public_key: string;
+  /**
+   * base64url of the raw `authenticatorData` bytes parsed out of the
+   * attestationObject. Carries attested credential data with the COSE_Key
+   * the server extracts and persists. See spec/v1/server.md §6.2.
+   */
+  authenticator_data: string;
+  /** base64url of the literal `clientDataJSON` bytes the browser produced. */
+  client_data_json: string;
   /**
    * PRF capability metadata from the registration ceremony. When `supported`
    * is true, the server generates a 32-byte cred_salt and returns it as
@@ -136,6 +143,15 @@ export interface PasskeyLoginStartRequest {
 export interface PasskeyLoginFinishRequest {
   challenge_id: string;
   credential_id: string;
+  /** base64url of `AuthenticatorAssertionResponse.authenticatorData`. */
+  authenticator_data: string;
+  /** base64url of the literal `clientDataJSON` bytes. */
+  client_data_json: string;
+  /**
+   * base64url of the DER-encoded ECDSA signature (ES256) over
+   * `authenticatorData || SHA-256(clientDataJSON)`.
+   */
+  signature: string;
   /**
    * PRF capability info from the assertion. Lets the server (a) upgrade a
    * pre-PRF credential by stamping a fresh `cred_salt` and returning it as
