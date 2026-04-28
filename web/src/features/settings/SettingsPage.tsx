@@ -484,24 +484,26 @@ function PasskeysCard() {
               <tbody>
                 {passkeys.map((pk) => (
                   <tr key={pk.id} class="border-b border-border/50">
-                    <td class="flex items-center py-2 pr-3">
-                      <button
-                        type="button"
-                        class="link-subtle ml-1 inline-flex cursor-pointer items-center gap-1.5 text-left transition-colors hover:text-black dark:hover:text-white"
-                        title="Click to rename"
-                        onClick={() => openRenameModal(pk)}
-                      >
-                        <PasskeyIcon class="size-6 shrink-0 text-muted" />
-                        <span>{passkeyLabel(pk)}</span>
-                      </button>
-                      {pk.prf_supported && (
-                        <span
-                          class="ml-2 inline-block rounded-full bg-blue-100 px-2 py-0.5 text-xs font-medium text-blue-700 dark:bg-blue-900/30 dark:text-blue-300"
-                          title="Supports one-tap unlock on new devices via WebAuthn PRF"
+                    <td class="py-2 pr-3">
+                      <span class="flex items-center">
+                        <button
+                          type="button"
+                          class="link-subtle ml-1 inline-flex cursor-pointer items-center gap-1.5 text-left transition-colors hover:text-black dark:hover:text-white"
+                          title="Click to rename"
+                          onClick={() => openRenameModal(pk)}
                         >
-                          One-tap
-                        </span>
-                      )}
+                          <PasskeyIcon class="size-6 shrink-0 text-muted" />
+                          <span>{passkeyLabel(pk)}</span>
+                        </button>
+                        {!pk.prf_supported && (
+                          <span
+                            class="ml-2 inline-block rounded-full bg-orange-100 px-2 py-0.5 text-xs font-medium text-orange-700 dark:bg-orange-900/30 dark:text-orange-300"
+                            title="Signs you in, but doesn't carry your notes-key to new devices"
+                          >
+                            Sign-in only
+                          </span>
+                        )}
+                      </span>
                     </td>
                     <td class="py-2 pr-3 whitespace-nowrap">
                       {formatDate(pk.created_at)}
@@ -540,7 +542,7 @@ function PasskeysCard() {
               onClick={() => setUnlockModalOpen(true)}
             >
               <CircleInfoIcon class="size-3.5" />
-              About new-device unlock
+              Sign-in only passkeys
             </button>
           </div>
         </>
@@ -569,20 +571,24 @@ function PasskeysCard() {
           <p>
             secrt uses passkeys instead of passwords. The passkey itself never
             leaves the device or password manager that holds it — the server
-            only ever sees a public key and a signature.
+            only ever sees a public key and a signature, improving substantially
+            on the security of passwords.
           </p>
+
           <p>
             If you use a synced passkey provider (iCloud Keychain, Google
             Password Manager, 1Password, Bitwarden, etc.), the provider is part
             of your trust boundary: they can sync your credential to your other
             devices, and a compromise of the provider could expose it. The
-            encrypted contents of your account stay zero- knowledge to the secrt
+            encrypted contents of your account stay zero-knowledge to the secrt
             server regardless.
           </p>
+
           <p>
             If you use a hardware key (YubiKey) or platform Hello/Touch ID
             without sync, the trust boundary is just you and your device.
           </p>
+
           <p class="text-xs text-muted">
             Full details, including a per-provider comparison and the AMK
             wrapping cryptography, are in the{' '}
@@ -599,12 +605,12 @@ function PasskeysCard() {
         </div>
       </Modal>
 
-      {/* About new-device unlock modal */}
+      {/* About sign-in only passkeys modal */}
       <Modal
         open={unlockModalOpen}
         onClose={() => setUnlockModalOpen(false)}
         dismissible
-        aria-label="About new-device unlock"
+        aria-label="About sign-in only passkeys"
       >
         <button
           type="button"
@@ -616,28 +622,37 @@ function PasskeysCard() {
         </button>
         <CardHeading
           icon={<PasskeyIcon class="size-10" />}
-          title="About new-device unlock"
+          title="Sign-in only passkeys"
         />
         <div class="space-y-3 text-sm">
           <p>
-            Passkeys with the <strong>One-tap</strong> badge support unlocking
-            your encrypted notes on a brand-new device with a single passkey tap
-            — no API key, no sync link. This uses the WebAuthn PRF extension to
-            derive a wrap key from the passkey itself, which the server can
-            never see.
+            The{' '}
+            <span class="inline-block rounded-full bg-orange-100 px-1.5 py-0.5 text-xs font-medium text-orange-700 dark:bg-orange-900/30 dark:text-orange-300">
+              Sign-in only
+            </span>{' '}
+            badge marks passkeys that will authenticate you but don't carry your
+            notes key that can decrypt information such as your private notes or
+            settings. When you sign in on a new browser or device, your account
+            is available but your encrypted information will not be visible
+            until you perform a sync using the 'Sync Notes Key to Another
+            Device' link here in Account Settings.
           </p>
+
           <p>
-            Passkeys without the badge still log you in, but unlocking notes on
-            a new device requires a sync-link flow (one-time URL from a device
-            that already has the key) or an API key.
+            Passkeys without the badge carry the notes key automatically and
+            don't require the sync process. They use a WebAuthn extension called{' '}
+            <strong>PRF</strong> (Pseudo-Random Function) to derive a wrap key
+            directly from the passkey, so a single sign-in unlocks both your
+            account and your notes. The server never sees the wrap key.
           </p>
+
           <p>
-            Some password managers don't yet forward the PRF extension to secrt.
-            If you registered with a manager that doesn't, the badge won't
-            appear and new-device unlock will use the sync-link path. This is a
-            transient compatibility gap, not a security issue — your account
-            works either way.
+            PRF support varies across password managers. Apple Passwords, Google
+            Password Manager, 1Password, and FIDO2 hardware keys (YubiKey, etc.)
+            support it today, but many others still haven't fully implemented
+            PRF.
           </p>
+
           <p class="text-xs text-muted">
             Cryptographic details and the per-provider trust analysis are in the{' '}
             <a
