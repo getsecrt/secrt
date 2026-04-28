@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 0.16.8 — 2026-04-27
+
+No CLI-facing changes. Workspace version bump to keep the CLI release in lockstep with the server release, which adds beta WebAuthn PRF AMK wrapping for browser one-tap unlock — see `crates/secrt-server/CHANGELOG.md`. CLI bootstrap via PRF (verification-URL flow) is tracked as a future change.
+
 ## 0.16.7 — 2026-04-27
 
 No CLI-facing changes. Workspace version bump to keep the CLI release in lockstep with the server release (which fixes a stale-favicon CSP issue and a Cache-Control bug — see `crates/secrt-server/CHANGELOG.md`).

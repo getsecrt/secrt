@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+## 0.16.8 — 2026-04-27
+
+### Added
+
+- **WebAuthn PRF AMK wrapping (Transport D, beta).** Browsers whose passkey provider forwards the WebAuthn PRF extension (Apple Passwords / iCloud, Google Password Manager, Windows Hello, Firefox 148+) can now derive an AES wrap key from the authenticator and unwrap their AMK in one tap on a fresh device, replacing the sync-link round-trip. Server changes: register-finish accepts an optional `prf` field describing the assertion's PRF state and returns a server-generated `prf_cred_salt` when supported; login-finish returns a `prf_wrapper` inline when one exists for that credential; new `PUT/DELETE /api/v1/auth/passkeys/{cred_id}/prf-wrapper` endpoints store and revoke wrappers. Wrappers cascade-delete on `revoke_passkey`. AAD slot generalized via `binding_id` (formerly `key_prefix`) so the same wrap-AAD shape works for Transport A (passphrase), C (recovery), and D (PRF).
+- **Migration `005_prf_amk_wrappers.sql`.** New `prf_amk_wrappers` table (one row per credential, FK to `passkeys`); new `prf_supported`, `prf_cred_salt`, `prf_first_seen_at` columns on `passkeys`. Added to the `MIGRATIONS` array so it runs on startup.
+
+Beta notes: not all PRF-capable providers forward the extension yet — Bitwarden and 1Password silently drop it as of April 2026, and those users continue to use the existing sync-link flow on new devices. Passkey `/finish` endpoints still ride on the existing `challenge_id` bearer flow; full WebAuthn signature verification is tracked as a follow-up. The CLI does not yet exercise PRF; this round is browser-only.
+
 ## 0.16.7 — 2026-04-27
 
 ### Fixed
