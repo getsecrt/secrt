@@ -205,8 +205,8 @@ function GetSecretForm() {
                 Different <Secrt /> Instance
               </h2>
               <p>
-                This link is for <strong>{crossInstance.host}</strong>. You're
-                currently on <strong>{getCanonicalHost()}</strong>.
+                This link is for <strong>{crossInstance.host}</strong>.<br />
+                You're currently on <strong>{getCanonicalHost()}</strong>.
               </p>
               <p class="mt-2 text-sm text-muted">
                 {isTauri()
