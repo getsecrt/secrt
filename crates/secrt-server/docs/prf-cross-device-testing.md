@@ -314,6 +314,27 @@ device or Hardware key" prompt, even constrained get() ceremonies
 complete normally with PRF output intact. The cost is friction (4 user
 actions per YubiKey registration vs 2 baseline), not breakage.
 
+### H5 — 1Password as picker drops PRF
+
+**OPEN.** The 2026-04 spike showed `prf: undefined` for a 1Password
+credential picked through 1Password's UI on Safari/macOS, and that
+result was filed as evidence 1Password drops the extension. We now
+know Safari/macOS itself re-wraps / drops PRF for non-iCloud
+credentials regardless of who the picker is, so the original test
+was confounded — we cannot attribute the failure to 1Password from
+that trace alone.
+
+1Password publicly shipped PRF for their own unlock flow, suggesting
+the WebAuthn extension is wired up at least somewhere in their stack.
+
+**Test:** sign in on Chromium/macOS using a 1Password-stored secrt
+credential, capture `[secrt:webauthn-get]`. If `prfExtPresent: true`
+and `hasPrfOutput: true`, 1Password forwards PRF and the cohort table
+needs another correction. If `prfExtPresent: false`, original finding
+stands and 1Password genuinely drops it.
+
+Pending the retest, 1Password is **uncertain**, not confirmed-broken.
+
 ---
 
 ## 6. Methodological notes & gotchas

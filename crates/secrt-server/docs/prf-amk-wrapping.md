@@ -583,7 +583,7 @@ observed per surface. Update as more devices are tested.
 | Chrome on Android + Google Password Manager      | ✓             |           | wrap+unwrap OK (fingerprint not recorded)                  |
 | Chrome on macOS + Google Password Manager        | ✗             | ✗         | `enabled=false` — see GPM-on-desktop caveat below          |
 | Bitwarden as picker (Chrome on macOS)            | ✓ (with friction) | ✓ (with friction) | 2026-05-02: refined model — Bitwarden gates the WebAuthn UI but does not modify assertion bytes. PRF works when the user navigates through "Use your device or hardware key." Costs ~4 user actions per YubiKey registration vs 2 baseline. See Bitwarden caveat. |
-| 1Password as picker (Safari on macOS)            | ✗             | ✗         | `prf: undefined` — see 1Password caveat                    |
+| 1Password as picker (Safari on macOS, 2026-04)   | ?             | ?         | Original spike showed `prf: undefined`, but **Safari/macOS itself strips/re-wraps PRF for non-iCloud credentials** (confirmed 2026-05). The 2026-04 result is confounded; cannot attribute to 1Password vs Safari. Needs Chromium retest. See 1Password caveat. |
 | YubiKey 5C NFC on Vivaldi ↔ Chrome (macOS)       | ✓             | ✓         | 2026-05-01: AMK transfers cross-browser. Reference fp `ae46d371655a91c5` (localhost) / `7baef9877a382253` (`secrt.is`). |
 | YubiKey 5C NFC on **macOS Safari**               | n/a           | ✗ broken  | 2026-05-01: same credential, **different** PRF output (`156c06de00de5149`) than Chromium reading the same key on the same Mac. Apple WebAuthn framework intercepts. See "Apple WebAuthn framework" caveat below. |
 | YubiKey 5C NFC on iPhone Safari (any iOS)        | n/a           | ✗ broken  | Auth succeeds, AMK does not transfer — same root cause as macOS Safari above. See "Apple WebAuthn framework" caveat below. |
@@ -597,15 +597,28 @@ only meaningfully set at create time; at get time the relevant signal is whether
 correct interpretation is "PRF output present" whenever `hasResultsFirst=true`. The Phase
 B and Phase D code should never read `enabled` at get time — only `results.first`.
 
-### 1Password caveat
+### 1Password caveat — UNCERTAIN, needs retest
 
-1Password as a credential picker also returned `prf: undefined` (Safari on macOS, 2026-04
-spike). Same root cause class as the Bitwarden caveat — the picker's WebAuthn passthrough
-doesn't forward the PRF extension, regardless of whether 1Password's underlying
-authenticator could in principle support it.
+The 2026-04 spike showed 1Password as picker on Safari/macOS returning
+`prf: undefined`, and that result was filed as a 1Password limitation
+in the cohort matrix. **That conclusion is now in doubt:** subsequent
+testing (2026-05) confirmed Safari/macOS itself strips PRF / re-wraps
+`hmac-secret` for *anything* that isn't iCloud Keychain — so the spike
+test was confounded by Safari's behavior on top of 1Password's, and
+we cannot disentangle the two from the original trace.
 
-User impact: same fallback story as Bitwarden — sync-link / API-key path remains the only
-new-device unlock for 1Password-stored secrt credentials.
+1Password publicly shipped PRF support for their own unlock flow, and
+their WebAuthn implementation may forward the extension correctly when
+tested in a non-Safari environment. **Action needed:** retest 1Password
+as picker on Chromium/macOS (where Safari interception isn't a factor)
+to determine actual behavior. Until that retest happens, treat 1Password
+as an open question rather than a confirmed-broken cohort.
+
+If a Chromium test shows 1Password forwarding PRF correctly, the cohort
+story for 1Password users becomes the same as the
+"Bitwarden installed but credential held elsewhere" pattern: works,
+maybe with friction, but not the broken-cohort fallback story we
+currently document.
 
 Note on cross-row fingerprint comparison: PRF outputs are per-credential. Different
 registrations on different surfaces produce different credentials and therefore different
@@ -858,7 +871,7 @@ Decisions #18–22). Summary of what lands where:
 | Cohort                                            | Desktop                                                       | iPhone / iOS                                                              |
 | ------------------------------------------------- | ------------------------------------------------------------- | ------------------------------------------------------------------------- |
 | Default users (Apple/Google synced passkeys)      | PRF unlock — single-tap on new devices.                       | PRF unlock — single-tap.                                                  |
-| 1Password storing the secrt credential            | PRF dropped — sync-link / API-key fallback until 1Password ships PRF passthrough. | Same fallback.                                                            |
+| 1Password storing the secrt credential            | **Uncertain — needs retest on Chromium.** 2026-04 spike showed PRF dropped, but the test was on Safari/macOS where Apple's framework also drops/re-wraps PRF for non-iCloud credentials. 1Password publicly shipped PRF support; the spike result may have been Safari interference rather than 1Password itself. | Same uncertainty until retested. |
 | Bitwarden storing the secrt credential            | PRF dropped — Bitwarden's authenticator doesn't forward the extension. Sync-link / API-key fallback until Bitwarden ships it. | Same fallback. |
 | Bitwarden installed but credential held elsewhere (e.g. YubiKey) | PRF works, but Bitwarden's picker UI gates every WebAuthn ceremony. ~4 user actions per YubiKey registration vs 2 baseline. Recommend disabling Bitwarden during initial passkey registration. | Same friction pattern if Bitwarden is the iOS picker. |
 | Ultra-paranoid (YubiKey)                          | PRF unlock works on **Chromium only** (Chrome/Edge/Vivaldi). **Safari** and **Firefox** both broken on macOS — Safari because Apple's WebAuthn framework re-wraps `hmac-secret`, Firefox because its v148+ PRF support is platform-credential-only. Recommend 2× YubiKey + written-down API key, and explicitly direct users to a Chromium browser on macOS. | YubiKey signs in but **AMK does not transfer** (same Apple-framework root cause). Sync-link / API-key required, OR add an iCloud Keychain passkey for iOS use. |
