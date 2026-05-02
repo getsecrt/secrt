@@ -794,6 +794,8 @@ spec'd. Phase A gate is cleared for the most important surface.
 - External YubiKey on **any Safari** (macOS or iOS) — confirmed broken (2026-05-01, both surfaces) and now treated as a documented platform limitation rather than a TODO. See "Apple WebAuthn framework caveat" below.
 - External YubiKey on **Firefox 150.1** (macOS, prod) — confirmed broken 2026-05-02. PRF extension stripped entirely; Firefox's PRF support appears to be platform-credential-only. See "Firefox caveat" below.
 
+> **YubiKey deep-dive:** for a focused, user-facing explanation of which surfaces work, why the broken ones can't be fixed by Yubico, and recommended setups for YubiKey users (including the trust-model trade-off of pairing a YubiKey with a complementary platform credential), see [`yubikeys.md`](yubikeys.md).
+
 > **Backfilling this table from real captures:** the rows above were collected
 > by hand. As of task #62 (`.taskmaster/plans/task-62-prf-amk-diagnostic-logging.md`),
 > the web client has gated diagnostic logging behind
