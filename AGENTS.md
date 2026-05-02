@@ -227,7 +227,71 @@ When non-trivial, add a body with bullet points explaining key changes and ratio
 
 All crates share the workspace version in `Cargo.toml` (`[workspace.package] version`). Bump it in one place and all crates update together.
 
-**CHANGELOG.md** lives at `crates/secrt-cli/CHANGELOG.md` and follows [Keep a Changelog](https://keepachangelog.com/) format. Update it with every user-facing change under the appropriate heading (`Added`, `Changed`, `Fixed`, `Removed`).
+**CHANGELOG.md** lives at `crates/secrt-cli/CHANGELOG.md` and `crates/secrt-server/CHANGELOG.md`, both follow [Keep a Changelog](https://keepachangelog.com/) format, and both are the **source of truth** for GitHub Release bodies (the release workflows read directly from these files via `scripts/extract-changelog-entry.sh`).
+
+### How to write a changelog entry
+
+The changelog is read by humans — operators deciding whether to upgrade, contributors looking for context, downstream automation maintainers, and CLI users skimming `secrt --version` output. Entries should be scannable at a glance and rewarding to read in depth.
+
+**Structure of a release block:**
+
+```markdown
+## X.Y.Z — YYYY-MM-DD
+
+Optional 1–3 sentence summary if the release has a theme or context worth
+naming up front. Skip this if the categorized list speaks for itself.
+
+### Added | Changed | Fixed | Security | Deprecated | Removed
+
+- **One-line scannable summary of the change (≤20 words, period at end).**
+
+  Optional supporting paragraph. Sentences flow normally because they live
+  in paragraph context, not jammed into a list item. Use this for the
+  *why* — motivation, prior incident, surprise — not for restating the
+  one-liner above.
+
+  - Sub-bullet for a related detail
+  - Sub-bullet for another related detail
+
+  Spec: `path/to/spec.md` §X. Files: `path/to/file.ts`. Issue: #123.
+
+- **Next change.** Short ones can be a single bolded sentence with no
+  body — that's preferred when one line genuinely says it all.
+```
+
+**Rules of thumb:**
+
+- **One bullet = one change.** If it took two paragraphs to explain, it's two changes — split them. The exception is a single architectural change with several user-visible facets; in that case use the headline + indented body + sub-bullets pattern above.
+- **Headline first, in bold, ≤20 words, period-terminated.** The reader should know what changed before they decide whether to read further. Lead with user impact, not implementation (`"iCloud Keychain login no longer 401s after first sign-in"` beats `"signCount=0 now treated as counter-less"`).
+- **Past tense, action verbs.** `Added`, `Changed`, `Fixed` — not `Adding` or `Will add`.
+- **Cap any single line at ~25 words.** Run-on lines render as a wall of text in `<li>` tags on GitHub. If a sentence wants to be longer, break it or move it to the supporting paragraph.
+- **References on their own line at the end.** `Spec:`, `Files:`, `Issue:`, `PR:` — never inline mid-prose. Easier to skim past, easier to find when you need them.
+- **No commit-log dumps, no "various improvements," no jargon-only entries.** Each change should be specific enough to be useful and human enough to be readable.
+- **Optional release-level summary** at the top of a version block, before the categorized lists, when the theme deserves naming (security incident response, a coherent migration, a user-visible UX overhaul). Skip it for routine releases — the categorized list is the thing.
+- **Lockstep version bumps with no real changes** get one bullet that says so plainly: `_No CLI changes — workspace version bump in lockstep with server release X.Y.Z._` Don't fabricate content to fill space.
+
+**Categories (Keep a Changelog 1.1.0):**
+
+- `Added` — new functionality.
+- `Changed` — modifications to existing behavior.
+- `Deprecated` — features still present but slated for removal; name the version they'll go.
+- `Removed` — deleted features. Always cross-reference the prior `Deprecated` notice.
+- `Fixed` — bug corrections. Include the user-visible symptom, not just the code path.
+- `Security` — vulnerability patches. Include severity (low/medium/high/critical) and whether external disclosure is involved.
+
+**Anti-pattern (the failure mode this convention exists to prevent):**
+
+```markdown
+### Added
+
+- **Some headline.** Then 150 words of dense technical detail jammed into the
+  same bullet, covering motivation, mechanism, decision rationale, sub-features,
+  spec references, file paths, and a cross-link, all in one unbroken sentence
+  that GitHub's renderer turns into an unreadable wall of text inside a single
+  `<li>` tag. (See releases prior to 0.17.6 for live examples.)
+```
+
+If you catch yourself writing a bullet like this, stop, extract the headline, move the body into an indented paragraph, pull related details into sub-bullets, and put references on a separate trailing line.
 
 ### Release process
 
