@@ -582,11 +582,12 @@ observed per surface. Update as more devices are tested.
 | Safari on iOS + Apple Passwords (iCloud)         | ✓             | ✓         | fp `150eed07 a4944b7d`. Round-trip OK on same device.      |
 | Chrome on Android + Google Password Manager      | ✓             |           | wrap+unwrap OK (fingerprint not recorded)                  |
 | Chrome on macOS + Google Password Manager        | ✗             | ✗         | `enabled=false` — see GPM-on-desktop caveat below          |
-| Bitwarden as picker (Chrome on macOS)            | ✗             | ✗         | `prf: undefined` for create; intercepts get() too — see Bitwarden caveat |
+| Bitwarden as picker (Chrome on macOS)            | ✓ (with friction) | ✓ (with friction) | 2026-05-02: refined model — Bitwarden gates the WebAuthn UI but does not modify assertion bytes. PRF works when the user navigates through "Use your device or hardware key." Costs ~4 user actions per YubiKey registration vs 2 baseline. See Bitwarden caveat. |
 | 1Password as picker (Safari on macOS)            | ✗             | ✗         | `prf: undefined` — see 1Password caveat                    |
-| YubiKey 5C NFC on Vivaldi ↔ Chrome (macOS)       | ✓             | ✓         | 2026-05-01: AMK transfers cross-browser. Reference fp `ae46d371655a91c5`. |
+| YubiKey 5C NFC on Vivaldi ↔ Chrome (macOS)       | ✓             | ✓         | 2026-05-01: AMK transfers cross-browser. Reference fp `ae46d371655a91c5` (localhost) / `7baef9877a382253` (`secrt.is`). |
 | YubiKey 5C NFC on **macOS Safari**               | n/a           | ✗ broken  | 2026-05-01: same credential, **different** PRF output (`156c06de00de5149`) than Chromium reading the same key on the same Mac. Apple WebAuthn framework intercepts. See "Apple WebAuthn framework" caveat below. |
 | YubiKey 5C NFC on iPhone Safari (any iOS)        | n/a           | ✗ broken  | Auth succeeds, AMK does not transfer — same root cause as macOS Safari above. See "Apple WebAuthn framework" caveat below. |
+| YubiKey 5C NFC on **Firefox 150.1** (macOS)      | n/a           | ✗ broken  | 2026-05-02: `prfExtPresent: false` — Firefox strips the PRF extension entirely from the assertion response. Confirmed with and without Bitwarden. About:config has no `prf` flag to toggle. Most plausible cause: Firefox's PRF support (added in v148) is platform-credential-only, not extended to external CTAP2 authenticators. No user-side workaround. See "Firefox caveat" below. |
 
 ### iOS Safari naming quirk (not a bug)
 
@@ -641,21 +642,76 @@ Bitwarden has shipped PRF for their own E2EE flows, but the browser-WebAuthn
 passthrough depends on the picker code path, and as of this spike that path drops the
 extension.
 
-**Update 2026-05-01 (task #62 trace):** with the diagnostic logging in place we
-also observed Bitwarden's content script (`fido2-page-script.js`) intercepting the
-*second* WebAuthn ceremony in the PRF-on-get-only fallback path — even when the
-first ceremony succeeds and even when registering against a YubiKey directly via
-the OS picker. The injected script returns `NotAllowedError`/`timed out`,
-breaking the wrap+PUT step. Trace and resolution are in
-`prf-cross-device-testing.md` §4.
+**Refined model 2026-05-02 (multiple Round B traces on `secrt.is`):**
+Bitwarden's content script (`fido2-page-script.js`) does **not** modify
+assertion bytes or strip extensions. What it does is insert a UI gate in
+front of every WebAuthn ceremony — its own picker prompt that asks the
+user to choose between Bitwarden's stored credentials and "Use your device
+or hardware key." When the user navigates through that prompt, the
+assertion proceeds normally and the PRF output comes through unchanged.
+The `NotAllowedError` we observed on 2026-05-01 was the user dismissing /
+timing out the Bitwarden popup — not corruption.
 
-For a recommended product like Bitwarden, this is unfortunate. Implication:
-1. Users storing their secrt passkey in Bitwarden will not get single-tap new-device unlock.
-2. Even users with a YubiKey will lose the PRF wrap+PUT step at registration if the Bitwarden extension is enabled in the active browser session.
-3. Falls back to the existing sync-link / API-key path — same as Firefox ≤147, external roaming authenticators on iOS Safari, etc.
-4. Subtask 6 (UX) must surface this clearly so users can pick where to store their secrt passkey with eyes open.
+The cost is friction, not breakage. A YubiKey registration with
+Bitwarden enabled requires four user actions (Bitwarden popup → tap key
+→ second Bitwarden popup for the PRF fallback get() → tap key again)
+versus two without the extension. Subsequent sign-ins are similar:
+discoverable login completes, but the user has to route through the
+Bitwarden picker each time.
 
-We should re-test periodically — Bitwarden may add the passthrough in a later release.
+Implications:
+
+1. **Bitwarden does not break PRF.** The earlier characterization
+   ("Bitwarden silently drops PRF") was wrong for the YubiKey path —
+   tied to the 2026-04 spike's testing where Bitwarden was the picker
+   *for its own stored credential* (a different code path, where PRF
+   genuinely is dropped because Bitwarden's authenticator doesn't
+   support it).
+2. **Users who store their secrt credential in Bitwarden's vault** still
+   lose PRF — Bitwarden's authenticator implementation doesn't forward
+   the extension. The 2026-04 finding stands for *this* configuration.
+3. **Users with a YubiKey + Bitwarden installed but secrt credential
+   not stored in Bitwarden** can use PRF, but pay the friction cost.
+   Recommend disabling Bitwarden during initial registration to avoid
+   the double-popup; re-enable afterward.
+4. **Onboarding copy** should distinguish "Bitwarden as picker for its
+   own credential" (PRF dropped, use sync-link) from "Bitwarden present
+   but not the credential holder" (PRF works, just clunky UX). These
+   are different cohorts with different fallback stories.
+
+We should re-test periodically — Bitwarden may add the PRF passthrough
+to its own authenticator in a later release.
+
+### Firefox caveat (confirmed broken 2026-05-02)
+
+Firefox 150.1 on macOS does not return a PRF output for external CTAP2
+authenticators (USB YubiKey verified). The assertion completes — the
+user is signed in — but `getClientExtensionResults()` returns no `prf`
+key at all (`prfExtPresent: false` in our logging). This was tested
+both with Bitwarden enabled and disabled to rule out extension
+interference; identical result.
+
+Mechanism (inferred — not directly verified):
+
+- Firefox added PRF support in v148 (Mozilla bug 1863819 and the
+  follow-ups). However, the implementation appears to cover only
+  platform credentials (synced passkeys via OS CredMan / Touch ID) and
+  was never extended to the external CTAP2 USB pathway.
+- About:config has no `prf`-prefixed preference exposed in v150.1, so
+  there is no user-toggleable flag that would enable it.
+
+Consequences:
+
+1. Firefox + YubiKey users lose single-tap new-device unlock and fall
+   through to sync-link / API-key — same fallback path as
+   Safari + YubiKey.
+2. Firefox + Apple Passwords or Google Password Manager users *may*
+   get PRF (untested as of 2026-05-02), since those are platform
+   credentials. Worth checking before promising it in product copy.
+3. There is no client-side workaround. The right escalation is a
+   Mozilla bug requesting USB CTAP2 PRF; until that ships, Firefox is
+   in the same broken-cohort bucket as Safari for the YubiKey case.
+
 
 ### Cross-device determinism — CONFIRMED (2026-04-27)
 
@@ -668,8 +724,8 @@ spec'd. Phase A gate is cleared for the most important surface.
 ### Still informational, not gating
 
 - Chrome 147+ on Windows 11 + Hello — defer until we have Windows hardware in the loop, or to Subtask 7's CI matrix. Open hypothesis in `prf-cross-device-testing.md` §H2: Windows may intercept like Apple does, or may pass through like macOS Chrome — captured trace from a real Windows device will resolve this.
-- Firefox 148+ — small user share; defer. Couldn't load over `localhost` in 2026-05-01 testing (HMR/dev-server issue); will re-test on prod.
-- External YubiKey on **any Safari** (macOS or iOS) — confirmed broken (2026-05-01, both surfaces) and now treated as a documented platform limitation rather than a TODO. See "Apple WebAuthn framework caveat" below for the mechanism, user-impact statement, and required UX surface.
+- External YubiKey on **any Safari** (macOS or iOS) — confirmed broken (2026-05-01, both surfaces) and now treated as a documented platform limitation rather than a TODO. See "Apple WebAuthn framework caveat" below.
+- External YubiKey on **Firefox 150.1** (macOS, prod) — confirmed broken 2026-05-02. PRF extension stripped entirely; Firefox's PRF support appears to be platform-credential-only. See "Firefox caveat" below.
 
 > **Backfilling this table from real captures:** the rows above were collected
 > by hand. As of task #62 (`.taskmaster/plans/task-62-prf-amk-diagnostic-logging.md`),
@@ -751,16 +807,19 @@ instead of Safari for sign-in"; on iOS no in-browser workaround exists.
 2. The fallback recovery story (written-down API key, or sync-link from another
    logged-in device) is **load-bearing** for this cohort, not optional. Surface
    it in onboarding when a user picks YubiKey as their primary credential.
-3. **Surface the Apple-WebAuthn caveat at the moment it bites.** When a
-   YubiKey user tries to sign in via Safari (macOS or iOS) or any iOS
-   browser, expect the AMK unwrap to fail; the UI should detect this case
-   and prompt for sync-link / API-key (or, on macOS, suggest a Chromium
-   browser) instead of silently leaving them in a degraded session.
-   Recommended copy: *"YubiKeys can sign you in here but can't carry your
-   encryption key — Apple handles security keys differently than other
-   browsers. On Mac, sign in via Chrome / Edge / Firefox to get one-tap
-   unlock; on iPhone, use a sync link from another logged-in device or
-   paste an API key."*
+3. **Surface the broken-cohort caveat at the moment it bites.** When a
+   YubiKey user tries to sign in via Safari (macOS or iOS), any iOS
+   browser, or Firefox on macOS, expect the AMK unwrap to fail; the UI
+   should detect this case (see the failure-mode catalog in
+   `prf-cross-device-testing.md` §4) and prompt for sync-link / API-key
+   instead of silently leaving them in a degraded session.
+   Recommended copy: *"YubiKeys can sign you in here but can't carry
+   your encryption key on this browser. On Mac, sign in via Chrome /
+   Edge / Vivaldi to get one-tap unlock. On iPhone, use a sync link
+   from another logged-in device or paste an API key."* (Note: do
+   **not** recommend Firefox in copy — its v148+ PRF support is
+   platform-credential-only and does not work for external YubiKeys
+   as of 2026-05-02.)
 4. Recommend YubiKey users add an iCloud Keychain platform passkey to their
    account specifically for iOS use. Two passkey types on the same account is
    well-supported; on iPhone they get one-tap unlock via the iCloud-synced
@@ -799,8 +858,10 @@ Decisions #18–22). Summary of what lands where:
 | Cohort                                            | Desktop                                                       | iPhone / iOS                                                              |
 | ------------------------------------------------- | ------------------------------------------------------------- | ------------------------------------------------------------------------- |
 | Default users (Apple/Google synced passkeys)      | PRF unlock — single-tap on new devices.                       | PRF unlock — single-tap.                                                  |
-| 1Password / Bitwarden / LastPass managers today   | Sync-link or API-key fallback until those add PRF passthrough.| Same fallback.                                                            |
-| Ultra-paranoid (YubiKey)                          | PRF unlock works on Chromium (Chrome/Edge/Vivaldi) and Firefox 148+. **macOS Safari does not unwrap** — Apple framework re-wraps `hmac-secret`. Recommend 2× YubiKey + written-down API key, and use a Chromium browser on macOS. | YubiKey signs in but **AMK does not transfer** (same Apple-framework root cause as macOS Safari). Sync-link / API-key required, OR add an iCloud Keychain passkey for iOS use. |
+| 1Password storing the secrt credential            | PRF dropped — sync-link / API-key fallback until 1Password ships PRF passthrough. | Same fallback.                                                            |
+| Bitwarden storing the secrt credential            | PRF dropped — Bitwarden's authenticator doesn't forward the extension. Sync-link / API-key fallback until Bitwarden ships it. | Same fallback. |
+| Bitwarden installed but credential held elsewhere (e.g. YubiKey) | PRF works, but Bitwarden's picker UI gates every WebAuthn ceremony. ~4 user actions per YubiKey registration vs 2 baseline. Recommend disabling Bitwarden during initial passkey registration. | Same friction pattern if Bitwarden is the iOS picker. |
+| Ultra-paranoid (YubiKey)                          | PRF unlock works on **Chromium only** (Chrome/Edge/Vivaldi). **Safari** and **Firefox** both broken on macOS — Safari because Apple's WebAuthn framework re-wraps `hmac-secret`, Firefox because its v148+ PRF support is platform-credential-only. Recommend 2× YubiKey + written-down API key, and explicitly direct users to a Chromium browser on macOS. | YubiKey signs in but **AMK does not transfer** (same Apple-framework root cause). Sync-link / API-key required, OR add an iCloud Keychain passkey for iOS use. |
 
 ### Gate status: CLEARED for Phase B
 

@@ -106,19 +106,61 @@ re-wraps the `hmac-secret` value for external authenticators on macOS, not
 just iOS.** Chromium browsers bypass Apple's framework with their own CTAP
 HID stack, so they see the raw value.
 
-### Round B — Cross-OS (PENDING)
+### Round B — YubiKey 5C NFC on `secrt.is` (prod), 2026-05-02
 
-To be filled when Windows / iPhone testing happens after the next prod
-release. Expected fingerprints to capture:
+**Authenticator:** YubiKey 5C NFC, FIDO2 PIN set, USB-C connection.
+**RP:** `https://secrt.is` (prod, post-0.17.5 deploy).
+**Credentials:** two registered this round —
+  - `WDo5wF7y…` (account #1, registered Chrome with Bitwarden enabled, no popup interaction)
+  - `HCiDjl-B…` (account #2, registered Chrome with Bitwarden enabled, popup navigated through "Use your device or Hardware key")
 
-- Windows Chrome + same YubiKey → expected `ae46d371655a91c5` if Windows
-  Chrome talks CTAP HID directly (parallel to macOS Chrome). Different
-  fingerprint would imply Windows Hello / WebAuthn framework intercepts.
-- Windows Edge → same expectation as Windows Chrome (both Chromium).
-- iPhone Safari + same YubiKey via NFC → some Apple-framework-wrapped value.
-  Whether it equals macOS Safari's `156c06de00de5149` answers an open
-  question (see §5): is Apple's wrap device-bound, account-bound, or
-  framework-bound?
+| # | Browser | OS | Action | Credential | `prfOutputFingerprint` | AMK fp | Outcome |
+|---|---|---|---|---|---|---|---|
+| B1 | Chrome 147 (Bitwarden enabled, popup ignored) | macOS | Register | `WDo5wF7y` | `7baef9877a382253` | `643b887d39635064` | ✓ wrap+PUT succeeded |
+| B2 | Chrome 147 (Bitwarden enabled, popup navigated) | macOS | Sign-in (discoverable) | `WDo5wF7y` | `7baef9877a382253` | (existing) | ✓ unwrap skipped — local AMK already present (cross-session determinism confirmed: B2 fingerprint matches B1 byte-for-byte) |
+| B3 | Chrome 147 (Bitwarden enabled, popup navigated) | macOS | Register (constrained get() in fallback) | `HCiDjl-B` | `d3185505de174dc5` | `14520ee57c6ea466` | ✓ wrap+PUT succeeded — even on the constrained get() that failed in Round A1 (no extensions) |
+| B4 | Firefox 150.1 (Bitwarden enabled) | macOS | Sign-in | `HCiDjl-B` | n/a — `prfExtPresent: false` | n/a | ✗ Firefox stripped the PRF extension entirely |
+| B5 | Firefox 150.1 (Bitwarden disabled) | macOS | Sign-in | `HCiDjl-B` | n/a — `prfExtPresent: false` | n/a | ✗ Same as B4 — confirms Firefox itself, not extension |
+
+**Round B interpretation.**
+
+*Cross-session determinism (B1 → B2):* Same credential, separate WebAuthn
+ceremonies hours apart, identical fingerprint `7baef9877a382253`. The
+YubiKey + Chrome pipe is producing byte-deterministic PRF output across
+sessions. Sanity check passed at the most basic level: our wrap math has
+no per-ceremony variability sneaking in.
+
+*Bitwarden refinement (B1, B2, B3):* All three Bitwarden-enabled tests
+succeeded. Notably B3 is a constrained get() (the PRF-on-get-only
+fallback ceremony) — the same shape that *failed* in Round A's
+no-extensions-but-localhost case. This contradicts the original
+"Bitwarden hooks constrained get() and corrupts" hypothesis. Refined
+model: **Bitwarden inserts a UI gate in front of every WebAuthn ceremony
+but does not modify assertion bytes.** When the user navigates through
+Bitwarden's "Use your device or Hardware key" prompt, the assertion
+proceeds normally and PRF is delivered. The yesterday-localhost failure
+was almost certainly the user dismissing/timing-out Bitwarden's popup,
+which surfaces as `NotAllowedError` from the extension's content script
+— not data corruption.
+
+UX cost is real, though: a YubiKey registration with Bitwarden enabled
+requires four user actions (Bitwarden popup → tap key → second Bitwarden
+popup → tap key again) versus two for a Bitwarden-disabled flow. Many
+users will dismiss the second popup not realizing it's a separate
+required step.
+
+*Firefox 150.1 (B4, B5):* Both traces show
+`prfRequested: true, prfExtPresent: false, hasPrfOutput: false` —
+Firefox is not returning the PRF extension at all. Disabling Bitwarden
+makes no difference, ruling out extension-side stripping. About:config
+search for `prf` returns no existing preferences (the three radio
+buttons Firefox shows are the "create new pref" UI, not three existing
+prefs). Firefox 150.1 is **post** v148, the version that nominally added
+PRF support, so this is not a "browser too old" failure. Combined: the
+most plausible explanation is that **Firefox's PRF support is
+platform-credential-only and was never extended to external CTAP2
+authenticators via USB**. No user-facing workaround exists; would
+require Mozilla code change.
 
 ---
 
@@ -155,19 +197,39 @@ attempted. The stack frame `fido2-page-script.js` is the **content script
 injected by a browser extension** intercepting WebAuthn calls — Bitwarden's
 extension uses exactly this pattern; 1Password's looks similar.
 
-Resolution: disable the extension (or test in incognito with extensions
-not granted incognito access) and retry. If the failure goes away, the
-extension is the cause. As of 2026-05-01 we've directly observed Bitwarden
-intercepting the second ceremony in the PRF-on-get-only fallback path on
-Chrome/macOS.
+Refined model (2026-05-02 prod testing): the extension is **not corrupting
+or stripping** assertion data — it's gating the WebAuthn flow behind its
+own UI prompt. The `NotAllowedError` happens when the user dismisses or
+times out the extension's popup. When the user navigates through the
+extension's "Use your device or hardware key" option, the assertion
+proceeds normally and PRF is delivered intact — even on constrained
+get() ceremonies in the PRF-on-get-only fallback path.
+
+Resolution: either dismiss the extension popup is **not** the answer
+(it produces this error). Instead, click through the extension's
+"Use your device or hardware key" option to route the assertion to the
+hardware authenticator. For users who don't want the friction, disable
+the extension during initial passkey registration and re-enable
+afterward — subsequent sign-ins work cleanly with the extension active
+because the discoverable login flow lets the user pick directly through
+the extension's UI.
 
 ### `[secrt:webauthn-get]` shows `hasPrfOutput: false`
 
-The assertion completed but no PRF output came back. Authenticator or
-picker dropped the extension entirely (`prfExtPresent: false`) or the
-authenticator declined to evaluate it (`prfExtPresent: true,
-hasPrfOutput: false`). Either way, the PRF unlock path is dead for this
-credential on this surface — caller falls through to sync-link / API-key.
+The assertion completed but no PRF output came back. Two distinct
+sub-cases distinguished by `prfExtPresent`:
+
+- **`prfExtPresent: false`** — the browser/picker dropped the extension
+  entirely from the assertion response. Confirmed cases (2026-05-02):
+  Firefox 150.1 with external YubiKey on macOS. Cause appears to be
+  Firefox's PRF support being platform-credential-only, not extended to
+  external CTAP2 authenticators. No client workaround exists.
+- **`prfExtPresent: true, hasPrfOutput: false`** — extension is
+  acknowledged but the authenticator declined to evaluate it. Some
+  Safari + iCloud configurations do this (`enabled=false` style).
+
+Either way, the PRF unlock path is dead for this credential on this
+surface — caller falls through to sync-link / API-key.
 
 ### `[secrt:prf-unwrap]` says `'skipping unwrap, local AMK already present'`
 
@@ -231,27 +293,26 @@ identified a second platform with the same caveat.
 
 ### H3 — Firefox on a real HTTPS origin behaves like Chromium
 
-Firefox couldn't load the localhost dev server in Round A. Once we deploy
-to a real HTTPS origin, Firefox 148+ should — based on its own CTAP stack —
-produce the raw `hmac-secret` and match Chromium's `ae46d371655a91c5`.
-
-**Test:** sign in on Firefox 148+ on prod with the same YubiKey credential
-and capture `prfOutputFingerprint`. Equals `ae46d371655a91c5` → Firefox is
-in the "works" set with Chromium. Differs → Firefox is doing its own
-processing, which would be surprising.
+**RESOLVED — disproved (Round B4, B5, 2026-05-02).** Firefox 150.1 on
+prod returns `prfExtPresent: false` for an external YubiKey, with or
+without Bitwarden. About:config has no `prf` preference to toggle. Most
+plausible explanation: Firefox's PRF support (added in v148) is
+platform-credential-only and was never extended to external CTAP2
+authenticators. No client-side workaround exists; would require a
+Mozilla code change. Tracked upstream via bug 1863819 (PRF meta-bug);
+file a follow-up requesting USB CTAP2 PRF if/when we want to push it.
 
 ### H4 — The Bitwarden `NotAllowedError` is specific to the get() ceremony, not create()
 
-In Round A, registration with Bitwarden enabled produced a credential
-successfully (the `webauthn-create` line completed) but the *second*
-ceremony (the fallback get() to obtain PRF output) failed with the
-extension-injected error. That suggests Bitwarden hooks `get()` more
-aggressively than `create()`, or only intercepts when `allowCredentials`
-constrains the picker.
-
-**Test:** ignore for now — we have a workaround (don't register with
-extensions on) and Bitwarden's PRF passthrough is a vendor problem to
-escalate via their issue tracker, not for us to design around.
+**RESOLVED — disproved by Round B (2026-05-02).** Refined model:
+Bitwarden inserts a UI gate in front of every WebAuthn ceremony but
+does not modify assertion bytes. The Round A localhost failure was the
+user dismissing/timing-out Bitwarden's popup, surfacing as
+`NotAllowedError` from the extension's content script — not data
+corruption. When the user navigates through Bitwarden's "Use your
+device or Hardware key" prompt, even constrained get() ceremonies
+complete normally with PRF output intact. The cost is friction (4 user
+actions per YubiKey registration vs 2 baseline), not breakage.
 
 ---
 
@@ -314,3 +375,4 @@ effectively zero.
 | Date | Change |
 |---|---|
 | 2026-05-01 | Initial draft. Round A captured (YubiKey + Mac matrix). Apple WebAuthn macOS Safari interception confirmed. |
+| 2026-05-02 | Round B captured on prod (`secrt.is`). H3 (Firefox matches Chromium) disproved — Firefox 150.1 strips PRF entirely for external authenticators. H4 (Bitwarden corrupts) disproved — Bitwarden gates UI but doesn't modify assertion bytes. Refined Bitwarden failure-mode entry; refined `prfExtPresent: false` failure mode with sub-cases. Cross-session determinism (B1 → B2) confirmed on Mac Chrome. |
