@@ -4,93 +4,138 @@
 
 ## 0.17.5 — 2026-05-02
 
-No CLI-facing changes. Workspace version bump in lockstep with the server release that adds gated client-side diagnostic logging for AMK / PRF flows in the web client — see `crates/secrt-server/CHANGELOG.md`.
+_No CLI changes — workspace version bump in lockstep with `server/v0.17.5` (gated client-side AMK / PRF diagnostic logging in the web client). See `crates/secrt-server/CHANGELOG.md`._
 
 ## 0.17.4 — 2026-04-28
 
-No CLI-facing changes. Workspace bump in lockstep with the server release that adds structured passkey ceremony logs — see `crates/secrt-server/CHANGELOG.md`.
+_No CLI changes — workspace version bump in lockstep with `server/v0.17.4` (structured passkey ceremony logs). See `crates/secrt-server/CHANGELOG.md`._
 
 ## 0.17.3 — 2026-04-28
 
-No CLI-facing changes. Workspace bump in lockstep with the server release that fixes iCloud Keychain login regression — see `crates/secrt-server/CHANGELOG.md`.
+_No CLI changes — workspace version bump in lockstep with `server/v0.17.3` (iCloud Keychain login regression fixed). See `crates/secrt-server/CHANGELOG.md`._
 
 ## 0.17.2 — 2026-04-28
 
-No CLI-facing changes. Workspace version bump to keep the CLI in lockstep with the server release, which adds a per-IP rate limiter on the unauthenticated passkey ceremony /start endpoints — see `crates/secrt-server/CHANGELOG.md`.
+_No CLI changes — workspace version bump in lockstep with `server/v0.17.2` (per-IP rate limiter on passkey ceremony /start endpoints). See `crates/secrt-server/CHANGELOG.md`._
 
 ## 0.17.1 — 2026-04-28
 
-No CLI-facing changes. Workspace version bump to keep the CLI in lockstep with the server release, which switches passkey login to a single-prompt discoverable-credential flow — see `crates/secrt-server/CHANGELOG.md`.
+_No CLI changes — workspace version bump in lockstep with `server/v0.17.1` (single-prompt discoverable-credential passkey login). See `crates/secrt-server/CHANGELOG.md`._
 
 ## 0.17.0 — 2026-04-28
 
-No CLI-facing changes. Workspace version bump to keep the CLI release in lockstep with the server release, which enforces real WebAuthn assertion verification on all passkey `/finish` endpoints — see `crates/secrt-server/CHANGELOG.md`. The CLI does not exercise passkey endpoints, so the wire-format break does not affect CLI users; `MIN_SUPPORTED_CLI_VERSION` is unchanged.
+_No CLI changes — workspace version bump in lockstep with `server/v0.17.0` (real WebAuthn assertion verification on all passkey `/finish` endpoints, plus a wire-format break for passkey rows). The CLI does not exercise passkey endpoints, so the wire-format break does not affect CLI users; `MIN_SUPPORTED_CLI_VERSION` is unchanged. See `crates/secrt-server/CHANGELOG.md`._
 
 ## 0.16.9 — 2026-04-27
 
-No CLI-facing changes. Workspace version bump to keep the CLI release in lockstep with the server release, which adds the WebAuthn PRF upgrade path for pre-PRF credentials, wires PRF into the add-passkey flow, surfaces `prf_supported` on passkey list items, and tightens the CSP integration test — see `crates/secrt-server/CHANGELOG.md`.
+_No CLI changes — workspace version bump in lockstep with `server/v0.16.9` (PRF upgrade path for pre-PRF credentials, add-passkey PRF wiring, `prf_supported` on `PasskeyItem` list responses). See `crates/secrt-server/CHANGELOG.md`._
 
 ## 0.16.8 — 2026-04-27
 
-No CLI-facing changes. Workspace version bump to keep the CLI release in lockstep with the server release, which adds beta WebAuthn PRF AMK wrapping for browser one-tap unlock — see `crates/secrt-server/CHANGELOG.md`. CLI bootstrap via PRF (verification-URL flow) is tracked as a future change.
+_No CLI changes — workspace version bump in lockstep with `server/v0.16.8` (beta WebAuthn PRF AMK wrapping for browser one-tap unlock). CLI bootstrap via PRF (verification-URL flow) is tracked as a future change. See `crates/secrt-server/CHANGELOG.md`._
 
 ## 0.16.7 — 2026-04-27
 
-No CLI-facing changes. Workspace version bump to keep the CLI release in lockstep with the server release (which fixes a stale-favicon CSP issue and a Cache-Control bug — see `crates/secrt-server/CHANGELOG.md`).
+_No CLI changes — workspace version bump in lockstep with `server/v0.16.7` (stale-favicon CSP issue and Cache-Control bug fixed). See `crates/secrt-server/CHANGELOG.md`._
 
 ## 0.16.6 — 2026-04-27
 
-No CLI-facing changes. Workspace version bump to keep the CLI release in lockstep with the server release (which fixes a favicon CSP issue exposed by the 0.16.5 enforcing strict CSP — see `crates/secrt-server/CHANGELOG.md`).
+_No CLI changes — workspace version bump in lockstep with `server/v0.16.6` (favicon CSP issue exposed by 0.16.5's enforcing strict CSP). See `crates/secrt-server/CHANGELOG.md`._
 
 ## 0.16.5 — 2026-04-27
 
-No CLI-facing changes. Workspace version bump to keep the CLI release in lockstep with the server release (which flips CSP from Report-Only to enforcing and ships an SPA refactor — see `crates/secrt-server/CHANGELOG.md`).
+_No CLI changes — workspace version bump in lockstep with `server/v0.16.5` (CSP flipped from Report-Only to enforcing; SPA refactor to drop CSSOM writes). See `crates/secrt-server/CHANGELOG.md`._
 
 ## 0.16.4 — 2026-04-26
 
 ### Fixed
 
-- **`secrt config init` template no longer references a 404'ing docs URL.** The header comment now points at the README's Configuration section on GitHub (`https://github.com/getsecrt/secrt/blob/main/crates/secrt-cli/README.md#configuration`) instead of the dead `https://secrt.ca/docs/config`. Closes GH#41.
+- **`secrt config init` template no longer references a 404'ing docs URL.**
+
+  The header comment now points at the README's Configuration section on GitHub (`https://github.com/getsecrt/secrt/blob/main/crates/secrt-cli/README.md#configuration`) instead of the dead `https://secrt.ca/docs/config`.
+
+  Closes GH#41.
 
 ## 0.16.3 — 2026-04-26
 
-No user-facing CLI changes. Workspace version bump only — released alongside `server/v0.16.3` (which adds the `server_version` field to `/api/v1/info` and the `X-Secrt-Server-Version` response header). The matching `secrt-core::InfoResponse::server_version: Option<String>` field is added in this release for forward compatibility, so future CLI features can read it.
+_No user-facing CLI changes. Workspace version bump in lockstep with `server/v0.16.3` (which adds the `server_version` field to `/api/v1/info` and the `X-Secrt-Server-Version` response header). The matching `secrt-core::InfoResponse::server_version: Option<String>` field is added in this release for forward compatibility, so future CLI features can read it._
 
 ## 0.16.2 — 2026-04-26
 
 ### Changed
 
-- **`secrt update` permission-denied message now branches on system vs user install.** When the failing install dir is a known system path (`/usr/local/bin`, `/usr/bin`, `/usr/local/sbin`, `/usr/sbin`, or `/opt/<segment>/bin`), the error suggests `sudo secrt update` and labels the path as system-wide; user-space paths continue to suggest `--install-dir ~/.local/bin` with no sudo hint. The previous behavior — always recommending `--install-dir ~/.local/bin` regardless of where the binary lived — was actively counterproductive on root-owned system installs: it created a parallel install in user-space while leaving the privileged binary in place at the original location, with `PATH` ordering deciding which one ran. **Supersedes the 0.16.0 "always `--install-dir`, never sudo" rule** for the specific case of detected system paths; user-space installs still get the least-privilege default.
+- **`secrt update` permission-denied message now branches on system vs user install.**
+
+  When the failing install dir is a known system path (`/usr/local/bin`, `/usr/bin`, `/usr/local/sbin`, `/usr/sbin`, or `/opt/<segment>/bin`), the error suggests `sudo secrt update` and labels the path as system-wide. User-space paths continue to suggest `--install-dir ~/.local/bin` with no sudo hint.
+
+  The previous behaviour — always recommending `--install-dir ~/.local/bin` regardless of where the binary lived — was actively counterproductive on root-owned system installs: it created a parallel install in user-space while leaving the privileged binary in place at the original location, with `PATH` ordering deciding which one ran.
+
+  **Supersedes the 0.16.0 "always `--install-dir`, never sudo" rule** for the specific case of detected system paths. User-space installs still get the least-privilege default.
 
 ## 0.16.1 — 2026-04-26
 
 ### Fixed
 
-- **`secrt update --check --version <X>` now validates that `<X>` exists.** Previously the comparison was string-only — `secrt update --check --version 99.99.99` would happily exit 0 with "99.99.99 available!" without ever asking GitHub. Now it fetches the release's checksum file and surfaces a clean error (`exit 1`) when the version doesn't exist, naming the bogus version and pointing at the release URL. The check still runs zero extra network calls when `--version` is omitted (we already round-trip GitHub via the channel resolver).
-- **Windows: `secrt update` no longer falsely refuses with "managed install" on plain Windows binaries.** `fs::canonicalize` on Windows returns paths in extended-length form (`\\?\D:\...`) while `current_exe()` returns the plain form (`D:\...`). The pre-existing path classifier compared them lexically, so every Windows install differed from its canonical and got classified as `GenericSymlink` → `MANAGED_INSTALL` (exit 3). The classifier now strips the `\\?\` prefix before comparing, so Windows installs follow the same `Plain → self-update OK` path as Unix.
+- **`secrt update --check --version <X>` now validates that `<X>` exists.**
+
+  Previously the comparison was string-only — `secrt update --check --version 99.99.99` would happily exit 0 with "99.99.99 available!" without ever asking GitHub. Now it fetches the release's checksum file and surfaces a clean error (`exit 1`) when the version doesn't exist, naming the bogus version and pointing at the release URL.
+
+  The check still runs zero extra network calls when `--version` is omitted (we already round-trip GitHub via the channel resolver).
+
+- **Windows: `secrt update` no longer falsely refuses with "managed install" on plain Windows binaries.**
+
+  `fs::canonicalize` on Windows returns paths in extended-length form (`\\?\D:\...`) while `current_exe()` returns the plain form (`D:\...`). The pre-existing path classifier compared them lexically, so every Windows install differed from its canonical and got classified as `GenericSymlink` → `MANAGED_INSTALL` (exit 3).
+
+  The classifier now strips the `\\?\` prefix before comparing, so Windows installs follow the same `Plain → self-update OK` path as Unix.
 
 ## 0.16.0 — 2026-04-26
 
+`secrt update` self-update plus a server-driven update-check banner. CLIs can now upgrade themselves and learn about new versions opportunistically without burning GitHub rate limit on every command.
+
 ### Added
 
-- **`secrt update` self-update subcommand.** Downloads the published raw per-platform binary (`secrt-darwin-arm64`, `secrt-linux-amd64`, `secrt-windows-amd64.exe`, etc.) from the matching GitHub release, verifies it against the published `secrt-checksums-sha256.txt`, and atomically replaces the running binary (Unix `rename(2)` over the live inode; Windows rename-self-aside with `MoveFileEx(MOVEFILE_DELAY_UNTIL_REBOOT)` fallback). Acquires an exclusive install lock (`flock(2)` on Unix, `LockFileEx` on Windows) so concurrent invocations cannot interleave.
+- **`secrt update` self-update subcommand.**
+
+  Downloads the published raw per-platform binary (`secrt-darwin-arm64`, `secrt-linux-amd64`, `secrt-windows-amd64.exe`, etc.) from the matching GitHub release, verifies it against the published `secrt-checksums-sha256.txt`, and atomically replaces the running binary.
+
+  - **Atomic replacement:** Unix `rename(2)` over the live inode; Windows rename-self-aside with `MoveFileEx(MOVEFILE_DELAY_UNTIL_REBOOT)` fallback.
+  - **Concurrency:** acquires an exclusive install lock (`flock(2)` on Unix, `LockFileEx` on Windows) so concurrent invocations cannot interleave.
   - **Flags:** `--check` (report only), `--force` (re-download even if up to date), `--version <X.Y.Z>` (pin a specific version — strict `\d+.\d+.\d+` on `--channel stable`; `\d+.\d+.\d+(-(rc|beta|alpha).\d+)?` on `--channel prerelease`), `--install-dir <path>` (install to a separate dir; binary is named `secrt[.exe]` regardless of how the running binary was named), `--channel <stable|prerelease>` (default `stable`; with `prerelease`, `--version` MUST be supplied — auto-discovery of the highest prerelease tag is reserved for the next revision), and a hidden `--release-base-url <url>` test seam that mirrors `ReqwestFetcher::with_base_url` from the server poller.
   - **Managed-install refusal** (exit 3) for Homebrew Cellar, asdf, mise, Nix store, cargo `~/.cargo/bin`, and a generic-symlink fallback. Each refusal prints the exact upgrade command for that manager (e.g., `Run: brew upgrade secrt`).
-  - **Permission-denied messages always suggest `--install-dir`**, never `sudo` (running self-update with elevated privileges is hostile to least-privilege practice).
+  - **Permission-denied messages always suggest `--install-dir`**, never `sudo` (running self-update with elevated privileges is hostile to least-privilege practice). Refined in 0.16.2 to allow sudo for known system paths.
   - **Hidden `--cleanup` flag** deletes leftover `secrt.exe.old` on Windows; invoked automatically at startup of every `secrt` command (cheap no-op on Unix).
   - **Exit codes:** `0` success, `1` generic, `2` SHA-256 mismatch (loud halt with both expected + actual hashes), `3` managed install refused, `4` permission denied, `5` install-lock contention.
-- **Implicit update-check banner.** After every command, the CLI reads `$XDG_CACHE_HOME/secrt/update-check.json` (24h TTL) and prints a two-line stderr banner when a newer version is available:
+
+- **Implicit update-check banner.**
+
+  After every command, the CLI reads `$XDG_CACHE_HOME/secrt/update-check.json` (24h TTL) and prints a two-line stderr banner when a newer version is available:
 
   ```
   secrt 0.16.0 available (current: 0.15.0)
     secrt update
   ```
 
-  The header line is **DIM**, the indented `secrt update` line is **bold cyan** so the upgrade command is trivially copy-pasteable. The banner is **cache-only and never initiates a network request**. The cache refreshes opportunistically from `/api/v1/info` body fields (any command that calls it) and from `X-Secrt-Latest-Cli-Version*` / `X-Secrt-Min-Cli-Version` response headers on every other server response. `secrt update --check` prints the same shape on stdout (always — TTY or not — but only colorizes when stdout is interactive).
-- **`--no-update-check` global flag** plus `update_check = false` config key plus `SECRET_NO_UPDATE_CHECK=1` env var, all of which suppress the banner. The matrix also suppresses on `--silent`, `--json`, `secrt update` itself, stdout-binary-to-pipe, and **stderr-not-a-TTY** (CI logs and redirected stderr stay clean by default).
+  The header line is **DIM**, the indented `secrt update` line is **bold cyan** so the upgrade command is trivially copy-pasteable.
+
+  The banner is **cache-only and never initiates a network request.** The cache refreshes opportunistically from `/api/v1/info` body fields (any command that calls it) and from `X-Secrt-Latest-Cli-Version*` / `X-Secrt-Min-Cli-Version` response headers on every other server response.
+
+  `secrt update --check` prints the same shape on stdout (always — TTY or not — but only colorizes when stdout is interactive).
+
+- **`--no-update-check` global flag plus `update_check = false` config key plus `SECRET_NO_UPDATE_CHECK=1` env var**, all of which suppress the banner.
+
+  The matrix also suppresses on `--silent`, `--json`, `secrt update` itself, stdout-binary-to-pipe, and **stderr-not-a-TTY** (CI logs and redirected stderr stay clean by default).
+
 - **`User-Agent: secrt/<version>`** is now sent on every CLI HTTP request, so servers can correlate usage by version and trigger version-specific incident remediation.
-- **Min-supported-version awareness.** When the running CLI is below the server's `min_supported_cli_version`, the banner is replaced with a stronger `warning: secrt <version> may not be compatible with this server.` notice.
-- **`--channel prerelease` for `secrt update`.** `secrt update --channel prerelease` accepts both stable and prerelease tags. `--version` MAY include a prerelease suffix matching `\d+.\d+.\d+-(rc|beta|alpha).\d+`. When `--version` is omitted the CLI queries the GitHub Releases API and picks the highest matching tag via `update_check::compare_semver`'s `(major, minor, patch)` then `(channel_rank, index)` ordering — a stable triplet still sorts above its own prerelease, so on a release set containing both `0.16.0` and `0.16.0-rc.1`, the resolver returns `0.16.0`. The implicit update-check banner is unaffected and continues to consider stable releases only. The `update_channel` config key remains Reserved; durable per-user channel selection lands in a follow-up.
+
+- **Min-supported-version awareness.**
+
+  When the running CLI is below the server's `min_supported_cli_version`, the banner is replaced with a stronger `warning: secrt <version> may not be compatible with this server.` notice.
+
+- **`--channel prerelease` for `secrt update`.**
+
+  `secrt update --channel prerelease` accepts both stable and prerelease tags. `--version` MAY include a prerelease suffix matching `\d+.\d+.\d+-(rc|beta|alpha).\d+`. When `--version` is omitted the CLI queries the GitHub Releases API and picks the highest matching tag via `update_check::compare_semver`'s `(major, minor, patch)` then `(channel_rank, index)` ordering — a stable triplet still sorts above its own prerelease, so on a release set containing both `0.16.0` and `0.16.0-rc.1`, the resolver returns `0.16.0`.
+
+  The implicit update-check banner is unaffected and continues to consider stable releases only. The `update_channel` config key remains Reserved; durable per-user channel selection lands in a follow-up.
 
 ### Changed
 
@@ -99,8 +144,15 @@ No user-facing CLI changes. Workspace version bump only — released alongside `
 
 ### Fixed
 
-- **`update_check::compare_semver` prerelease ordering.** Numeric prerelease indices now sort numerically: `rc.10 > rc.2`. The prior implementation used `String::cmp` on the suffix, which ordered `rc.10 < rc.2` lexicographically (`'1' < '2'`). Tokens of the form `(alpha|beta|rc).N` are now compared on `(channel_rank, index)`; unrecognized tokens fall back to lexicographic compare so total ordering is preserved.
-- **Keychain string-vs-bool config bug (GH#42).** `set_config_key("use_keychain", "true")` used to write `use_keychain = "true"` (string-quoted), which then broke TOML parsing on next load and silently disabled keychain integration. Bool-typed keys (`use_keychain`, `show_input`, `auto_copy`, `update_check`) are now written as bare bool literals, and existing corrupted configs are silently migrated on load.
+- **`update_check::compare_semver` prerelease ordering.**
+
+  Numeric prerelease indices now sort numerically: `rc.10 > rc.2`. The prior implementation used `String::cmp` on the suffix, which ordered `rc.10 < rc.2` lexicographically (`'1' < '2'`).
+
+  Tokens of the form `(alpha|beta|rc).N` are now compared on `(channel_rank, index)`; unrecognized tokens fall back to lexicographic compare so total ordering is preserved.
+
+- **Keychain string-vs-bool config bug (GH#42).**
+
+  `set_config_key("use_keychain", "true")` used to write `use_keychain = "true"` (string-quoted), which then broke TOML parsing on next load and silently disabled keychain integration. Bool-typed keys (`use_keychain`, `show_input`, `auto_copy`, `update_check`) are now written as bare bool literals, and existing corrupted configs are silently migrated on load.
 
 ### Spec
 
@@ -139,31 +191,31 @@ No user-facing CLI changes. Workspace version bump only — released alongside `
 
 ## 0.14.9 — 2026-04-22
 
-_No CLI changes — version bump only to stay in sync with workspace._
+_No CLI changes — workspace version bump only._
 
 ## 0.14.8 — 2026-04-22
 
-_No CLI changes — version bump only to stay in sync with workspace._
+_No CLI changes — workspace version bump only._
 
 ## 0.14.7 — 2026-02-22
 
-_No CLI changes — version bump only to stay in sync with workspace._
+_No CLI changes — workspace version bump only._
 
 ## 0.14.6 — 2026-02-22
 
-_No CLI changes — version bump only to stay in sync with workspace._
+_No CLI changes — workspace version bump only._
 
 ## 0.14.5 — 2026-02-22
 
-_No CLI changes — version bump only to stay in sync with workspace._
+_No CLI changes — workspace version bump only._
 
 ## 0.14.4 — 2026-02-22
 
-_No CLI changes — version bump only to stay in sync with workspace._
+_No CLI changes — workspace version bump only._
 
 ## 0.14.3 — 2026-02-21
 
-_No CLI changes — version bump only to stay in sync with workspace._
+_No CLI changes — workspace version bump only._
 
 ## 0.14.2 — 2026-02-20
 
@@ -175,19 +227,19 @@ _No CLI changes — version bump only to stay in sync with workspace._
 
 ## 0.14.0 — 2026-02-20
 
-_No CLI changes — version bump only to stay in sync with workspace._
+_No CLI changes — workspace version bump only._
 
 ## 0.13.3 — 2026-02-19
 
-_No CLI changes — version bump only to stay in sync with workspace._
+_No CLI changes — workspace version bump only._
 
 ## 0.13.2 — 2026-02-19
 
-_No CLI changes — version bump only to stay in sync with workspace._
+_No CLI changes — workspace version bump only._
 
 ## 0.13.1 — 2026-02-19
 
-_No CLI changes — version bump only to stay in sync with workspace._
+_No CLI changes — workspace version bump only._
 
 ## 0.13.0 — 2026-02-19
 
@@ -244,39 +296,39 @@ _No CLI changes — version bump only to stay in sync with workspace._
 
 ## 0.10.3 — 2026-02-16
 
-No CLI behavior changes in this release. Version bump to align workspace at 0.10.3.
+_No CLI changes — workspace version bump only._
 
 ## 0.10.2 — 2026-02-16
 
-No CLI behavior changes in this release. Version bump to align workspace at 0.10.2.
+_No CLI changes — workspace version bump only._
 
 ## 0.10.1 — 2026-02-16
 
-No CLI behavior changes in this release. Version bump to align workspace at 0.10.1.
+_No CLI changes — workspace version bump only._
 
 ## 0.10.0 — 2026-02-16
 
-No CLI behavior changes in this release. Version bump to align workspace at 0.10.0.
+_No CLI changes — workspace version bump only._
 
 ## 0.9.1 — 2026-02-15
 
-No CLI behavior changes in this release. Version bump to align workspace at 0.9.1.
+_No CLI changes — workspace version bump only._
 
 ## 0.9.0 — 2026-02-14
 
-No CLI behavior changes in this release. Version bump to align workspace at 0.9.0.
+_No CLI changes — workspace version bump only._
 
 ## 0.8.0 — 2026-02-14
 
-No CLI behavior changes in this release. Version bump to align workspace at 0.8.0.
+_No CLI changes — workspace version bump only._
 
 ## 0.7.0 — 2026-02-14
 
-No CLI behavior changes in this release. Version bump to align workspace at 0.7.0.
+_No CLI changes — workspace version bump only._
 
 ## 0.6.1 — 2026-02-13
 
-No CLI behavior changes in this release. Version bump to align workspace at 0.6.1.
+_No CLI changes — workspace version bump only._
 
 ## 0.6.0 — 2026-02-13
 
@@ -298,15 +350,15 @@ No CLI behavior changes in this release. Version bump to align workspace at 0.6.
 
 ## 0.5.2 — 2026-02-12
 
-No CLI changes — version bump to unify with workspace at 0.5.2.
+_No CLI changes — workspace version bump only._
 
 ## 0.5.1 — 2026-02-12
 
-No CLI changes — version bump to unify with workspace at 0.5.1.
+_No CLI changes — workspace version bump only._
 
 ## 0.5.0 — 2026-02-12
 
-No CLI changes — version bump to unify with workspace at 0.5.0.
+_No CLI changes — workspace version bump only._
 
 ## 0.4.2 — 2026-02-11
 

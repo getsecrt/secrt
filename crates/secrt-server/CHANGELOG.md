@@ -6,130 +6,299 @@
 
 ### Added
 
-- **Gated client-side diagnostic logging for AMK / PRF flows in the web client.** Replaces the silent `} catch {}` blocks in passkey registration, login, settings add-passkey, and the PRF unwrap / upgrade / fallback-ceremony paths with structured `[secrt:<label>]` console traces (labels: `webauthn-create`, `webauthn-get`, `prf-register-wrap`, `prf-unwrap`, `prf-upgrade`, `prf-settings-wrap`, `prf-fallback-ceremony`, `amk-store`, `amk-transfer-tauri`). Two-layer gate: dev builds always log (statically replaced via `import.meta.env.DEV`); production builds log only when the user opts in via `localStorage.setItem('secrt:debug', '1')`. No data leaves the device — no telemetry, no remote collection. Logs include 8-byte SHA-256 fingerprints of PRF outputs and AMK material to verify cross-device determinism without exposing raw secrets, plus the WebAuthn `authenticatorAttachment` (`'platform'` vs `'cross-platform'`) so cross-device traces can disambiguate which authenticator the user picked. Direct payoff: the 2026-05-01 spike captured the first concrete confirmation that macOS Safari (not just iOS) re-wraps `hmac-secret` for external authenticators — different PRF output for the same YubiKey credential on the same Mac, depending on browser. See `crates/secrt-server/docs/prf-cross-device-testing.md` for the empirical log and `prf-amk-wrapping.md` §11 for the updated cohort summary.
+- **Client-side diagnostic logging for AMK / PRF flows in the web client.**
+
+  Replaces the silent `} catch {}` blocks in passkey registration, login, settings add-passkey, and the PRF unwrap / upgrade / fallback-ceremony paths with structured `[secrt:<label>]` console traces. Disabled by default in production; opt-in via DevTools.
+
+  - **Gating:** dev builds always log (`import.meta.env.DEV`); prod builds only when `localStorage.setItem('secrt:debug', '1')` is set. No data leaves the device — no telemetry, no remote collection.
+  - **What's logged:** decision branches (which `if` arm fired), 8-byte SHA-256 fingerprints of PRF outputs and AMK material (sufficient for cross-device determinism checks; not invertible), WebAuthn `authenticatorAttachment` (`'platform'` vs `'cross-platform'`).
+  - **Labels:** `webauthn-create`, `webauthn-get`, `prf-register-wrap`, `prf-unwrap`, `prf-upgrade`, `prf-settings-wrap`, `prf-fallback-ceremony`, `amk-store`, `amk-transfer-tauri`.
+
+  Direct payoff: the 2026-05-01 spike captured the first concrete confirmation that **macOS Safari** (not just iOS) re-wraps `hmac-secret` for external authenticators — different PRF output for the same YubiKey credential on the same Mac depending on browser.
+
+  See `crates/secrt-server/docs/prf-cross-device-testing.md` and `prf-amk-wrapping.md` §11.
 
 ## 0.17.4 — 2026-04-28
 
 ### Added
 
-- **Structured info logs on the three passkey `/finish` paths.** `passkey_registered`, `passkey_added`, and `passkey_login` events now carry `user_id`, an 8-char `cred_id_prefix`, and PRF state (`prf=on/off`, `prf_wrapper=true/false`, `prf_upgrade=true/false` as appropriate). Lets you correlate a request with the `passkeys` table row without grepping HTTP logs for follow-up `/prf-wrapper` PUTs. The credential_id is a public WebAuthn handle, not sensitive — only the prefix is logged to keep lines short.
+- **Structured info logs on the three passkey `/finish` paths.**
+
+  `passkey_registered`, `passkey_added`, and `passkey_login` events now carry `user_id`, an 8-char `cred_id_prefix`, and PRF state (`prf=on/off`, `prf_wrapper=true/false`, `prf_upgrade=true/false`).
+
+  Lets you correlate a request with its `passkeys` table row without grepping HTTP logs for the follow-up `/prf-wrapper` PUT. The `credential_id` is a public WebAuthn handle, not sensitive — only the prefix is logged to keep lines short.
 
 ## 0.17.3 — 2026-04-28
 
 ### Fixed
 
-- **iCloud Keychain (and other counter-less authenticators) no longer 401 after the first sign-in.** The verifier rejected any assertion whose `signCount` was less than or equal to the stored value, which is a strict reading of W3C WebAuthn §6.1.1 — but synced-passkey providers (Apple iCloud Keychain, several FIDO2 keys) emit `signCount = 0` on every assertion and are effectively counter-less. Once the stored count went positive, every subsequent iCloud login on the same credential was rejected as a cloned-authenticator signal. The verifier now treats `signCount = 0` as "no counter available": it accepts the assertion, persists `max(stored, new)`, and only fires `SignCountRegressed` when both stored and incoming counts are positive and the incoming value has stalled or gone backwards. New spec vector `login_sign_count_zero_synced_passkey` locks the behavior in. Spec: `spec/v1/server.md` §6.2 (login finish step 6).
+- **iCloud Keychain (and other counter-less authenticators) no longer 401 after the first sign-in.**
+
+  The verifier rejected any assertion whose `signCount` was less than or equal to the stored value — a strict reading of W3C WebAuthn §6.1.1, but synced-passkey providers (Apple iCloud Keychain, several FIDO2 keys) emit `signCount = 0` on every assertion and are effectively counter-less. Once the stored count went positive, every subsequent iCloud login on the same credential was rejected as a cloned-authenticator signal.
+
+  The verifier now treats `signCount = 0` as "no counter available": it accepts the assertion, persists `max(stored, new)`, and only fires `SignCountRegressed` when both stored and incoming counts are positive and the incoming value has stalled or gone backwards.
+
+  New spec vector `login_sign_count_zero_synced_passkey` locks the behaviour in.
+
+  Spec: `spec/v1/server.md` §6.2 (login finish step 6).
 
 ## 0.17.2 — 2026-04-28
 
 ### Added
 
-- **Per-IP rate limiter on the unauthenticated passkey ceremony /start endpoints.** `/api/v1/auth/passkeys/register/start` and `/api/v1/auth/passkeys/login/start` now share a `passkey_ceremony_limiter` (defaults: 0.5 rps, burst 6 — `PASSKEY_CEREMONY_RATE` / `PASSKEY_CEREMONY_BURST`). Each call inserts a `webauthn_challenges` row with a 10-minute TTL; without this gate, an attacker can spam-fill the table even if no challenge ever progresses to /finish. Regression tests at `crates/secrt-server/tests/api_auth_passkeys.rs::passkey_{login,register}_start_is_rate_limited` lock the behavior in.
+- **Per-IP rate limiter on the unauthenticated passkey ceremony /start endpoints.**
+
+  `/api/v1/auth/passkeys/register/start` and `/api/v1/auth/passkeys/login/start` now share a `passkey_ceremony_limiter` (defaults: 0.5 rps, burst 6 — `PASSKEY_CEREMONY_RATE` / `PASSKEY_CEREMONY_BURST`).
+
+  Each call inserts a `webauthn_challenges` row with a 10-minute TTL; without this gate, an attacker could spam-fill the table even if no challenge ever progressed to /finish.
+
+  Tests: `crates/secrt-server/tests/api_auth_passkeys.rs::passkey_{login,register}_start_is_rate_limited`.
 
 ## 0.17.1 — 2026-04-28
 
 ### Changed
 
-- **Single-prompt passkey login.** `POST /api/v1/auth/passkeys/login/start` now accepts an empty body — `credential_id` is an optional advisory hint, no longer required. The web frontend uses this discoverable-credential flow to do a single `navigator.credentials.get()` against the server's challenge instead of two (one for the picker, one bound to the server challenge). The previous two-call flow forced iCloud Passwords users through the macOS account-password prompt twice on every login. The credential binding is now established solely by the assertion's signature in `/login/finish`. Spec: `spec/v1/server.md` §6.2 (login start), `spec/v1/api.md`.
+- **Single-prompt passkey login.**
+
+  `POST /api/v1/auth/passkeys/login/start` now accepts an empty body — `credential_id` is an optional advisory hint, no longer required. The web frontend uses this discoverable-credential flow to do a single `navigator.credentials.get()` against the server's challenge instead of two (one for the picker, one bound to the server challenge).
+
+  The previous two-call flow forced iCloud Passwords users through the macOS account-password prompt twice on every login. The credential binding is now established solely by the assertion's signature in `/login/finish`.
+
+  Spec: `spec/v1/server.md` §6.2 (login start), `spec/v1/api.md`.
 
 ## 0.17.0 — 2026-04-28
 
+A coherent passkey-verification cutover. Wire format breaks for passkeys; existing passkey rows must be wiped via `secrt-admin reset` before deploying. See `Removed` notes below.
+
 ### Changed
 
-- **WebAuthn assertion verification now enforced on all passkey `/finish` endpoints.** Register, add-passkey, and login finish handlers reject any assertion whose ECDSA signature, `rpIdHash`, `clientDataJSON.{type,challenge,origin}`, UP flag, or sign-count monotonicity does not check out. Failures map to opaque `401 unauthorized` (the discriminator is logged server-side; never returned). Implementation: pure-function verifier in `crates/secrt-server/src/domain/webauthn.rs`, exercised against `spec/v1/webauthn.vectors.json` — fixtures generated by an independent Python reference (`scripts/generate_webauthn_vectors.py`) so passing the vectors is the actual correctness signal, not ring-against-ring self-consistency. Spec: `spec/v1/server.md` §6.2 (new) and `spec/v1/api.md` "Passkey Registration and Login".
-- **Passkey `/finish` wire shape replaces `public_key: String` with `authenticator_data` and `client_data_json` (and `signature` for login).** All three endpoints take base64url-encoded WebAuthn fields the browser already produces. Greenfield wire-format change with no `MIN_SUPPORTED_CLI_VERSION` bump because the CLI does not exercise passkey endpoints. Existing passkey rows in any pre-0.17 database carry placeholder `public_key` values and will not parse — wipe them with `secrt-admin reset` before deploying.
+- **WebAuthn assertion verification now enforced on all passkey `/finish` endpoints.**
+
+  Register, add-passkey, and login finish handlers reject any assertion whose ECDSA signature, `rpIdHash`, `clientDataJSON.{type,challenge,origin}`, UP flag, or sign-count monotonicity does not check out. Failures map to opaque `401 unauthorized` (the discriminator is logged server-side, never returned).
+
+  Implementation: pure-function verifier in `crates/secrt-server/src/domain/webauthn.rs`, exercised against `spec/v1/webauthn.vectors.json`. Fixtures generated by an independent Python reference (`scripts/generate_webauthn_vectors.py`), so passing the vectors is the actual correctness signal — not ring-against-ring self-consistency.
+
+  Spec: `spec/v1/server.md` §6.2 (new), `spec/v1/api.md` "Passkey Registration and Login".
+
+- **Passkey `/finish` wire shape replaces `public_key: String` with `authenticator_data` and `client_data_json` (and `signature` for login).**
+
+  All three endpoints take base64url-encoded WebAuthn fields the browser already produces. Greenfield wire-format change — no `MIN_SUPPORTED_CLI_VERSION` bump because the CLI does not exercise passkey endpoints.
+
+  Existing passkey rows in any pre-0.17 database carry placeholder `public_key` values and will not parse. Wipe them with `secrt-admin reset` before deploying.
 
 ### Added
 
-- **ES256 / EC2-P256 only at MVP.** `kty=2`, `alg=-7`, `crv=1` is the only accepted COSE_Key shape. RS256 and other curves are rejected with `UnsupportedCoseAlgorithm`. Covers Apple, Google, Windows Hello (when configured for ES256), 1Password, and Bitwarden authenticators. Adding RS256 is mechanical and gated on a real-user request.
-- **`secrt-admin reset` subcommand.** Destructive interactive command that `TRUNCATE … RESTART IDENTITY CASCADE`s every data table (passkeys, sessions, users, secrets, AMK + PRF wrappers, API keys, challenges). Operator must type `RESET <apex>` where `<apex>` is the host derived from `public_base_url` — a wrong-host wipe is blocked by the typed-confirmation check. No skip flag; intentionally interactive. Intended for the v0.17.0 cutover so old passkey rows don't survive into the verification regime.
+- **ES256 / EC2-P256 only at MVP.**
+
+  `kty=2`, `alg=-7`, `crv=1` is the only accepted COSE_Key shape. RS256 and other curves are rejected with `UnsupportedCoseAlgorithm`. Covers Apple, Google, Windows Hello (when configured for ES256), 1Password, and Bitwarden authenticators. Adding RS256 is mechanical and gated on a real-user request.
+
+- **`secrt-admin reset` subcommand.**
+
+  Destructive interactive command that `TRUNCATE … RESTART IDENTITY CASCADE`s every data table (passkeys, sessions, users, secrets, AMK + PRF wrappers, API keys, challenges).
+
+  Operator must type `RESET <apex>` where `<apex>` is the host derived from `public_base_url` — a wrong-host wipe is blocked by the typed-confirmation check. No skip flag; intentionally interactive. Intended for the v0.17.0 cutover so old passkey rows don't survive into the verification regime.
 
 ## 0.16.9 — 2026-04-27
 
 ### Added
 
-- **PRF upgrade path for pre-PRF credentials.** `POST /api/v1/auth/passkeys/login/finish` now accepts an optional `prf` field describing the assertion's PRF capability. When the assertion reports PRF support and the credential row predates PRF (`cred_salt = NULL`), the server stamps the row with a fresh 32-byte salt and returns it as `prf_cred_salt` so the client can wrap+PUT on this very login. When the row is already PRF-capable but has no wrapper, the existing salt is returned without overwriting. Pre-PRF credentials registered before 0.16.8 are now retrofitted transparently on the next sign-in from a PRF-capable browser. Spec: `spec/v1/api.md` §"Transport D — Upgrade path for pre-PRF credentials".
-- **Add-passkey PRF wiring.** `POST /api/v1/auth/passkeys/add/finish` now accepts the same `prf` field and returns `prf_cred_salt` when supported, mirroring register-finish. Credentials added from Settings are PRF-enabled at create time without needing an upgrade round-trip.
-- **`prf_supported` on `PasskeyItem` list responses.** Surfaces in the Settings UI as a "Sign-in only" warning badge for credentials that don't support one-tap notes-key unlock on new devices.
+- **PRF upgrade path for pre-PRF credentials.**
+
+  `POST /api/v1/auth/passkeys/login/finish` now accepts an optional `prf` field describing the assertion's PRF capability. When the assertion reports PRF support and the credential row predates PRF (`cred_salt = NULL`), the server stamps the row with a fresh 32-byte salt and returns it as `prf_cred_salt` so the client can wrap+PUT on this very login.
+
+  When the row is already PRF-capable but has no wrapper, the existing salt is returned without overwriting. Pre-PRF credentials registered before 0.16.8 are now retrofitted transparently on the next sign-in from a PRF-capable browser.
+
+  Spec: `spec/v1/api.md` §"Transport D — Upgrade path for pre-PRF credentials".
+
+- **Add-passkey PRF wiring.**
+
+  `POST /api/v1/auth/passkeys/add/finish` now accepts the same `prf` field and returns `prf_cred_salt` when supported, mirroring register-finish. Credentials added from Settings are PRF-enabled at create time without needing an upgrade round-trip.
+
+- **`prf_supported` on `PasskeyItem` list responses.**
+
+  Surfaces in the Settings UI as a "Sign-in only" warning badge for credentials that don't support one-tap notes-key unlock on new devices.
 
 ### Fixed
 
-- **CSP integration test no longer asserts on a build artifact.** `html_responses_carry_csp_and_no_store` previously required `web/dist` to exist (so `csp_value()` could compute hashes from inline scripts in the served `index.html`). Without `web/dist` the embedded fallback template has zero inline scripts, no `'sha256-…'` source emitted, and the assertion failed. The same property is unit-tested in `crates/secrt-server/src/http/security.rs` against fixture HTML, so the integration assertion was duplicated coverage that happened to be the only thing in CI requiring a frontend build. Drops the duplicate; CI is green again on all three OSes without paying ~30s × 3 to build the frontend before Rust tests.
+- **CSP integration test no longer asserts on a build artifact.**
+
+  `html_responses_carry_csp_and_no_store` previously required `web/dist` to exist (so `csp_value()` could compute hashes from inline scripts in the served `index.html`). Without `web/dist` the embedded fallback template has zero inline scripts, no `'sha256-…'` source emitted, and the assertion failed.
+
+  The same property is unit-tested in `crates/secrt-server/src/http/security.rs` against fixture HTML, so the integration assertion was duplicated coverage that happened to be the only thing in CI requiring a frontend build. Drops the duplicate; CI is green again on all three OSes without paying ~30s × 3 to build the frontend before Rust tests.
 
 ## 0.16.8 — 2026-04-27
 
+Beta release of WebAuthn PRF AMK wrapping. Not all PRF-capable providers forward the extension yet — Bitwarden and 1Password silently drop it as of April 2026, and those users continue to use the existing sync-link flow on new devices. Passkey `/finish` endpoints still ride on the existing `challenge_id` bearer flow; full WebAuthn signature verification is tracked as a follow-up. The CLI does not yet exercise PRF; this round is browser-only.
+
 ### Added
 
-- **WebAuthn PRF AMK wrapping (Transport D, beta).** Browsers whose passkey provider forwards the WebAuthn PRF extension (Apple Passwords / iCloud, Google Password Manager, Windows Hello, Firefox 148+) can now derive an AES wrap key from the authenticator and unwrap their AMK in one tap on a fresh device, replacing the sync-link round-trip. Server changes: register-finish accepts an optional `prf` field describing the assertion's PRF state and returns a server-generated `prf_cred_salt` when supported; login-finish returns a `prf_wrapper` inline when one exists for that credential; new `PUT/DELETE /api/v1/auth/passkeys/{cred_id}/prf-wrapper` endpoints store and revoke wrappers. Wrappers cascade-delete on `revoke_passkey`. AAD slot generalized via `binding_id` (formerly `key_prefix`) so the same wrap-AAD shape works for Transport A (passphrase), C (recovery), and D (PRF).
-- **Migration `005_prf_amk_wrappers.sql`.** New `prf_amk_wrappers` table (one row per credential, FK to `passkeys`); new `prf_supported`, `prf_cred_salt`, `prf_first_seen_at` columns on `passkeys`. Added to the `MIGRATIONS` array so it runs on startup.
+- **WebAuthn PRF AMK wrapping (Transport D, beta).**
 
-Beta notes: not all PRF-capable providers forward the extension yet — Bitwarden and 1Password silently drop it as of April 2026, and those users continue to use the existing sync-link flow on new devices. Passkey `/finish` endpoints still ride on the existing `challenge_id` bearer flow; full WebAuthn signature verification is tracked as a follow-up. The CLI does not yet exercise PRF; this round is browser-only.
+  Browsers whose passkey provider forwards the WebAuthn PRF extension (Apple Passwords / iCloud, Google Password Manager, Windows Hello, Firefox 148+) can now derive an AES wrap key from the authenticator and unwrap their AMK in one tap on a fresh device, replacing the sync-link round-trip.
+
+  - Register-finish accepts an optional `prf` field describing the assertion's PRF state and returns a server-generated `prf_cred_salt` when supported.
+  - Login-finish returns a `prf_wrapper` inline when one exists for that credential.
+  - New `PUT/DELETE /api/v1/auth/passkeys/{cred_id}/prf-wrapper` endpoints store and revoke wrappers. Wrappers cascade-delete on `revoke_passkey`.
+  - AAD slot generalized via `binding_id` (formerly `key_prefix`) so the same wrap-AAD shape works for Transport A (passphrase), C (recovery), and D (PRF).
+
+- **Migration `005_prf_amk_wrappers.sql`.**
+
+  New `prf_amk_wrappers` table (one row per credential, FK to `passkeys`); new `prf_supported`, `prf_cred_salt`, `prf_first_seen_at` columns on `passkeys`. Added to the `MIGRATIONS` array so it runs on startup.
 
 ## 0.16.7 — 2026-04-27
 
 ### Fixed
 
-- **`Cache-Control: immutable` no longer applied to non-content-hashed static assets.** `crates/secrt-server/src/assets.rs` previously sent `public, max-age=31536000, immutable` for *every* file under `/static/*`, including stable-URL files like `favicon.svg`, `apple-touch-icon.png`, `og-image.png`, and the maskable manifest icon. `immutable` is only safe for filenames whose URL changes when content changes (Vite's content-hashed bundles in `assets/`); applying it to stable-URL files locks browsers to whatever they fetched first, so any future favicon/og-image update is undeployable until each user clears cache. Now: `assets/*` keeps the immutable forever-cache, everything else gets `public, max-age=86400` (1 day).
-- **Renamed `favicon.svg` → `favicon-light.svg`** to bust the iOS-cached old version. The 0.16.5 → 0.16.6 patch removed an inline `<style>` block from `favicon.svg`, but the broken cache-control sent by 0.16.4 / 0.16.5 had already locked iOS Safari into "year-immutable" caching of the *old* bytes — which still triggered a `style-src` CSP violation each page load even after the server-side fix was deployed. Cache invalidation by URL change. Future favicon tweaks deploy cleanly thanks to the cache-control fix above.
+- **`Cache-Control: immutable` no longer applied to non-content-hashed static assets.**
+
+  `crates/secrt-server/src/assets.rs` previously sent `public, max-age=31536000, immutable` for *every* file under `/static/*`, including stable-URL files like `favicon.svg`, `apple-touch-icon.png`, `og-image.png`, and the maskable manifest icon. `immutable` is only safe for filenames whose URL changes when content changes (Vite's content-hashed bundles in `assets/`); applying it to stable-URL files locks browsers to whatever they fetched first, so any future favicon/og-image update is undeployable until each user clears cache.
+
+  Now: `assets/*` keeps the immutable forever-cache, everything else gets `public, max-age=86400` (1 day).
+
+- **Renamed `favicon.svg` → `favicon-light.svg` to bust the iOS-cached old version.**
+
+  The 0.16.5 → 0.16.6 patch removed an inline `<style>` block from `favicon.svg`, but the broken cache-control sent by 0.16.4 / 0.16.5 had already locked iOS Safari into "year-immutable" caching of the *old* bytes — which still triggered a `style-src` CSP violation each page load even after the server-side fix was deployed.
+
+  Cache invalidation by URL change. Future favicon tweaks deploy cleanly thanks to the cache-control fix above.
 
 ### Changed
 
-- **Mobile nav logo is now a link to the homepage** when the user isn't already on `/`. On the home route the logo renders as plain decoration so the click is suppressed (avoids a no-op router round-trip). Universal-pattern UX expectation; previously the small-breakpoint logo was non-interactive.
+- **Mobile nav logo is now a link to the homepage when the user isn't already on `/`.**
+
+  On the home route the logo renders as plain decoration so the click is suppressed (avoids a no-op router round-trip). Universal-pattern UX expectation; previously the small-breakpoint logo was non-interactive.
 
 ## 0.16.6 — 2026-04-27
 
 ### Fixed
 
-- **Favicon CSP violation on iOS Safari.** `web/public/favicon.svg` contained an inline `<style>` block that swapped path fills under `prefers-color-scheme: dark`. iOS Safari subjects SVG-internal styles loaded via `<link rel="icon">` to the parent document's `style-src`, so the strict CSP shipped in 0.16.5 blocked the inline style and Safari fell back to rendering `apple-touch-icon.png` (the white-rounded-rect treatment) instead of the SVG. Drop the inline style and replace with two static SVG variants.
+- **Favicon CSP violation on iOS Safari.**
+
+  `web/public/favicon.svg` contained an inline `<style>` block that swapped path fills under `prefers-color-scheme: dark`. iOS Safari subjects SVG-internal styles loaded via `<link rel="icon">` to the parent document's `style-src`, so the strict CSP shipped in 0.16.5 blocked the inline style and Safari fell back to rendering `apple-touch-icon.png` (the white-rounded-rect treatment) instead of the SVG.
+
+  Drop the inline style and replace with two static SVG variants.
 
 ### Changed
 
-- **Responsive favicon now uses two static SVG files via `media` queries on `<link rel="icon">`** instead of an inline SVG `<style>`. The `web/public/favicon.svg` is now the light variant; `web/public/favicon-dark.svg` is new and contains the same paths with the two `fill` colours swapped. `web/index.html` references both with `media="(prefers-color-scheme: dark)"` and `media="(prefers-color-scheme: light)"`. The dark variant is listed first and the light variant last — Firefox doesn't honour `media` on `<link rel="icon">` (longstanding open bug) and falls back to the last `<link rel="icon">` in source order, so Firefox users always see the higher-contrast light variant. Chrome / Edge honour the `media` query and swap correctly. Safari behaviour for `media` on `<link rel="icon">` is empirically uncertain and is the open question this release is meant to test.
+- **Responsive favicon now uses two static SVG files via `media` queries on `<link rel="icon">`** instead of an inline SVG `<style>`.
+
+  `web/public/favicon.svg` is now the light variant; `web/public/favicon-dark.svg` is new and contains the same paths with the two `fill` colours swapped. `web/index.html` references both with `media="(prefers-color-scheme: dark)"` and `media="(prefers-color-scheme: light)"`.
+
+  Browser-specific behaviour:
+
+  - **Chrome / Edge** honour the `media` query and swap correctly.
+  - **Firefox** doesn't honour `media` on `<link rel="icon">` (longstanding open bug) and falls back to the last `<link rel="icon">` in source order. The dark variant is listed first and the light variant last so Firefox users always see the higher-contrast light variant.
+  - **Safari** behaviour for `media` on `<link rel="icon">` is empirically uncertain and is the open question this release is meant to test.
 
 ### Performance
 
-- **`touch-action: manipulation` on the mobile hamburger button.** Tells iOS Safari the element is for tap only, skipping the gesture-recognition wait that can otherwise add up to 300ms before the click event fires. Defensive change — small, free win on every mobile interaction.
+- **`touch-action: manipulation` on the mobile hamburger button.**
+
+  Tells iOS Safari the element is for tap only, skipping the gesture-recognition wait that can otherwise add up to 300ms before the click event fires. Defensive change — small, free win on every mobile interaction.
 
 ## 0.16.5 — 2026-04-27
 
 ### Security
 
-- **CSP flipped from Report-Only to enforcing.** After a clean cross-browser soak (Chrome / Safari / Firefox / iOS Safari) of the strict policy shipped in 0.16.4 as `Content-Security-Policy-Report-Only`, the policy now ships as the enforcing `Content-Security-Policy` header. Browsers will block, not just report, any future violation. Same directives as the 0.16.4 Report-Only policy plus `upgrade-insecure-requests` folded back in: `default-src 'none'; script-src 'self' 'wasm-unsafe-eval' 'sha256-…'; style-src 'self'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self'; manifest-src 'self'; worker-src 'self'; form-action 'none'; base-uri 'none'; frame-ancestors 'none'; object-src 'none'; upgrade-insecure-requests`.
+- **CSP flipped from Report-Only to enforcing.**
+
+  After a clean cross-browser soak (Chrome / Safari / Firefox / iOS Safari) of the strict policy shipped in 0.16.4 as `Content-Security-Policy-Report-Only`, the policy now ships as the enforcing `Content-Security-Policy` header. Browsers will block, not just report, any future violation.
+
+  Same directives as the 0.16.4 Report-Only policy plus `upgrade-insecure-requests` folded back in:
+
+  ```
+  default-src 'none'; script-src 'self' 'wasm-unsafe-eval' 'sha256-…';
+  style-src 'self'; img-src 'self' data: blob:; font-src 'self';
+  connect-src 'self'; manifest-src 'self'; worker-src 'self';
+  form-action 'none'; base-uri 'none'; frame-ancestors 'none';
+  object-src 'none'; upgrade-insecure-requests
+  ```
+
 - **`upgrade-insecure-requests` folded back into the main CSP**, dropping the previously-separate enforcing header. Single CSP header per HTML response now.
 
 ### Changed
 
-- **Web SPA refactored to drop all CSSOM `el.style.x = y` writes.** iOS Safari was reporting CSSOM mutations as `style-src` violations under the strict policy. Six call sites refactored to native CSS: legacy `execCommand('copy')` clipboard fallback removed entirely (Clipboard API has been universal since 2018-2020); ClaimPage textarea Safari-fallback effect removed in favour of native `field-sizing: content` (Safari 17.4+); QR canvas display sizing moved to the `size-48` Tailwind class; the `BurnPopover` and three Nav menus (`UserMenu`, `DownloadsMenu`, `MoreInfoMenu`) now position via CSS Anchor Positioning (`anchor-name` / `position-anchor` / `anchor()` / `anchor-size()` / `position-try-fallbacks: flip-block`), eliminating ~20 inline-style writes and the associated `getBoundingClientRect` measurements. Net diff: ~−145 lines across the web SPA.
+- **Web SPA refactored to drop all CSSOM `el.style.x = y` writes.**
+
+  iOS Safari was reporting CSSOM mutations as `style-src` violations under the strict policy. Six call sites refactored to native CSS:
+
+  - Legacy `execCommand('copy')` clipboard fallback removed entirely (Clipboard API has been universal since 2018-2020).
+  - ClaimPage textarea Safari-fallback effect removed in favour of native `field-sizing: content` (Safari 17.4+).
+  - QR canvas display sizing moved to the `size-48` Tailwind class.
+  - `BurnPopover` and three Nav menus (`UserMenu`, `DownloadsMenu`, `MoreInfoMenu`) now position via CSS Anchor Positioning (`anchor-name` / `position-anchor` / `anchor()` / `anchor-size()` / `position-try-fallbacks: flip-block`), eliminating ~20 inline-style writes and the associated `getBoundingClientRect` measurements.
+
+  Net diff: ~−145 lines across the web SPA.
 
 ### Fixed
 
-- **`navigator.clipboard.writeText()` from a form inside a `Modal`.** Removing `method="dialog"` from the Modal component's inner form. The dialog-submit semantics consumed the user-gesture activation flag at submit-event dispatch time, even when `e.preventDefault()` was called — so the await chain to `writeText` saw no active activation and silently rejected. Most visible victim: the password-generator modal's "Generate & copy" button on Safari desktop and iOS. All three `asForm` Modal callers (`SendPage`, `SettingsPage`, `ClaimPage`) already call `preventDefault` in their submit handlers, so the implicit dialog-close was never load-bearing.
+- **`navigator.clipboard.writeText()` from a form inside a `Modal`.**
+
+  Removing `method="dialog"` from the Modal component's inner form. The dialog-submit semantics consumed the user-gesture activation flag at submit-event dispatch time, even when `e.preventDefault()` was called — so the await chain to `writeText` saw no active activation and silently rejected.
+
+  Most visible victim: the password-generator modal's "Generate & copy" button on Safari desktop and iOS. All three `asForm` Modal callers (`SendPage`, `SettingsPage`, `ClaimPage`) already call `preventDefault` in their submit handlers, so the implicit dialog-close was never load-bearing.
 
 ## 0.16.4 — 2026-04-26
 
+Strict CSP shipped in Report-Only mode (will enforce in 0.16.5), plus a sweep of always-on hardening headers.
+
 ### Added
 
-- **"About secrt" entry in the More Information menu.** The `/about` page existed but had no nav entry point, making it functionally invisible. Now appears in both the desktop dropdown and the mobile menu group, between "Privacy Policy" and the external links. Uses a new `CircleInfoIcon`. The menu trigger now also highlights when on `/about`.
+- **"About secrt" entry in the More Information menu.**
+
+  The `/about` page existed but had no nav entry point, making it functionally invisible. Now appears in both the desktop dropdown and the mobile menu group, between "Privacy Policy" and the external links. Uses a new `CircleInfoIcon`. The menu trigger now also highlights when on `/about`.
 
 ### Security
 
-- **Strict Content-Security-Policy on HTML responses, shipped as Report-Only.** A new `crates/secrt-server/src/http/security.rs` module computes the policy once at server startup by SHA-256-hashing every inline `<script>` in the embedded `index.html` and emitting the hashes as `'sha256-…'` sources in `script-src` — so the CSP is strict (no `'unsafe-inline'`) without any build-time hash bookkeeping. Initial policy: `default-src 'none'; script-src 'self' 'wasm-unsafe-eval' 'sha256-…'; style-src 'self'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self'; manifest-src 'self'; worker-src 'self'; form-action 'none'; base-uri 'none'; frame-ancestors 'none'; object-src 'none'`. Ships as `Content-Security-Policy-Report-Only` for one release so any unanticipated violations surface in the browser console without breaking flows; will flip to enforcing in a follow-up patch. `'wasm-unsafe-eval'` is the CSP3-narrow source needed by Argon2's WebAssembly module — it allows WASM compilation but not JS `eval()`/`Function()`/`setTimeout(string)`.
-- **`Content-Security-Policy: upgrade-insecure-requests` (enforcing) on HTML responses.** Transforming directive that has no Report-Only semantics (browsers warn and ignore it there), so it ships as its own enforcing header. Rewrites `http://` subresource URLs to `https://`; localhost is exempt per spec.
-- **`Cross-Origin-Opener-Policy: same-origin`, `Cross-Origin-Resource-Policy: same-origin`, and `Permissions-Policy` denying camera, geolocation, microphone, payment, USB, sensors, and `interest-cohort`.** Always-on browser-hardening headers that close cross-origin window/document attack surface and deny access to sensor/payment APIs the app never uses. Defense-in-depth — small attack-surface reduction at zero runtime cost.
-- **`Cache-Control: no-store` on every HTML response.** Prevents the browser/disk cache from resurrecting the SPA shell (and especially the claim page) after navigation. Content-hashed JS/CSS bundles still cache forever via existing `assets.rs` rules; only the HTML doc is no-stored.
-- **Drift-guard test (`embedded_index_csp_covers_every_inline_script`)** in `http/security.rs` — re-extracts every inline `<script>` from the served `index.html`, recomputes its hash, and asserts each appears in the live `csp_value()`. If anyone adds a new inline script, the test fails until the CSP regenerates (which it does automatically on next server start).
+- **Strict Content-Security-Policy on HTML responses, shipped as Report-Only.**
+
+  A new `crates/secrt-server/src/http/security.rs` module computes the policy once at server startup by SHA-256-hashing every inline `<script>` in the embedded `index.html` and emitting the hashes as `'sha256-…'` sources in `script-src` — so the CSP is strict (no `'unsafe-inline'`) without any build-time hash bookkeeping.
+
+  Initial policy:
+
+  ```
+  default-src 'none'; script-src 'self' 'wasm-unsafe-eval' 'sha256-…';
+  style-src 'self'; img-src 'self' data: blob:; font-src 'self';
+  connect-src 'self'; manifest-src 'self'; worker-src 'self';
+  form-action 'none'; base-uri 'none'; frame-ancestors 'none';
+  object-src 'none'
+  ```
+
+  Ships as `Content-Security-Policy-Report-Only` for one release so any unanticipated violations surface in the browser console without breaking flows; will flip to enforcing in a follow-up patch. `'wasm-unsafe-eval'` is the CSP3-narrow source needed by Argon2's WebAssembly module — it allows WASM compilation but not JS `eval()`/`Function()`/`setTimeout(string)`.
+
+- **`Content-Security-Policy: upgrade-insecure-requests` (enforcing) on HTML responses.**
+
+  Transforming directive that has no Report-Only semantics (browsers warn and ignore it there), so it ships as its own enforcing header. Rewrites `http://` subresource URLs to `https://`; localhost is exempt per spec.
+
+- **`Cross-Origin-Opener-Policy: same-origin`, `Cross-Origin-Resource-Policy: same-origin`, and `Permissions-Policy` lockdown.**
+
+  The `Permissions-Policy` denies camera, geolocation, microphone, payment, USB, sensors, and `interest-cohort`. Always-on browser-hardening headers that close cross-origin window/document attack surface and deny access to sensor/payment APIs the app never uses. Defense-in-depth — small attack-surface reduction at zero runtime cost.
+
+- **`Cache-Control: no-store` on every HTML response.**
+
+  Prevents the browser/disk cache from resurrecting the SPA shell (and especially the claim page) after navigation. Content-hashed JS/CSS bundles still cache forever via existing `assets.rs` rules; only the HTML doc is no-stored.
+
+- **Drift-guard test (`embedded_index_csp_covers_every_inline_script`)** in `http/security.rs` re-extracts every inline `<script>` from the served `index.html`, recomputes its hash, and asserts each appears in the live `csp_value()`. If anyone adds a new inline script, the test fails until the CSP regenerates (which it does automatically on next server start).
 
 ### Changed
 
-- **`web/src/main.tsx`** uses `replaceChildren()` instead of `innerHTML = ''` for HMR pre-mount cleanup. Functionally identical — both clear all children — but the explicit DOM call removes the only `innerHTML` write in the codebase, prepping for a future `require-trusted-types-for 'script'` directive.
+- **`web/src/main.tsx` uses `replaceChildren()` instead of `innerHTML = ''` for HMR pre-mount cleanup.**
+
+  Functionally identical — both clear all children — but the explicit DOM call removes the only `innerHTML` write in the codebase, prepping for a future `require-trusted-types-for 'script'` directive.
 
 ## 0.16.3 — 2026-04-26
 
 ### Added
 
-- **`server_version` field on `/api/v1/info`.** Returns the server's own `CARGO_PKG_VERSION` at build time. Always present (no cold-cache window like the GitHub-poller fields). Lets operators verify deploys without SSH and lets clients record which server version a response came from.
-- **`X-Secrt-Server-Version` advisory response header.** Emitted on every response (authenticated and public, including `/healthz`) by the existing CLI-version-headers middleware. Same `env!("CARGO_PKG_VERSION")` source as the `/api/v1/info` body field.
-- **`secrt-core::InfoResponse::server_version: Option<String>`.** New `#[serde(default)]` field so older CLIs continue to deserialize new responses cleanly (mirrors the `latest_cli_version` field shape from 0.16.0).
+- **`server_version` field on `/api/v1/info`.**
+
+  Returns the server's own `CARGO_PKG_VERSION` at build time. Always present (no cold-cache window like the GitHub-poller fields). Lets operators verify deploys without SSH and lets clients record which server version a response came from.
+
+- **`X-Secrt-Server-Version` advisory response header.**
+
+  Emitted on every response (authenticated and public, including `/healthz`) by the existing CLI-version-headers middleware. Same `env!("CARGO_PKG_VERSION")` source as the `/api/v1/info` body field.
+
+- **`secrt-core::InfoResponse::server_version: Option<String>`.**
+
+  New `#[serde(default)]` field so older CLIs continue to deserialize new responses cleanly (mirrors the `latest_cli_version` field shape from 0.16.0).
 
 ### Spec
 
@@ -137,21 +306,43 @@ Beta notes: not all PRF-capable providers forward the extension yet — Bitwarde
 
 ## 0.16.2 — 2026-04-26
 
-No server-side functional changes. Workspace version bump only — released alongside `cli/v0.16.2` per the shared workspace versioning policy.
+_No server-side functional changes. Workspace version bump in lockstep with `cli/v0.16.2`._
 
 ## 0.16.1 — 2026-04-26
 
 ### Fixed
 
-- **Cross-instance share-link handling in the embedded SPA.** Pasting a `secrt.is` link into the secrt.ca Get-Secret form (or vice versa) used to silently navigate to the current origin and surface a confusing "secret unavailable" 404. The form now recognizes known sibling instances (`secrt.ca`, `secrt.is`, including wildcard subdomains via label-boundary suffix matching) and shows a confirm Modal before crossing origins. Web does a sanitized cross-origin redirect; Tauri hands the link to the OS default browser via `@tauri-apps/plugin-shell` instead of silently switching its API endpoint. Unknown hosts get a high-friction inline error with no offer to navigate. Redirect URLs are rebuilt via `new URL()` from validated parts (drops userinfo, ports, scheme oddities), and `parseShareUrl` now rejects non-HTTPS in production builds (with a localhost dev exemption).
+- **Cross-instance share-link handling in the embedded SPA.**
+
+  Pasting a `secrt.is` link into the secrt.ca Get-Secret form (or vice versa) used to silently navigate to the current origin and surface a confusing "secret unavailable" 404. The form now recognizes known sibling instances (`secrt.ca`, `secrt.is`, including wildcard subdomains via label-boundary suffix matching) and shows a confirm Modal before crossing origins.
+
+  - **Web** does a sanitized cross-origin redirect.
+  - **Tauri** hands the link to the OS default browser via `@tauri-apps/plugin-shell` instead of silently switching its API endpoint.
+  - **Unknown hosts** get a high-friction inline error with no offer to navigate.
+
+  Redirect URLs are rebuilt via `new URL()` from validated parts (drops userinfo, ports, scheme oddities), and `parseShareUrl` now rejects non-HTTPS in production builds (with a localhost dev exemption).
 
 ## 0.16.0 — 2026-04-26
 
+Server-driven CLI update guidance. Operators get a `latest_cli_version` and `min_supported_cli_version` they can advertise to CLI clients without those clients hitting GitHub directly.
+
 ### Added
 
-- **GitHub Releases version cache.** A new background task in `release_poller.rs` polls `https://api.github.com/repos/<repo>/releases` every 60 minutes (configurable via `GITHUB_POLL_INTERVAL_SECONDS`; set to `0` to disable polling entirely on air-gapped deployments). The poller uses `If-None-Match`/ETag to avoid burning rate limit on unchanged data, fails soft on 403/429/5xx/timeout/parse errors (last-known-good is preserved), filters tags to `cli/v\d+\.\d+\.\d+` (drafts and prereleases skipped), and picks the highest semver. Optional `GITHUB_TOKEN` lifts the unauthenticated rate limit. Configurable repo via `GITHUB_REPO` (default `getsecrt/secrt`).
-- **Three new `/api/v1/info` body fields**: `latest_cli_version` and `latest_cli_version_checked_at` (omitted while the cache is cold), and `min_supported_cli_version` (always present, sourced from the new `MIN_SUPPORTED_CLI_VERSION` constant in `secrt_server`).
+- **GitHub Releases version cache.**
+
+  A new background task in `release_poller.rs` polls `https://api.github.com/repos/<repo>/releases` every 60 minutes (configurable via `GITHUB_POLL_INTERVAL_SECONDS`; set to `0` to disable polling entirely on air-gapped deployments).
+
+  - Uses `If-None-Match` / ETag to avoid burning rate limit on unchanged data.
+  - Fails soft on 403 / 429 / 5xx / timeout / parse errors (last-known-good is preserved).
+  - Filters tags to `cli/v\d+\.\d+\.\d+` (drafts and prereleases skipped); picks the highest semver.
+  - Optional `GITHUB_TOKEN` lifts the unauthenticated rate limit. Configurable repo via `GITHUB_REPO` (default `getsecrt/secrt`).
+
+- **Three new `/api/v1/info` body fields.**
+
+  `latest_cli_version` and `latest_cli_version_checked_at` (omitted while the cache is cold), and `min_supported_cli_version` (always present, sourced from the new `MIN_SUPPORTED_CLI_VERSION` constant in `secrt_server`).
+
 - **Three new advisory response headers** added on every response (authenticated and public, including `/healthz`): `X-Secrt-Latest-Cli-Version`, `X-Secrt-Latest-Cli-Version-Checked-At`, `X-Secrt-Min-Cli-Version`. Mirror the body fields so CLI clients can refresh their update-check cache opportunistically.
+
 - **`MIN_SUPPORTED_CLI_VERSION` constant** in `crates/secrt-server/src/lib.rs`. Bump when a server release contains a wire-format change that breaks older CLIs (the v0.15.0 AAD format break is the canonical example). Documented in the release-process section of `secrt/AGENTS.md`.
 
 ### Dependencies
