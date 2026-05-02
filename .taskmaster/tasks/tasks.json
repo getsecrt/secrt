@@ -4,7 +4,7 @@
       {
         "id": 6,
         "title": "Linux and cross-platform distribution",
-        "description": "Linux binaries don't need code signing per se, but proper distribution channels need their own packaging and trust mechanisms. Musl builds and SHA-256 checksums are done via CI. Remaining: GPG signatures, Homebrew tap, crates.io, Linux package repos.\n\nTracking: GitHub issue https://github.com/getsecrt/secrt/issues/3 (broader scope \u2014 Homebrew, crates.io, AUR, Scoop, WinGet, npm).",
+        "description": "Linux binaries don't need code signing per se, but proper distribution channels need their own packaging and trust mechanisms. Musl builds and SHA-256 checksums are done via CI. Remaining: GPG signatures, Homebrew tap, crates.io, Linux package repos.\n\nTracking: GitHub issue https://github.com/getsecrt/secrt/issues/3 (broader scope — Homebrew, crates.io, AUR, Scoop, WinGet, npm).",
         "status": "pending",
         "priority": "medium",
         "dependencies": [],
@@ -129,37 +129,45 @@
       {
         "id": 24,
         "title": "Auto-clear clipboard after copying secrets",
-        "description": "Secrets copied to clipboard should be automatically cleared after a configurable timeout (default 30-60 seconds). Use Tauri's clipboard-manager plugin for native clipboard access. Add a visible countdown or toast so users know when the clipboard will be cleared. Should apply to: share link copies, claimed secret text copies, generated password copies. DEFERRED: UX frustration concerns outweigh marginal security benefit \u2014 if an attacker has clipboard access they likely have screen access too. Revisit if users request it.\n\nTracking: GitHub issue https://github.com/getsecrt/secrt/issues/27 (open). Was deferred internally; consider re-activating to align with the public roadmap.",
-        "status": "deferred",
+        "description": "Secrets copied to clipboard can be automatically cleared after a configurable timeout. Should be implemented as an OPT-IN user preference, not always-on, because the right behavior differs by what was copied:\n\n- Share links: users almost always want to paste these into   Slack / iMessage / email, possibly more than once, possibly   after a brief detour. Auto-clearing them surprises users into   thinking the link was lost.\n- Claimed plaintext / generated passwords: clearer case for   auto-clear, since the value is sensitive and short-lived.\n\nImplementation: add an `auto_clear_clipboard` boolean to the user preferences blob (synced via the AMK-wrapped preferences store from #37). Off by default. When on, apply only to claimed-secret and password copies — never to share links — with a configurable timeout (30–60s) and a visible countdown toast so the clear is never silent.\n\nUse Tauri's clipboard-manager plugin for native clipboard access on the desktop app. The web app has narrower clipboard powers (no out-of-band clear after the tab loses focus) so the preference is desktop-only at first.\n\nEarlier deferral rationale: UX frustration concerns outweigh marginal security benefit when forced on. As an opt-in for users who want it, the math flips — power users who care about clipboard hygiene get the protection without imposing lost-link surprise on everyone else.\n\nTracking: GitHub issue https://github.com/getsecrt/secrt/issues/27 (open).",
+        "status": "pending",
         "priority": "high",
         "dependencies": [],
         "subtasks": [
           {
             "id": 1,
+            "title": "Add `auto_clear_clipboard` boolean to user preferences (defaults off)",
+            "status": "pending",
+            "description": "Synced via AMK-wrapped preferences (#37). Surface the toggle in the desktop app's Settings page with a tooltip explaining what it applies to (claimed plaintext + generated passwords only — not share links)."
+          },
+          {
+            "id": 2,
             "title": "Add tauri-plugin-clipboard-manager dependency",
             "status": "pending"
           },
           {
-            "id": 2,
+            "id": 3,
             "title": "Update capabilities/default.json with clipboard permissions",
             "status": "pending"
           },
           {
-            "id": 3,
-            "title": "Implement timed clipboard clear in clipboard.ts for Tauri",
-            "status": "pending"
+            "id": 4,
+            "title": "Implement gated timed clear in clipboard.ts (Tauri)",
+            "status": "pending",
+            "description": "Only clear when the preference is on AND the copy is a claimed plaintext or generated password. Share-link copies bypass the timer entirely."
           },
           {
-            "id": 4,
-            "title": "Add countdown toast/indicator for clipboard clear",
-            "status": "pending"
+            "id": 5,
+            "title": "Add countdown toast/indicator with cancel-clear button",
+            "status": "pending",
+            "description": "User can hit 'Keep' to abort the scheduled clear if they realize they need the value longer."
           }
         ]
       },
       {
         "id": 26,
         "title": "Configure auto-updater",
-        "description": "Add Tauri's updater plugin so the app can check for and install updates. Critical for a security tool \u2014 need to push fixes fast. Requires a signed update manifest hosted somewhere (GitHub Releases or a dedicated endpoint). The updater should check on app launch and optionally on a timer, with a non-intrusive notification when updates are available.",
+        "description": "Add Tauri's updater plugin so the app can check for and install updates. Critical for a security tool — need to push fixes fast. Requires a signed update manifest hosted somewhere (GitHub Releases or a dedicated endpoint). The updater should check on app launch and optionally on a timer, with a non-intrusive notification when updates are available.",
         "status": "pending",
         "priority": "medium",
         "dependencies": [
@@ -288,7 +296,7 @@
       {
         "id": 31,
         "title": "Harden CSP and audit permissions",
-        "description": "Current CSP allows 'unsafe-inline' for scripts and styles. For production, tighten the CSP (nonces or hashes for inline scripts if possible). Audit capabilities/default.json to ensure only necessary permissions are granted \u2014 add clipboard, deep-link, updater permissions as needed but nothing extra. Review connect-src to ensure only secrt.ca is allowed.",
+        "description": "Current CSP allows 'unsafe-inline' for scripts and styles. For production, tighten the CSP (nonces or hashes for inline scripts if possible). Audit capabilities/default.json to ensure only necessary permissions are granted — add clipboard, deep-link, updater permissions as needed but nothing extra. Review connect-src to ensure only secrt.ca is allowed.",
         "status": "pending",
         "priority": "medium",
         "dependencies": [
@@ -434,7 +442,7 @@
       {
         "id": 36,
         "title": "Track macOS keychain reliability across versions",
-        "description": "macOS Tahoe 26 had a regression early in its lifecycle where SecItemAdd succeeded but SecItemCopyMatching returned errSecItemNotFound (-25300) for the same item in the same process, breaking the keyring crate (v3.6.3) entirely. We added a probe at startup and a file-based fallback at ~/Library/Application Support/ca.secrt.app/credentials.json that auto-activates when the probe fails. Direct same-process Swift probe on macOS 26.4.1 (build 25E253) on 2026-04-25 confirms the round-trip now works (SecItemAdd OSStatus=0 followed by SecItemCopyMatching OSStatus=0 returning the stored value). Apple has silently fixed the regression at some point between the original report and 26.4.1; their user-facing release notes don't itemize developer-API fixes so it isn't possible to pinpoint the exact point release. The file fallback stays in the codebase as defense-in-depth \u2014 the probe self-deactivates the fallback when the keychain works, so it costs ~80 lines and protects against future regressions, sandbox edge cases, or differing user environments. This task transitions from one-off fix-tracking to recurring stewardship: re-probe on each macOS major and on keyring crate upgrades.",
+        "description": "macOS Tahoe 26 had a regression early in its lifecycle where SecItemAdd succeeded but SecItemCopyMatching returned errSecItemNotFound (-25300) for the same item in the same process, breaking the keyring crate (v3.6.3) entirely. We added a probe at startup and a file-based fallback at ~/Library/Application Support/ca.secrt.app/credentials.json that auto-activates when the probe fails. Direct same-process Swift probe on macOS 26.4.1 (build 25E253) on 2026-04-25 confirms the round-trip now works (SecItemAdd OSStatus=0 followed by SecItemCopyMatching OSStatus=0 returning the stored value). Apple has silently fixed the regression at some point between the original report and 26.4.1; their user-facing release notes don't itemize developer-API fixes so it isn't possible to pinpoint the exact point release. The file fallback stays in the codebase as defense-in-depth — the probe self-deactivates the fallback when the keychain works, so it costs ~80 lines and protects against future regressions, sandbox edge cases, or differing user environments. This task transitions from one-off fix-tracking to recurring stewardship: re-probe on each macOS major and on keyring crate upgrades.",
         "status": "pending",
         "priority": "low",
         "dependencies": [],
@@ -442,31 +450,31 @@
           {
             "id": 1,
             "title": "Verify keychain round-trip on macOS 26.4.1",
-            "description": "Same-process SecItemAdd \u2192 SecItemCopyMatching round-trip via Swift probe on jdlien's dev box (Tahoe 26.4.1, build 25E253). Both calls returned OSStatus 0; the stored value was retrieved correctly. Tested 2026-04-25.",
+            "description": "Same-process SecItemAdd → SecItemCopyMatching round-trip via Swift probe on jdlien's dev box (Tahoe 26.4.1, build 25E253). Both calls returned OSStatus 0; the stored value was retrieved correctly. Tested 2026-04-25.",
             "status": "done"
           },
           {
             "id": 2,
             "title": "Re-probe on each new macOS major (e.g. 26.5, 27.x)",
-            "description": "Run the Swift probe (or `cargo test -p secrt-app keyring_probe_detects_broken_keychain -- --nocapture`) on a representative dev machine when each major macOS update lands. The point is not to wait for the bug to come back \u2014 it's to catch a recurrence before users notice. Any sign of regression: re-pin the file fallback as the default for the affected version range and surface a banner in the Tauri app.",
+            "description": "Run the Swift probe (or `cargo test -p secrt-app keyring_probe_detects_broken_keychain -- --nocapture`) on a representative dev machine when each major macOS update lands. The point is not to wait for the bug to come back — it's to catch a recurrence before users notice. Any sign of regression: re-pin the file fallback as the default for the affected version range and surface a banner in the Tauri app.",
             "status": "pending"
           },
           {
             "id": 3,
             "title": "Try keyring crate v4.0.0-rc.3 against secrt-app",
-            "description": "v4 has been in RC since Feb 2025 with the v4 branch quiet since July 2025; no v4 stable yet. Try `keyring = \"4.0.0-rc.3\"` on a branch and see whether the API surface and apple-native backend still work for our use case. Low-stakes experiment \u2014 if v4 stable lands, this gets us ahead of the migration; if v4 stays in limbo, we lose nothing by knowing what changed. Run the existing keyring probe + the existing fallback round-trip test.",
+            "description": "v4 has been in RC since Feb 2025 with the v4 branch quiet since July 2025; no v4 stable yet. Try `keyring = \"4.0.0-rc.3\"` on a branch and see whether the API surface and apple-native backend still work for our use case. Low-stakes experiment — if v4 stable lands, this gets us ahead of the migration; if v4 stays in limbo, we lose nothing by knowing what changed. Run the existing keyring probe + the existing fallback round-trip test.",
             "status": "pending"
           },
           {
             "id": 4,
             "title": "Verify keychain behavior under signed/notarized production build",
-            "description": "The dev probe is unsigned. Production Tauri builds are code-signed with the Developer ID cert and have an Entitlements.plist applied. Subtle keychain behavior can differ between unsigned dev builds and signed release builds \u2014 sandbox restrictions, application groups, keychain access groups, etc. Once the release-app.yml workflow exists (task #21) and produces a signed .app, run the same Swift probe (or a Tauri command that exercises the keyring round-trip) inside the signed bundle on a clean Mac. If the signed-build behavior differs from the dev-build behavior, document and adjust.",
+            "description": "The dev probe is unsigned. Production Tauri builds are code-signed with the Developer ID cert and have an Entitlements.plist applied. Subtle keychain behavior can differ between unsigned dev builds and signed release builds — sandbox restrictions, application groups, keychain access groups, etc. Once the release-app.yml workflow exists (task #21) and produces a signed .app, run the same Swift probe (or a Tauri command that exercises the keyring round-trip) inside the signed bundle on a clean Mac. If the signed-build behavior differs from the dev-build behavior, document and adjust.",
             "status": "pending"
           },
           {
             "id": 5,
             "title": "Decide: keep or remove the file-based fallback",
-            "description": "Decision: KEEP. The fallback is defense-in-depth. The probe at startup self-deactivates it when the keychain works, so on healthy systems it is a no-op. The cost (~80 lines in crates/secrt-app/src/lib.rs) is small. Removing it would trade a real safety margin (regressions, sandbox edge cases, user environments we have not seen) for a marginal code-cleanliness win. Re-evaluate if (a) keyring crate v4 stable ships with stronger guarantees, or (b) the fallback path is found to leak credentials to disk in a way the keychain wouldn't (which it does \u2014 the file is mode 600 in the user's app data dir, but is plaintext-on-disk; this is documented). Closing this subtask as the decision is made.",
+            "description": "Decision: KEEP. The fallback is defense-in-depth. The probe at startup self-deactivates it when the keychain works, so on healthy systems it is a no-op. The cost (~80 lines in crates/secrt-app/src/lib.rs) is small. Removing it would trade a real safety margin (regressions, sandbox edge cases, user environments we have not seen) for a marginal code-cleanliness win. Re-evaluate if (a) keyring crate v4 stable ships with stronger guarantees, or (b) the fallback path is found to leak credentials to disk in a way the keychain wouldn't (which it does — the file is mode 600 in the user's app data dir, but is plaintext-on-disk; this is documented). Closing this subtask as the decision is made.",
             "status": "done"
           }
         ]
@@ -474,7 +482,7 @@
       {
         "id": 37,
         "title": "Unified Settings page + AMK-wrapped preferences sync",
-        "description": "Build a single /settings route containing Preferences (always visible) and Account (auth-gated) sections, with an AMK-wrapped, server-synced preferences blob (theme, default TTL, language, saved passphrases, etc.). See full plan: .taskmaster/plans/task-37-unified-preferences.md (v2, 2026-04-26).\n\nSupersedes the original task #37 scope and folds in task #38 (saved passphrases). Execution deferred until task #42 (Passkey PRF AMK wrapping) lands \u2014 the plan assumes passkey-only auth and PRF-derived AMK, which makes auto-clear-on-logout safe and lets the saved-passphrases feature ride on top of a stronger AMK lifecycle.\n\nKey decisions: single blob (not split prefs vs vault), CAS via ETag/If-Match for conflict-safe writes, auto-decrypt on by default with opt-out, Tauri biometric gating through a single passphrase provider, manual 'Clear local data on this device' button as v1 escape hatch (auto-clear-on-logout in Phase 6 post-PRF). Passphrases ship on both web and Tauri. Globe-icon language menu added to nav once 2+ languages live (after task #40).\n\nReplaces prior subtasks with the 8-phase plan from the design doc.",
+        "description": "Build a single /settings route containing Preferences (always visible) and Account (auth-gated) sections, with an AMK-wrapped, server-synced preferences blob (theme, default TTL, language, saved passphrases, etc.). See full plan: .taskmaster/plans/task-37-unified-preferences.md (v2, 2026-04-26).\n\nSupersedes the original task #37 scope and folds in task #38 (saved passphrases). Execution deferred until task #42 (Passkey PRF AMK wrapping) lands — the plan assumes passkey-only auth and PRF-derived AMK, which makes auto-clear-on-logout safe and lets the saved-passphrases feature ride on top of a stronger AMK lifecycle.\n\nKey decisions: single blob (not split prefs vs vault), CAS via ETag/If-Match for conflict-safe writes, auto-decrypt on by default with opt-out, Tauri biometric gating through a single passphrase provider, manual 'Clear local data on this device' button as v1 escape hatch (auto-clear-on-logout in Phase 6 post-PRF). Passphrases ship on both web and Tauri. Globe-icon language menu added to nav once 2+ languages live (after task #40).\n\nReplaces prior subtasks with the 8-phase plan from the design doc.",
         "status": "pending",
         "priority": "high",
         "dependencies": [
@@ -483,57 +491,57 @@
         "subtasks": [
           {
             "id": 1,
-            "title": "Phase 0 \u2014 Spec + crypto vectors for AMK-wrapped preferences blob",
+            "title": "Phase 0 — Spec + crypto vectors for AMK-wrapped preferences blob",
             "status": "pending",
             "description": "Write spec/v1/preferences.md (envelope, normative AAD layout including blob_kind, wire format, CAS semantics). Generate spec/v1/preferences.vectors.json (3-5 deterministic vectors). Implement Preferences struct + seal_preferences/open_preferences in secrt-core; mirror in web/src/crypto/preferences.ts. Both must pass the same vectors before any UI work."
           },
           {
             "id": 2,
-            "title": "Phase 1 \u2014 Server endpoints with CAS (ETag/If-Match)",
+            "title": "Phase 1 — Server endpoints with CAS (ETag/If-Match)",
             "status": "pending",
             "description": "user_preferences Postgres table + migration (with revision column for CAS). GET/PUT handlers at /api/v1/auth/preferences in secrt-server. ETag generation, If-Match/If-None-Match enforcement, 409 on mismatch, 412 on missing precondition, 64 KB ciphertext size cap. OpenAPI updates. Integration tests covering concurrent-write CAS conflict path."
           },
           {
             "id": 3,
-            "title": "Phase 2 \u2014 Client storage + sync (web + Tauri)",
+            "title": "Phase 2 — Client storage + sync (web + Tauri)",
             "status": "pending",
-            "description": "web/src/lib/preferences.ts (get/set/subscribe + Preact hook). web/src/lib/preferencesSync.ts (load on login, write-through with ETag, 409-retry up to 3, localStorage ciphertext-only cache). Tauri-only: web/src/lib/passphraseProvider.ts \u2014 single biometric-gated provider that reads from keychain, reconciles with AMK blob on app start and on mutations. Logout clears in-memory decrypted blob (does not clear AMK or localStorage cache yet \u2014 see Phase 6). Detect and surface 'authenticated but no AMK' state."
+            "description": "web/src/lib/preferences.ts (get/set/subscribe + Preact hook). web/src/lib/preferencesSync.ts (load on login, write-through with ETag, 409-retry up to 3, localStorage ciphertext-only cache). Tauri-only: web/src/lib/passphraseProvider.ts — single biometric-gated provider that reads from keychain, reconciles with AMK blob on app start and on mutations. Logout clears in-memory decrypted blob (does not clear AMK or localStorage cache yet — see Phase 6). Detect and surface 'authenticated but no AMK' state."
           },
           {
             "id": 4,
-            "title": "Phase 3 \u2014 Settings page restructure",
+            "title": "Phase 3 — Settings page restructure",
             "status": "pending",
-            "description": "Remove AuthGuard from /settings; render Preferences sections unconditionally. Wrap Account sections in auth check with 'Sign in to manage your account' affordance. Build Appearance / General / Sending / Opening / Device-safety section components. Add 'Clear local data on this device' button to Account \u2192 Danger Zone (sibling of Delete Account; clears AMK + localStorage prefs cache + session token, then signs out)."
+            "description": "Remove AuthGuard from /settings; render Preferences sections unconditionally. Wrap Account sections in auth check with 'Sign in to manage your account' affordance. Build Appearance / General / Sending / Opening / Device-safety section components. Add 'Clear local data on this device' button to Account → Danger Zone (sibling of Delete Account; clears AMK + localStorage prefs cache + session token, then signs out)."
           },
           {
             "id": 5,
-            "title": "Phase 4 \u2014 Nav, shortcuts, Send/Claim integrations",
+            "title": "Phase 4 — Nav, shortcuts, Send/Claim integrations",
             "status": "pending",
-            "description": "Remove dark-mode toggle from nav (preserve D shortcut). Add gear icon for unauth users routing to /settings. Wire default_ttl + auto_copy_share_link into SendPage. Wire 'Use saved default passphrase' checkbox model into SendPage (no pre-fill of saved value; default checkbox state controlled by always_confirm_send_default preference). Persistent compact indicator near Send action when default passphrase is active. Multi-phase auto-decrypt on Claim (respecting always_ask_before_auto_decrypt; never reveals which passphrase succeeded). Cmd+, / Ctrl+, global shortcut. macOS Tauri menu 'Preferences\u2026 \u2318,'."
+            "description": "Remove dark-mode toggle from nav (preserve D shortcut). Add gear icon for unauth users routing to /settings. Wire default_ttl + auto_copy_share_link into SendPage. Wire 'Use saved default passphrase' checkbox model into SendPage (no pre-fill of saved value; default checkbox state controlled by always_confirm_send_default preference). Persistent compact indicator near Send action when default passphrase is active. Multi-phase auto-decrypt on Claim (respecting always_ask_before_auto_decrypt; never reveals which passphrase succeeded). Cmd+, / Ctrl+, global shortcut. macOS Tauri menu 'Preferences… ⌘,'."
           },
           {
             "id": 6,
-            "title": "Phase 5 \u2014 Tauri biometric gating",
+            "title": "Phase 5 — Tauri biometric gating",
             "status": "pending",
             "description": "New Tauri command biometric_authenticate(reason: string) -> bool. macOS uses LAContext.evaluatePolicy; Windows uses Hello; Linux returns false with a reason (gate becomes a no-op with UI note). Wire passphraseProvider to call it whenever prefs.require_biometric is true. Cache successful auth for biometric_cache_seconds (in-memory only). UI for both require_biometric and biometric_cache_seconds preferences in the Device-safety section."
           },
           {
             "id": 7,
-            "title": "Phase 6 \u2014 Auto-clear AMK on logout (gated on task #42)",
+            "title": "Phase 6 — Auto-clear AMK on logout (gated on task #42)",
             "status": "pending",
-            "description": "Add clearAmk(userId) call to logout() in web/src/lib/auth-context.tsx. Also clear localStorage prefs ciphertext cache. Verify re-login derives AMK via PRF without triggering device-transfer prompt. Update 'Clear local data on this device' button copy if its scope now overlaps materially with default logout behavior. This phase MUST land after task #42 (PRF) \u2014 without PRF, this change makes re-login on a fresh-feeling browser require the device-transfer dance, which is a regression."
+            "description": "Add clearAmk(userId) call to logout() in web/src/lib/auth-context.tsx. Also clear localStorage prefs ciphertext cache. Verify re-login derives AMK via PRF without triggering device-transfer prompt. Update 'Clear local data on this device' button copy if its scope now overlaps materially with default logout behavior. This phase MUST land after task #42 (PRF) — without PRF, this change makes re-login on a fresh-feeling browser require the device-transfer dance, which is a regression."
           },
           {
             "id": 8,
-            "title": "Phase 7 \u2014 Globe-icon language menu (gated on task #40)",
+            "title": "Phase 7 — Globe-icon language menu (gated on task #40)",
             "status": "pending",
-            "description": "When availableLocales.length >= 2, render globe menu in nav showing current locale (e.g. '\ud83c\udf10 \u4e2d\u6587 (\u7e41\u9ad4) \u25be'). Dropdown lists locales + 'More preferences\u2026' link routing to /settings#language. Quick-switch writes language.locale to the AMK blob. Out of scope until task #40 (Icelandic localization) extracts strings and wires up i18n infrastructure."
+            "description": "When availableLocales.length >= 2, render globe menu in nav showing current locale (e.g. '🌐 中文 (繁體) ▾'). Dropdown lists locales + 'More preferences…' link routing to /settings#language. Quick-switch writes language.locale to the AMK blob. Out of scope until task #40 (Icelandic localization) extracts strings and wires up i18n infrastructure."
           }
         ]
       },
       {
         "id": 38,
-        "title": "CLI \u2194 AMK preferences sync (passphrase import/export parity)",
+        "title": "CLI ↔ AMK preferences sync (passphrase import/export parity)",
         "description": "Slim follow-up to task #37: wire the CLI to optionally push/pull the AMK-wrapped preferences blob, so users with both CLI and app share the same saved passphrases (and other prefs). Most of the original task #38 scope (auto-decrypt UX, default-passphrase prefill, passphrase management UI) has been folded into #37 v2 plan: .taskmaster/plans/task-37-unified-preferences.md.\n\nRemaining work:\n- 'secrt config sync pull' / 'secrt config sync push' commands (or similar) that fetch/store the AMK blob using the shared Preferences struct from secrt-core.\n- Map between CLI TOML keys and Preferences fields per the mapping table in the plan doc.\n- Decide CLI-only behavior for fields the CLI doesn't honor (use_keychain, api_key, show_input).\n\nDepends on task #37 landing first (introduces the shared Preferences struct, server endpoints, and crypto envelope this task consumes).",
         "status": "pending",
         "priority": "low",
@@ -545,7 +553,7 @@
       {
         "id": 39,
         "title": "Auto-copy share link after secret creation",
-        "description": "After successfully creating a secret, automatically copy the share link to the clipboard using copySensitive (which excludes from clipboard history on all platforms). The CLI does this by default via auto_copy config. Add a preference toggle (auto_copy in task #37's preferences store) so users can disable it. Show a brief toast or visual indicator confirming the copy. Do NOT auto-copy claimed secret text \u2014 that stays as a manual CopyButton action.",
+        "description": "After successfully creating a secret, automatically copy the share link to the clipboard using copySensitive (which excludes from clipboard history on all platforms). The CLI does this by default via auto_copy config. Add a preference toggle (auto_copy in task #37's preferences store) so users can disable it. Show a brief toast or visual indicator confirming the copy. Do NOT auto-copy claimed secret text — that stays as a manual CopyButton action.",
         "status": "pending",
         "priority": "medium",
         "dependencies": [
@@ -569,7 +577,7 @@
       {
         "id": 40,
         "title": "Add Icelandic localization (is-IS)",
-        "description": "Localize the SPA to Icelandic for the secrt.is deployment. Wire up i18n (currently English-only), externalize all UI strings, and translate. Out of scope: server-emitted strings (robots.txt comments, error responses) which are already English. Consider host-aware default locale (secrt.is \u2192 is-IS, secrt.ca \u2192 en-CA) with a manual override. Driven by the new secrt.is presence in Iceland.",
+        "description": "Localize the SPA to Icelandic for the secrt.is deployment. Wire up i18n (currently English-only), externalize all UI strings, and translate. Out of scope: server-emitted strings (robots.txt comments, error responses) which are already English. Consider host-aware default locale (secrt.is → is-IS, secrt.ca → en-CA) with a manual override. Driven by the new secrt.is presence in Iceland.",
         "status": "pending",
         "priority": "low",
         "dependencies": [],
@@ -578,7 +586,7 @@
       {
         "id": 41,
         "title": "Document jurisdiction choices (Iceland + Canada)",
-        "description": "Document the operational deployments. **Iceland deployment shipped on 1984 Hosting (secrt.is)**, live since 2026-04-22 \u2014 full deployment recipe at /Users/jdlien/code/getsecrt/2026-04-22-21-45_secrt-is-iceland-deployment-guide.md (Ubuntu 24.04 / 1GB / Caddy + Rust binary + Postgres, hardened, Ubuntu Pro + Livepatch). **Canada deployment continues at secrt.ca**. Both deployments consume the same prebuilt Rust binary from GitHub Releases \u2014 single codebase, two jurisdictional surfaces. Iceland choice rationale: among the strongest privacy regimes in the world (IMMI legacy, strong data protection, free-expression precedent, lower MLAT-on-demand exposure); 1984 Hosting specifically chosen for ideological alignment and history of resisting law-enforcement pressure. Caveat: 1984 is still IPv4-only; IPv6 has been 'coming soon' for 13+ years and they confirmed by email it remains their current stance. Canada rationale: rule of law plus data residency for Canadian-regulated businesses (PIPEDA-aligned, hosted in-country). Frame as both a privacy story and a B2B residency story.",
+        "description": "Document the operational deployments. **Iceland deployment shipped on 1984 Hosting (secrt.is)**, live since 2026-04-22 — full deployment recipe at /Users/jdlien/code/getsecrt/2026-04-22-21-45_secrt-is-iceland-deployment-guide.md (Ubuntu 24.04 / 1GB / Caddy + Rust binary + Postgres, hardened, Ubuntu Pro + Livepatch). **Canada deployment continues at secrt.ca**. Both deployments consume the same prebuilt Rust binary from GitHub Releases — single codebase, two jurisdictional surfaces. Iceland choice rationale: among the strongest privacy regimes in the world (IMMI legacy, strong data protection, free-expression precedent, lower MLAT-on-demand exposure); 1984 Hosting specifically chosen for ideological alignment and history of resisting law-enforcement pressure. Caveat: 1984 is still IPv4-only; IPv6 has been 'coming soon' for 13+ years and they confirmed by email it remains their current stance. Canada rationale: rule of law plus data residency for Canadian-regulated businesses (PIPEDA-aligned, hosted in-country). Frame as both a privacy story and a B2B residency story.",
         "status": "pending",
         "priority": "medium",
         "dependencies": [],
@@ -586,7 +594,7 @@
           {
             "id": 1,
             "title": "Add jurisdiction section to How it Works",
-            "description": "Plain-language version on web/src/features/trust/HowItWorksPage.tsx \u2014 3-5 sentences for casual users. Cover: two deployments because jurisdiction matters to the threat model; Iceland for strongest privacy regime; Canada for data residency + working with Canadian-regulated businesses. Link to the whitepaper for depth.",
+            "description": "Plain-language version on web/src/features/trust/HowItWorksPage.tsx — 3-5 sentences for casual users. Cover: two deployments because jurisdiction matters to the threat model; Iceland for strongest privacy regime; Canada for data residency + working with Canadian-regulated businesses. Link to the whitepaper for depth.",
             "status": "pending"
           },
           {
@@ -600,7 +608,7 @@
       {
         "id": 42,
         "title": "Passkey PRF-based AMK wrapping (zero-knowledge passkey UX)",
-        "description": "**Design doc:** `crates/secrt-server/docs/prf-amk-wrapping.md` \u2014 read this first. Contains the exact KDF formulas, AAD layout, wire format, schema migration, HTTP route definitions, flow diagrams, threat model, test-vector template, and open questions. The summary below is a map; the doc is the territory.\n\nAdd WebAuthn PRF extension as an alternative path for deriving the AMK wrap-key, so new devices can recover the AMK by signing in with a passkey instead of scanning a sync-link QR. This is the single biggest UX win available for the zero-knowledge notes product \u2014 it replicates the 'walk up, tap passkey, see your stuff' flow that Proton/Standard Notes can't offer because they still require a master password.\n\n## What stays the same\nThe AMK itself (random 32-byte key), AES-256-GCM envelope encryption, note encryption (HKDF(AMK, salt, 'secrt-note-v1')), the amk_wrappers table structure, the commitment hash, the versioning, the AAD binding, envelope encryption, url_key, Argon2id passphrases. This is purely an additive path at the 'how do we derive wrap_key' layer.\n\n## What changes\nCurrent: wrap_key = HKDF(api_key_root, root_salt, 'secrt-amk-wrap-v1', 32), keyed per-API-key.\nNew: wrap_key = HKDF(prf_output, cred_salt, 'secrt-amk-wrap-prf-v1', 32), keyed per-passkey-credential.\nServer adds a new amk_wrappers row variant keyed by credential_id instead of api_key_prefix. Both paths coexist.\n\n## Browser support matrix (as of April 2026)\n- Chrome/Edge on Windows 11 25H2 + Windows Hello: Chrome 147+ (PRF-on-create landed Feb 2026)\n- Safari 18+ on iOS 18.4+ / macOS 15+ with iCloud Keychain: works\n- Chrome on Android + Google Password Manager: PRF-by-default, most mature\n- Firefox 148+: first Firefox with full PRF support (user share still small)\n- External security keys on iOS Safari: broken (hmac-secret returned encrypted) \u2014 fall back to sync-link\n\nPRF is an ENHANCEMENT, not a replacement. Keep the existing ECDH/QR sync-link flow for: Firefox \u2264147, iOS Safari + external key, account recovery, users who prefer the explicit key-in-hand mental model.\n\n## Key technical gotcha\nThe PRF salt must be STABLE per credential (domain separator, not a nonce). Generate at registration with crypto.getRandomValues(), persist server-side alongside the credential record. Reusing the same salt across devices that sync the same passkey (iCloud Keychain, Google PM) is correct and required for PRF-output determinism across the synced set.\n\n## Affected code\n- web/src/crypto/amk.ts \u2014 new deriveAmkWrapKeyFromPrf() alongside existing deriveAmkWrapKey()\n- web/src/features/passkeys/ \u2014 registration requests PRF extension; login calls PRF at auth time\n- secrt-core/src/amk.rs \u2014 add prf-variant wrap-key derivation path\n- secrt-server migrations \u2014 extend amk_wrappers with credential_id column + index\n- secrt-server passkeys routes \u2014 store cred_salt at registration; expose wrapped AMK by credential_id\n- spec/v1/server.md \u2014 document PRF app-login variant\n- spec/v1/envelope.md \u2014 no changes expected (orthogonal concern)",
+        "description": "**Design doc:** `crates/secrt-server/docs/prf-amk-wrapping.md` — read this first. Contains the exact KDF formulas, AAD layout, wire format, schema migration, HTTP route definitions, flow diagrams, threat model, test-vector template, and open questions. The summary below is a map; the doc is the territory.\n\nAdd WebAuthn PRF extension as an alternative path for deriving the AMK wrap-key, so new devices can recover the AMK by signing in with a passkey instead of scanning a sync-link QR. This is the single biggest UX win available for the zero-knowledge notes product — it replicates the 'walk up, tap passkey, see your stuff' flow that Proton/Standard Notes can't offer because they still require a master password.\n\n## What stays the same\nThe AMK itself (random 32-byte key), AES-256-GCM envelope encryption, note encryption (HKDF(AMK, salt, 'secrt-note-v1')), the amk_wrappers table structure, the commitment hash, the versioning, the AAD binding, envelope encryption, url_key, Argon2id passphrases. This is purely an additive path at the 'how do we derive wrap_key' layer.\n\n## What changes\nCurrent: wrap_key = HKDF(api_key_root, root_salt, 'secrt-amk-wrap-v1', 32), keyed per-API-key.\nNew: wrap_key = HKDF(prf_output, cred_salt, 'secrt-amk-wrap-prf-v1', 32), keyed per-passkey-credential.\nServer adds a new amk_wrappers row variant keyed by credential_id instead of api_key_prefix. Both paths coexist.\n\n## Browser support matrix (as of April 2026)\n- Chrome/Edge on Windows 11 25H2 + Windows Hello: Chrome 147+ (PRF-on-create landed Feb 2026)\n- Safari 18+ on iOS 18.4+ / macOS 15+ with iCloud Keychain: works\n- Chrome on Android + Google Password Manager: PRF-by-default, most mature\n- Firefox 148+: first Firefox with full PRF support (user share still small)\n- External security keys on iOS Safari: broken (hmac-secret returned encrypted) — fall back to sync-link\n\nPRF is an ENHANCEMENT, not a replacement. Keep the existing ECDH/QR sync-link flow for: Firefox ≤147, iOS Safari + external key, account recovery, users who prefer the explicit key-in-hand mental model.\n\n## Key technical gotcha\nThe PRF salt must be STABLE per credential (domain separator, not a nonce). Generate at registration with crypto.getRandomValues(), persist server-side alongside the credential record. Reusing the same salt across devices that sync the same passkey (iCloud Keychain, Google PM) is correct and required for PRF-output determinism across the synced set.\n\n## Affected code\n- web/src/crypto/amk.ts — new deriveAmkWrapKeyFromPrf() alongside existing deriveAmkWrapKey()\n- web/src/features/passkeys/ — registration requests PRF extension; login calls PRF at auth time\n- secrt-core/src/amk.rs — add prf-variant wrap-key derivation path\n- secrt-server migrations — extend amk_wrappers with credential_id column + index\n- secrt-server passkeys routes — store cred_salt at registration; expose wrapped AMK by credential_id\n- spec/v1/server.md — document PRF app-login variant\n- spec/v1/envelope.md — no changes expected (orthogonal concern)",
         "status": "pending",
         "priority": "high",
         "dependencies": [],
@@ -614,25 +622,25 @@
           {
             "id": 2,
             "title": "Server: extend amk_wrappers + passkey credentials for PRF path",
-            "description": "See `crates/secrt-server/docs/prf-amk-wrapping.md` \u00a73.3 (schema) + \u00a73.5 (HTTP routes) + \u00a78 (implementation plan). Migration: add cred_salt (BYTEA, 32 bytes) and prf_supported (BOOL) to webauthn_credentials (or equivalent table). Extend amk_wrappers to be keyable by either api_key_prefix (existing) or credential_id (new) \u2014 likely a discriminator column and a nullable fk pair. Add server routes: PUT /api/v1/auth/passkeys/{cred_id}/amk-wrapper (store a PRF-wrapped AMK after user completes registration and client has computed it), GET /api/v1/auth/passkeys/{cred_id}/amk-wrapper (return the wrapped blob at login time, rate-limited, requires fresh session). Index for lookup by credential_id. Update spec/v1/server.md with new endpoints.",
+            "description": "See `crates/secrt-server/docs/prf-amk-wrapping.md` §3.3 (schema) + §3.5 (HTTP routes) + §8 (implementation plan). Migration: add cred_salt (BYTEA, 32 bytes) and prf_supported (BOOL) to webauthn_credentials (or equivalent table). Extend amk_wrappers to be keyable by either api_key_prefix (existing) or credential_id (new) — likely a discriminator column and a nullable fk pair. Add server routes: PUT /api/v1/auth/passkeys/{cred_id}/amk-wrapper (store a PRF-wrapped AMK after user completes registration and client has computed it), GET /api/v1/auth/passkeys/{cred_id}/amk-wrapper (return the wrapped blob at login time, rate-limited, requires fresh session). Index for lookup by credential_id. Update spec/v1/server.md with new endpoints.",
             "status": "done"
           },
           {
             "id": 3,
             "title": "Client: passkey registration requests PRF extension + persists salt",
-            "description": "In the registration ceremony (features/passkeys/register), add `extensions: { prf: { eval: { first: new Uint8Array(salt32) } } }`. Generate salt32 with crypto.getRandomValues(). POST salt32 to server alongside the credential creation response \u2014 stored on webauthn_credentials.cred_salt. Inspect clientExtensionResults.prf to detect PRF support: if prf.enabled is true, mark credential as PRF-capable server-side; if false or undefined, credential is legacy and the user will use sync-link for this credential only. Do NOT fail registration if PRF unsupported \u2014 fall through gracefully.",
+            "description": "In the registration ceremony (features/passkeys/register), add `extensions: { prf: { eval: { first: new Uint8Array(salt32) } } }`. Generate salt32 with crypto.getRandomValues(). POST salt32 to server alongside the credential creation response — stored on webauthn_credentials.cred_salt. Inspect clientExtensionResults.prf to detect PRF support: if prf.enabled is true, mark credential as PRF-capable server-side; if false or undefined, credential is legacy and the user will use sync-link for this credential only. Do NOT fail registration if PRF unsupported — fall through gracefully.",
             "status": "done"
           },
           {
             "id": 4,
             "title": "Client: PRF wrap/unwrap crypto path",
-            "description": "See `crates/secrt-server/docs/prf-amk-wrapping.md` \u00a73.1 (derivation formula), \u00a73.2 (AAD layout), \u00a79 (test vectors \u2014 fill in before landing). In web/src/crypto/amk.ts and secrt-core/src/amk.rs, add deriveAmkWrapKeyFromPrf(prfOutput: Uint8Array, credSalt: Uint8Array) -> wrap_key, using HKDF-SHA256 with info='secrt-amk-wrap-prf-v1'. Reuse existing WrappedAmk { ct, nonce, version } structure and AAD format (bind to credential_id instead of api_key_prefix for PRF wrappers). Add unit tests round-tripping wrap\u2192unwrap with known test vectors. Ensure AAD binding prevents cross-credential replay.",
+            "description": "See `crates/secrt-server/docs/prf-amk-wrapping.md` §3.1 (derivation formula), §3.2 (AAD layout), §9 (test vectors — fill in before landing). In web/src/crypto/amk.ts and secrt-core/src/amk.rs, add deriveAmkWrapKeyFromPrf(prfOutput: Uint8Array, credSalt: Uint8Array) -> wrap_key, using HKDF-SHA256 with info='secrt-amk-wrap-prf-v1'. Reuse existing WrappedAmk { ct, nonce, version } structure and AAD format (bind to credential_id instead of api_key_prefix for PRF wrappers). Add unit tests round-tripping wrap→unwrap with known test vectors. Ensure AAD binding prevents cross-credential replay.",
             "status": "done"
           },
           {
             "id": 5,
             "title": "Client: login flow fetches + unwraps PRF-wrapped AMK",
-            "description": "See `crates/secrt-server/docs/prf-amk-wrapping.md` \u00a74.4 (new-device login flow diagram) + \u00a74.5 (upgrade path). After successful passkey authentication that returned a PRF output: fetch GET /api/v1/auth/passkeys/{cred_id}/amk-wrapper, unwrap with the PRF-derived wrap_key, store AMK in IndexedDB via existing storeAmk(). If the credential has no PRF wrapper yet (first login with a new PRF-capable credential), trigger a one-time 'upgrade' flow: derive AMK via the existing path (user may need to sync-link from another device), then create a PRF wrapper for this credential so future logins skip the sync-link step. Handle the 'PRF not supported on this browser today' case by falling through to sync-link.",
+            "description": "See `crates/secrt-server/docs/prf-amk-wrapping.md` §4.4 (new-device login flow diagram) + §4.5 (upgrade path). After successful passkey authentication that returned a PRF output: fetch GET /api/v1/auth/passkeys/{cred_id}/amk-wrapper, unwrap with the PRF-derived wrap_key, store AMK in IndexedDB via existing storeAmk(). If the credential has no PRF wrapper yet (first login with a new PRF-capable credential), trigger a one-time 'upgrade' flow: derive AMK via the existing path (user may need to sync-link from another device), then create a PRF wrapper for this credential so future logins skip the sync-link step. Handle the 'PRF not supported on this browser today' case by falling through to sync-link.",
             "status": "done"
           },
           {
@@ -644,7 +652,7 @@
           {
             "id": 7,
             "title": "Tests + browser matrix CI",
-            "description": "Unit tests for wrap/unwrap round-trip in both Rust and TS. Integration test for register-with-PRF \u2192 store wrapper \u2192 login on different 'device' (different IndexedDB) \u2192 unwrap \u2192 verify AMK bytes match. Playwright browser matrix job covering Chrome desktop, Safari desktop, Chrome Android (if feasible). Manual test script for iCloud Keychain sync across macOS+iOS. Document the CI browser matrix in CONTRIBUTING.md.\n\nExplicit scenario \u2014 CLI bootstrap with PRF: end-to-end test of `secrt auth login` in a brand-new browser profile (no prior AMK in IndexedDB). Expected: verification-URL page triggers PRF login, unwraps server-stored AMK, user taps Approve, ECDH handoff to CLI succeeds, CLI wraps under api-key-root and stores via `/amk-wrappers`. Today this scenario requires the user to paste an API key or run `sync` first; with PRF it should be single-tap. Covered in design doc \u00a74.6.",
+            "description": "Unit tests for wrap/unwrap round-trip in both Rust and TS. Integration test for register-with-PRF → store wrapper → login on different 'device' (different IndexedDB) → unwrap → verify AMK bytes match. Playwright browser matrix job covering Chrome desktop, Safari desktop, Chrome Android (if feasible). Manual test script for iCloud Keychain sync across macOS+iOS. Document the CI browser matrix in CONTRIBUTING.md.\n\nExplicit scenario — CLI bootstrap with PRF: end-to-end test of `secrt auth login` in a brand-new browser profile (no prior AMK in IndexedDB). Expected: verification-URL page triggers PRF login, unwraps server-stored AMK, user taps Approve, ECDH handoff to CLI succeeds, CLI wraps under api-key-root and stores via `/amk-wrappers`. Today this scenario requires the user to paste an API key or run `sync` first; with PRF it should be single-tap. Covered in design doc §4.6.",
             "status": "done"
           },
           {
@@ -658,7 +666,7 @@
       {
         "id": 43,
         "title": "Explore warrant canary for secrt",
-        "description": "Decide whether to ship a warrant canary, and if so, of what kind. The architecture is secrt's primary privacy defense; a canary is auxiliary signal about whether that architecture has been compromised under legal compulsion. Key insight from design conversation (2026-04-24): for a zero-knowledge service whose main threat vector is compelled code modification (NSL/CSIS/CSE order to ship a backdoored client), the most potent canary is release-signed rather than page-published. A README canary tells users 'the server is honest'; a release-signed canary tells users 'this specific binary has not been tampered with under legal compulsion.' That binds the canary to the actual attack surface. Canadian legal ground (Charter s.2(b) vs. s.1 reasonable-limits) is less tested than US First Amendment doctrine \u2014 Iceland is friendlier ground. Tie wording to the jurisdiction story established in task 41. Don't auto-update from a cron \u2014 signing must require manual action with a key under exclusive control, otherwise the signal is meaningless. Pain to operate, but architecturally honest.\n\n[Updated 2026-04-24] Iceland deployment is now live at secrt.is on 1984 Hosting. Both deployments consume the same signed Rust binary from GitHub Releases, which means **one release-signed canary attests binary integrity across both jurisdictional surfaces** \u2014 that's the architectural simplification. Per-instance page canaries (one for secrt.ca, one for secrt.is) remain useful for jurisdiction-specific events (preservation demands, gag orders specific to the host country, 1984 Hosting being compelled by Icelandic authorities). The canary architecture maps cleanly: shared release attestation + per-jurisdiction page canaries.",
+        "description": "Decide whether to ship a warrant canary, and if so, of what kind. The architecture is secrt's primary privacy defense; a canary is auxiliary signal about whether that architecture has been compromised under legal compulsion. Key insight from design conversation (2026-04-24): for a zero-knowledge service whose main threat vector is compelled code modification (NSL/CSIS/CSE order to ship a backdoored client), the most potent canary is release-signed rather than page-published. A README canary tells users 'the server is honest'; a release-signed canary tells users 'this specific binary has not been tampered with under legal compulsion.' That binds the canary to the actual attack surface. Canadian legal ground (Charter s.2(b) vs. s.1 reasonable-limits) is less tested than US First Amendment doctrine — Iceland is friendlier ground. Tie wording to the jurisdiction story established in task 41. Don't auto-update from a cron — signing must require manual action with a key under exclusive control, otherwise the signal is meaningless. Pain to operate, but architecturally honest.\n\n[Updated 2026-04-24] Iceland deployment is now live at secrt.is on 1984 Hosting. Both deployments consume the same signed Rust binary from GitHub Releases, which means **one release-signed canary attests binary integrity across both jurisdictional surfaces** — that's the architectural simplification. Per-instance page canaries (one for secrt.ca, one for secrt.is) remain useful for jurisdiction-specific events (preservation demands, gag orders specific to the host country, 1984 Hosting being compelled by Icelandic authorities). The canary architecture maps cleanly: shared release attestation + per-jurisdiction page canaries.",
         "status": "pending",
         "priority": "medium",
         "dependencies": [
@@ -668,37 +676,37 @@
           {
             "id": 1,
             "title": "Decide canary form: release-signed vs. published-page vs. both",
-            "description": "Evaluate three options. (a) Release-signed: every signed release announcement contains a dated canary clause covering compelled code/key/config changes \u2014 binds to the compromise vector but only signals on release cadence. (b) Published-page: signed statement on a /canary URL updated every 14 days \u2014 independent of release cadence, more visible, but doesn't bind to binary integrity. (c) Both, with the page canary as the user-facing visible thing and the release canary as the integrity assertion. Recommendation going in: (c), but verify by writing out what each one actually claims and what an adversary would have to compel to defeat it.",
+            "description": "Evaluate three options. (a) Release-signed: every signed release announcement contains a dated canary clause covering compelled code/key/config changes — binds to the compromise vector but only signals on release cadence. (b) Published-page: signed statement on a /canary URL updated every 14 days — independent of release cadence, more visible, but doesn't bind to binary integrity. (c) Both, with the page canary as the user-facing visible thing and the release canary as the integrity assertion. Recommendation going in: (c), but verify by writing out what each one actually claims and what an adversary would have to compel to defeat it.",
             "status": "pending"
           },
           {
             "id": 2,
             "title": "Draft canary statement wording (CA + IS instruments)",
-            "description": "Specific over vague \u2014 vague canaries invite the order-issuer to argue 'we didn't compel exactly what the canary denied.' Wording should explicitly cover: National Security Letters / FISA-equivalent orders; CSIS Act s.21 warrants; CSE Act preservation demands; Canadian anti-terrorism framework production orders; Icelandic instruments (Act on Criminal Procedure 88/2008 production orders, telecommunications interception under the Police Act \u2014 research the actual list since the surface is much narrower than CA/US); 1984 Hosting being compelled to act against secrt.is specifically; compelled code modification to the shared Rust binary; compelled cryptographic key disclosure; compelled retention beyond stated policy; gag orders preventing canary update. Have a Canadian privacy lawyer review if budget allows; consider an Icelandic counterpart for the IS-specific wording. Model on rsync.net's wording with our jurisdiction-specific additions.",
+            "description": "Specific over vague — vague canaries invite the order-issuer to argue 'we didn't compel exactly what the canary denied.' Wording should explicitly cover: National Security Letters / FISA-equivalent orders; CSIS Act s.21 warrants; CSE Act preservation demands; Canadian anti-terrorism framework production orders; Icelandic instruments (Act on Criminal Procedure 88/2008 production orders, telecommunications interception under the Police Act — research the actual list since the surface is much narrower than CA/US); 1984 Hosting being compelled to act against secrt.is specifically; compelled code modification to the shared Rust binary; compelled cryptographic key disclosure; compelled retention beyond stated policy; gag orders preventing canary update. Have a Canadian privacy lawyer review if budget allows; consider an Icelandic counterpart for the IS-specific wording. Model on rsync.net's wording with our jurisdiction-specific additions.",
             "status": "pending"
           },
           {
             "id": 3,
-            "title": "Operational design \u2014 key custody, cadence, lapse policy, bus factor",
-            "description": "Signing key for the canary MUST be under exclusive personal control \u2014 not in CI, not in the deployment pipeline, not auto-callable. Cold storage or hardware token. Cadence: every 14 days for the page canary; per-release for the release canary. Lapse policy: published doc says 'a lapse of more than 21 days should be treated as a real signal.' Bus-factor handover: documented procedure for what happens if JD is unreachable (does the canary lapse intentionally? does a co-trustee with a separate key take over? this is the hardest operational question and needs a written answer before launch).",
+            "title": "Operational design — key custody, cadence, lapse policy, bus factor",
+            "description": "Signing key for the canary MUST be under exclusive personal control — not in CI, not in the deployment pipeline, not auto-callable. Cold storage or hardware token. Cadence: every 14 days for the page canary; per-release for the release canary. Lapse policy: published doc says 'a lapse of more than 21 days should be treated as a real signal.' Bus-factor handover: documented procedure for what happens if JD is unreachable (does the canary lapse intentionally? does a co-trustee with a separate key take over? this is the hardest operational question and needs a written answer before launch).",
             "status": "pending"
           },
           {
             "id": 4,
             "title": "Legal posture writeup for whitepaper",
-            "description": "Document the legal theory under which canaries are believed to work in each jurisdiction we operate in. Canada: Charter s.2(b) free expression protection vs. s.1 reasonable-limits override; theory is that compelled silence is constitutionally distinct from compelled speech, but not yet tested in court for canaries specifically. Iceland: much more permissive privacy regime, fewer national-security gag instruments to worry about, IMMI legacy. US users (whose data goes to either deployment): note that the canary doesn't protect them from US legal process directed at the host country, only signals compromise of the host. Be honest in the whitepaper that Canadian canary law is unsettled \u2014 this is partly an act of legal-theory-making, not just legal-theory-following.",
+            "description": "Document the legal theory under which canaries are believed to work in each jurisdiction we operate in. Canada: Charter s.2(b) free expression protection vs. s.1 reasonable-limits override; theory is that compelled silence is constitutionally distinct from compelled speech, but not yet tested in court for canaries specifically. Iceland: much more permissive privacy regime, fewer national-security gag instruments to worry about, IMMI legacy. US users (whose data goes to either deployment): note that the canary doesn't protect them from US legal process directed at the host country, only signals compromise of the host. Be honest in the whitepaper that Canadian canary law is unsettled — this is partly an act of legal-theory-making, not just legal-theory-following.",
             "status": "pending"
           },
           {
             "id": 5,
             "title": "Ship v1: page canary + release-canary clause + how-to-read-this doc",
-            "description": "Public /canary URL with the signed statement. Release announcement template updated to include the canary clause. Trust-page link to /canary alongside the existing How it Works. 'How to read this canary' explainer for users \u2014 covers what it claims, what it doesn't, what a lapse means, where to verify the signature. Link from task 41's jurisdiction docs.",
+            "description": "Public /canary URL with the signed statement. Release announcement template updated to include the canary clause. Trust-page link to /canary alongside the existing How it Works. 'How to read this canary' explainer for users — covers what it claims, what it doesn't, what a lapse means, where to verify the signature. Link from task 41's jurisdiction docs.",
             "status": "pending"
           },
           {
             "id": 6,
             "title": "Optional: blog post on canary design choices",
-            "description": "'Why secrt has a canary, and why most services' canaries are doing the wrong job.' Argument: most canaries protect against the wrong threat (server-side data compulsion) for services whose actual exposure is client-side code compulsion. Position secrt's release-signed canary as the more honest design. Aligns with the broader public-argument work (FOCUS.md Big Rocks \u2192 blog cadence). Not blocking for v1 ship; queue when blog rhythm is reestablished.",
+            "description": "'Why secrt has a canary, and why most services' canaries are doing the wrong job.' Argument: most canaries protect against the wrong threat (server-side data compulsion) for services whose actual exposure is client-side code compulsion. Position secrt's release-signed canary as the more honest design. Aligns with the broader public-argument work (FOCUS.md Big Rocks → blog cadence). Not blocking for v1 ship; queue when blog rhythm is reestablished.",
             "status": "pending"
           }
         ]
@@ -706,7 +714,7 @@
       {
         "id": 44,
         "title": "Polish getsecrt GitHub org profile page",
-        "description": "Current state of github.com/getsecrt is bare: org description 'A zero-knowledge secret sharing service' is fine, blog points to secrt.app, location says Canada (out of date once Iceland deployment ships per task 41), only public repos are 'secrt' (Rust monorepo, 2 stars) and 'spec' (protocol spec, no description on the repo level). No org profile README, so the landing page is just a member/repo list. Visitors arriving from a blog post, HN, or word-of-mouth land on something that looks abandoned. A polished org profile is part of the public-argument layer \u2014 a serious privacy project has to *look* serious, especially when the architectural posture is the differentiator. This is the GitHub-side counterpart to the secrt.app marketing site. Connects to the April 'Build' Big Rock (FOCUS.md) \u2014 making the work visible is half the commitment.\n\n[Updated 2026-04-24] Iceland deployment now live at secrt.is \u2014 location field can read 'Distributed (CA + IS)' for real, no more 'once Iceland ships' hedging. secrt.app currently 301-redirects to secrt.ca and is unallocated as a marketing surface. Open product question (see new subtask 7): should secrt.app become a dedicated landing page with download buttons + concise pitch, or redirect to the polished GitHub org profile once shipped? JD's leaning download-buttons + pitch \u2014 that's the more user-facing answer if app distribution is part of the product story.",
+        "description": "Current state of github.com/getsecrt is bare: org description 'A zero-knowledge secret sharing service' is fine, blog points to secrt.app, location says Canada (out of date once Iceland deployment ships per task 41), only public repos are 'secrt' (Rust monorepo, 2 stars) and 'spec' (protocol spec, no description on the repo level). No org profile README, so the landing page is just a member/repo list. Visitors arriving from a blog post, HN, or word-of-mouth land on something that looks abandoned. A polished org profile is part of the public-argument layer — a serious privacy project has to *look* serious, especially when the architectural posture is the differentiator. This is the GitHub-side counterpart to the secrt.app marketing site. Connects to the April 'Build' Big Rock (FOCUS.md) — making the work visible is half the commitment.\n\n[Updated 2026-04-24] Iceland deployment now live at secrt.is — location field can read 'Distributed (CA + IS)' for real, no more 'once Iceland ships' hedging. secrt.app currently 301-redirects to secrt.ca and is unallocated as a marketing surface. Open product question (see new subtask 7): should secrt.app become a dedicated landing page with download buttons + concise pitch, or redirect to the polished GitHub org profile once shipped? JD's leaning download-buttons + pitch — that's the more user-facing answer if app distribution is part of the product story.",
         "status": "pending",
         "priority": "medium",
         "dependencies": [],
@@ -720,37 +728,37 @@
           {
             "id": 2,
             "title": "Write the profile README hero content",
-            "description": "The README is the landing pitch. Structure roughly: (1) one-sentence what-it-is \u2014 'Zero-knowledge one-time secret sharing. The server can't read your secrets \u2014 by design, not by promise.' (2) The threat model in three bullets \u2014 sender-side encryption, ephemeral links, no server-side plaintext access. (3) Jurisdiction story (lift from task 41 once that lands) \u2014 Iceland for strongest privacy regime, Canada for residency-required B2B. (4) Links: secrt.app live service, secrt/spec repos, whitepaper, /canary (when task 43 ships). (5) A 'why this exists' paragraph \u2014 short version of the privacy-as-moral-claim argument from the Apr 24 conversation. Don't bury the lede in marketing copy; the audience is technical and skeptical.",
+            "description": "The README is the landing pitch. Structure roughly: (1) one-sentence what-it-is — 'Zero-knowledge one-time secret sharing. The server can't read your secrets — by design, not by promise.' (2) The threat model in three bullets — sender-side encryption, ephemeral links, no server-side plaintext access. (3) Jurisdiction story (lift from task 41 once that lands) — Iceland for strongest privacy regime, Canada for residency-required B2B. (4) Links: secrt.app live service, secrt/spec repos, whitepaper, /canary (when task 43 ships). (5) A 'why this exists' paragraph — short version of the privacy-as-moral-claim argument from the Apr 24 conversation. Don't bury the lede in marketing copy; the audience is technical and skeptical.",
             "status": "pending"
           },
           {
             "id": 3,
-            "title": "Add visual assets \u2014 logo, architecture diagram, maybe a screenshot",
-            "description": "GitHub READMEs benefit from one strong above-the-fold visual. Options: (a) the secrt wordmark/logo if there is one, (b) a small architecture diagram showing client-side encryption / server-stores-blob / ephemeral-link flow, (c) a screenshot of the live UI. Probably (b) \u2014 most legible to the technical audience. Keep it SVG so it scales and stays crisp on dark/light mode. Host the asset in the .github repo itself so it doesn't break if other repos move.",
+            "title": "Add visual assets — logo, architecture diagram, maybe a screenshot",
+            "description": "GitHub READMEs benefit from one strong above-the-fold visual. Options: (a) the secrt wordmark/logo if there is one, (b) a small architecture diagram showing client-side encryption / server-stores-blob / ephemeral-link flow, (c) a screenshot of the live UI. Probably (b) — most legible to the technical audience. Keep it SVG so it scales and stays crisp on dark/light mode. Host the asset in the .github repo itself so it doesn't break if other repos move.",
             "status": "pending"
           },
           {
             "id": 4,
             "title": "Sharpen org-level metadata",
-            "description": "Update org settings: description (current is fine but could be sharper \u2014 'Zero-knowledge one-time secret sharing \u2014 the server can't read your secrets by design'); **location should read 'Distributed (CA + IS)' now that secrt.is is live**; blog URL \u2014 verify which is the intended canonical (secrt.app, secrt.ca, or secrt.is); add social links if any (Mastodon? Bluesky? Twitter is dead for this audience). Pinned repos: pin 'secrt' and 'spec' so they appear at the top above the .github repo.",
+            "description": "Update org settings: description (current is fine but could be sharper — 'Zero-knowledge one-time secret sharing — the server can't read your secrets by design'); **location should read 'Distributed (CA + IS)' now that secrt.is is live**; blog URL — verify which is the intended canonical (secrt.app, secrt.ca, or secrt.is); add social links if any (Mastodon? Bluesky? Twitter is dead for this audience). Pinned repos: pin 'secrt' and 'spec' so they appear at the top above the .github repo.",
             "status": "pending"
           },
           {
             "id": 5,
             "title": "Audit existing repos' READMEs as click-through destinations",
-            "description": "The org page sends visitors to 'secrt' and 'spec'. Both READMEs need to survive the click \u2014 same standard as the org page. 'secrt' is a Rust monorepo and probably has a working README, but verify. 'spec' currently has no repo-level description and likely a thin README \u2014 the protocol spec deserves a proper landing (one-paragraph what-the-spec-is, table of contents, link to test vectors). Don't let the polish of the org page get undermined by a stub README on the click-through.",
+            "description": "The org page sends visitors to 'secrt' and 'spec'. Both READMEs need to survive the click — same standard as the org page. 'secrt' is a Rust monorepo and probably has a working README, but verify. 'spec' currently has no repo-level description and likely a thin README — the protocol spec deserves a proper landing (one-paragraph what-the-spec-is, table of contents, link to test vectors). Don't let the polish of the org page get undermined by a stub README on the click-through.",
             "status": "pending"
           },
           {
             "id": 6,
             "title": "Clean up demo-repository",
-            "description": "Private repo 'demo-repository' with description 'A code repository designed to show the best GitHub has to offer' \u2014 almost certainly GitHub-auto-generated boilerplate from when the org was created. Confirm it's not in use, then delete (or archive if there's any reason to keep it). Cosmetic but the public_repos count and any future audit should reflect intent.",
+            "description": "Private repo 'demo-repository' with description 'A code repository designed to show the best GitHub has to offer' — almost certainly GitHub-auto-generated boilerplate from when the org was created. Confirm it's not in use, then delete (or archive if there's any reason to keep it). Cosmetic but the public_repos count and any future audit should reflect intent.",
             "status": "pending"
           },
           {
             "id": 7,
             "title": "Decide secrt.app's purpose (landing page vs. redirect to org page)",
-            "description": "secrt.app currently 301-redirects to secrt.ca \u2014 wasted asset. Two options: (a) Build a marketing landing page with download buttons for the desktop apps, a concise pitch ('zero-knowledge one-time secret sharing \u2014 the server can't read your secrets by design'), and links to both jurisdictional instances. (b) Redirect to the polished GitHub org page once it ships. (a) is more user-facing and matches a product that distributes apps; (b) is lower-effort if the org page is doing the work. JD's lean: (a). Decide before doing the work for either, and document the decision so it doesn't have to be re-litigated.",
+            "description": "secrt.app currently 301-redirects to secrt.ca — wasted asset. Two options: (a) Build a marketing landing page with download buttons for the desktop apps, a concise pitch ('zero-knowledge one-time secret sharing — the server can't read your secrets by design'), and links to both jurisdictional instances. (b) Redirect to the polished GitHub org page once it ships. (a) is more user-facing and matches a product that distributes apps; (b) is lower-effort if the org page is doing the work. JD's lean: (a). Decide before doing the work for either, and document the decision so it doesn't have to be re-litigated.",
             "status": "pending"
           }
         ]
@@ -758,7 +766,7 @@
       {
         "id": 45,
         "title": "Design jurisdiction-picker UX (which instance am I using, how do I choose)",
-        "description": "Problem identified by JD on 2026-04-24: with Iceland (secrt.is) and Canada (secrt.ca) both live, users currently land on whichever domain they hit, with no obvious indication that they are operating under different legal jurisdictions with materially different privacy properties. The .is deployment shows the IS TLD in user-facing URLs and uses security@secrt.is, but there's no explicit 'you are using the Iceland instance' surface. The whole point of running a second jurisdiction is to give users a real choice \u2014 and right now the choice is invisible. This task is the UX that makes the architectural value legible. Touches the web app, the desktop apps (Tauri), and the marketing surface (secrt.app).",
+        "description": "Problem identified by JD on 2026-04-24: with Iceland (secrt.is) and Canada (secrt.ca) both live, users currently land on whichever domain they hit, with no obvious indication that they are operating under different legal jurisdictions with materially different privacy properties. The .is deployment shows the IS TLD in user-facing URLs and uses security@secrt.is, but there's no explicit 'you are using the Iceland instance' surface. The whole point of running a second jurisdiction is to give users a real choice — and right now the choice is invisible. This task is the UX that makes the architectural value legible. Touches the web app, the desktop apps (Tauri), and the marketing surface (secrt.app).",
         "status": "pending",
         "priority": "medium",
         "dependencies": [
@@ -767,32 +775,32 @@
         "subtasks": [
           {
             "id": 1,
-            "title": "Define the user model \u2014 when does jurisdiction matter, to whom",
-            "description": "Three rough user segments: (1) Casual consumer sharing a quick secret \u2014 probably doesn't care, defaults are fine, but should be able to see which instance they're on. (2) Privacy-motivated user \u2014 wants explicit control, will pick deliberately. (3) B2B / Canadian-regulated business \u2014 *needs* secrt.ca for residency reasons, must not accidentally land on .is. Decide what the default routing is for each, what the explicit choice surface looks like, and whether sign-in remembers the choice. Document before designing UI.",
+            "title": "Define the user model — when does jurisdiction matter, to whom",
+            "description": "Three rough user segments: (1) Casual consumer sharing a quick secret — probably doesn't care, defaults are fine, but should be able to see which instance they're on. (2) Privacy-motivated user — wants explicit control, will pick deliberately. (3) B2B / Canadian-regulated business — *needs* secrt.ca for residency reasons, must not accidentally land on .is. Decide what the default routing is for each, what the explicit choice surface looks like, and whether sign-in remembers the choice. Document before designing UI.",
             "status": "pending"
           },
           {
             "id": 2,
-            "title": "Prototype the picker UI \u2014 settings menu vs. first-visit prompt vs. footer indicator",
-            "description": "Three plausible surfaces: (a) Settings menu \u2014 hidden until invoked, good for privacy-motivated users who go looking. (b) First-visit prompt \u2014 banner or modal asking 'Iceland or Canada?' with a one-line explanation of why it matters. Explicit but potentially friction-y. (c) Persistent footer indicator \u2014 'You are using secrt.is (Iceland)' with a switch link. Most legible, lowest-friction, doesn't interrupt. Recommendation going in: (c) as the always-visible signal + (a) for explicit control. Avoid (b) for casual users; consider it for B2B account creation.",
+            "title": "Prototype the picker UI — settings menu vs. first-visit prompt vs. footer indicator",
+            "description": "Three plausible surfaces: (a) Settings menu — hidden until invoked, good for privacy-motivated users who go looking. (b) First-visit prompt — banner or modal asking 'Iceland or Canada?' with a one-line explanation of why it matters. Explicit but potentially friction-y. (c) Persistent footer indicator — 'You are using secrt.is (Iceland)' with a switch link. Most legible, lowest-friction, doesn't interrupt. Recommendation going in: (c) as the always-visible signal + (a) for explicit control. Avoid (b) for casual users; consider it for B2B account creation.",
             "status": "pending"
           },
           {
             "id": 3,
             "title": "Implement instance switching across web + Tauri apps",
-            "description": "Web is straightforward \u2014 link/redirect to the other domain. Desktop apps are harder: the Tauri client needs to know which API endpoint to talk to, and the choice needs to persist. Decide whether the Tauri app picks instance at first launch and stores it, or supports per-secret instance selection. The shared Rust core code presumably already abstracts the endpoint \u2014 verify and extend if needed.",
+            "description": "Web is straightforward — link/redirect to the other domain. Desktop apps are harder: the Tauri client needs to know which API endpoint to talk to, and the choice needs to persist. Decide whether the Tauri app picks instance at first launch and stores it, or supports per-secret instance selection. The shared Rust core code presumably already abstracts the endpoint — verify and extend if needed.",
             "status": "pending"
           },
           {
             "id": 4,
             "title": "Plain-language jurisdiction explainer for the picker",
-            "description": "When a user clicks 'why does this matter,' they should land on a 2-3 paragraph explainer: jurisdictions differ in what legal demands they accept, Iceland has stronger default privacy protections (cite IMMI / 1984 Hosting), Canada offers PIPEDA residency for businesses that need it. Don't overstate the user-visible difference \u2014 both deployments share the zero-knowledge architecture, so the *encrypted* content is equivalently safe. The difference is in metadata, host-country legal exposure, and compliance fit. Be honest about what each instance *does* and *doesn't* protect against.",
+            "description": "When a user clicks 'why does this matter,' they should land on a 2-3 paragraph explainer: jurisdictions differ in what legal demands they accept, Iceland has stronger default privacy protections (cite IMMI / 1984 Hosting), Canada offers PIPEDA residency for businesses that need it. Don't overstate the user-visible difference — both deployments share the zero-knowledge architecture, so the *encrypted* content is equivalently safe. The difference is in metadata, host-country legal exposure, and compliance fit. Be honest about what each instance *does* and *doesn't* protect against.",
             "status": "pending"
           },
           {
             "id": 5,
             "title": "Iron out URL/email inconsistencies on secrt.is",
-            "description": "JD flagged on 2026-04-24 that 'a couple exceptions' show the wrong TLD or wrong support email on the .is deployment. Audit the codebase for hardcoded secrt.ca references, hardcoded support@ / security@ addresses, hardcoded URLs in emails or in-app strings. Either drive everything from a single per-instance config struct or runtime env, or grep the codebase exhaustively. Lower-priority cleanup but blocks the credibility of the instance-switcher work \u2014 if the .is instance still says secrt.ca in three places, the jurisdiction story leaks.",
+            "description": "JD flagged on 2026-04-24 that 'a couple exceptions' show the wrong TLD or wrong support email on the .is deployment. Audit the codebase for hardcoded secrt.ca references, hardcoded support@ / security@ addresses, hardcoded URLs in emails or in-app strings. Either drive everything from a single per-instance config struct or runtime env, or grep the codebase exhaustively. Lower-priority cleanup but blocks the credibility of the instance-switcher work — if the .is instance still says secrt.ca in three places, the jurisdiction story leaks.",
             "status": "pending"
           }
         ]
@@ -800,7 +808,7 @@
       {
         "id": 47,
         "title": "iOS App Clip for secret claiming",
-        "description": "Lightweight App Clip target for receiving and decrypting secrets on iOS without installing the full app. Triggered from URLs, QR codes, NFC tags, and iMessage links \u2014 the core claim UX (tap link \u2192 enter passphrase \u2192 see secret) is a perfect fit for the <15MB App Clip format. Prerequisite: a SwiftUI iOS app exists in some form (currently no SwiftUI codebase in the monorepo). Until that lands this task is blocked. Tracking: GitHub issue https://github.com/getsecrt/secrt/issues/11.",
+        "description": "Lightweight App Clip target for receiving and decrypting secrets on iOS without installing the full app. Triggered from URLs, QR codes, NFC tags, and iMessage links — the core claim UX (tap link → enter passphrase → see secret) is a perfect fit for the <15MB App Clip format. Prerequisite: a SwiftUI iOS app exists in some form (currently no SwiftUI codebase in the monorepo). Until that lands this task is blocked. Tracking: GitHub issue https://github.com/getsecrt/secrt/issues/11.",
         "status": "pending",
         "priority": "low",
         "dependencies": [],
@@ -814,7 +822,7 @@
           {
             "id": 2,
             "title": "Carve the claim flow into a separate App Clip target",
-            "description": "Configure the iOS Xcode project with the App Clip target. Limit the App Clip to the claim/decrypt views \u2014 ~15MB cap. Verify no transitive imports pull in unneeded dependencies.",
+            "description": "Configure the iOS Xcode project with the App Clip target. Limit the App Clip to the claim/decrypt views — ~15MB cap. Verify no transitive imports pull in unneeded dependencies.",
             "status": "pending"
           },
           {
@@ -828,7 +836,7 @@
       {
         "id": 48,
         "title": "Unauthenticated secret existence check before claiming",
-        "description": "The claim page now shows a confirmation screen ('Someone Sent You a Secret') before consuming the secret. If the secret has already been claimed or expired, the user only finds out after clicking 'View Secret' \u2014 the secret is consumed by the claim attempt and the error surfaces too late. Add a lightweight non-consuming endpoint (e.g. HEAD /api/v1/secrets/{id} or a GET that returns a tiny existence/expiry status without requiring the claim token) so the client can pre-flight and show a clear 'unavailable' state if the secret is already gone. Must avoid leaking information beyond what's already implied by a 404 from the claim endpoint. Tracking: GitHub issue https://github.com/getsecrt/secrt/issues/25.",
+        "description": "The claim page now shows a confirmation screen ('Someone Sent You a Secret') before consuming the secret. If the secret has already been claimed or expired, the user only finds out after clicking 'View Secret' — the secret is consumed by the claim attempt and the error surfaces too late. Add a lightweight non-consuming endpoint (e.g. HEAD /api/v1/secrets/{id} or a GET that returns a tiny existence/expiry status without requiring the claim token) so the client can pre-flight and show a clear 'unavailable' state if the secret is already gone. Must avoid leaking information beyond what's already implied by a 404 from the claim endpoint. Tracking: GitHub issue https://github.com/getsecrt/secrt/issues/25.",
         "status": "pending",
         "priority": "medium",
         "dependencies": [],
@@ -848,7 +856,7 @@
           {
             "id": 3,
             "title": "Implement on the server (Axum handler + Postgres query)",
-            "description": "A read-only check that the row exists and expires_at > now. No claim_hash verification \u2014 that would require a token the client doesn't have. Owner_key must not be returned.",
+            "description": "A read-only check that the row exists and expires_at > now. No claim_hash verification — that would require a token the client doesn't have. Owner_key must not be returned.",
             "status": "pending"
           },
           {
@@ -876,7 +884,7 @@
           {
             "id": 2,
             "title": "Multi-profile support",
-            "description": "Allow the user to save N labeled profiles (e.g. 'secrt.ca', 'work-self-hosted', 'secrt.is'). Quick-switch UI in the menu bar or a profile picker. Each profile has its own session token and AMK wrapper \u2014 keychain entries scoped per profile.",
+            "description": "Allow the user to save N labeled profiles (e.g. 'secrt.ca', 'work-self-hosted', 'secrt.is'). Quick-switch UI in the menu bar or a profile picker. Each profile has its own session token and AMK wrapper — keychain entries scoped per profile.",
             "status": "pending"
           },
           {
@@ -959,8 +967,8 @@
       },
       {
         "id": 58,
-        "title": "Migrate keyring 3.x \u2192 keyring-core 1.0 (deferred \u2014 re-evaluate 2027-04)",
-        "description": "DECISION (2026-04-27): defer ~12 months. Re-evaluate around 2027-04.\n\nCargo-outdated flags `keyring 4.0.0`, but that's a misleading nag \u2014 keyring 4.x has been demoted to a sample/demo crate and applications are explicitly told NOT to upgrade to it. The real successor is `keyring-core` 1.0 plus per-platform backend store crates (apple-native-keyring-store, linux-keyutils-keyring-store, windows-native-keyring-store, dbus-secret-service-keyring-store, zbus-secret-service-keyring-store \u2014 all freshly at 1.0.0 as of 2026-04). Upstream guidance: https://github.com/open-source-cooperative/keyring-rs/wiki/Keyring-Core\n\nWHY DEFER:\n- Zero user-visible benefit. Our keychain surface (set/get/delete password + NoEntry match) is fully covered by keyring 3.6.3.\n- 3.x is not deprecated for security reasons, just for ecosystem reorganisation. No CVE pressure.\n- The new ecosystem (keyring-core + 5 separate store crates) is brand-new at 1.0 with sparse migration docs and limited downstream battle-testing.\n- Migration adds a runtime init step (`set_default_store`) \u2014 forgetting it becomes a runtime failure rather than a compile error.\n- Cross-platform retest cost (macOS/Linux/Windows) outweighs the upside today.\n\nRE-EVALUATE WHEN any of these become true:\n- A security advisory lands on keyring 3.x.\n- The store crates accumulate meaningful downstream adoption (check via crates.io reverse-deps; rough threshold: a handful of well-known apps shipping production binaries on keyring-core).\n- Upstream publishes a concrete migration cookbook (the wiki currently gestures at it without code).\n- Rust ecosystem starts treating keyring 3.x as legacy in tooling output.\n\nCURRENT USAGE (for whoever picks this up):\n- crates/secrt-cli/Cargo.toml:24 \u2014 `keyring = { version = \"3\", optional = true, features = [\"apple-native\", \"linux-native\", \"windows-native\"] }`, gated behind the `keychain` feature.\n- crates/secrt-app/Cargo.toml:21 \u2014 `keyring = \"3\"` (no explicit features).\n- crates/secrt-cli/src/keychain.rs:7 \u2014 uses `keyring::Entry` + get_password/set_password/delete_credential.\n- crates/secrt-app/src/lib.rs:215-325 \u2014 Tauri commands `keyring_set/get/delete` plus the `keyring_probe_detects_broken_keychain` macOS-Tahoe probe. Pattern-matches on `keyring::Error::NoEntry`.\n\nESTIMATED MIGRATION SIZE when revisited: ~half-day mechanical edit + cross-platform smoke test, assuming the new store crates have stabilised. Ship as its own chore PR \u2014 never bundle with anything user-facing.",
+        "title": "Migrate keyring 3.x → keyring-core 1.0 (deferred — re-evaluate 2027-04)",
+        "description": "DECISION (2026-04-27): defer ~12 months. Re-evaluate around 2027-04.\n\nCargo-outdated flags `keyring 4.0.0`, but that's a misleading nag — keyring 4.x has been demoted to a sample/demo crate and applications are explicitly told NOT to upgrade to it. The real successor is `keyring-core` 1.0 plus per-platform backend store crates (apple-native-keyring-store, linux-keyutils-keyring-store, windows-native-keyring-store, dbus-secret-service-keyring-store, zbus-secret-service-keyring-store — all freshly at 1.0.0 as of 2026-04). Upstream guidance: https://github.com/open-source-cooperative/keyring-rs/wiki/Keyring-Core\n\nWHY DEFER:\n- Zero user-visible benefit. Our keychain surface (set/get/delete password + NoEntry match) is fully covered by keyring 3.6.3.\n- 3.x is not deprecated for security reasons, just for ecosystem reorganisation. No CVE pressure.\n- The new ecosystem (keyring-core + 5 separate store crates) is brand-new at 1.0 with sparse migration docs and limited downstream battle-testing.\n- Migration adds a runtime init step (`set_default_store`) — forgetting it becomes a runtime failure rather than a compile error.\n- Cross-platform retest cost (macOS/Linux/Windows) outweighs the upside today.\n\nRE-EVALUATE WHEN any of these become true:\n- A security advisory lands on keyring 3.x.\n- The store crates accumulate meaningful downstream adoption (check via crates.io reverse-deps; rough threshold: a handful of well-known apps shipping production binaries on keyring-core).\n- Upstream publishes a concrete migration cookbook (the wiki currently gestures at it without code).\n- Rust ecosystem starts treating keyring 3.x as legacy in tooling output.\n\nCURRENT USAGE (for whoever picks this up):\n- crates/secrt-cli/Cargo.toml:24 — `keyring = { version = \"3\", optional = true, features = [\"apple-native\", \"linux-native\", \"windows-native\"] }`, gated behind the `keychain` feature.\n- crates/secrt-app/Cargo.toml:21 — `keyring = \"3\"` (no explicit features).\n- crates/secrt-cli/src/keychain.rs:7 — uses `keyring::Entry` + get_password/set_password/delete_credential.\n- crates/secrt-app/src/lib.rs:215-325 — Tauri commands `keyring_set/get/delete` plus the `keyring_probe_detects_broken_keychain` macOS-Tahoe probe. Pattern-matches on `keyring::Error::NoEntry`.\n\nESTIMATED MIGRATION SIZE when revisited: ~half-day mechanical edit + cross-platform smoke test, assuming the new store crates have stabilised. Ship as its own chore PR — never bundle with anything user-facing.",
         "status": "deferred",
         "priority": "low",
         "dependencies": [],
@@ -969,7 +977,7 @@
       {
         "id": 59,
         "title": "Make `html_responses_carry_csp_and_no_store` test resilient to unbuilt SPA",
-        "description": "The test in crates/secrt-server/tests/api_behavior.rs asserts the CSP contains 'sha256-' source hashes. That only holds when web/dist/ is populated (so the embedded SPA index.html has its inline FOUC <script>). In CI, the test job runs `cargo nextest run` without first running `pnpm build`, so the server falls back to the stub template at crates/secrt-server/templates/index.html which has no inline scripts \u2192 no hashes \u2192 assertion fails.\n\nThis fails on every CI run (failed in 0.16.4, 0.16.5). Releases are unaffected because release-server.yml builds the frontend before building the server. But main stays red on CI.\n\nFix options: (a) gate the 'sha256-' assertion behind a check for inline scripts in the served HTML (simplest); (b) make CI run `pnpm build` before `cargo test`; (c) split the test \u2014 assert build_csp behaviour with a fixed HTML fixture, separately assert the served CSP shape without specific hashes.\n\nRecommend (a) \u2014 smallest change, tests stay self-contained.",
+        "description": "The test in crates/secrt-server/tests/api_behavior.rs asserts the CSP contains 'sha256-' source hashes. That only holds when web/dist/ is populated (so the embedded SPA index.html has its inline FOUC <script>). In CI, the test job runs `cargo nextest run` without first running `pnpm build`, so the server falls back to the stub template at crates/secrt-server/templates/index.html which has no inline scripts → no hashes → assertion fails.\n\nThis fails on every CI run (failed in 0.16.4, 0.16.5). Releases are unaffected because release-server.yml builds the frontend before building the server. But main stays red on CI.\n\nFix options: (a) gate the 'sha256-' assertion behind a check for inline scripts in the served HTML (simplest); (b) make CI run `pnpm build` before `cargo test`; (c) split the test — assert build_csp behaviour with a fixed HTML fixture, separately assert the served CSP shape without specific hashes.\n\nRecommend (a) — smallest change, tests stay self-contained.",
         "status": "pending",
         "priority": "low",
         "dependencies": [],
@@ -978,11 +986,175 @@
       {
         "id": 60,
         "title": "Review draft PRF trust-implications section in docs/whitepaper.md",
-        "description": "A first-pass section was drafted on 2026-04-27 covering the trust-model implications of PRF-based AMK wrapping. Two locations in docs/whitepaper.md, both marked as draft pending review:\n\n1. New subsection \"PRF-Based AMK Wrapping (Passkey Recovery)\" under \"Encrypted Notes (Account Master Key)\", placed between \"CLI Device Authorization & ECDH Transfer\" and \"Commitment Protocol\". Introduces what PRF wrapping is + the trust-set expansion (passkey provider becomes part of the recovery path) + per-provider tier comparison (Apple/Google/Bitwarden/1Password/Dashlane) + recommendation for hardware-bound passkeys vs synced passkeys vs API-key sync.\n\n2. New bullet in the \"Threat Analysis\" subsection summarising the synced-passkey trust boundary and pointing back at section (1).\n\nTable of contents updated to include the new subsection (with a *(draft \u2014 pending review)* marker).\n\nReview goals:\n- Tweak wording/flow to JD's voice \u2014 first-pass is in Rachel's voice and reads slightly more academic than the rest of the whitepaper.\n- Confirm the per-provider table is fair and accurate (1Password Secret Key claim, Apple iCloud E2E + recovery design, Google Password Manager recovery path framing, Bitwarden/Dashlane master-password-only framing). These are summary-level claims and worth a sanity-check against current provider docs before the section ships.\n- Confirm the recommendation framing \u2014 currently says \"hardware-bound or stick with API-key sync\" for high-stakes threat models. Decide whether to be more or less prescriptive.\n- Decide whether to remove the \"draft \u2014 pending review\" markers and ship in the next whitepaper version bump, or keep gated until PRF actually lands in production (current plan: subtasks 1\u20134 of task #42 land first, login flow follows, then this section becomes accurate-as-shipped instead of accurate-as-designed).\n- The same trust-boundary content should also be reflected in crates/secrt-server/docs/prf-amk-wrapping.md \u00a7threat-model \u2014 the plan at /Users/jdlien/.claude/plans/yeah-plan-mode-activated-crystalline-mango.md flags this in constraint #3. Keep the two documents aligned in substance even if they differ in tone/audience.\n\nRelated: task #42 (PRF feature work). This task is doc-only and not blocking on #42's implementation.",
+        "description": "A first-pass section was drafted on 2026-04-27 covering the trust-model implications of PRF-based AMK wrapping. Two locations in docs/whitepaper.md, both marked as draft pending review:\n\n1. New subsection \"PRF-Based AMK Wrapping (Passkey Recovery)\" under \"Encrypted Notes (Account Master Key)\", placed between \"CLI Device Authorization & ECDH Transfer\" and \"Commitment Protocol\". Introduces what PRF wrapping is + the trust-set expansion (passkey provider becomes part of the recovery path) + per-provider tier comparison (Apple/Google/Bitwarden/1Password/Dashlane) + recommendation for hardware-bound passkeys vs synced passkeys vs API-key sync.\n\n2. New bullet in the \"Threat Analysis\" subsection summarising the synced-passkey trust boundary and pointing back at section (1).\n\nTable of contents updated to include the new subsection (with a *(draft — pending review)* marker).\n\nReview goals:\n- Tweak wording/flow to JD's voice — first-pass is in Rachel's voice and reads slightly more academic than the rest of the whitepaper.\n- Confirm the per-provider table is fair and accurate (1Password Secret Key claim, Apple iCloud E2E + recovery design, Google Password Manager recovery path framing, Bitwarden/Dashlane master-password-only framing). These are summary-level claims and worth a sanity-check against current provider docs before the section ships.\n- Confirm the recommendation framing — currently says \"hardware-bound or stick with API-key sync\" for high-stakes threat models. Decide whether to be more or less prescriptive.\n- Decide whether to remove the \"draft — pending review\" markers and ship in the next whitepaper version bump, or keep gated until PRF actually lands in production (current plan: subtasks 1–4 of task #42 land first, login flow follows, then this section becomes accurate-as-shipped instead of accurate-as-designed).\n- The same trust-boundary content should also be reflected in crates/secrt-server/docs/prf-amk-wrapping.md §threat-model — the plan at /Users/jdlien/.claude/plans/yeah-plan-mode-activated-crystalline-mango.md flags this in constraint #3. Keep the two documents aligned in substance even if they differ in tone/audience.\n\nRelated: task #42 (PRF feature work). This task is doc-only and not blocking on #42's implementation.",
         "status": "pending",
         "priority": "medium",
         "dependencies": [
           42
+        ],
+        "subtasks": []
+      },
+      {
+        "id": 62,
+        "title": "Diagnostic logging for AMK / PRF flows",
+        "description": "Replaces silent `} catch {}` blocks across passkey registration, login, settings add-passkey, and PRF unwrap/upgrade/fallback-ceremony paths with gated `[secrt:<label>]` console traces. Two-layer gate: dev builds always log via `import.meta.env.DEV`; prod builds log only via `localStorage.setItem('secrt:debug', '1')`. No data leaves the device. Logs include 8-byte SHA-256 fingerprints of PRF outputs and AMK material to verify cross-device determinism without exposing raw secrets, plus WebAuthn `authenticatorAttachment`. Plan at `.taskmaster/plans/task-62-prf-amk-diagnostic-logging.md`. Shipped in v0.17.5 (2026-05-02).",
+        "status": "done",
+        "priority": "high",
+        "dependencies": [
+          42
+        ],
+        "subtasks": []
+      },
+      {
+        "id": 63,
+        "title": "Inter-ceremony status UI for YubiKey double-touch (Tier 1 UX)",
+        "description": "When PRF-on-get-only authenticators (YubiKey on Chrome/Edge/Vivaldi) register, the user has to tap the key twice — once for registration, once for the fallback get() ceremony to extract PRF. Today the second prompt appears with no UI explanation; many users dismiss it thinking the system is broken. Add a non-blocking 'Tap your security key one more time to enable cross-device unlock' status overlay between the two ceremonies. Doesn't fix the touch count, removes the 'why is it asking again?' failure mode. Hooks already present via `[secrt:prf-fallback-ceremony]` decision points. Files: `web/src/lib/passkey-prf.ts` (entry callback), `web/src/features/auth/RegisterPage.tsx`, `web/src/features/settings/SettingsPage.tsx`, new `web/src/components/CeremonyStatusOverlay.tsx`.",
+        "status": "pending",
+        "priority": "medium",
+        "dependencies": [
+          62
+        ],
+        "subtasks": []
+      },
+      {
+        "id": 64,
+        "title": "Detect-and-explain broken cohort at sign-in (Tier 1 UX)",
+        "description": "Today when PRF unwrap fails (Apple-Safari interception) or PRF extension is stripped (Firefox 150.1 + external YubiKey), the user lands silently in tier-2 — logged in, no notes, no explanation. The diagnostic-logging hooks at `[secrt:prf-unwrap]` and `[secrt:webauthn-get]` already detect these paths. Lift them into UI: when `prfExtPresent: false` or `OperationError` on unwrap, surface an actionable inline message: 'Your encryption key didn't transfer. This is a known limitation of [Firefox / Safari] with hardware security keys. Use a sync link from another browser, or sign in via Chrome / Edge / Vivaldi.' Higher leverage than #63 because it bridges the broken-cohort scenarios that have no other recourse. Files: `web/src/features/auth/LoginPage.tsx`, `web/src/components/PrfFailureNotice.tsx` (new), copy informed by `prf-amk-wrapping.md` §11 cohort matrix.",
+        "status": "pending",
+        "priority": "high",
+        "dependencies": [
+          62
+        ],
+        "subtasks": []
+      },
+      {
+        "id": 65,
+        "title": "Bitwarden onboarding copy (Tier 1 UX)",
+        "description": "Plain-language note shown at registration time when we detect a content-script presence (heuristic — sniff for extension-injected globals; brittle but graceful when wrong): 'If you use Bitwarden or a similar password-manager extension, you may see its prompt twice during setup — click Use your device or hardware key both times. Disable the extension first if you'd prefer a smoother flow.' Saves the ~30% who otherwise dismiss the second popup and break PRF setup. Refined Bitwarden model in `prf-amk-wrapping.md` §11 informs the copy.",
+        "status": "pending",
+        "priority": "low",
+        "dependencies": [
+          62
+        ],
+        "subtasks": []
+      },
+      {
+        "id": 66,
+        "title": "AAGUID-based authenticator identification in passkey list (Tier 2 UX)",
+        "description": "Today the passkeys list shows generic labels ('passkey #3 created on 2026-04-28'); users don't know which physical thing each entry is. Parse AAGUID from `authenticatorData` in the registration response, store it server-side in the passkeys row (or in the AMK-encrypted Preferences blob per task #37), look it up at render time against a bundled FIDO Alliance metadata table. Display 'YubiKey 5C NFC' / 'iCloud Keychain' / 'Bitwarden' / 'Windows Hello' inline. Makes the 'I tried to sign in on Safari and my notes are gone' failure legible: 'Your YubiKey passkey doesn't carry notes here — try your iCloud Keychain passkey instead.' Cross-cuts with task #37 (encrypted preferences) for storage location.",
+        "status": "pending",
+        "priority": "medium",
+        "dependencies": [
+          37,
+          64
+        ],
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "Parse AAGUID from authenticatorData on registration",
+            "status": "pending",
+            "description": "AAGUID is bytes 37..52 of authData when the AT flag is set. Add to `web/src/lib/webauthn.ts` create result and corresponding server-side passkey row."
+          },
+          {
+            "id": 2,
+            "title": "Bundle FIDO Alliance metadata lookup table",
+            "status": "pending",
+            "description": "Static client-side AAGUID → display-name + brand mapping. ~200 entries covers the practical universe."
+          },
+          {
+            "id": 3,
+            "title": "Surface authenticator brand in passkey list and pickers",
+            "status": "pending"
+          },
+          {
+            "id": 4,
+            "title": "Decide storage: server-plaintext vs AMK-encrypted preferences (cross-ref task #37)",
+            "status": "pending",
+            "description": "Plaintext on server is simpler but reveals authenticator distribution to the server. Encrypted in preferences keeps zero-knowledge but requires AMK to render — affects tier-2 UX."
+          }
+        ]
+      },
+      {
+        "id": 67,
+        "title": "PRF-aware confirmation screen after passkey registration (Tier 2 UX)",
+        "description": "After successful registration, show a one-shot confirmation that names the surfaces this credential will work on, based on detected `prfState` and the cohort matrix. Example for YubiKey: 'This YubiKey gives you single-tap unlock on Chrome, Edge, and Vivaldi — but not Safari, Firefox, or iPhone. Want to add an iCloud Keychain passkey for those?' Pushes users toward the 'two complementary passkeys' pattern that actually covers the cohort gaps. Depends on #66 to know which authenticator was registered.",
+        "status": "pending",
+        "priority": "medium",
+        "dependencies": [
+          66
+        ],
+        "subtasks": []
+      },
+      {
+        "id": 68,
+        "title": "Server-mediated AMK transfer (device-pair / auto-sync flow)",
+        "description": "Replace the current copy/paste sync-link with an active device-pair flow: a logged-in browser 'listens' for new-device sign-in attempts and offers to transfer the AMK with explicit user confirmation. Uses the same ECDH primitive the Tauri app-login flow already implements (`crates/secrt-server/src/http/app_login.rs`) — generalized to any browser-to-browser transfer. Threat model is non-trivial: the server learns pairing metadata it doesn't see today, and a stolen-passkey attacker who reaches tier-2 could spam-request transfers. Mitigations: out-of-band code visible on both screens that the user must verify match, rate limiting, ECDH so server can't decrypt the AMK in transit. Spec required before code.",
+        "status": "pending",
+        "priority": "high",
+        "dependencies": [
+          62
+        ],
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "Write design spec covering threat model, state machine, UI confirmation flow",
+            "status": "pending",
+            "description": "Threat-modelled: server compromise (must not see AMK), stolen-passkey-tier-2 attacker (legitimate user must reject via existing device), MITM (out-of-band code prevents key swap), phishing (real device wouldn't see request from fake server). Document at `crates/secrt-server/docs/amk-device-pair.md`."
+          },
+          {
+            "id": 2,
+            "title": "Server endpoint: pairing request lifecycle (create/poll/approve/expire)",
+            "status": "pending",
+            "description": "New endpoints: POST /api/v1/auth/amk-pair/request (new device posts ECDH pubkey, gets pairing_code), GET /api/v1/auth/amk-pair/{id}/status (new device polls), POST /api/v1/auth/amk-pair/{id}/approve (existing device posts encrypted blob). 5-minute expiry. Rate limit per user."
+          },
+          {
+            "id": 3,
+            "title": "Existing-device listener (poll or SSE)",
+            "status": "pending",
+            "description": "Logged-in browser polls /api/v1/auth/amk-pair/inbox for pending requests. SSE upgrade later if poll cost is meaningful. Notification UI when a request arrives."
+          },
+          {
+            "id": 4,
+            "title": "Approval UI — show pairing code, device fingerprint, request user confirmation",
+            "status": "pending",
+            "description": "Display the pairing code (6 chars, derived from ECDH pubkey hash so a key swap by server changes the code). Show the new device's user-agent / IP / timestamp. Two-button approve/reject. Optional 'always trust devices in this network' toggle is OUT — explicit per-pair only."
+          },
+          {
+            "id": 5,
+            "title": "Fallback to existing copy-paste sync-link when no device is online",
+            "status": "pending",
+            "description": "If no listener responds within ~30s, fall through to the existing sync-link UI. Don't deprecate the old flow — it's the only option when the user has no other authenticated device."
+          }
+        ]
+      },
+      {
+        "id": 69,
+        "title": "1Password PRF retest on Chromium/macOS",
+        "description": "The 2026-04 spike marked 1Password as 'PRF dropped' based on a Safari/macOS test, but Safari itself strips PRF for non-iCloud credentials (confirmed 2026-05). The test was confounded; cannot attribute the failure to 1Password vs Safari from the original trace. 1Password publicly shipped PRF for their own unlock; they may forward the extension correctly when tested in a non-Safari environment. If retest comes back positive, 1Password becomes the strongest cross-platform credential-manager recommendation (works on Apple, Android, Windows; cross-ecosystem syncing; PRF for one-tap unlock — no other manager hits all three). H5 in `prf-cross-device-testing.md`. Cheap test: register a fresh secrt.is account using 1Password as picker on Chrome/macOS, capture `[secrt:webauthn-get]` and `[secrt:prf-register-wrap]`. ~5 min.",
+        "status": "pending",
+        "priority": "medium",
+        "dependencies": [
+          62
+        ],
+        "subtasks": []
+      },
+      {
+        "id": 70,
+        "title": "Cohort matrix UX strategy — how do we present 'works here, not there' without scaring users",
+        "description": "The honest cohort matrix (which credential type works on which surface) is bad UX even when accurate. Six-axis grid of password manager × OS × browser × authenticator type, with most cells partially-broken. Documentation alone won't carry it. Need a strategy: at registration, suggest the right authenticator for the user's cohort; at sign-in, surface the right fallback when PRF fails (task #64); at settings, help users add complementary passkeys to cover gaps. This task is the strategy/IA work, not a single feature — its outputs feed into #64, #66, #67, #71.",
+        "status": "pending",
+        "priority": "low",
+        "dependencies": [],
+        "subtasks": []
+      },
+      {
+        "id": 71,
+        "title": "Public docs: 'which passkey should I use with secrt?' explainer",
+        "description": "User-facing docs page (NOT the internal architecture doc) that turns the cohort matrix into actionable recommendations: 'I'm an Apple user → use iCloud Keychain'; 'I have a YubiKey → great on Mac/Windows/Linux Chromium, also add an iCloud Keychain passkey for iPhone'; 'I use Bitwarden as my main vault → expect to use sync-links since their authenticator drops PRF.' Honesty about limitations without scaring people away. Lives at `docs/passkey-recommendations.md` or similar; linked from registration flow.",
+        "status": "pending",
+        "priority": "low",
+        "dependencies": [
+          70
         ],
         "subtasks": []
       }
