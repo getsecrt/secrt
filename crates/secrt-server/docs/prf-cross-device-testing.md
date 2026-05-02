@@ -221,6 +221,47 @@ including Firefox and Safari, and iOS. Android is the only gap, and
 it's bounded by the Android version floor (14+), not by 1Password
 behaviour.
 
+### Round D — iCloud Keychain on Windows via CTAP 2.2 hybrid (QR), 2026-05-02
+
+**Authenticator:** iCloud Keychain credential (registered originally on
+iPhone or Mac), surfaced on Windows Chrome via CTAP 2.2 hybrid transport
+("use a passkey from another device" — QR scan + iPhone Bluetooth +
+cloud relay).
+**RP:** `https://secrt.is` (prod).
+**Result:** Sign-in succeeded; AMK transferred end-to-end. **No console
+trace captured this round** (observational only) — recorded here so the
+data point exists for the cohort matrix.
+
+| # | Surface | Mechanism | Outcome |
+|---|---|---|---|
+| D1 | Windows Chrome → iPhone via QR/BLE/cloud-relay | CTAP 2.2 hybrid | ✓ AMK transferred |
+| D2 | Windows Chrome via **iCloud Passwords Chrome extension** | Apple's first-party extension | ✗ extension does not support passkeys at all (passwords only — explicit in Apple's docs) |
+
+**Round D interpretation.**
+
+The CTAP 2.2 hybrid path works because the iPhone is the actual
+authenticator — the desktop browser is just a display surface that
+proxies the WebAuthn ceremony to the phone via Bluetooth + cloud relay.
+Since iPhone Safari + iCloud Keychain produces deterministic PRF (verified
+in earlier rounds), the hybrid flow inherits that property and the AMK
+unwraps correctly on the desktop side.
+
+The iCloud Passwords Chrome extension is a separate codepath and
+**only handles password autofill**. Apple's own documentation
+explicitly states: *"you can autofill passwords (but not passkeys)
+saved in Apple Passwords when browsing with Chrome on Windows"*. Don't
+recommend it for passkey use until Apple ships passkey support there
+(no announced timeline as of 2026-05).
+
+UX cost note: the QR/hybrid flow requires the user to pull out their
+phone, unlock it, scan a QR code, and tap-to-confirm on the phone for
+every sign-in. Functional but meaningfully clunkier than 1Password's
+"browser extension picks the credential, one click." For users with an
+iPhone but no Android device who already use iCloud Keychain
+extensively, the trade-off is acceptable. For users who frequently sign
+in on non-Apple machines without their phone present, it's a real
+papercut.
+
 ---
 
 ## 4. Failure mode catalog
@@ -468,3 +509,4 @@ effectively zero.
 | 2026-05-01 | Initial draft. Round A captured (YubiKey + Mac matrix). Apple WebAuthn macOS Safari interception confirmed. |
 | 2026-05-02 | Round B captured on prod (`secrt.is`). H3 (Firefox matches Chromium) disproved — Firefox 150.1 strips PRF entirely for external authenticators. H4 (Bitwarden corrupts) disproved — Bitwarden gates UI but doesn't modify assertion bytes. Refined Bitwarden failure-mode entry; refined `prfExtPresent: false` failure mode with sub-cases. Cross-session determinism (B1 → B2) confirmed on Mac Chrome. |
 | 2026-05-02 | Round C captured: 1Password as platform passkey provider, six confirmed surfaces (Mac Chrome / Safari / Firefox, Windows Chrome / Firefox, iPhone Safari). PRF output byte-identical across all (`88c149421125d06f`). Cross-device AMK transfer works end-to-end including iPhone. H5 (1Password drops PRF) disproved positively. H6 added for Android 14+ verification. 1Password promoted to recommended cross-ecosystem option in `prf-amk-wrapping.md` §11. Mechanism note added: platform credential providers are exempt from Apple's `hmac-secret` re-wrap because the framework only intercepts external CTAP2, not `ASCredentialProviderExtension` providers. |
+| 2026-05-02 | Round D captured (observational, no trace): iCloud Keychain on Windows Chrome via CTAP 2.2 hybrid (QR scan → iPhone Bluetooth + cloud relay) works end-to-end for AMK transfer. iCloud Passwords Chrome extension confirmed to NOT support passkeys (Apple docs explicit; passwords-only). |

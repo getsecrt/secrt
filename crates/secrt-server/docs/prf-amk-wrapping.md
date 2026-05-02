@@ -935,6 +935,22 @@ Decisions #18–22). Summary of what lands where:
 
 ### Cohort summary for product copy
 
+#### TL;DR — which option for which user (2026-05-02)
+
+| If you're… | Use | Why |
+|---|---|---|
+| **All-Apple, no Android in your life** | **iCloud Passwords / Keychain** | Single-tap on every Apple surface. Works on Windows via QR/hybrid (cumbersome but functional). Doesn't work on Android at all. |
+| **Cross-ecosystem with a modern phone (iPhone or Android 14+)** | **1Password — gold standard** | Verified working on every desktop OS, every major browser including Safari and Firefox, plus iOS. Single-tap everywhere. One credential, deterministic PRF, byte-identical across devices. |
+| **A Bitwarden user storing your credential there** | Sync-link / API-key fallback | Bitwarden's authenticator doesn't implement PRF. They might add it later; not blocking on it. |
+| **A YubiKey-only user (no password manager, no synced platform passkeys)** | YubiKey, but eyes open | Works on Mac/Windows/Linux Chromium. Broken on Safari (any), Firefox, and iPhone. Strong threat model, real compatibility cost. Mitigate by adding a 1Password or iCloud Keychain credential alongside the YubiKey for surfaces where the YubiKey doesn't work. |
+
+In short: **1Password is the gold standard, iCloud is very workable for
+all-Apple users, Bitwarden is flawed (for now), and YubiKeys are
+semi-broken in half the places.** The detailed matrix below explains
+each cohort's behaviour per platform.
+
+#### Detailed cohort matrix
+
 The matrix below assumes the user wants **single-tap unlock on a fresh
 device** as the goal (PRF working). Where PRF doesn't work, the
 sync-link / API-key fallback is always available — it's just an extra
@@ -942,7 +958,7 @@ step the user has to perform.
 
 | Cohort                                            | Desktop                                                       | iPhone / iOS                                                              | Android                                |
 | ------------------------------------------------- | ------------------------------------------------------------- | ------------------------------------------------------------------------- | -------------------------------------- |
-| **All-Apple users (iCloud Keychain)**             | PRF unlock — single-tap on Apple Passwords across Mac browsers. | PRF unlock — single-tap.                                                  | Not applicable (no iCloud).            |
+| **All-Apple users (iCloud Keychain)**             | PRF unlock — single-tap on Apple Passwords across Mac browsers. **On Windows: works only via the CTAP 2.2 hybrid flow** (QR scan + iPhone over Bluetooth + cloud relay) — clunky, requires phone in hand. The iCloud Passwords Chrome extension is **passwords-only, no passkey support** (Apple docs explicit). | PRF unlock — single-tap. | Not applicable (no iCloud on Android). |
 | **All-Google users (Google Password Manager)**    | PRF unlock works on Chromium desktop with Android-stored credentials. | Limited — GPM credentials don't sync to iOS Apple Passwords.              | PRF unlock — single-tap (Android 14+). |
 | **Cross-ecosystem users → 1Password (gold standard)** | **PRF unlock single-tap on Chrome / Safari / Firefox / Edge / Vivaldi.** Verified Round C 2026-05-02. | **PRF unlock single-tap via Apple Credential Provider Extension.** Verified Round C6. | **Android 14+ required** for 1Password passkeys (Credential Manager API floor). Architecturally expected to work; not yet hardware-verified. |
 | Bitwarden storing the secrt credential            | PRF dropped — Bitwarden's authenticator doesn't forward the extension. Sync-link / API-key fallback until Bitwarden ships it. | Same fallback. | Same fallback. |
@@ -951,7 +967,7 @@ step the user has to perform.
 
 **Recommendation defaults to suggest in onboarding copy:**
 
-- *"I'm an Apple user and don't care about other ecosystems"* → iCloud Keychain. Single-tap everywhere Apple, no third-party trust required.
+- *"I'm an Apple user and don't care about other ecosystems"* → iCloud Keychain. Single-tap everywhere Apple, no third-party trust required. If you also use Windows occasionally, expect to scan a QR code with your iPhone for sign-in there.
 - *"I use a mix of Apple, Android, Windows, Linux"* → **1Password.** Verified working on every platform we've tested; one credential, byte-identical PRF derivation across all surfaces. Trust set widens to include 1Password the company.
 - *"I want hardware-rooted security and don't trust password managers"* → YubiKey. But you'll need to use a Chromium browser on macOS (Safari and Firefox don't work with external authenticators for PRF), and you'll fall back to sync-link / API-key on iPhone. Requires 2× YubiKey for backup.
 - *"I currently use Bitwarden as my main vault"* → expect sync-link / API-key fallback for new-device unlock until Bitwarden ships PRF in their authenticator. No PRF-based one-tap path for Bitwarden-stored secrt credentials today.
