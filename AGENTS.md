@@ -240,15 +240,7 @@ There are **two separate release pipelines** — one for the CLI and one for the
 5. Commit: `chore: bump version to X.Y.Z`
 6. Tag **both** releases: `git tag cli/vX.Y.Z && git tag server/vX.Y.Z`
 7. Push: `git push origin main --tags`
-8. After the release workflows finish, update both GitHub Releases with notes matching the CHANGELOG entries, and explicitly set release titles to match the exact tag names:
-   ```sh
-   gh release edit cli/vX.Y.Z --title "cli/vX.Y.Z" --notes "$(cat <<'EOF'
-   ## What's Changed
-   (Paste the CHANGELOG.md entry for this version here, formatted for GitHub markdown)
-   EOF
-   )"
-   ```
-   Repeat for `server/vX.Y.Z` with `--title "server/vX.Y.Z"`. Include all Added/Changed/Fixed/Removed sections from the changelog.
+8. **Release notes are auto-populated by the workflows.** Both `release-cli.yml` and `release-server.yml` extract the version's CHANGELOG entry via `scripts/extract-changelog-entry.sh` and pass it as the GitHub Release body, with the title set to the exact tag name. If the CHANGELOG lacks an entry for the version being released, the workflow fails — fix the CHANGELOG, push a follow-up commit on the tag, and re-tag (or re-run the workflow against the existing tag via `gh run rerun`).
 9. Verify both tags and releases resolve correctly:
    ```sh
    git ls-remote --tags origin cli/vX.Y.Z server/vX.Y.Z

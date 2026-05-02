@@ -285,6 +285,11 @@ jobs:
     needs: [build, universal-macos]
     runs-on: ubuntu-latest
     steps:
+      # Checkout so the release step can read CHANGELOG.md for the
+      # version-specific entry. Shallow clone is fine — we only read files
+      # at the tagged SHA, not git history.
+      - uses: actions/checkout@v6
+
       - name: Download all artifacts
         uses: actions/download-artifact@v8
         with:
@@ -351,10 +356,35 @@ jobs:
       - name: Show checksums
         run: cat artifacts/secrt-checksums-sha256.txt
 
+      # Extract the changelog entry for the version in this tag. Fails the
+      # job if no entry exists — forces every cli/v* tag to ship with a
+      # CHANGELOG entry, closing the historical "release published with
+      # auto-generated body" gap. Body file is consumed by the next step.
+      - name: Extract changelog entry
+        id: changelog
+        run: |
+          VERSION="${GITHUB_REF_NAME#cli/v}"
+          echo "Extracting CHANGELOG entry for $VERSION"
+          scripts/extract-changelog-entry.sh \
+            crates/secrt-cli/CHANGELOG.md \
+            "$VERSION" \
+            > /tmp/release_notes.md
+          echo "----- release notes -----"
+          cat /tmp/release_notes.md
+          echo "-------------------------"
+
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v3
         with:
-          generate_release_notes: true
+          # Title set explicitly to the tag name (e.g. cli/v0.17.5) per
+          # CLAUDE.md release procedure — keeps tag and release name aligned
+          # in the GitHub UI and in `gh release view` output.
+          name: ${{ github.ref_name }}
+          body_path: /tmp/release_notes.md
+          # Disable auto-generated notes — the CHANGELOG entry is the
+          # canonical, human-curated description. The auto "Full Changelog"
+          # compare link is rarely clicked and adds noise.
+          generate_release_notes: false
           # Two distinct asset audiences:
           #   1. `secrt update` self-update path → raw per-platform binaries
           #      (must match raw_asset_name() in crates/secrt-cli/src/update.rs).
