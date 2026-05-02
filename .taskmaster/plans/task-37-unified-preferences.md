@@ -5,7 +5,7 @@
 **Supersedes / extends:** task #37 (preferences foundation), task #38 (saved passphrases), task #34 (keychain plumbing for passphrases/session)
 **Hard prerequisite:** task #42 (Passkey PRF-based AMK wrapping)
 **Related but out of scope:** task #40 (Icelandic localization), task #45 (jurisdiction-picker UX), task #49 (multi-profile/custom host)
-**Plan version:** v2 — 2026-04-26 (revised after Codex review + design discussion)
+**Plan version:** v3 — 2026-05-01 (credential metadata + ciphertext padding + label-tier decisions added after PRF cross-device verification on YubiKey)
 
 ---
 
@@ -58,6 +58,11 @@ This plan assumes **passkey-only authentication** going forward. No password fal
 | 15 | **Defer "auto-clear AMK on logout" until PRF.** | Today it would break re-login UX (need to re-do device-transfer dance). With PRF, re-login is seamless and clear-on-logout becomes the correct default. |
 | 16 | **Cache only ciphertext in localStorage.** | Even though the AMK persists nearby (IndexedDB/keychain), we don't make the localStorage cache *additionally* bad by storing decrypted material. Decrypt happens in memory only. |
 | 17 | **`preferences` AAD key prefix is normative.** Spec + vectors written before any TS/Rust code. | Domain-tagged AAD prevents cross-blob misuse; spec-first prevents the two implementations drifting. |
+| 18 | **Pad ciphertext to a 4 KB quantum** (round plaintext up to next 4 KB boundary before sealing; cap is still 64 KB plaintext). Padding bytes are zero-filled and stripped at unwrap time using a length prefix or a deterministic schema-driven trim. | Defeats length-based fingerprinting of blob contents (e.g. inferring credential count or whether saved passphrases are present). Quantum chosen to comfortably hold ~10 credentials + prefs + ~25 saved passphrases without bumping a tier. |
+| 19 | **Credential metadata folds into the existing `Preferences` blob** as a `credentials: BTreeMap<credential_id, CredentialMetadata>` field — not a separate blob, not a separate table. | Single-blob principle (Decision #2) extends here. The `blob_kind` AAD hook stays reserved for genuinely different blob types; per-credential metadata is just more `Preferences`. Avoids new envelope, new endpoint, new storage table, and the per-blob shape leakage that would come with splitting. |
+| 20 | **AAGUID stored raw in the blob; brand display label resolved client-side at render time** via a static lookup table (`web/src/lib/passkey-aaguids.ts`). | Lookup table can evolve — new authenticators recognized, mistakes corrected — without rewriting any user blobs. Pure machine cost; trivial. |
+| 21 | **`passkeys.label` remains server-side, plaintext.** Tier-2 (authenticated, AMK-not-available) readability is load-bearing for revoking a lost credential and for the user picking which credential to attempt PRF unlock with on a fresh device. | Encrypting labels would block revocation + recovery flows on the cohort that needs them most (YubiKey-on-iPhone, Bitwarden, anyone in "Sign-in only" land). Empirical privacy cost is small (most labels are device-class names like "YubiKey" / "iPhone"). Optional richer per-credential `private_notes` field can live in the blob in a future version if a real use case emerges. |
+| 22 | **Server-visible `passkeys.safari_prf_compatible` tri-state column (NULL = unknown).** Required because it's load-bearing pre-AMK-unlock — used to render iPhone-compatibility hints on the new-device login screen and the tier-2 Settings view, before any blob can be decrypted. Lives in the PRF design doc's schema (`prf-amk-wrapping.md` §3.3); listed here for cross-referencing. | The only new server-visible bit added by the credential-metadata work. Capability-framed, not identity-framed. Anonymity set per state value: many millions of users. |
 
 ---
 
@@ -182,6 +187,13 @@ pub struct Preferences {
     pub language:    LanguagePrefs,
     pub passphrases: PassphrasePrefs,
     pub instance:    InstancePrefs,
+
+    /// Per-credential rich metadata, keyed by base64url credential_id.
+    /// Captured at register-finish (web/Tauri); CLI never writes this.
+    /// BTreeMap (not HashMap) for deterministic serialization → stable
+    /// padding boundaries across devices.
+    #[serde(default)]
+    pub credentials:  BTreeMap<String, CredentialMetadata>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
@@ -241,6 +253,64 @@ pub struct InstanceProfile {
     pub label: String,
     pub base_url: String,
 }
+
+/// Per-credential rich metadata. All fields optional so unknown / privacy-
+/// stripped values (e.g. iCloud Keychain returning AAGUID = all-zeros under
+/// `attestation: "none"`) round-trip cleanly without false-positive labels.
+#[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
+pub struct CredentialMetadata {
+    /// 16 raw bytes of the AAGUID from the attestation object's
+    /// attested-credential-data. All-zeros is a valid value meaning
+    /// "authenticator declined to identify itself" — kept as-is.
+    pub aaguid: Option<[u8; 16]>,
+
+    /// Attestation format string from the outer CBOR ("none", "packed",
+    /// "fido-u2f", "apple", "tpm", "android-key", "android-safetynet").
+    pub attestation_fmt: Option<String>,
+
+    /// Transports advertised at registration, e.g. ["usb", "nfc"] or
+    /// ["internal"]. Useful tiebreaker when AAGUID is zeros.
+    #[serde(default)]
+    pub transports: Vec<String>,
+
+    /// "platform" | "cross-platform". Set by the authenticator, not the user.
+    pub authenticator_attachment: Option<String>,
+
+    /// Capability classification, derived at capture time. Cached in the
+    /// blob (rather than re-derived at render time) so the lookup-table
+    /// version that produced it is implicitly captured. Re-derived only
+    /// on explicit credential refresh.
+    pub capability: Option<CredentialCapability>,
+
+    /// Optional richer per-credential private notes. NOT used in v1; the
+    /// field exists so future code can write to it without a schema bump.
+    /// `passkeys.label` (server-side, plaintext) is the load-bearing
+    /// label for tier-2 (revocation, picker) UX — see Decision #21.
+    pub private_notes: Option<String>,
+}
+
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum CredentialCapability {
+    /// Has a PRF wrapper, works on every platform we ship to.
+    /// Examples: iCloud Keychain platform passkeys, GPM-on-Android passkeys.
+    FullPortable,
+    /// Has a PRF wrapper, works on desktop / Safari macOS / Chromium,
+    /// AMK does NOT transfer to iOS Safari (Apple re-wraps hmac-secret).
+    /// Examples: YubiKey and other roaming hardware.
+    DesktopOnly,
+    /// PRF wrapper exists but the credential is bound to a single device
+    /// (TPM / Secure Enclave with iCloud Keychain disabled). Cross-device
+    /// unlock impossible by design.
+    DeviceOnly,
+    /// No PRF wrapper. Authentication works, AMK never transfers.
+    /// Examples: Bitwarden, 1Password, Firefox ≤147, GPM-on-Chrome-macOS.
+    SignInOnly,
+    /// Capability not yet classified (e.g. credentials registered before
+    /// the metadata-capture feature shipped, or an authenticator we
+    /// haven't catalogued).
+    Unknown,
+}
 ```
 
 `Option<>` and `Vec<>` are deliberate: distinguishes "user has not set this" from "user set this to false/empty". Defaults come from a single `effective_preferences()` resolver in `secrt-core` shared across CLI / web / Tauri.
@@ -256,6 +326,73 @@ pub struct InstanceProfile {
 | `auto_copy` | `general.auto_copy_share_link` |
 | `base_url` | `instance.preferred_base_url` |
 | `use_keychain`, `api_key`, `show_input` | **CLI-only**, not in `Preferences` |
+| (none) | `credentials` map — **web/Tauri-only**, populated at WebAuthn register-finish. CLI does not register passkeys (it bootstraps via the browser-mediated ECDH flow), so it has no values to write here. CLI reads of the blob ignore this field. |
+
+---
+
+### Credential metadata — capture and resolution
+
+**Trust-tier split** (the load-bearing principle, repeated explicitly because it governs every rule below):
+
+- **Tier-2 readable** (server, plaintext, no AMK required): `passkeys.label`, `passkeys.safari_prf_compatible`, `passkeys.prf_supported`, the wrapper itself, sign counts, timestamps. Anything required to revoke a credential, render the iPhone-compatibility hint on a fresh-device login, or help a user pick which credential to attempt PRF unlock with.
+- **Tier-3 readable** (encrypted blob, AMK required): AAGUID, attestation_fmt, transports, authenticator_attachment, derived capability, brand display label, future private notes. Anything that's nice for management but never required for security operations.
+
+**Capture (at WebAuthn register-finish, web/Tauri only):**
+
+```
+1. After navigator.credentials.create() returns, parse the attestation object:
+   - Extract AAGUID from authenticatorData → attestedCredentialData.aaguid (16 bytes).
+   - Extract attestation format string from the outer CBOR ("apple" / "packed" / etc.).
+   - Capture transports[] from getTransports() (or response.getTransports()).
+   - Capture authenticatorAttachment from the credential.
+2. Derive safari_prf_compatible:
+     true   iff attestation_fmt == "apple"
+            OR aaguid == adce0002-35bc-c60a-648b-0b25f1f05503  (Apple AAGUID)
+     false  iff aaguid matches a known non-Apple-platform value
+            (lookup table includes YubiKey AAGUIDs, Windows Hello TPM,
+             GPM Android, 1Password, Bitwarden, etc.)
+     null   otherwise (unclassified — anonymity-stripped authenticator)
+3. Derive capability:
+     FullPortable    iff safari_prf_compatible == true && wrapper exists
+     DesktopOnly     iff aaguid matches a known roaming-hardware AAGUID
+                     OR (authenticator_attachment == "cross-platform" && prf_supported)
+     DeviceOnly      iff authenticator_attachment == "platform" && credential is non-syncable
+                     (heuristic; rarely hit in practice)
+     SignInOnly      iff !prf_supported (no wrapper)
+     Unknown         otherwise
+4. Send to server (registerPasskeyFinish payload):
+     { ..., safari_prf_compatible: <tri-state> }
+   Server stores on `passkeys.safari_prf_compatible`.
+5. Write to encrypted blob (Preferences.credentials[credential_id]):
+     { aaguid, attestation_fmt, transports, authenticator_attachment, capability }
+   Same write path as any other Preferences mutation (CAS via ETag, see Sync semantics).
+```
+
+**Resolution (at render time):**
+
+- Brand display label + icon: client looks up `aaguid` in `web/src/lib/passkey-aaguids.ts` (static table, see Decision #20). Falls back to attestation_fmt-based inference (`"apple"` → Apple icon, `"tpm"` → Windows Hello icon, etc.) when AAGUID is zeros. Generic passkey icon if neither resolves.
+- Capability badge: render directly from `credentials[id].capability`. Pre-AMK-unlock fallback is `passkeys.safari_prf_compatible` for the "iPhone-compatible" hint only.
+- Label (tier-2): server-side `passkeys.label`. Always available when authenticated.
+
+**Fallback when blob is unreachable:**
+
+- Tier-2 user (authenticated, no AMK): renders `passkeys.label` + iPhone-compat badge derived from `safari_prf_compatible`. No brand icon, no rich capability. The "Authorize this device" affordance directs them to the unlock path.
+- Once AMK is available: blob decrypts, full UI renders.
+
+### Lookup table — `web/src/lib/passkey-aaguids.ts`
+
+Static TS const, shipped with each web build. Source: community-maintained `passkey-authenticator-aaguids` GitHub repo + Yubico's published AAGUIDs + Apple/Microsoft-known values. Resolves AAGUID (32-char hex string) to:
+
+```ts
+{
+  name: string,           // "YubiKey 5C NFC", "iCloud Keychain", "Windows Hello", ...
+  ecosystem: 'apple' | 'google' | 'microsoft' | 'yubico' | 'feitian' | 'manager' | 'unknown',
+  iconId: string,         // resolves to an SVG in components/Icons
+  capability_hint?: CredentialCapability,   // optional — used as a tiebreaker
+}
+```
+
+Updates land via re-deploy of the SPA. No migration, no blob rewrite. New AAGUIDs are resolved correctly the next time the user opens Settings on an updated build.
 
 ---
 
@@ -264,13 +401,27 @@ pub struct InstanceProfile {
 Reuse the existing AMK wrap pattern. New domain-tagged AAD prevents cross-blob misuse (a stolen prefs blob can't be misinterpreted as a notes blob).
 
 ```
+serialized = serde_json::to_vec(&Preferences)            // CBOR also acceptable; pick one in spec
+padded     = pad_to_quantum(serialized, 4096)            // see Padding below
 ciphertext = AES-256-GCM(
     key   = HKDF(amk, info = "secrt-preferences-v1"),
     nonce = random(12),
     aad   = buildPrefsAad(user_id, blob_kind, version),
-    plain = serde_json::to_vec(&Preferences)
+    plain = padded
 )
 ```
+
+**Padding** (Decision #18). `pad_to_quantum(bytes, q)`:
+
+```
+plaintext_len = bytes.len() as u32                       // ≤ 64 KB
+padded_len    = ceil_div(4 + plaintext_len, q) * q
+out           = u32_be(plaintext_len) || bytes || zeroes(padded_len - 4 - plaintext_len)
+```
+
+The 4-byte length prefix lets the unwrap path trim padding deterministically. Quantum is 4 KB; cap stays at 64 KB plaintext (so worst-case ciphertext = 64 KB + GCM overhead, server-side cap on `ct` becomes 65 KB to allow tag/nonce framing). Padding bytes are zero — no domain separation needed because the AAD already includes user_id and version.
+
+Test vectors must exercise: (a) the 0-byte plaintext (empty Preferences), (b) a plaintext just under a quantum boundary, (c) a plaintext exactly at a quantum boundary, (d) a plaintext just over a quantum boundary, (e) a plaintext near the 64 KB ceiling.
 
 **Normative AAD layout** (matches `buildWrapAad` style):
 
@@ -466,9 +617,9 @@ Plus a similar line near the "Clear local data" button explaining what it does a
 
 ### Phase 0 — Spec + crypto vectors
 
-- [ ] `spec/v1/preferences.md` — envelope, normative AAD layout, blob_kind enumeration, wire format, CAS semantics.
-- [ ] `spec/v1/preferences.vectors.json` — 3-5 deterministic test vectors.
-- [ ] Add `Preferences` struct + `seal_preferences` / `open_preferences` in `secrt-core`, with vector-passing tests.
+- [ ] `spec/v1/preferences.md` — envelope, normative AAD layout, blob_kind enumeration, wire format, CAS semantics, **padding scheme (Decision #18) including the length-prefix format**.
+- [ ] `spec/v1/preferences.vectors.json` — 5+ deterministic test vectors covering padding edge cases (empty / sub-quantum / on-quantum / over-quantum / near-cap).
+- [ ] Add `Preferences` struct (including `credentials: BTreeMap<String, CredentialMetadata>`), `CredentialMetadata`, `CredentialCapability`, plus `seal_preferences` / `open_preferences` (with padding) in `secrt-core`, with vector-passing tests.
 - [ ] Mirror in `web/src/crypto/preferences.ts`, same vectors.
 
 ### Phase 1 — Server endpoints
@@ -476,6 +627,7 @@ Plus a similar line near the "Clear local data" button explaining what it does a
 - [ ] `user_preferences` Postgres table + migration (with `revision` column).
 - [ ] `GET` and `PUT /api/v1/auth/preferences` handlers in `secrt-server/src/http/`.
 - [ ] ETag generation, `If-Match` / `If-None-Match` enforcement, 409 on mismatch, 412 on missing precondition.
+- [ ] **`passkeys.safari_prf_compatible BOOLEAN NULL` column** — schema migration owned by the PRF design doc (`prf-amk-wrapping.md` §3.3) but tracked here too. Ensures handler can read it for tier-2 rendering.
 - [ ] OpenAPI updates in `spec/v1/openapi.yaml`.
 - [ ] Integration tests against `TEST_DATABASE_URL`, including concurrent-write CAS conflict.
 
@@ -495,7 +647,15 @@ Plus a similar line near the "Clear local data" button explaining what it does a
 - [ ] Add Account → Danger Zone → "Clear local data on this device" button.
 - [ ] Reuse existing card styling.
 
-### Phase 4 — Nav + shortcuts + Send/Claim integrations
+### Phase 3.5 — Credential metadata capture + render
+
+- [ ] `web/src/lib/passkey-aaguids.ts` — static AAGUID lookup table sourced from `passkey-authenticator-aaguids` upstream + Yubico published list. Resolver function `resolveAaguid(aaguid: Uint8Array | null) → { name, ecosystem, iconId, capability_hint? } | null`.
+- [ ] `web/src/lib/credential-capture.ts` — at register-finish, parse attestation object for AAGUID + attestation_fmt, capture transports + authenticatorAttachment, derive `safari_prf_compatible` (tri-state) and `capability` (enum).
+- [ ] Extend `RegisterPage`, `SettingsPage` add-passkey, and (Tauri) the verification-URL page to call the capture function and write to both server (`safari_prf_compatible`) and Preferences blob (`credentials[id]`).
+- [ ] Server-side: extend register-finish + add-finish handlers to accept `safari_prf_compatible` and stamp `passkeys.safari_prf_compatible`. PRF-upgrade login path also stamps it when first seen.
+- [ ] Settings → Account → Passkeys list rendering: per-row icon (resolved from AAGUID), brand name (resolved from AAGUID), capability badge (`Sign-in only` / `Desktop only` / nothing / `This device only`), tier-2 fallback (label + iPhone-compat hint only).
+- [ ] New-device login screen: when server returns the user's credential list (or hint at one via the picker), surface the iPhone-compat badge in advance of the assertion ceremony so users on iPhone can pick the right credential.
+- [ ] Spec note in `prf-amk-wrapping.md` §3.6 cross-referencing this plan for capture details.
 
 - [ ] Remove dark-mode toggle from nav (preserve `D` shortcut).
 - [ ] Add gear icon in nav for unauth users → `/settings`.
@@ -552,6 +712,11 @@ Plus a similar line near the "Clear local data" button explaining what it does a
 | `web/src/crypto/preferences.ts` (**new**) | WebCrypto mirror |
 | `web/src/lib/preferences.ts` (**new**) | Get/set API + Preact hook |
 | `web/src/lib/preferencesSync.ts` (**new**) | Load/save/cache/CAS retry |
+| `web/src/lib/passkey-aaguids.ts` (**new**) | Static AAGUID lookup table + resolver |
+| `web/src/lib/credential-capture.ts` (**new**) | Parse attestation object, derive `safari_prf_compatible` + `capability`, write split |
+| `crates/secrt-server/migrations/` (existing migration set) | Add `passkeys.safari_prf_compatible BOOLEAN NULL` (lives with other PRF schema deltas) |
+| `crates/secrt-server/src/http/mod.rs` | register-finish / add-finish: accept and persist `safari_prf_compatible`; login-finish: stamp on PRF upgrade |
+| `crates/secrt-server/src/storage/postgres.rs` | passkey CRUD: write/read `safari_prf_compatible` |
 | `web/src/lib/passphraseProvider.ts` (**new, Tauri-relevant**) | Single gated provider |
 | `web/src/lib/auth-context.tsx` | Phase 6: clear AMK on logout |
 | `web/src/features/settings/SettingsPage.tsx` | Add Preferences sections; remove AuthGuard; wrap Account in auth check; add Danger Zone Clear button |
@@ -578,7 +743,7 @@ Plus a similar line near the "Clear local data" button explaining what it does a
 
 ## Cross-references
 
-- **Design discussion transcripts:** sessions of 2026-04-26 (Claude Code), including Codex review and follow-up triage.
+- **Design discussion transcripts:** sessions of 2026-04-26 (Claude Code), including Codex review and follow-up triage; session of 2026-05-01 (Claude Code) covering YubiKey cross-device PRF verification, iPhone Safari + external authenticator failure mechanism, badge taxonomy, and credential-metadata folding into this plan.
 - **Prior task notes:** task-37 description (in `tasks.json`), task-38, task-34, task-42, task-45, task-49, GitHub issues #28, #29.
 - **Related crypto:** `web/src/crypto/amk.ts`, `crates/secrt-core/src/crypto.rs`, `crates/secrt-server/docs/prf-amk-wrapping.md`.
 - **AMK persistence layer:** `web/src/lib/amk-store.ts`, `crates/secrt-app/src/lib.rs` (keyring commands).
