@@ -26,6 +26,7 @@ import {
 import { base64urlEncode } from '../../crypto/encoding';
 import { storeAmk, loadAmk, clearAmk } from '../../lib/amk-store';
 import { wrapAndStorePrfWrapper } from '../../lib/passkey-prf';
+import { debugInfo, debugError, fingerprint } from '../../lib/debug-log';
 import {
   TrashIcon,
   ClipboardIcon,
@@ -377,6 +378,16 @@ function PasskeysCard() {
       // ceremony was PRF-capable AND the user has the AMK loaded locally
       // (settings is gated behind AuthGuard so they should), wrap and PUT.
       // Best-effort — the passkey itself is already added if this fails.
+      debugInfo('prf-settings-wrap', {
+        prfSupported: reg.prfState.supported,
+        prfAtCreate: reg.prfState.atCreate,
+        hasOnCreateOutput: !!reg.prfState.onCreateOutput,
+        hasCredSalt: !!finishRes.prf_cred_salt,
+        credIdPrefix: reg.credentialId.slice(0, 8),
+        prfOutputFingerprint: reg.prfState.onCreateOutput
+          ? await fingerprint(reg.prfState.onCreateOutput)
+          : null,
+      });
       if (
         reg.prfState.supported &&
         finishRes.prf_cred_salt &&
@@ -385,7 +396,12 @@ function PasskeysCard() {
       ) {
         try {
           const amk = await loadAmk(auth.userId);
-          if (amk) {
+          if (!amk) {
+            debugInfo(
+              'prf-settings-wrap',
+              'skipping wrap, no local AMK to bind to',
+            );
+          } else {
             const amkCommit = await computeAmkCommit(amk);
             await wrapAndStorePrfWrapper(
               auth.sessionToken,
@@ -397,10 +413,17 @@ function PasskeysCard() {
               amk,
               amkCommit,
             );
+            debugInfo('prf-settings-wrap', {
+              result: 'success',
+              amkFingerprint: await fingerprint(amk),
+            });
           }
-        } catch {
+        } catch (err) {
           // Non-fatal — passkey is added; wrapper will be missing until a
           // future login retrofit (the §4.5 upgrade path also covers this).
+          debugError('prf-settings-wrap', err, {
+            credIdPrefix: reg.credentialId.slice(0, 8),
+          });
         }
       }
       const updated = await fetchPasskeys();

@@ -17,6 +17,7 @@ import { generateAmk, computeAmkCommit } from '../../crypto/amk';
 import { base64urlEncode } from '../../crypto/encoding';
 import { storeAmk } from '../../lib/amk-store';
 import { wrapAndStorePrfWrapper } from '../../lib/passkey-prf';
+import { debugInfo, debugError, fingerprint } from '../../lib/debug-log';
 import {
   PasskeyIcon,
   ShuffleIcon,
@@ -239,6 +240,16 @@ export function RegisterPage() {
             //    the wrapped AMK so future devices can unlock with one tap.
             //    Best-effort — failure here just means the user falls back
             //    to sync-link / API-key path on a new device.
+            debugInfo('prf-register-wrap', {
+              prfSupported: credential.prfState.supported,
+              prfAtCreate: credential.prfState.atCreate,
+              hasOnCreateOutput: !!credential.prfState.onCreateOutput,
+              hasCredSalt: !!finishRes.prf_cred_salt,
+              credIdPrefix: credential.credentialId.slice(0, 8),
+              prfOutputFingerprint: credential.prfState.onCreateOutput
+                ? await fingerprint(credential.prfState.onCreateOutput)
+                : null,
+            });
             if (credential.prfState.supported && finishRes.prf_cred_salt) {
               try {
                 await wrapAndStorePrfWrapper(
@@ -251,14 +262,19 @@ export function RegisterPage() {
                   amk,
                   commit,
                 );
-              } catch {
+                debugInfo('prf-register-wrap', 'wrap+PUT succeeded');
+              } catch (err) {
                 // PRF wrapper write failed — user can still register and use
                 // the account; new-device unlock will fall back to sync-link.
+                debugError('prf-register-wrap', err, {
+                  credIdPrefix: credential.credentialId.slice(0, 8),
+                });
               }
             }
           }
-        } catch {
+        } catch (err) {
           // AMK will be generated on first note creation as fallback
+          debugError('amk-store', err, { phase: 'register' });
         }
 
         setState({ step: 'done' });

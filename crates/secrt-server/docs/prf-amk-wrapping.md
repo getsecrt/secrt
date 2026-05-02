@@ -135,12 +135,23 @@ parameterized by the transport-specific `info` and `binding_id`.
 -- migrations/NNN_prf_amk_wrappers.sql
 
 ALTER TABLE passkeys
-  ADD COLUMN cred_salt       BYTEA,          -- 32 random bytes, NULL for non-PRF credentials
-  ADD COLUMN prf_supported   BOOLEAN NOT NULL DEFAULT false,
-  ADD COLUMN prf_at_create   BOOLEAN NOT NULL DEFAULT false;
+  ADD COLUMN cred_salt              BYTEA,          -- 32 random bytes, NULL for non-PRF credentials
+  ADD COLUMN prf_supported          BOOLEAN NOT NULL DEFAULT false,
+  ADD COLUMN prf_at_create          BOOLEAN NOT NULL DEFAULT false,
+  ADD COLUMN safari_prf_compatible  BOOLEAN;        -- tri-state: TRUE | FALSE | NULL (unclassified)
   -- prf_supported: authenticator returned non-empty PRF output at some point
   -- prf_at_create: PRF output was available in the registration ceremony (Chrome 147+ Win, Safari 18+, etc.)
   --                vs only available after first auth (older surfaces)
+  -- safari_prf_compatible: the only server-visible bit added by the credential-metadata work.
+  --   Capability-framed (not identity-framed): "this credential can complete PRF unlock on iOS Safari /
+  --   any iOS WKWebView browser." TRUE iff iCloud Keychain / Apple-issued credential. FALSE for
+  --   non-Apple credentials whose AAGUID is recognized in the client-side lookup. NULL when the
+  --   client couldn't classify (e.g. anonymity-stripped attestation, unrecognized AAGUID).
+  --   Read at tier-2 (authenticated, AMK not yet available) to render the iPhone-compatibility hint
+  --   on the new-device login screen and the tier-2 Settings view, before any encrypted blob can be
+  --   decrypted. Brand-level metadata (AAGUID, attestation_fmt, transports, authenticator_attachment)
+  --   lives in the AMK-encrypted Preferences blob — see task-37-unified-preferences.md §"Credential
+  --   metadata — capture and resolution".
 
 CREATE TABLE prf_amk_wrappers (
     id BIGSERIAL PRIMARY KEY,
@@ -231,6 +242,43 @@ const asr = await navigator.credentials.get(getOptions);
 const prfOutput = asr.getClientExtensionResults().prf?.results?.first;
 // prfOutput: ArrayBuffer(32) | undefined
 ```
+
+### 3.6.1 Credential-metadata capture (registration only)
+
+After `navigator.credentials.create()` returns, the client extracts identification
+metadata from the attestation object. This work is owned operationally by
+`web/src/lib/credential-capture.ts` (see task-37-unified-preferences.md Phase 3.5)
+but the contract is summarized here because it determines the value of
+`safari_prf_compatible` that the client sends to the server.
+
+```
+1. Parse attestation object:
+   - aaguid             = authenticatorData.attestedCredentialData.aaguid (16 raw bytes)
+   - attestation_fmt    = outer CBOR "fmt" field ("none" | "packed" | "apple" | "tpm" | ...)
+   - transports         = response.getTransports() (e.g. ["usb","nfc"] or ["internal"])
+   - attachment         = credential.authenticatorAttachment ("platform" | "cross-platform")
+2. Derive safari_prf_compatible (tri-state):
+     TRUE   iff attestation_fmt == "apple"
+            OR aaguid == adce0002-35bc-c60a-648b-0b25f1f05503  (Apple's published AAGUID)
+            OR attachment == "platform" AND attestation_fmt == "apple"
+     FALSE  iff aaguid matches a known non-Apple AAGUID (YubiKey models, Windows Hello TPM,
+            GPM Android, 1Password, Bitwarden, Feitian, KeePassXC) per the client lookup table
+     NULL   otherwise (anonymity-stripped attestation + unrecognized AAGUID)
+3. Send safari_prf_compatible to server in register-finish payload:
+     POST /api/v1/auth/passkeys/register/finish
+       { ..., safari_prf_compatible: true | false | null }
+   Server stamps the column. Treat as a UX hint, not a security claim — the actual unlock
+   attempt always derives the wrap key, attempts AES-GCM decrypt, and verifies amk_commit.
+4. Write rich metadata into the encrypted Preferences blob:
+     Preferences.credentials[credential_id] = {
+       aaguid, attestation_fmt, transports, authenticator_attachment, capability
+     }
+   Same write path as any other Preferences mutation (CAS via ETag).
+```
+
+The `add-finish` (Settings → Add passkey) and login-finish (PRF-upgrade path
+§4.5) handlers also accept and persist `safari_prf_compatible` so credentials
+registered or upgraded from those entry points get classified consistently.
 
 ### 3.7 Library choice
 No `@simplewebauthn/*` in `package.json` today; registration/login handlers are hand-rolled. Options:
@@ -516,8 +564,14 @@ Negative cases live in unit tests inside `crates/secrt-core/src/amk.rs`:
 
 ## 11. 2026-04 spike findings
 
-Real-device verification using `web/prototypes/prf-spike/`. Records actual PRF
-behavior observed per surface. Update as more devices are tested.
+Real-device verification using `web/prototypes/prf-spike/` and (since
+task #62) the in-app diagnostic logging. Records actual PRF behavior
+observed per surface. Update as more devices are tested.
+
+> **Captured-trace log:** `prf-cross-device-testing.md` is the empirical
+> companion to this section — full per-credential fingerprints, failure
+> mode catalog, and methodology. New entries to the table below should be
+> backed by a captured trace there.
 
 ### Observed (so far)
 
@@ -528,8 +582,11 @@ behavior observed per surface. Update as more devices are tested.
 | Safari on iOS + Apple Passwords (iCloud)         | ✓             | ✓         | fp `150eed07 a4944b7d`. Round-trip OK on same device.      |
 | Chrome on Android + Google Password Manager      | ✓             |           | wrap+unwrap OK (fingerprint not recorded)                  |
 | Chrome on macOS + Google Password Manager        | ✗             | ✗         | `enabled=false` — see GPM-on-desktop caveat below          |
-| Bitwarden as picker (Chrome on macOS)            | ✗             | ✗         | `prf: undefined` — see Bitwarden caveat                    |
+| Bitwarden as picker (Chrome on macOS)            | ✗             | ✗         | `prf: undefined` for create; intercepts get() too — see Bitwarden caveat |
 | 1Password as picker (Safari on macOS)            | ✗             | ✗         | `prf: undefined` — see 1Password caveat                    |
+| YubiKey 5C NFC on Vivaldi ↔ Chrome (macOS)       | ✓             | ✓         | 2026-05-01: AMK transfers cross-browser. Reference fp `ae46d371655a91c5`. |
+| YubiKey 5C NFC on **macOS Safari**               | n/a           | ✗ broken  | 2026-05-01: same credential, **different** PRF output (`156c06de00de5149`) than Chromium reading the same key on the same Mac. Apple WebAuthn framework intercepts. See "Apple WebAuthn framework" caveat below. |
+| YubiKey 5C NFC on iPhone Safari (any iOS)        | n/a           | ✗ broken  | Auth succeeds, AMK does not transfer — same root cause as macOS Safari above. See "Apple WebAuthn framework" caveat below. |
 
 ### iOS Safari naming quirk (not a bug)
 
@@ -584,10 +641,19 @@ Bitwarden has shipped PRF for their own E2EE flows, but the browser-WebAuthn
 passthrough depends on the picker code path, and as of this spike that path drops the
 extension.
 
+**Update 2026-05-01 (task #62 trace):** with the diagnostic logging in place we
+also observed Bitwarden's content script (`fido2-page-script.js`) intercepting the
+*second* WebAuthn ceremony in the PRF-on-get-only fallback path — even when the
+first ceremony succeeds and even when registering against a YubiKey directly via
+the OS picker. The injected script returns `NotAllowedError`/`timed out`,
+breaking the wrap+PUT step. Trace and resolution are in
+`prf-cross-device-testing.md` §4.
+
 For a recommended product like Bitwarden, this is unfortunate. Implication:
 1. Users storing their secrt passkey in Bitwarden will not get single-tap new-device unlock.
-2. Falls back to the existing sync-link / API-key path — same as Firefox ≤147, external roaming authenticators on iOS Safari, etc.
-3. Subtask 6 (UX) must surface this clearly so users can pick where to store their secrt passkey with eyes open.
+2. Even users with a YubiKey will lose the PRF wrap+PUT step at registration if the Bitwarden extension is enabled in the active browser session.
+3. Falls back to the existing sync-link / API-key path — same as Firefox ≤147, external roaming authenticators on iOS Safari, etc.
+4. Subtask 6 (UX) must surface this clearly so users can pick where to store their secrt passkey with eyes open.
 
 We should re-test periodically — Bitwarden may add the passthrough in a later release.
 
@@ -601,31 +667,140 @@ spec'd. Phase A gate is cleared for the most important surface.
 
 ### Still informational, not gating
 
-- Chrome 147+ on Windows 11 + Hello — defer until we have Windows hardware in the loop, or to Subtask 7's CI matrix.
-- Firefox 148+ — small user share; defer.
-- External YubiKey on iOS Safari — expected fail (hmac-secret returned encrypted; documented Apple WebAuthn limitation, not in scope to fix).
+- Chrome 147+ on Windows 11 + Hello — defer until we have Windows hardware in the loop, or to Subtask 7's CI matrix. Open hypothesis in `prf-cross-device-testing.md` §H2: Windows may intercept like Apple does, or may pass through like macOS Chrome — captured trace from a real Windows device will resolve this.
+- Firefox 148+ — small user share; defer. Couldn't load over `localhost` in 2026-05-01 testing (HMR/dev-server issue); will re-test on prod.
+- External YubiKey on **any Safari** (macOS or iOS) — confirmed broken (2026-05-01, both surfaces) and now treated as a documented platform limitation rather than a TODO. See "Apple WebAuthn framework caveat" below for the mechanism, user-impact statement, and required UX surface.
+
+> **Backfilling this table from real captures:** the rows above were collected
+> by hand. As of task #62 (`.taskmaster/plans/task-62-prf-amk-diagnostic-logging.md`),
+> the web client has gated diagnostic logging behind
+> `localStorage.setItem('secrt:debug', '1')` (always on in dev builds). Future
+> rows added here should be backed by a captured `[secrt:prf-unwrap]` /
+> `[secrt:prf-register-wrap]` console trace — fingerprint + decision branch +
+> exception text — rather than speculation about which platform layer
+> intercepted the PRF output. The "broken" entries especially deserve a
+> captured trace so the failure mode is recorded as observation, not
+> hypothesis.
 
 ### YubiKey / external roaming authenticators
 
-YubiKey + PRF works on Chrome/Edge/Firefox desktop and on Safari macOS, plus Chrome
-Android with NFC. Two implications for secrt's UX (Subtask 6):
+#### What works (verified 2026-05-01)
 
-1. YubiKey users should register **two physical keys** (primary + backup) because there
-   is no Apple/Google recovery layer.
-2. The fallback recovery story (API key written down, or a sync-link from another
-   device) is load-bearing for this cohort, not optional. Surface this in onboarding
-   when a user picks YubiKey as their primary credential.
+Cross-device PRF determinism with the **same YubiKey** between Chromium browsers
+(Vivaldi ↔ Chrome on desktop) is confirmed to work end-to-end: register on one
+browser, sign in on the other, AMK is unwrapped from the server-stored
+`prf_amk_wrappers` row and stored locally with no sync-link / API-key fallback.
+Chromium browsers talk to the YubiKey via CTAP HID directly and return the raw
+`hmac-secret` value as PRF output, so wrap-key derivation is byte-identical
+across machines.
 
-iOS Safari + external YubiKey remains broken upstream; iOS users with YubiKeys must use
-platform passkeys (Apple Passwords) for secrt.
+Expected to work on the same basis (not yet hardware-verified): Edge desktop,
+Firefox 148+ desktop, Chrome on Android with NFC tap.
+
+#### What breaks: Apple WebAuthn framework (macOS Safari + any iOS browser) with external authenticators
+
+This is a hard upstream limitation, **not a secrt bug**. Mechanism:
+
+- WebAuthn PRF is implemented on top of CTAP2's `hmac-secret` extension.
+  Spec-wise, the authenticator returns a value deterministic in
+  `(credential, salt)`.
+- Chromium and Firefox on desktop forward the raw `hmac-secret` value to
+  the relying party as PRF output (they ship their own CTAP HID stacks).
+- **Apple's WebAuthn framework** intercepts external-authenticator
+  responses and re-wraps `hmac-secret` with an opaque framework-managed key
+  before returning to the RP. Output is still 32 bytes and still looks
+  valid, but it's `Encrypt(framework_key, real_hmac_secret)` rather than
+  the raw value. The framework is used by:
+  - **Safari on macOS** (any version, confirmed 2026-05-01 — see
+    `prf-cross-device-testing.md` Round A4).
+  - **Every browser on iOS** (Safari plus all third-party browsers, since
+    iOS forces all browsers through WKWebView).
+- Chrome / Vivaldi / Edge on macOS bypass this by talking CTAP HID
+  directly. Same Mac, same physical YubiKey, same RP — Chromium gets the
+  raw value, Safari gets the framework-wrapped value.
+
+Whether the wrap key is per-device, per-Apple-ID, or per-framework-install
+is an open question (`prf-cross-device-testing.md` §H1). Either way, two
+Apple surfaces using the same external YubiKey on the same RP will not
+agree on the PRF output, so cross-Apple-surface AMK transfer doesn't work
+even in the friendliest configuration.
+
+Apple's stated rationale is that external authenticators shouldn't expose
+raw extension cryptographic material across the platform's privacy
+boundary. Yubico's developer guide explicitly calls this out as a known
+limitation. There's no signal Apple intends to change it.
+
+**Implication for secrt:** A YubiKey-only user who tries to sign in via
+Safari (macOS or iOS) will succeed at *authentication* (the WebAuthn
+signature is fine — that path doesn't depend on PRF) but **the AMK will
+not transfer**. They'll land on a logged-in but functionally-degraded
+session: no encrypted notes accessible, no new notes encrypt-able. Not
+silent corruption — just a missing capability. The fallback paths
+(sync-link from another device, or API-key unlock) remain available. On
+macOS the simplest workaround is "use Chrome / Vivaldi / Edge / Firefox
+instead of Safari for sign-in"; on iOS no in-browser workaround exists.
+
+#### UX implications (Subtask 6)
+
+1. YubiKey users should register **two physical keys** (primary + backup) —
+   there is no Apple/Google recovery layer. Both wrap the same AMK under
+   different `(credential_id, cred_salt)` pairs, so losing one is fully
+   recoverable from the other. Verified 2026-05-01: cross-key sync works
+   correctly (register both keys on one Chromium browser, use either key on
+   another Chromium browser, AMK transfers).
+2. The fallback recovery story (written-down API key, or sync-link from another
+   logged-in device) is **load-bearing** for this cohort, not optional. Surface
+   it in onboarding when a user picks YubiKey as their primary credential.
+3. **Surface the Apple-WebAuthn caveat at the moment it bites.** When a
+   YubiKey user tries to sign in via Safari (macOS or iOS) or any iOS
+   browser, expect the AMK unwrap to fail; the UI should detect this case
+   and prompt for sync-link / API-key (or, on macOS, suggest a Chromium
+   browser) instead of silently leaving them in a degraded session.
+   Recommended copy: *"YubiKeys can sign you in here but can't carry your
+   encryption key — Apple handles security keys differently than other
+   browsers. On Mac, sign in via Chrome / Edge / Firefox to get one-tap
+   unlock; on iPhone, use a sync link from another logged-in device or
+   paste an API key."*
+4. Recommend YubiKey users add an iCloud Keychain platform passkey to their
+   account specifically for iOS use. Two passkey types on the same account is
+   well-supported; on iPhone they get one-tap unlock via the iCloud-synced
+   credential, on desktop they keep the YubiKey path. **Honest framing required**
+   in the recommendation copy: adding the iCloud Keychain credential widens the
+   trust set of the whole account — once any credential can derive the AMK, the
+   account's effective security level is the *weakest* enrolled credential
+   (OR-of-credentials, not AND). YubiKey-paranoid users who don't model Apple
+   as a threat may still want this; users who do should rely on the sync-link /
+   API-key fallback on iPhone instead and not add iCloud Keychain at all.
+
+#### Storage and badge UX (cross-reference)
+
+The badge / icon work driven by these constraints lives in
+`task-37-unified-preferences.md` (§"Credential metadata — capture and resolution",
+Decisions #18–22). Summary of what lands where:
+
+- **One server bit** — `passkeys.safari_prf_compatible` (tri-state). Defined in
+  §3.3 above. Capability-framed. Read at tier-2 (no AMK) to render iPhone-compat
+  hint before the user has unlocked anything.
+- **Rich metadata** — AAGUID, attestation format, transports, authenticator
+  attachment, derived capability classification. Lives in the AMK-encrypted
+  `Preferences.credentials` map. Server sees opaque bytes only. Resolved to
+  brand display name + icon at render time via a static client-side lookup
+  table.
+- **Padding** — the encrypted Preferences blob is padded to a 4 KB quantum
+  before sealing (Decision #18) so credential count / saved-passphrase presence
+  can't be inferred from ciphertext length.
+- **Server-side label** — `passkeys.label` stays plaintext on the server
+  (Decision #21) because revocation and the new-device "which credential do I
+  use?" picker must work in the tier-2 state. Encrypting labels would break
+  exactly the recovery path that the YubiKey-on-iPhone cohort needs most.
 
 ### Cohort summary for product copy
 
-| Cohort                                            | Path                                                          |
-| ------------------------------------------------- | ------------------------------------------------------------- |
-| Default users (Apple/Google synced passkeys)      | PRF unlock — single-tap on new devices.                       |
-| 1Password / Bitwarden / LastPass managers today   | Sync-link or API-key fallback until those add PRF passthrough.|
-| Ultra-paranoid (YubiKey)                          | 2× YubiKey + written-down API key, desktop-only PRF.          |
+| Cohort                                            | Desktop                                                       | iPhone / iOS                                                              |
+| ------------------------------------------------- | ------------------------------------------------------------- | ------------------------------------------------------------------------- |
+| Default users (Apple/Google synced passkeys)      | PRF unlock — single-tap on new devices.                       | PRF unlock — single-tap.                                                  |
+| 1Password / Bitwarden / LastPass managers today   | Sync-link or API-key fallback until those add PRF passthrough.| Same fallback.                                                            |
+| Ultra-paranoid (YubiKey)                          | PRF unlock works on Chromium (Chrome/Edge/Vivaldi) and Firefox 148+. **macOS Safari does not unwrap** — Apple framework re-wraps `hmac-secret`. Recommend 2× YubiKey + written-down API key, and use a Chromium browser on macOS. | YubiKey signs in but **AMK does not transfer** (same Apple-framework root cause as macOS Safari). Sync-link / API-key required, OR add an iCloud Keychain passkey for iOS use. |
 
 ### Gate status: CLEARED for Phase B
 
@@ -638,4 +813,6 @@ platform passkeys (Apple Passwords) for secrt.
 - Corbado 2026 state-of-PRF: <https://www.corbado.com/blog/passkeys-prf-webauthn>
 - Bitwarden on PRF: <https://bitwarden.com/blog/prf-webauthn-and-its-role-in-passkeys/>
 - Firefox PRF meta-bug: <https://bugzilla.mozilla.org/show_bug.cgi?id=1863819>
+- `prf-cross-device-testing.md` — captured-trace log, failure mode catalog, and methodology for empirical PRF testing (companion to §11 of this doc).
 - Existing AMK impl: `secrt-core/src/amk.rs` + `web/src/crypto/amk.ts`
+- Encrypted Preferences blob (umbrella for credential metadata, saved passphrases, prefs): `.taskmaster/plans/task-37-unified-preferences.md`

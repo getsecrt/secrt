@@ -20,6 +20,7 @@ import {
 } from '../../crypto/amk';
 import { loadAmk, storeAmk } from '../../lib/amk-store';
 import { wrapAndStorePrfWrapper } from '../../lib/passkey-prf';
+import { debugInfo, debugError, fingerprint } from '../../lib/debug-log';
 import { navigate } from '../../router';
 import { getRedirectParam } from '../../lib/redirect';
 import { isTauri, getApiBase } from '../../lib/config';
@@ -147,8 +148,11 @@ function TauriLoginFlow() {
           ecdhPrivateKeyRef.current = kp.privateKey;
           const pubBytes = await exportPublicKey(kp.publicKey);
           ecdhPubKeyB64 = base64urlEncode(pubBytes);
-        } catch {
+        } catch (err) {
           // ECDH generation failure is non-fatal — proceed without AMK transfer
+          debugError('amk-transfer-tauri', err, {
+            phase: 'ecdh-keypair-generation',
+          });
         }
 
         const res = await appLoginStart(ecdhPubKeyB64);
@@ -174,8 +178,9 @@ function TauriLoginFlow() {
           try {
             const { open } = await import('@tauri-apps/plugin-shell');
             await open(url);
-          } catch {
+          } catch (err) {
             // If shell plugin fails, the user_code is already displayed for manual entry
+            debugError('amk-transfer-tauri', err, { phase: 'shell-open' });
           }
         }
 
@@ -202,6 +207,11 @@ function TauriLoginFlow() {
                   // Decrypt and store AMK if transfer data is present
                   try {
                     const privKey = ecdhPrivateKeyRef.current;
+                    debugInfo('amk-transfer-tauri', {
+                      hasTransfer: !!pollRes.amk_transfer,
+                      hasPrivKey: !!privKey,
+                      userId: pollRes.user_id,
+                    });
                     if (pollRes.amk_transfer && privKey) {
                       const peerPkBytes = base64urlDecode(
                         pollRes.amk_transfer.ecdh_public_key,
@@ -240,10 +250,18 @@ function TauriLoginFlow() {
                         cryptoKey,
                         buf(ct),
                       );
-                      await storeAmk(pollRes.user_id, new Uint8Array(amkPt));
+                      const amkBytes = new Uint8Array(amkPt);
+                      await storeAmk(pollRes.user_id, amkBytes);
+                      debugInfo('amk-transfer-tauri', {
+                        result: 'success',
+                        amkFingerprint: await fingerprint(amkBytes),
+                      });
                     }
-                  } catch {
+                  } catch (err) {
                     // AMK decryption failure is non-fatal — login still succeeds
+                    debugError('amk-transfer-tauri', err, {
+                      phase: 'decrypt-store',
+                    });
                   }
                   ecdhPrivateKeyRef.current = null;
 
@@ -423,10 +441,27 @@ export function LoginPage() {
       //          AMK locally, derive the wrap key, unwrap, and store. All-
       //          best-effort: failure here just falls through to the existing
       //          sync-link / API-key path.
+      debugInfo('prf-unwrap', {
+        hasWrapper: !!finishRes.prf_wrapper,
+        wrapperHasSalt: !!finishRes.prf_wrapper?.cred_salt,
+        wrapperVersion: finishRes.prf_wrapper?.version ?? null,
+        hasPrfOutput: !!assertion.prfOutput,
+        prfOutputFingerprint: assertion.prfOutput
+          ? await fingerprint(assertion.prfOutput)
+          : null,
+        credIdPrefix: assertion.credentialId.slice(0, 8),
+        userId: finishRes.user_id,
+      });
       if (finishRes.prf_wrapper && assertion.prfOutput) {
         try {
           const existing = await loadAmk(finishRes.user_id);
-          if (!existing) {
+          if (existing) {
+            debugInfo(
+              'prf-unwrap',
+              'skipping unwrap, local AMK already present',
+            );
+          } else {
+            debugInfo('prf-unwrap', 'attempting unwrap, no local AMK');
             await unwrapAndStorePrfAmk(
               finishRes.user_id,
               assertion.credentialId,
@@ -434,9 +469,17 @@ export function LoginPage() {
               assertion.prfOutput,
               finishRes.prf_wrapper,
             );
+            const stored = await loadAmk(finishRes.user_id);
+            debugInfo('prf-unwrap', {
+              result: 'success',
+              amkFingerprint: stored ? await fingerprint(stored) : null,
+            });
           }
-        } catch {
+        } catch (err) {
           // Non-fatal — login itself succeeded.
+          debugError('prf-unwrap', err, {
+            credIdPrefix: assertion.credentialId.slice(0, 8),
+          });
         }
       }
 
@@ -451,9 +494,18 @@ export function LoginPage() {
         !finishRes.prf_wrapper &&
         assertion.prfOutput
       ) {
+        debugInfo(
+          'prf-upgrade',
+          'cred_salt present without wrapper, attempting wrap+PUT',
+        );
         try {
           const amk = await loadAmk(finishRes.user_id);
-          if (amk) {
+          if (!amk) {
+            debugInfo(
+              'prf-upgrade',
+              'skipping upgrade, no local AMK to wrap (fresh device)',
+            );
+          } else {
             const amkCommit = await computeAmkCommit(amk);
             await wrapAndStorePrfWrapper(
               finishRes.session_token,
@@ -465,9 +517,16 @@ export function LoginPage() {
               amk,
               amkCommit,
             );
+            debugInfo('prf-upgrade', {
+              result: 'success',
+              amkFingerprint: await fingerprint(amk),
+            });
           }
-        } catch {
+        } catch (err) {
           // Non-fatal — login itself succeeded; upgrade can retry next login.
+          debugError('prf-upgrade', err, {
+            credIdPrefix: assertion.credentialId.slice(0, 8),
+          });
         }
       }
 

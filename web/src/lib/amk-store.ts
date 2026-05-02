@@ -7,6 +7,7 @@
 
 import { isTauri } from './config';
 import { base64urlEncode, base64urlDecode } from '../crypto/encoding';
+import { debugInfo, fingerprint } from './debug-log';
 
 // --- Tauri keychain path ---
 
@@ -98,15 +99,34 @@ async function clearIdb(userId: string): Promise<void> {
 
 /** Store an AMK for a given user. */
 export async function storeAmk(userId: string, amk: Uint8Array): Promise<void> {
+  debugInfo('amk-store', {
+    op: 'store',
+    backend: isTauri() ? 'tauri' : 'idb',
+    userId,
+    amkFingerprint: await fingerprint(amk),
+  });
   return isTauri() ? storeTauri(userId, amk) : storeIdb(userId, amk);
 }
 
 /** Load an AMK for a given user, or null if not found. */
 export async function loadAmk(userId: string): Promise<Uint8Array | null> {
-  return isTauri() ? loadTauri(userId) : loadIdb(userId);
+  const result = await (isTauri() ? loadTauri(userId) : loadIdb(userId));
+  debugInfo('amk-store', {
+    op: 'load',
+    backend: isTauri() ? 'tauri' : 'idb',
+    userId,
+    present: !!result,
+    amkFingerprint: result ? await fingerprint(result) : null,
+  });
+  return result;
 }
 
 /** Clear a stored AMK for a given user. */
 export async function clearAmk(userId: string): Promise<void> {
+  debugInfo('amk-store', {
+    op: 'clear',
+    backend: isTauri() ? 'tauri' : 'idb',
+    userId,
+  });
   return isTauri() ? clearTauri(userId) : clearIdb(userId);
 }

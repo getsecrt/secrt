@@ -1,4 +1,5 @@
 import { base64urlEncode, base64urlDecode } from '../crypto/encoding';
+import { debugInfo } from './debug-log';
 
 /** Check if the browser supports WebAuthn. */
 export function supportsWebAuthn(): boolean {
@@ -144,8 +145,25 @@ export async function createPasskeyCredential(
     prfState = { supported: false, atCreate: false };
   }
 
+  const credentialId = base64urlEncode(new Uint8Array(credential.rawId));
+  debugInfo('webauthn-create', {
+    credIdPrefix: credentialId.slice(0, 8),
+    authenticatorAttachment:
+      (
+        credential as PublicKeyCredential & {
+          authenticatorAttachment?: string | null;
+        }
+      ).authenticatorAttachment ?? null,
+    prfExtPresent: !!prfExt,
+    prfEnabled: prfExt?.enabled,
+    prfHasResults: !!prfExt?.results?.first,
+    prfState: {
+      supported: prfState.supported,
+      atCreate: prfState.atCreate,
+    },
+  });
   return {
-    credentialId: base64urlEncode(new Uint8Array(credential.rawId)),
+    credentialId,
     authenticatorData: base64urlEncode(new Uint8Array(authData)),
     clientDataJSON: base64urlEncode(new Uint8Array(response.clientDataJSON)),
     rawId: new Uint8Array(credential.rawId),
@@ -230,8 +248,22 @@ export async function getPasskeyCredential(
     ? new Uint8Array(prfExt.results.first)
     : undefined;
 
+  const credentialId = base64urlEncode(new Uint8Array(credential.rawId));
+  debugInfo('webauthn-get', {
+    credIdPrefix: credentialId.slice(0, 8),
+    authenticatorAttachment:
+      (
+        credential as PublicKeyCredential & {
+          authenticatorAttachment?: string | null;
+        }
+      ).authenticatorAttachment ?? null,
+    prfRequested: !!opts.enablePrf,
+    prfExtPresent: !!prfExt,
+    hasPrfOutput: !!prfOutput,
+    constrained: !!(opts.allowCredentialIds && opts.allowCredentialIds.length),
+  });
   return {
-    credentialId: base64urlEncode(new Uint8Array(credential.rawId)),
+    credentialId,
     authenticatorData: base64urlEncode(
       new Uint8Array(response.authenticatorData),
     ),

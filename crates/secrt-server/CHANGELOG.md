@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+## 0.17.5 — 2026-05-02
+
+### Added
+
+- **Gated client-side diagnostic logging for AMK / PRF flows in the web client.** Replaces the silent `} catch {}` blocks in passkey registration, login, settings add-passkey, and the PRF unwrap / upgrade / fallback-ceremony paths with structured `[secrt:<label>]` console traces (labels: `webauthn-create`, `webauthn-get`, `prf-register-wrap`, `prf-unwrap`, `prf-upgrade`, `prf-settings-wrap`, `prf-fallback-ceremony`, `amk-store`, `amk-transfer-tauri`). Two-layer gate: dev builds always log (statically replaced via `import.meta.env.DEV`); production builds log only when the user opts in via `localStorage.setItem('secrt:debug', '1')`. No data leaves the device — no telemetry, no remote collection. Logs include 8-byte SHA-256 fingerprints of PRF outputs and AMK material to verify cross-device determinism without exposing raw secrets, plus the WebAuthn `authenticatorAttachment` (`'platform'` vs `'cross-platform'`) so cross-device traces can disambiguate which authenticator the user picked. Direct payoff: the 2026-05-01 spike captured the first concrete confirmation that macOS Safari (not just iOS) re-wraps `hmac-secret` for external authenticators — different PRF output for the same YubiKey credential on the same Mac, depending on browser. See `crates/secrt-server/docs/prf-cross-device-testing.md` for the empirical log and `prf-amk-wrapping.md` §11 for the updated cohort summary.
+
 ## 0.17.4 — 2026-04-28
 
 ### Added

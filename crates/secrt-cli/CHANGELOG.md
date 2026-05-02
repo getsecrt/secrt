@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 0.17.5 — 2026-05-02
+
+No CLI-facing changes. Workspace version bump in lockstep with the server release that adds gated client-side diagnostic logging for AMK / PRF flows in the web client — see `crates/secrt-server/CHANGELOG.md`.
+
 ## 0.17.4 — 2026-04-28
 
 No CLI-facing changes. Workspace bump in lockstep with the server release that adds structured passkey ceremony logs — see `crates/secrt-server/CHANGELOG.md`.

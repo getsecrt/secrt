@@ -6,6 +6,7 @@ import {
 import { base64urlEncode, base64urlDecode } from '../crypto/encoding';
 import { getPasskeyCredential } from './webauthn';
 import { putPrfWrapper } from './api';
+import { debugInfo, fingerprint } from './debug-log';
 
 /**
  * Derive the PRF wrap key, wrap the AMK, and PUT the resulting blob to
@@ -35,6 +36,10 @@ export async function wrapAndStorePrfWrapper(
 ): Promise<void> {
   let output = prfOutput;
   if (!output) {
+    debugInfo('prf-fallback-ceremony', {
+      reason: 'no PRF-on-create output, running second assertion',
+      credIdPrefix: credentialId.slice(0, 8),
+    });
     const localChallenge = new Uint8Array(32);
     crypto.getRandomValues(localChallenge);
     const assertion = await getPasskeyCredential(
@@ -44,6 +49,11 @@ export async function wrapAndStorePrfWrapper(
         allowCredentialIds: [credentialId],
       },
     );
+    debugInfo('prf-fallback-ceremony', {
+      hasPrfOutput: !!assertion.prfOutput,
+      credIdMatch: assertion.credentialId === credentialId,
+      returnedCredIdPrefix: assertion.credentialId.slice(0, 8),
+    });
     if (assertion.credentialId !== credentialId) {
       throw new Error(
         'PRF fallback returned a different credential — refusing to write a mismatched wrapper',
@@ -54,6 +64,12 @@ export async function wrapAndStorePrfWrapper(
     }
     output = assertion.prfOutput;
   }
+  debugInfo('prf-fallback-ceremony', {
+    phase: 'wrap-and-put',
+    credIdPrefix: credentialId.slice(0, 8),
+    prfOutputFingerprint: await fingerprint(output),
+    amkFingerprint: await fingerprint(amk),
+  });
 
   const credSalt = base64urlDecode(credSaltB64u);
   const wrapKey = await deriveAmkWrapKeyFromPrf(output, credSalt);
