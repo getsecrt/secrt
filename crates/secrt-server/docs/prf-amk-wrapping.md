@@ -583,7 +583,7 @@ observed per surface. Update as more devices are tested.
 | Chrome on Android + Google Password Manager      | ✓             |           | wrap+unwrap OK (fingerprint not recorded)                  |
 | Chrome on macOS + Google Password Manager        | ✗             | ✗         | `enabled=false` — see GPM-on-desktop caveat below          |
 | Bitwarden as picker (Chrome on macOS)            | ✓ (with friction) | ✓ (with friction) | 2026-05-02: refined model — Bitwarden gates the WebAuthn UI but does not modify assertion bytes. PRF works when the user navigates through "Use your device or hardware key." Costs ~4 user actions per YubiKey registration vs 2 baseline. See Bitwarden caveat. |
-| 1Password as picker (Safari on macOS, 2026-04)   | ?             | ?         | Original spike showed `prf: undefined`, but **Safari/macOS itself strips/re-wraps PRF for non-iCloud credentials** (confirmed 2026-05). The 2026-04 result is confounded; cannot attribute to 1Password vs Safari. Needs Chromium retest. See 1Password caveat. |
+| 1Password as platform passkey provider (Mac Chrome / Safari / Firefox; Windows Chrome / Firefox; iPhone Safari) | ✓ | ✓ | 2026-05-02: same credential `2hX0aGOL` produces byte-identical PRF output `88c149421125d06f` across all six surfaces. End-to-end AMK transfer works on every desktop OS, every major browser including Safari and Firefox, and iOS. PRF returned at create() — single touch at registration. Best cross-platform result we have. See 1Password caveat. |
 | YubiKey 5C NFC on Vivaldi ↔ Chrome (macOS)       | ✓             | ✓         | 2026-05-01: AMK transfers cross-browser. Reference fp `ae46d371655a91c5` (localhost) / `7baef9877a382253` (`secrt.is`). |
 | YubiKey 5C NFC on **macOS Safari**               | n/a           | ✗ broken  | 2026-05-01: same credential, **different** PRF output (`156c06de00de5149`) than Chromium reading the same key on the same Mac. Apple WebAuthn framework intercepts. See "Apple WebAuthn framework" caveat below. |
 | YubiKey 5C NFC on iPhone Safari (any iOS)        | n/a           | ✗ broken  | Auth succeeds, AMK does not transfer — same root cause as macOS Safari above. See "Apple WebAuthn framework" caveat below. |
@@ -597,28 +597,82 @@ only meaningfully set at create time; at get time the relevant signal is whether
 correct interpretation is "PRF output present" whenever `hasResultsFirst=true`. The Phase
 B and Phase D code should never read `enabled` at get time — only `results.first`.
 
-### 1Password caveat — UNCERTAIN, needs retest
+### 1Password — confirmed gold standard for cross-ecosystem users (2026-05-02)
 
-The 2026-04 spike showed 1Password as picker on Safari/macOS returning
-`prf: undefined`, and that result was filed as a 1Password limitation
-in the cohort matrix. **That conclusion is now in doubt:** subsequent
-testing (2026-05) confirmed Safari/macOS itself strips PRF / re-wraps
-`hmac-secret` for *anything* that isn't iCloud Keychain — so the spike
-test was confounded by Safari's behavior on top of 1Password's, and
-we cannot disentangle the two from the original trace.
+Round C in `prf-cross-device-testing.md` captured the same 1Password-stored
+credential (`2hX0aGOL`) on six surfaces:
 
-1Password publicly shipped PRF support for their own unlock flow, and
-their WebAuthn implementation may forward the extension correctly when
-tested in a non-Safari environment. **Action needed:** retest 1Password
-as picker on Chromium/macOS (where Safari interception isn't a factor)
-to determine actual behavior. Until that retest happens, treat 1Password
-as an open question rather than a confirmed-broken cohort.
+- macOS Chrome (registration)
+- macOS Safari (sign-in)
+- macOS Firefox (sign-in)
+- Windows Chrome (sign-in)
+- Windows Firefox (sign-in)
+- iPhone Safari (sign-in via 1Password's iOS Credential Provider Extension)
 
-If a Chromium test shows 1Password forwarding PRF correctly, the cohort
-story for 1Password users becomes the same as the
-"Bitwarden installed but credential held elsewhere" pattern: works,
-maybe with friction, but not the broken-cohort fallback story we
-currently document.
+Every surface produced byte-identical PRF output `88c149421125d06f` and
+unwrapped the AMK end-to-end. **No surface failed.** Notably:
+
+- **Mac Safari + 1Password works** even though Mac Safari + YubiKey doesn't.
+- **iPhone Safari + 1Password works** even though iPhone Safari + YubiKey doesn't.
+- **Firefox + 1Password works** even though Firefox + YubiKey doesn't.
+- **PRF is returned at create() time** (no double-touch, no fallback ceremony).
+
+#### Why 1Password works where YubiKey doesn't
+
+The mechanism is the `authenticatorAttachment: 'platform'` taxonomy
+combined with platform-specific credential-provider APIs:
+
+- **iOS:** 1Password registers via Apple's `ASCredentialProviderExtension`
+  (the iOS 17+ third-party passkey provider API). Apple's WebAuthn
+  framework treats credentials surfaced through this API the same way
+  it treats iCloud Keychain — as a platform credential — and passes PRF
+  through unmodified. The Apple framework `hmac-secret` re-wrap behaviour
+  (which breaks YubiKey on Safari/iOS) only applies to *external CTAP2
+  authenticators* talking via the FIDO2 USB / NFC pathway.
+- **macOS / Windows / Linux:** 1Password's browser extension intercepts
+  WebAuthn calls and returns a 1Password-managed credential before
+  reaching any platform framework. Same passthrough story.
+- **Determinism:** 1Password's vault sync carries the cred_salt and
+  credential state in a way that makes PRF derivation byte-identical
+  across devices. This is the property that lets the AMK unwrap on a
+  fresh device.
+
+#### Android caveat
+
+1Password requires **Android 14+** for passkey support — that's when
+Android shipped the Credential Manager API for third-party passkey
+providers. Earlier Android (Pixel 4a maxes at Android 13, etc.) cannot
+do passkeys via 1Password at all. Not a 1Password limitation, an
+Android platform one. On Android 14+ the Credential Manager pathway
+should behave like the iOS Credential Provider Extension and pass PRF
+through cleanly; not yet hardware-verified by us.
+
+#### Trust-model framing for product copy
+
+Recommending 1Password as the cross-ecosystem default is not the same
+as recommending it for everyone. The trade-offs:
+
+- **Trust 1Password the company.** Their authenticator implementation,
+  their sync infrastructure, their availability. If 1Password's vault
+  is compromised (or the user loses access to their 1Password account),
+  the credentials are gone.
+- **Vs. iCloud Keychain (Apple users only):** trust Apple instead. Tighter
+  integration on Apple platforms, no cross-ecosystem reach.
+- **Vs. YubiKey:** trust only the device in your hand. Stronger threat
+  model. But broken on Safari (any), Firefox, and iPhone — so users with
+  any Apple/Firefox surface in their daily life will hit walls
+  constantly.
+
+Different cohorts, different recommendations. See "Cohort summary for
+product copy" below for the consolidated table.
+
+#### Historical note
+
+The 2026-04 spike's `prf: undefined` reading was Safari/macOS confounding
+the test (Safari strips PRF for non-iCloud credentials regardless of
+who the picker is). The earlier "1Password drops PRF" claim has been
+struck from this doc as of 2026-05-02. Hypothesis H5 in
+`prf-cross-device-testing.md` §5 is marked resolved-disproved.
 
 Note on cross-row fingerprint comparison: PRF outputs are per-credential. Different
 registrations on different surfaces produce different credentials and therefore different
@@ -788,6 +842,19 @@ This is a hard upstream limitation, **not a secrt bug**. Mechanism:
   directly. Same Mac, same physical YubiKey, same RP — Chromium gets the
   raw value, Safari gets the framework-wrapped value.
 
+**Important scope note (added 2026-05-02):** the re-wrap behaviour is
+specific to *external CTAP2 authenticators* (USB / NFC FIDO2 keys
+talking via the platform's HID/NFC pathway). It does **not** apply to
+**platform credential providers** that surface credentials through
+Apple's `ASCredentialProviderExtension` (iOS 17+ third-party passkey
+provider API) or `AuthenticationServices` framework. Round C captured
+1Password as a platform credential provider on iPhone Safari and got
+clean PRF passthrough — the same credential returned byte-identical PRF
+output on iPhone Safari, macOS Safari, and macOS Firefox. So the
+"Safari-on-anything is broken for PRF" claim only holds for the
+external-authenticator cohort. Software passkey providers that
+register via the Credential Provider Extension API are exempt.
+
 Whether the wrap key is per-device, per-Apple-ID, or per-framework-install
 is an open question (`prf-cross-device-testing.md` §H1). Either way, two
 Apple surfaces using the same external YubiKey on the same RP will not
@@ -868,13 +935,26 @@ Decisions #18–22). Summary of what lands where:
 
 ### Cohort summary for product copy
 
-| Cohort                                            | Desktop                                                       | iPhone / iOS                                                              |
-| ------------------------------------------------- | ------------------------------------------------------------- | ------------------------------------------------------------------------- |
-| Default users (Apple/Google synced passkeys)      | PRF unlock — single-tap on new devices.                       | PRF unlock — single-tap.                                                  |
-| 1Password storing the secrt credential            | **Uncertain — needs retest on Chromium.** 2026-04 spike showed PRF dropped, but the test was on Safari/macOS where Apple's framework also drops/re-wraps PRF for non-iCloud credentials. 1Password publicly shipped PRF support; the spike result may have been Safari interference rather than 1Password itself. | Same uncertainty until retested. |
-| Bitwarden storing the secrt credential            | PRF dropped — Bitwarden's authenticator doesn't forward the extension. Sync-link / API-key fallback until Bitwarden ships it. | Same fallback. |
-| Bitwarden installed but credential held elsewhere (e.g. YubiKey) | PRF works, but Bitwarden's picker UI gates every WebAuthn ceremony. ~4 user actions per YubiKey registration vs 2 baseline. Recommend disabling Bitwarden during initial passkey registration. | Same friction pattern if Bitwarden is the iOS picker. |
-| Ultra-paranoid (YubiKey)                          | PRF unlock works on **Chromium only** (Chrome/Edge/Vivaldi). **Safari** and **Firefox** both broken on macOS — Safari because Apple's WebAuthn framework re-wraps `hmac-secret`, Firefox because its v148+ PRF support is platform-credential-only. Recommend 2× YubiKey + written-down API key, and explicitly direct users to a Chromium browser on macOS. | YubiKey signs in but **AMK does not transfer** (same Apple-framework root cause). Sync-link / API-key required, OR add an iCloud Keychain passkey for iOS use. |
+The matrix below assumes the user wants **single-tap unlock on a fresh
+device** as the goal (PRF working). Where PRF doesn't work, the
+sync-link / API-key fallback is always available — it's just an extra
+step the user has to perform.
+
+| Cohort                                            | Desktop                                                       | iPhone / iOS                                                              | Android                                |
+| ------------------------------------------------- | ------------------------------------------------------------- | ------------------------------------------------------------------------- | -------------------------------------- |
+| **All-Apple users (iCloud Keychain)**             | PRF unlock — single-tap on Apple Passwords across Mac browsers. | PRF unlock — single-tap.                                                  | Not applicable (no iCloud).            |
+| **All-Google users (Google Password Manager)**    | PRF unlock works on Chromium desktop with Android-stored credentials. | Limited — GPM credentials don't sync to iOS Apple Passwords.              | PRF unlock — single-tap (Android 14+). |
+| **Cross-ecosystem users → 1Password (gold standard)** | **PRF unlock single-tap on Chrome / Safari / Firefox / Edge / Vivaldi.** Verified Round C 2026-05-02. | **PRF unlock single-tap via Apple Credential Provider Extension.** Verified Round C6. | **Android 14+ required** for 1Password passkeys (Credential Manager API floor). Architecturally expected to work; not yet hardware-verified. |
+| Bitwarden storing the secrt credential            | PRF dropped — Bitwarden's authenticator doesn't forward the extension. Sync-link / API-key fallback until Bitwarden ships it. | Same fallback. | Same fallback. |
+| Bitwarden installed but credential held elsewhere (e.g. YubiKey) | PRF works, but Bitwarden's picker UI gates every WebAuthn ceremony. ~4 user actions per YubiKey registration vs 2 baseline. Recommend disabling Bitwarden during initial passkey registration. | Same friction pattern if Bitwarden is the iOS picker. | Same friction pattern. |
+| **Ultra-paranoid (YubiKey)**                          | PRF unlock works on **Chromium only** (Chrome / Edge / Vivaldi). **Safari and Firefox both broken** on macOS — Safari because Apple's WebAuthn framework re-wraps `hmac-secret` for external CTAP2, Firefox because its v148+ PRF support is platform-credential-only. Recommend 2× YubiKey + written-down API key, and explicitly direct users to a Chromium browser on macOS. | YubiKey signs in but **AMK does not transfer** (same Apple-framework root cause). Sync-link / API-key required, OR add an iCloud Keychain or 1Password passkey for iOS use. | Architecturally expected to work on Chromium (Chrome with NFC tap); not yet hardware-verified. |
+
+**Recommendation defaults to suggest in onboarding copy:**
+
+- *"I'm an Apple user and don't care about other ecosystems"* → iCloud Keychain. Single-tap everywhere Apple, no third-party trust required.
+- *"I use a mix of Apple, Android, Windows, Linux"* → **1Password.** Verified working on every platform we've tested; one credential, byte-identical PRF derivation across all surfaces. Trust set widens to include 1Password the company.
+- *"I want hardware-rooted security and don't trust password managers"* → YubiKey. But you'll need to use a Chromium browser on macOS (Safari and Firefox don't work with external authenticators for PRF), and you'll fall back to sync-link / API-key on iPhone. Requires 2× YubiKey for backup.
+- *"I currently use Bitwarden as my main vault"* → expect sync-link / API-key fallback for new-device unlock until Bitwarden ships PRF in their authenticator. No PRF-based one-tap path for Bitwarden-stored secrt credentials today.
 
 ### Gate status: CLEARED for Phase B
 

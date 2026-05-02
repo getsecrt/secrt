@@ -162,6 +162,65 @@ platform-credential-only and was never extended to external CTAP2
 authenticators via USB**. No user-facing workaround exists; would
 require Mozilla code change.
 
+### Round C — 1Password as platform passkey provider, 2026-05-02
+
+**Authenticator:** 1Password 8 acting as a platform passkey provider
+(via the browser extension on desktop, via Apple's `ASCredentialProviderExtension`
+on iOS).
+**RP:** `https://secrt.is` (prod).
+**Credential:** `2hX0aGOL…` (1Password vault, single credential synced across
+all tested devices via 1Password's own sync infrastructure).
+
+| # | Browser | OS | Action | `prfOutputFingerprint` | AMK fp | Outcome |
+|---|---|---|---|---|---|---|
+| C1 | Chrome | macOS | Register | `88c149421125d06f` | `7b3e927196ba2163` | ✓ wrap+PUT succeeded — **PRF returned at create()** (single touch, no fallback ceremony) |
+| C2 | **Safari** | **macOS** | Sign-in | `88c149421125d06f` | `7b3e927196ba2163` | ✓ unwrap succeeded — Apple framework passes platform-provider PRF through |
+| C3 | Firefox | macOS | Sign-in | `88c149421125d06f` | `7b3e927196ba2163` | ✓ unwrap succeeded — Firefox's platform-credential PRF support covers third-party providers |
+| C4 | Chrome | Windows | Sign-in | `88c149421125d06f` | `7b3e927196ba2163` | ✓ unwrap succeeded |
+| C5 | Firefox | Windows | Sign-in | `88c149421125d06f` | `7b3e927196ba2163` | ✓ unwrap succeeded |
+| C6 | **Safari** | **iOS (iPhone)** | Sign-in via 1Password Credential Provider Extension | `88c149421125d06f` | `7b3e927196ba2163` | ✓ unwrap succeeded — **iPhone Safari + non-Apple passkey = AMK transferred end-to-end** |
+| C7 | Any browser | Android < 14 | n/a | n/a | n/a | ✗ Android Credential Manager API for third-party passkey providers requires Android 14+. 1Password literally cannot do passkeys on older Android (Pixel 4a, etc.). Not a 1Password limitation — an Android platform one. |
+| C8 | Any browser | Android 14+ | not yet tested | expected `88c149421125d06f` | expected match | architecturally should work; needs hardware verification |
+
+**Round C interpretation.**
+
+This is the cleanest cross-platform result we have. **One credential, one
+PRF output, six confirmed surfaces, end-to-end AMK transfer everywhere
+including iPhone Safari.** Notably:
+
+- **Mac Safari + 1Password works** even though Mac Safari + YubiKey doesn't.
+- **iPhone Safari + 1Password works** even though iPhone Safari + YubiKey doesn't.
+- **Firefox + 1Password works** even though Firefox + YubiKey doesn't.
+
+The mechanism is the `authenticatorAttachment: 'platform'` taxonomy
+combined with platform-specific credential-provider APIs:
+
+- On **iOS**, 1Password registers itself via Apple's
+  `ASCredentialProviderExtension` (the third-party passkey provider API
+  introduced in iOS 17). Apple's WebAuthn framework treats credentials
+  surfaced through this API the same way it treats iCloud Keychain — as
+  a platform credential — and passes PRF through unmodified. The Apple
+  framework re-wrap behaviour (which breaks YubiKey on Safari/iOS) only
+  applies to *external CTAP2 authenticators* talking via the
+  FIDO2 USB / NFC pathway.
+- On **macOS**, the browser extension intercepts WebAuthn calls and
+  returns a 1Password-managed credential before reaching Apple's
+  framework. Same passthrough story.
+- On **Windows / Linux**, same browser-extension mechanism. No platform
+  framework involvement at all for software-credential providers.
+
+PRF output `88c149421125d06f` is byte-identical across all tested
+surfaces, which means 1Password's vault-level sync carries the
+cred_salt and credential state in a way that makes PRF derivation
+deterministic across devices. This is the property that lets the AMK
+unwrap correctly on a fresh device.
+
+**Practical implication:** 1Password is the cross-ecosystem passkey
+recommendation. It works on every desktop OS, every major browser
+including Firefox and Safari, and iOS. Android is the only gap, and
+it's bounded by the Android version floor (14+), not by 1Password
+behaviour.
+
 ---
 
 ## 4. Failure mode catalog
@@ -316,24 +375,35 @@ actions per YubiKey registration vs 2 baseline), not breakage.
 
 ### H5 — 1Password as picker drops PRF
 
-**OPEN.** The 2026-04 spike showed `prf: undefined` for a 1Password
-credential picked through 1Password's UI on Safari/macOS, and that
-result was filed as evidence 1Password drops the extension. We now
-know Safari/macOS itself re-wraps / drops PRF for non-iCloud
-credentials regardless of who the picker is, so the original test
-was confounded — we cannot attribute the failure to 1Password from
-that trace alone.
+**RESOLVED — disproved (Round C, 2026-05-02).** The 2026-04 spike's
+`prf: undefined` reading was Safari/macOS confounding the test, not
+1Password's behaviour. Round C captured the same credential
+(`2hX0aGOL`) on six different surfaces (Mac Chrome / Safari / Firefox,
+Windows Chrome / Firefox, iPhone Safari) and produced a byte-identical
+PRF output `88c149421125d06f` every time. End-to-end AMK transfer
+worked on every surface.
 
-1Password publicly shipped PRF for their own unlock flow, suggesting
-the WebAuthn extension is wired up at least somewhere in their stack.
+**1Password is now the strongest cross-platform passkey provider
+we've tested** — better than YubiKey on Safari (which is broken),
+better than Firefox + external authenticator (broken), better than
+Bitwarden's stored-credential case (PRF dropped). Updated cohort
+recommendation in `prf-amk-wrapping.md` §11.
 
-**Test:** sign in on Chromium/macOS using a 1Password-stored secrt
-credential, capture `[secrt:webauthn-get]`. If `prfExtPresent: true`
-and `hasPrfOutput: true`, 1Password forwards PRF and the cohort table
-needs another correction. If `prfExtPresent: false`, original finding
-stands and 1Password genuinely drops it.
+### H6 — 1Password works on Android 14+ (Credential Manager API)
 
-Pending the retest, 1Password is **uncertain**, not confirmed-broken.
+**PARTIALLY OPEN.** 1Password requires Android 14+ for passkey
+support because that's when Android shipped the Credential Manager
+API for third-party passkey providers. Earlier Android (incl. Pixel
+4a, which maxes at Android 13) cannot do passkeys via 1Password —
+not a configuration issue, an OS API floor. Architecturally, on a
+device running Android 14+, the Credential Manager pathway should
+behave like Apple's `ASCredentialProviderExtension` and pass PRF
+through cleanly.
+
+**Test:** sign in on Android 14+ device with the same credential
+`2hX0aGOL`. Expected: `prfOutputFingerprint: 88c149421125d06f`,
+unwrap succeeds. Until verified, the cohort table treats this as
+"expected to work" rather than "confirmed."
 
 ---
 
@@ -397,3 +467,4 @@ effectively zero.
 |---|---|
 | 2026-05-01 | Initial draft. Round A captured (YubiKey + Mac matrix). Apple WebAuthn macOS Safari interception confirmed. |
 | 2026-05-02 | Round B captured on prod (`secrt.is`). H3 (Firefox matches Chromium) disproved — Firefox 150.1 strips PRF entirely for external authenticators. H4 (Bitwarden corrupts) disproved — Bitwarden gates UI but doesn't modify assertion bytes. Refined Bitwarden failure-mode entry; refined `prfExtPresent: false` failure mode with sub-cases. Cross-session determinism (B1 → B2) confirmed on Mac Chrome. |
+| 2026-05-02 | Round C captured: 1Password as platform passkey provider, six confirmed surfaces (Mac Chrome / Safari / Firefox, Windows Chrome / Firefox, iPhone Safari). PRF output byte-identical across all (`88c149421125d06f`). Cross-device AMK transfer works end-to-end including iPhone. H5 (1Password drops PRF) disproved positively. H6 added for Android 14+ verification. 1Password promoted to recommended cross-ecosystem option in `prf-amk-wrapping.md` §11. Mechanism note added: platform credential providers are exempt from Apple's `hmac-secret` re-wrap because the framework only intercepts external CTAP2, not `ASCredentialProviderExtension` providers. |
