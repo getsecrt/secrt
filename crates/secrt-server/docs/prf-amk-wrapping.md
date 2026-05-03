@@ -587,7 +587,9 @@ observed per surface. Update as more devices are tested.
 | YubiKey 5C NFC on Vivaldi ↔ Chrome (macOS)       | ✓             | ✓         | 2026-05-01: AMK transfers cross-browser. Reference fp `ae46d371655a91c5` (localhost) / `7baef9877a382253` (`secrt.is`). |
 | YubiKey 5C NFC on **macOS Safari**               | n/a           | ✗ broken  | 2026-05-01: same credential, **different** PRF output (`156c06de00de5149`) than Chromium reading the same key on the same Mac. Apple WebAuthn framework intercepts. See "Apple WebAuthn framework" caveat below. |
 | YubiKey 5C NFC on iPhone Safari (any iOS)        | n/a           | ✗ broken  | Auth succeeds, AMK does not transfer — same root cause as macOS Safari above. See "Apple WebAuthn framework" caveat below. |
-| YubiKey 5C NFC on **Firefox 150.1** (macOS)      | n/a           | ✗ broken  | 2026-05-02: `prfExtPresent: false` — Firefox strips the PRF extension entirely from the assertion response. Confirmed with and without Bitwarden. About:config has no `prf` flag to toggle. Most plausible cause: Firefox's PRF support (added in v148) is platform-credential-only, not extended to external CTAP2 authenticators. No user-side workaround. See "Firefox caveat" below. |
+| YubiKey 5C NFC on **Firefox 150.1** (macOS)      | n/a           | ✗ broken  | 2026-05-02: `prfExtPresent: false` — Firefox strips the PRF extension. Confirmed with and without Bitwarden. **Refined cause (2026-05-02 source investigation, see `firefox-prf-source-investigation.md`):** macOS-specific — Firefox routes USB security keys through Apple's `ASAuthorizationController` and `MacOSWebAuthnService.mm` doesn't wire PRF for the security-key request class. Workaround on this surface: caBLE QR + phone passkey (PRF travels through hybrid). See "Firefox caveat" below. |
+| YubiKey on **Firefox 150.1** (Windows)           | n/a           | ✓ confirmed | 2026-05-02 (Round F): same YubiKey, credential `xAvG1eEG` produces `prfOutputFingerprint: 8f5316e83dcd8470` on Firefox/Windows — byte-identical with Chrome/Mac and Chrome/Windows. AMK transfers cleanly Chrome/Windows → Firefox/Windows for credential `d2Bv_6Qz` (`amkFingerprint: 5383cf93d8c11e51`). Routes through `webauthn.dll`'s `WEBAUTHN_EXTENSIONS_IDENTIFIER_HMAC_SECRET`. |
+| YubiKey on **Firefox 149.0.2** (Linux)           | n/a           | ✓ confirmed | 2026-05-02 (Round G): same YubiKey, credential `d2Bv_6Qz` produces `prfOutputFingerprint: 50a29d48c9bb78e2` on Firefox/Linux — byte-identical with Chrome/Windows registration and Firefox/Windows sign-in. Cross-OS AMK transfer Chrome/Windows → Firefox/Linux works cleanly (`amkFingerprint: 5383cf93d8c11e51`). Routes through `authrs_bridge` + vendored `authenticator-rs`. PRF working at least since Firefox 149 on Linux. |
 
 ### iOS Safari naming quirk (not a bug)
 
@@ -749,35 +751,98 @@ Implications:
 We should re-test periodically — Bitwarden may add the PRF passthrough
 to its own authenticator in a later release.
 
-### Firefox caveat (confirmed broken 2026-05-02)
+### Firefox caveat (confirmed broken on macOS 2026-05-02; refined by source investigation 2026-05-02)
 
-Firefox 150.1 on macOS does not return a PRF output for external CTAP2
-authenticators (USB YubiKey verified). The assertion completes — the
+Firefox 150.1 **on macOS** does not return a PRF output for USB
+security keys (YubiKey 5C NFC verified). The assertion completes — the
 user is signed in — but `getClientExtensionResults()` returns no `prf`
-key at all (`prfExtPresent: false` in our logging). This was tested
-both with Bitwarden enabled and disabled to rule out extension
-interference; identical result.
+key at all (`prfExtPresent: false` in our logging). Tested with and
+without Bitwarden; identical result.
 
-Mechanism (inferred — not directly verified):
+**Mechanism (now verified at the source level — see [`firefox-prf-source-investigation.md`](firefox-prf-source-investigation.md)):**
 
-- Firefox added PRF support in v148 (Mozilla bug 1863819 and the
-  follow-ups). However, the implementation appears to cover only
-  platform credentials (synced passkeys via OS CredMan / Touch ID) and
-  was never extended to the external CTAP2 USB pathway.
-- About:config has no `prf`-prefixed preference exposed in v150.1, so
-  there is no user-toggleable flag that would enable it.
+- Firefox added PRF support in v148 (Mozilla bug 1863819 and follow-ups
+  including the macOS-specific 1935280, fixed in Firefox 139).
+- The Rust `authenticator-rs` crate that Firefox vendors fully
+  supports `hmac-secret`: salt encryption, response decryption, the
+  works. So PRF over USB CTAP2 is *not* missing from Firefox-the-product.
+- On macOS 13.3+, Firefox routes WebAuthn ceremonies through Apple's
+  `ASAuthorizationController` rather than `authenticator-rs`. The
+  macOS adapter (`dom/webauthn/MacOSWebAuthnService.mm`) wires PRF
+  into the platform-credential request class
+  (`ASAuthorizationPlatformPublicKeyCredentialAssertionRequest`) but
+  not into the security-key request class
+  (`ASAuthorizationSecurityKeyPublicKeyCredentialAssertionRequest`).
+  Both halves of the hypothesis are present: the request never asks
+  for PRF, and the response handler never reads it from a security-key
+  assertion. (`MacOSWebAuthnService.mm:1276`, `:889`, `:476`.)
+- About:config has no `prf`-prefixed preference. SDK status verified
+  2026-05-02 against local Xcode SDKs: macOS 15 SDK does *not* expose
+  `.prf` on the security-key class; macOS 26.4 SDK *does*
+  (`API_AVAILABLE(macos(26.4), ios(26.4))`). So a hypothetical
+  small Mozilla patch is shippable for macOS 26.4+ users today.
+- **But the framework still re-wraps `hmac-secret` for external
+  authenticators on macOS 26.4.1** (empirically reconfirmed in
+  Round E, see `prf-cross-device-testing.md`). Apple did not change
+  the privacy boundary in the macOS 15 → 26 transition. So Option A
+  below would route Firefox through the same wrapped value Safari
+  already gets — useful, but not topology-correct.
+- No subordinate bug for "USB CTAP2 PRF on macOS" appears under
+  meta-bug 1863819 — strongly suggests the gap is unintentional.
 
-Consequences:
+**Two candidate Mozilla-side fixes:**
 
-1. Firefox + YubiKey users lose single-tap new-device unlock and fall
-   through to sync-link / API-key — same fallback path as
-   Safari + YubiKey.
-2. Firefox + Apple Passwords or Google Password Manager users *may*
-   get PRF (untested as of 2026-05-02), since those are platform
+- **Option A — wire `.prf` on the security-key class** in
+  `MacOSWebAuthnService.mm`. ~20–40 lines, gated
+  `__builtin_available(macos 26.4, *)`. Effective only on macOS 26.4+.
+  Yields Safari-equivalent wrapped PRF (Firefox-on-Mac matches
+  Safari-on-Mac, but does *not* match Chromium-on-Mac, Firefox/Linux,
+  or Firefox/Windows). Useful stopgap but does not deliver
+  cross-device determinism.
+- **Option B — bypass `ASAuthorizationController` for
+  USB-when-PRF-requested**, dispatching to `authrs_bridge` instead.
+  ~100–200 lines in `WebAuthnService.cpp` dispatch logic. Effective on
+  all macOS versions. Yields raw `hmac-secret`, byte-identical with
+  Chromium and Firefox/Linux/Windows. **The only fix that delivers
+  cross-device determinism for Firefox/macOS + USB security keys.**
+
+Recommended escalation: file both as Mozilla bugs under 1863819, with
+Option B as the primary ask and Option A as a stopgap.
+
+**Cohort consequences:**
+
+1. Firefox/macOS + USB YubiKey: PRF dropped. Sign-in succeeds; AMK
+   transfer falls through to sync-link / API-key — same broken-cohort
+   bucket as Safari for the YubiKey case. **Workaround:** scan a
+   caBLE QR with a phone passkey for the same account (PRF travels
+   through the platform request object, which is PRF-wired). Or use
+   Chrome / Edge / Vivaldi.
+2. Firefox/Linux + USB YubiKey: **confirmed working 2026-05-02
+   (Round G).** Routes through `authrs_bridge` (vendored
+   `authenticator-rs`). Same credential as Round F produces
+   `prfOutputFingerprint: 50a29d48c9bb78e2`, byte-identical with
+   Chrome/Windows registration. Cross-OS AMK transfer
+   Chrome/Windows → Firefox/Linux works cleanly. Verified on
+   Firefox 149.0.2.
+3. Firefox/Windows + USB YubiKey: **confirmed working 2026-05-02
+   (Round F).** Routes through `webauthn.dll`'s
+   `WEBAUTHN_EXTENSIONS_IDENTIFIER_HMAC_SECRET`. Same YubiKey
+   credential produces `prfOutputFingerprint: 8f5316e83dcd8470`
+   on Firefox/Windows, byte-identical with Chrome/Mac and
+   Chrome/Windows. Cross-browser AMK transfer Chrome/Windows ↔
+   Firefox/Windows works cleanly.
+4. Firefox/anywhere + Apple Passwords or Google Password Manager:
+   *may* get PRF (still untested), since those are platform
    credentials. Worth checking before promising it in product copy.
-3. There is no client-side workaround. The right escalation is a
-   Mozilla bug requesting USB CTAP2 PRF; until that ships, Firefox is
-   in the same broken-cohort bucket as Safari for the YubiKey case.
+5. Firefox/anywhere + caBLE/hybrid (phone passkey via QR): PRF works,
+   empirically confirmed — the platform request path is PRF-wired and
+   transports the value through unchanged.
+
+**Right escalation:** file a subordinate Mozilla bug under 1863819
+specifically scoped to "USB CTAP2 PRF on macOS — `MacOSWebAuthnService.mm`
+security-key class missing PRF wiring." Until Mozilla ships the
+patch, document the macOS-specific scoping in product copy and route
+Firefox/macOS YubiKey users to the caBLE workaround.
 
 
 ### Cross-device determinism — CONFIRMED (2026-04-27)
@@ -792,7 +857,7 @@ spec'd. Phase A gate is cleared for the most important surface.
 
 - Chrome 147+ on Windows 11 + Hello — defer until we have Windows hardware in the loop, or to Subtask 7's CI matrix. Open hypothesis in `prf-cross-device-testing.md` §H2: Windows may intercept like Apple does, or may pass through like macOS Chrome — captured trace from a real Windows device will resolve this.
 - External YubiKey on **any Safari** (macOS or iOS) — confirmed broken (2026-05-01, both surfaces) and now treated as a documented platform limitation rather than a TODO. See "Apple WebAuthn framework caveat" below.
-- External YubiKey on **Firefox 150.1** (macOS, prod) — confirmed broken 2026-05-02. PRF extension stripped entirely; Firefox's PRF support appears to be platform-credential-only. See "Firefox caveat" below.
+- External YubiKey on **Firefox 150.1 (macOS)** — confirmed broken 2026-05-02. **macOS-specific** per source-level investigation, Round F (Windows), and Round G (Linux) empirical confirmation: Firefox routes USB security keys through Apple's `ASAuthorizationController` and the macOS adapter doesn't wire PRF for the security-key class. **Firefox/Windows and Firefox/Linux both confirmed working 2026-05-02.** See "Firefox caveat" below and [`firefox-prf-source-investigation.md`](firefox-prf-source-investigation.md).
 
 > **YubiKey deep-dive:** for a focused, user-facing explanation of which surfaces work, why the broken ones can't be fixed by Yubico, and recommended setups for YubiKey users (including the trust-model trade-off of pairing a YubiKey with a complementary platform credential), see [`yubikeys.md`](yubikeys.md).
 
@@ -820,7 +885,9 @@ Chromium browsers talk to the YubiKey via CTAP HID directly and return the raw
 across machines.
 
 Expected to work on the same basis (not yet hardware-verified): Edge desktop,
-Firefox 148+ desktop, Chrome on Android with NFC tap.
+Firefox 148+ on **Linux and Windows** (predicted from source investigation
+2026-05-02), Chrome on Android with NFC tap. Note: Firefox 148+ on **macOS**
+is *not* expected to work for USB security keys — see Firefox caveat above.
 
 #### What breaks: Apple WebAuthn framework (macOS Safari + any iOS browser) with external authenticators
 

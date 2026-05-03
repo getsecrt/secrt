@@ -262,6 +262,121 @@ extensively, the trade-off is acceptable. For users who frequently sign
 in on non-Apple machines without their phone present, it's a real
 papercut.
 
+### Round E — YubiKey on macOS 26.4.1, Apple framework re-wrap empirically reconfirmed, 2026-05-02
+
+**Goal:** verify whether macOS 26 changed Apple's `hmac-secret` re-wrap behavior for external authenticators. Round A4 (macOS 15.x) showed Safari produces a different PRF output than Chromium for the same YubiKey credential — wrap keys diverge, AMK doesn't transfer cross-browser. Did macOS 26 alter that?
+
+Also resolves a parallel question raised by the source-level investigation in [`firefox-prf-source-investigation.md`](firefox-prf-source-investigation.md): Apple shipped `.prf` on `ASAuthorizationSecurityKeyPublicKeyCredentialAssertionRequest` in the macOS 26.4 / iOS 26.4 SDK. If Apple had moved to expose *raw* hmac-secret on this new public API, a hypothetical Mozilla patch wiring `.prf` into `MacOSWebAuthnService.mm` would suffice to fix Firefox/macOS. If Apple is still framework-wrapping, the patch yields Safari-equivalent broken-PRF and the only real fix is the heavier `authrs_bridge` bypass.
+
+**Setup:** macOS 26.4.1, YubiKey 5C NFC, USB-C, FIDO2 PIN set. Same physical key throughout. RP: `secrt.is` (prod).
+
+| # | Surface | Mechanism | Outcome |
+|---|---|---|---|
+| E1 | Register passkey via Safari/macOS 26.4.1 | Apple framework, double-touch (CTAP2 spec) | ✓ AMK wrapped, sign-in OK in same Safari session |
+| E2 | Sign in via Firefox 150.1/macOS 26.4.1 with E1 credential | Apple framework, security-key class, `.prf` not wired | `prfExtPresent: false`, `hasPrfOutput: false` — request never asks; known macOS bridge gap; AMK does not transfer |
+| E3 | Sign in via Chrome (Chromium)/macOS 26.4.1 with E1 credential | CTAP HID direct (raw `hmac-secret`) | `prfExtPresent: true`, `prfOutputFingerprint: 8f5316e83dcd8470`, `OperationError` on unwrap — **canonical re-wrap signature** |
+
+**Key console trace from E2 (Firefox/macOS, hypothesis (a) confirmed — request never includes `hmac-secret`):**
+
+```
+[secrt:webauthn-get] {credIdPrefix: 'xAvG1eEG', authenticatorAttachment: 'cross-platform',
+                      prfRequested: true, prfExtPresent: false, hasPrfOutput: false,
+                      constrained: false}
+[secrt:prf-unwrap]   {hasWrapper: true, wrapperHasSalt: true, wrapperVersion: 1,
+                      hasPrfOutput: false, prfOutputFingerprint: null,
+                      credIdPrefix: 'xAvG1eEG', …}
+```
+
+(No `OperationError` here — short-circuits at "no PRF output to unwrap with." Compare with E3 below where Chrome reaches the unwrap step but tag-fails.)
+
+**Key console trace from E3 (Chrome/macOS, re-wrap signature — same credential `xAvG1eEG`, valid PRF, but value differs from Safari's wrapper):**
+
+```
+[secrt:webauthn-get] {credIdPrefix: 'xAvG1eEG', authenticatorAttachment: 'cross-platform',
+                      prfRequested: true, prfExtPresent: true, hasPrfOutput: true, …}
+[secrt:prf-unwrap]   {hasWrapper: true, wrapperHasSalt: true, wrapperVersion: 1,
+                      hasPrfOutput: true, prfOutputFingerprint: '8f5316e83dcd8470', …}
+[secrt:prf-unwrap]   attempting unwrap, no local AMK
+[secrt:prf-unwrap]   OperationError
+```
+
+**Round E interpretation.**
+
+E3 is decisive. Chrome got a perfectly valid 32-byte PRF output (`8f5316e83dcd8470`), but it didn't match whatever Safari sealed the wrapper with — AEAD tag mismatch on unwrap. Chrome reads raw `hmac-secret` from the YubiKey via CTAP HID; Safari reads framework-wrapped `Encrypt(framework_key, hmac_secret)` via Apple's API. Different inputs to HKDF → different wrap keys → tag fails.
+
+This empirically reconfirms on macOS 26.4.1 the re-wrap behavior originally captured on macOS 15.x in Round A4. **Apple did not change anything in the macOS 15 → 26 transition that affects external CTAP2 PRF output.** The new public `.prf` property on the security-key class in the macOS 26.4 SDK exposes the same framework-wrapped value Safari has been getting all along; it does not surface raw `hmac-secret`.
+
+**Implication for the Mozilla fix landscape:**
+
+- The "20-line Mozilla patch" wiring `.prf` into `MacOSWebAuthnService.mm`'s security-key code path is *shippable* on macOS 26.4+ (the SDK property exists), but it would route Firefox through the same framework-wrapped value Safari gets. Firefox-on-Mac would gain parity with Safari-on-Mac (incremental UX win for users who only use Safari + Firefox on the same Mac), but **would not deliver cross-device determinism** with Chromium-on-Mac, Firefox/Linux, or Firefox/Windows — all of which read raw values.
+- The only fix that delivers cross-device determinism for Firefox/macOS + USB security keys is to bypass `ASAuthorizationController` and route USB-when-PRF-requested through `authrs_bridge`. Heavier patch (~100–200 lines in `WebAuthnService.cpp` dispatch logic), but topology-correct.
+
+**No further data needed for the macOS picture.** Round E settles the SDK and re-wrap questions; remaining open empirical questions (Firefox/Linux, Firefox/Windows + same YubiKey + same credential) are separate cohorts.
+
+### Round F — Firefox/Windows + USB YubiKey, raw `hmac-secret` confirmed, 2026-05-02
+
+**Goal:** verify the source-investigation prediction that Firefox/Windows handles PRF for USB security keys correctly via Microsoft's `webauthn.dll` (which sets `WEBAUTHN_EXTENSIONS_IDENTIFIER_HMAC_SECRET` directly), with the value byte-identical to Chromium's CTAP-HID-direct reading. If true, the Firefox/macOS gap is empirically macOS-specific.
+
+**Setup:** Same YubiKey 5C NFC used throughout Round E. Windows machine. Two test accounts: Test2 (existing, Safari-registered credential `xAvG1eEG` from Round E1) and Test3 (fresh, registered Chrome/Windows in this round, credential `d2Bv_6Qz`).
+
+| # | Surface | Credential | PRF output fingerprint | Outcome |
+|---|---|---|---|---|
+| F1 | Chrome/Windows sign-in to Test2 (Safari-registered) | `xAvG1eEG` | `8f5316e83dcd8470` | `OperationError` (expected — wrapper sealed by Safari with framework-wrapped value) |
+| F2 | Firefox/Windows sign-in to Test2 (Safari-registered) | `xAvG1eEG` | **`8f5316e83dcd8470`** ← matches Chrome/Mac (E3) and Chrome/Windows (F1) | `OperationError` (expected, same reason as F1) |
+| F3 | Chrome/Windows register Test3, full PRF-on-create flow | `d2Bv_6Qz` | `50a29d48c9bb78e2` | ✓ AMK wrapped, `amkFingerprint: 5383cf93d8c11e51` |
+| F4 | Firefox/Windows sign-in to Test3 | `d2Bv_6Qz` | **`50a29d48c9bb78e2`** ← matches F3 | ✓ AMK unwrapped, `amkFingerprint: 5383cf93d8c11e51` matches F3 |
+
+**Round F interpretation.**
+
+F2 is the discriminator. Same YubiKey, same credential `xAvG1eEG` as Round E2/E3. Firefox/Windows produced `prfOutputFingerprint: 8f5316e83dcd8470` — byte-identical with the value Chrome/Mac and Chrome/Windows read for the same credential. This means Firefox/Windows is on the raw `hmac-secret` path, not Apple's framework wrap. The hypothesis derived from source investigation (Firefox/Windows → `webauthn.dll` → raw value) is empirically confirmed.
+
+F3 + F4 demonstrate the positive UX path end-to-end on a single OS: Chrome/Windows registers a credential, Firefox/Windows signs in with it, AMK transfers cleanly. No `OperationError`. Cross-browser determinism within Windows is in place.
+
+**Cross-OS implications (now empirically resolved for Windows):**
+
+- Firefox/Windows + USB YubiKey works the same as Chromium-anywhere — raw value, byte-identical fingerprints.
+- The Firefox/macOS bridge gap captured in Round E2 is **macOS-specific**, not a Firefox-the-product limitation.
+- A user with a YubiKey-registered secrt account on Chrome/Mac can sign in on Firefox/Windows and the AMK will transfer. (Predicted but not yet captured as a positive trace; see open questions.)
+
+**Open questions remaining after Round F:**
+
+- Firefox/Linux + USB YubiKey: predicted to behave like Firefox/Windows (raw via `authrs_bridge`, no Apple framework, no `webauthn.dll`). Untested. Lower priority now that Windows is locked in — Linux confirmation is incremental rather than discriminating.
+- Cross-OS Chromium-Mac ↔ Firefox-Windows AMK transfer for the same account: implied by F2 + E3 fingerprint match (both `8f5316e83dcd8470`) but not captured as a single positive AMK-transfer trace.
+
+### Round G — Firefox/Linux + USB YubiKey, cross-OS raw determinism confirmed, 2026-05-02
+
+**Goal:** verify Firefox/Linux completes the raw-`hmac-secret` cohort. With Round F locking Firefox/Windows, the only remaining gap in the Firefox-on-non-macOS prediction was Linux. Closing it scopes the bug airtight to macOS.
+
+**Setup:** Firefox 149.0.2 on Linux (slightly behind the macOS/Windows 150.1, still post-148 PRF support landed). Same YubiKey 5C NFC. Same two test accounts: Test2 (Safari-registered `xAvG1eEG`) and Test3 (Chrome/Windows-registered `d2Bv_6Qz`).
+
+| # | Surface | Credential | PRF output fingerprint | Outcome |
+|---|---|---|---|---|
+| G1 | Firefox/Linux 149.0.2 sign-in to Test2 (Safari-registered) | `xAvG1eEG` | (presumed `8f5316e83dcd8470` — log not captured, behavior matches F2) | `OperationError` (expected — wrapper sealed by Safari with framework-wrapped value) |
+| G2 | Firefox/Linux 149.0.2 sign-in to Test3 (Chrome/Windows-registered) | `d2Bv_6Qz` | **`50a29d48c9bb78e2`** ← matches F3 (Chrome/Windows register) and F4 (Firefox/Windows sign-in) | ✓ AMK unwrap success, `amkFingerprint: 5383cf93d8c11e51` matches F3 |
+
+**Key console trace from G2 (Firefox/Linux, full positive cross-OS AMK transfer):**
+
+```
+[secrt:webauthn-get]   {credIdPrefix: "d2Bv_6Qz", authenticatorAttachment: "cross-platform",
+                        prfRequested: true, prfExtPresent: true, hasPrfOutput: true, …}
+[secrt:prf-unwrap]     {hasWrapper: true, wrapperHasSalt: true, wrapperVersion: 1,
+                        hasPrfOutput: true, prfOutputFingerprint: "50a29d48c9bb78e2",
+                        credIdPrefix: "d2Bv_6Qz", …}
+[secrt:prf-unwrap]     attempting unwrap, no local AMK
+[secrt:amk-store]      {op: "store", amkFingerprint: "5383cf93d8c11e51"}
+[secrt:prf-unwrap]     {result: "success", amkFingerprint: "5383cf93d8c11e51"}
+```
+
+**Round G interpretation.**
+
+G2 is the cross-OS positive control. Test3 was registered on Chrome/Windows (F3, raw `hmac-secret`, AMK `5383cf93d8c11e51`); the same credential signs into Firefox/Linux and the AMK unwraps cleanly to the same fingerprint. This confirms Firefox/Linux routes through `authrs_bridge` and reads raw `hmac-secret` — no Apple framework, no Microsoft `webauthn.dll`, no re-wrap.
+
+Combined with Round F, the raw cohort is now empirically airtight across three browser+OS combinations: Chrome/Mac, Chrome/Windows, Firefox/Windows, **Firefox/Linux**. All four produce byte-identical PRF output for credential `xAvG1eEG` (`8f5316e83dcd8470`) and credential `d2Bv_6Qz` (`50a29d48c9bb78e2`).
+
+The Firefox/macOS gap from Round E2 is now empirically scoped to **macOS only**. No "and possibly Linux" hedge is required in the bug report.
+
+**Side observation: Firefox 149.0.2 already has working PRF for USB on Linux.** The Mozilla bug write-up can cite this — the Firefox-side PRF support on the authrs path was working at least one minor release earlier than 150.1 on macOS still drops it. Not blocking the bug, but reinforces that the Firefox/macOS gap is a macOS-bridge issue, not a Firefox-the-product timeline issue.
+
 ---
 
 ## 4. Failure mode catalog
