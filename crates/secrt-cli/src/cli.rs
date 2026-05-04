@@ -1152,6 +1152,35 @@ fn write_cmd_rows(w: &mut dyn Write, c: &ColorFn, rows: &[(&str, &str)]) {
     }
 }
 
+/// Write auto-aligned example rows:  colored-command   description
+///
+/// Tokenizes the command string on whitespace and applies CMD color until the
+/// first `-`-prefixed token (the flag), which gets OPT color; subsequent tokens
+/// are printed plain (positional values like `32`, `5`, `1h`). Width is computed
+/// on the plain input string — ANSI escapes don't affect column count.
+fn write_example_rows(w: &mut dyn Write, c: &ColorFn, rows: &[(&str, &str)]) {
+    let max = rows.iter().map(|(cmd, _)| cmd.len()).max().unwrap_or(0);
+    for (cmd, desc) in rows {
+        let pad = max - cmd.len() + 2;
+        let _ = write!(w, "  ");
+        let mut seen_flag = false;
+        for (i, tok) in cmd.split_whitespace().enumerate() {
+            if i > 0 {
+                let _ = write!(w, " ");
+            }
+            if tok.starts_with('-') {
+                seen_flag = true;
+                let _ = write!(w, "{}", c(OPT, tok));
+            } else if seen_flag {
+                let _ = write!(w, "{}", tok);
+            } else {
+                let _ = write!(w, "{}", c(CMD, tok));
+            }
+        }
+        let _ = writeln!(w, "{:pad$}{}", "", desc);
+    }
+}
+
 // --- Help text ---
 
 fn print_usage(deps: &mut Deps) {
@@ -1533,39 +1562,16 @@ pub fn print_gen_help(deps: &mut Deps) {
     let _ = writeln!(w, "  Digits:    0-9");
     let _ = writeln!(w, "  Symbols:   !@*^_+-=?");
     let _ = writeln!(w, "\n{}", c(HEADING, "EXAMPLES"));
-    let _ = writeln!(
+    write_example_rows(
         w,
-        "  {} {}                 20-char password, all classes",
-        c(CMD, "secrt"),
-        c(CMD, "gen")
-    );
-    let _ = writeln!(
-        w,
-        "  {} {} {} 32          32-char password",
-        c(CMD, "secrt"),
-        c(CMD, "gen"),
-        c(OPT, "-L")
-    );
-    let _ = writeln!(
-        w,
-        "  {} {} {}              no symbols",
-        c(CMD, "secrt"),
-        c(CMD, "gen"),
-        c(OPT, "-S")
-    );
-    let _ = writeln!(
-        w,
-        "  {} {} {}              grouped by char type",
-        c(CMD, "secrt"),
-        c(CMD, "gen"),
-        c(OPT, "-G")
-    );
-    let _ = writeln!(
-        w,
-        "  {} {} {} 5    five passwords",
-        c(CMD, "secrt"),
-        c(CMD, "gen"),
-        c(OPT, "--count")
+        &c,
+        &[
+            ("secrt gen", "20-char password, all classes"),
+            ("secrt gen -L 32", "32-char password"),
+            ("secrt gen -S", "no symbols"),
+            ("secrt gen -G", "grouped by char type"),
+            ("secrt gen --count 5", "five passwords"),
+        ],
     );
     let _ = writeln!(w, "\n{}", c(HEADING, "COMBINED MODE"));
     let _ = writeln!(
@@ -1690,26 +1696,14 @@ pub fn print_auth_help(deps: &mut Deps) {
         ],
     );
     let _ = writeln!(w, "\n{}", c(HEADING, "EXAMPLES"));
-    let _ = writeln!(
+    write_example_rows(
         w,
-        "  {} {} {}   log in via browser",
-        c(CMD, "secrt"),
-        c(CMD, "auth"),
-        c(CMD, "login")
-    );
-    let _ = writeln!(
-        w,
-        "  {} {} {}   paste an API key",
-        c(CMD, "secrt"),
-        c(CMD, "auth"),
-        c(CMD, "setup")
-    );
-    let _ = writeln!(
-        w,
-        "  {} {} {}  check auth status",
-        c(CMD, "secrt"),
-        c(CMD, "auth"),
-        c(CMD, "status")
+        &c,
+        &[
+            ("secrt auth login", "log in via browser"),
+            ("secrt auth setup", "paste an API key"),
+            ("secrt auth status", "check auth status"),
+        ],
     );
     let _ = writeln!(w, "\n{}", c(HEADING, "SEE ALSO"));
     write_cmd_rows(
