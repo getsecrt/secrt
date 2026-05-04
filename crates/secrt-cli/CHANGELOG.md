@@ -2,6 +2,22 @@
 
 ## Unreleased
 
+## 0.17.6 — 2026-05-03
+
+### Changed
+
+- **`secrt config --help` and `secrt auth --help` now cross-reference each other.** Setting an API key happens via `secrt auth login` (keychain-backed), and storing a default passphrase happens via `secrt config set-passphrase`. Each help screen now points at the other so the right command is one help-page away.
+
+  Files: `crates/secrt-cli/src/cli.rs`.
+
+### Fixed
+
+- **`secrt gen --help` EXAMPLES section is no longer misaligned.** The `--count 5` row was jammed up against its description; descriptions now share a column boundary.
+
+  Introduced a small `write_example_rows` helper alongside the existing `write_option_rows` / `write_cmd_rows` formatters so future EXAMPLES blocks stay aligned automatically. Tokenizes the example string and applies CMD/OPT colors per token at print time, while computing column width on the plain text — the same trick the existing helpers use to keep ANSI escapes from skewing alignment.
+
+  Files: `crates/secrt-cli/src/cli.rs`.
+
 ## 0.17.5 — 2026-05-02
 
 _No CLI changes — workspace version bump in lockstep with `server/v0.17.5` (gated client-side AMK / PRF diagnostic logging in the web client). See `crates/secrt-server/CHANGELOG.md`._
