@@ -268,7 +268,7 @@ naming up front. Skip this if the categorized list speaks for itself.
 - **References on their own line at the end.** `Spec:`, `Files:`, `Issue:`, `PR:` — never inline mid-prose. Easier to skim past, easier to find when you need them.
 - **No commit-log dumps, no "various improvements," no jargon-only entries.** Each change should be specific enough to be useful and human enough to be readable.
 - **Optional release-level summary** at the top of a version block, before the categorized lists, when the theme deserves naming (security incident response, a coherent migration, a user-visible UX overhaul). Skip it for routine releases — the categorized list is the thing.
-- **Lockstep version bumps with no real changes** get one bullet that says so plainly: `_No CLI changes — workspace version bump in lockstep with server release X.Y.Z._` Don't fabricate content to fill space.
+- **Don't write no-op lockstep entries.** If the CLI didn't change in this release, omit the version heading from `crates/secrt-cli/CHANGELOG.md` entirely — same for the server. The version sequence reflects workspace tags, not per-component releases, and a missing heading is the correct signal that nothing shipped for that component. (Past entries like `_No CLI changes — workspace version bump..._` remain in place; this rule applies going forward.)
 
 **Categories (Keep a Changelog 1.1.0):**
 
@@ -295,21 +295,22 @@ If you catch yourself writing a bullet like this, stop, extract the headline, mo
 
 ### Release process
 
-There are **two separate release pipelines** — one for the CLI and one for the server. Both share the same workspace version, but each is triggered by its own tag prefix. **Always tag and push both** when releasing a new version.
+There are **two separate release pipelines** — one for the CLI and one for the server. Both share the same workspace version, but each is triggered by its own tag prefix. **Tag only the components that actually changed in this release.**
+
+Pre-1.0, lockstep is honest only at coordinated breaks (wire-format changes, spec moves) where both components ship together. For routine releases, tag whichever component changed and let the other one's version skip forward to the next release it's part of. Versions in a component's CHANGELOG can have gaps — that's the correct signal that nothing shipped for that component, and it spares us from juggling two parallel version counters.
 
 1. Update `version` in the workspace `Cargo.toml`
-2. Update `secrt-core` version in `crates/secrt-cli/Cargo.toml` and `crates/secrt-server/Cargo.toml` dependencies
-3. Add changelog entries in `crates/secrt-cli/CHANGELOG.md` and `crates/secrt-server/CHANGELOG.md`
+2. Update `secrt-core` version in `crates/secrt-cli/Cargo.toml` and `crates/secrt-server/Cargo.toml` dependencies (both crates depend on `secrt-core`, so this stays in lockstep regardless of which top-level component is releasing)
+3. Add a changelog entry to **whichever component(s) actually changed.** Don't write placeholder no-op entries for the unchanged component — omit its version heading entirely.
 4. **If this server release contains a wire-format change that breaks older CLIs**, bump `MIN_SUPPORTED_CLI_VERSION` in `crates/secrt-server/src/lib.rs` to the new floor in the same commit. The CLI surfaces this value via `/api/v1/info` and the `X-Secrt-Min-Cli-Version` advisory header to nudge users to upgrade. The v0.15.0 AAD format break is the canonical example.
-5. Commit: `chore: bump version to X.Y.Z`
-6. Tag **both** releases: `git tag cli/vX.Y.Z && git tag server/vX.Y.Z`
-7. Push: `git push origin main --tags`
+5. Commit: `chore: bump version to X.Y.Z` (or scope to the changed component, e.g. `chore(cli): bump version to X.Y.Z`)
+6. Tag the changed component(s): `git tag cli/vX.Y.Z` and/or `git tag server/vX.Y.Z`. Tag only what has a CHANGELOG entry — `extract-changelog-entry.sh` will fail the workflow on missing entries.
+7. Push: `git push origin main <tag>` (push only the tags you created)
 8. **Release notes are auto-populated by the workflows.** Both `release-cli.yml` and `release-server.yml` extract the version's CHANGELOG entry via `scripts/extract-changelog-entry.sh` and pass it as the GitHub Release body, with the title set to the exact tag name. If the CHANGELOG lacks an entry for the version being released, the workflow fails — fix the CHANGELOG, push a follow-up commit on the tag, and re-tag (or re-run the workflow against the existing tag via `gh run rerun`).
-9. Verify both tags and releases resolve correctly:
+9. Verify the tag(s) you pushed resolve correctly:
    ```sh
-   git ls-remote --tags origin cli/vX.Y.Z server/vX.Y.Z
+   git ls-remote --tags origin cli/vX.Y.Z       # or server/vX.Y.Z
    gh release view cli/vX.Y.Z --json tagName,name,publishedAt,url
-   gh release view server/vX.Y.Z --json tagName,name,publishedAt,url
    ```
 10. **Do not use** `releases/latest` for server artifact selection. GitHub "latest" is repo-wide and may point to a CLI release.
    - For server downloads, always use tag-pinned URLs (`/releases/download/server%2FvX.Y.Z/...`).
