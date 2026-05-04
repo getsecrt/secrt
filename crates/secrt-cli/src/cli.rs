@@ -1637,6 +1637,27 @@ pub fn print_config_help(deps: &mut Deps) {
         c(DIM, "\u{203a}"),
         c(DIM, "\u{203a}"),
     );
+    let _ = writeln!(
+        w,
+        "  Set API keys with `{} {}` to use the OS keychain instead of plaintext.",
+        c(CMD, "secrt auth"),
+        c(CMD, "login"),
+    );
+    let _ = writeln!(w, "\n{}", c(HEADING, "SEE ALSO"));
+    write_cmd_rows(
+        w,
+        &c,
+        &[
+            (
+                "secrt auth login",
+                "Store an API key in the OS keychain (preferred)",
+            ),
+            (
+                "secrt auth status",
+                "Show where the active API key comes from",
+            ),
+        ],
+    );
 }
 
 pub fn print_auth_help(deps: &mut Deps) {
@@ -1689,6 +1710,21 @@ pub fn print_auth_help(deps: &mut Deps) {
         c(CMD, "secrt"),
         c(CMD, "auth"),
         c(CMD, "status")
+    );
+    let _ = writeln!(w, "\n{}", c(HEADING, "SEE ALSO"));
+    write_cmd_rows(
+        w,
+        &c,
+        &[
+            (
+                "secrt config set-passphrase",
+                "Store a default passphrase in the OS keychain",
+            ),
+            (
+                "secrt config delete-passphrase",
+                "Remove the stored passphrase",
+            ),
+        ],
     );
 }
 
