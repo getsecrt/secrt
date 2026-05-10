@@ -38,15 +38,6 @@
         ]
       },
       {
-        "id": 8,
-        "title": "Add coverage exclusion annotations to untestable code",
-        "description": "Rust's #[coverage(off)] attribute is still unstable (tracking issue rust-lang/rust#134749). Once stabilized on stable Rust, annotate the ~129 lines of genuinely untestable code (main.rs I/O wiring, ring crypto internal errors, unreachable branches) so cargo llvm-cov reports accurate achievable coverage. See docs/test-coverage.md 'Theoretical Coverage Ceiling' section for the full list.",
-        "status": "pending",
-        "priority": "low",
-        "dependencies": [],
-        "subtasks": []
-      },
-      {
         "id": 20,
         "title": "Design and generate branded app icons",
         "description": "Replace Tauri default icons with properly branded secrt icons. Need macOS .icns (1024px source), Windows .ico + Store PNGs (Square30x30 through Square310x310, StoreLogo), Linux PNG, and optionally iOS/Android icons (dirs exist as placeholders). macOS icons should use the liquid-glass style for iOS 26 / macOS Tahoe. Windows/Chrome icons should be clean and legible at small sizes.",
@@ -440,54 +431,12 @@
         ]
       },
       {
-        "id": 36,
-        "title": "Track macOS keychain reliability across versions",
-        "description": "macOS Tahoe 26 had a regression early in its lifecycle where SecItemAdd succeeded but SecItemCopyMatching returned errSecItemNotFound (-25300) for the same item in the same process, breaking the keyring crate (v3.6.3) entirely. We added a probe at startup and a file-based fallback at ~/Library/Application Support/ca.secrt.desktop/credentials.json that auto-activates when the probe fails. Direct same-process Swift probe on macOS 26.4.1 (build 25E253) on 2026-04-25 confirms the round-trip now works (SecItemAdd OSStatus=0 followed by SecItemCopyMatching OSStatus=0 returning the stored value). Apple has silently fixed the regression at some point between the original report and 26.4.1; their user-facing release notes don't itemize developer-API fixes so it isn't possible to pinpoint the exact point release. The file fallback stays in the codebase as defense-in-depth — the probe self-deactivates the fallback when the keychain works, so it costs ~80 lines and protects against future regressions, sandbox edge cases, or differing user environments. This task transitions from one-off fix-tracking to recurring stewardship: re-probe on each macOS major and on keyring crate upgrades.",
-        "status": "pending",
-        "priority": "low",
-        "dependencies": [],
-        "subtasks": [
-          {
-            "id": 1,
-            "title": "Verify keychain round-trip on macOS 26.4.1",
-            "description": "Same-process SecItemAdd → SecItemCopyMatching round-trip via Swift probe on jdlien's dev box (Tahoe 26.4.1, build 25E253). Both calls returned OSStatus 0; the stored value was retrieved correctly. Tested 2026-04-25.",
-            "status": "done"
-          },
-          {
-            "id": 2,
-            "title": "Re-probe on each new macOS major (e.g. 26.5, 27.x)",
-            "description": "Run the Swift probe (or `cargo test -p secrt-desktop keyring_probe_detects_broken_keychain -- --nocapture`) on a representative dev machine when each major macOS update lands. The point is not to wait for the bug to come back — it's to catch a recurrence before users notice. Any sign of regression: re-pin the file fallback as the default for the affected version range and surface a banner in the Tauri app.",
-            "status": "pending"
-          },
-          {
-            "id": 3,
-            "title": "Try keyring crate v4.0.0-rc.3 against secrt-desktop",
-            "description": "v4 has been in RC since Feb 2025 with the v4 branch quiet since July 2025; no v4 stable yet. Try `keyring = \"4.0.0-rc.3\"` on a branch and see whether the API surface and apple-native backend still work for our use case. Low-stakes experiment — if v4 stable lands, this gets us ahead of the migration; if v4 stays in limbo, we lose nothing by knowing what changed. Run the existing keyring probe + the existing fallback round-trip test.",
-            "status": "pending"
-          },
-          {
-            "id": 4,
-            "title": "Verify keychain behavior under signed/notarized production build",
-            "description": "The dev probe is unsigned. Production Tauri builds are code-signed with the Developer ID cert and have an Entitlements.plist applied. Subtle keychain behavior can differ between unsigned dev builds and signed release builds — sandbox restrictions, application groups, keychain access groups, etc. Once the release-desktop.yml workflow exists (task #21) and produces a signed .app, run the same Swift probe (or a Tauri command that exercises the keyring round-trip) inside the signed bundle on a clean Mac. If the signed-build behavior differs from the dev-build behavior, document and adjust.",
-            "status": "pending"
-          },
-          {
-            "id": 5,
-            "title": "Decide: keep or remove the file-based fallback",
-            "description": "Decision: KEEP. The fallback is defense-in-depth. The probe at startup self-deactivates it when the keychain works, so on healthy systems it is a no-op. The cost (~80 lines in crates/secrt-desktop/src/lib.rs) is small. Removing it would trade a real safety margin (regressions, sandbox edge cases, user environments we have not seen) for a marginal code-cleanliness win. Re-evaluate if (a) keyring crate v4 stable ships with stronger guarantees, or (b) the fallback path is found to leak credentials to disk in a way the keychain wouldn't (which it does — the file is mode 600 in the user's app data dir, but is plaintext-on-disk; this is documented). Closing this subtask as the decision is made.",
-            "status": "done"
-          }
-        ]
-      },
-      {
         "id": 37,
         "title": "Unified Settings page + AMK-wrapped preferences sync",
         "description": "Build a single /settings route containing Preferences (always visible) and Account (auth-gated) sections, with an AMK-wrapped, server-synced preferences blob (theme, default TTL, language, saved passphrases, etc.). See full plan: .taskmaster/plans/task-37-unified-preferences.md (v2, 2026-04-26).\n\nSupersedes the original task #37 scope and folds in task #38 (saved passphrases). Execution deferred until task #42 (Passkey PRF AMK wrapping) lands — the plan assumes passkey-only auth and PRF-derived AMK, which makes auto-clear-on-logout safe and lets the saved-passphrases feature ride on top of a stronger AMK lifecycle.\n\nKey decisions: single blob (not split prefs vs vault), CAS via ETag/If-Match for conflict-safe writes, auto-decrypt on by default with opt-out, Tauri biometric gating through a single passphrase provider, manual 'Clear local data on this device' button as v1 escape hatch (auto-clear-on-logout in Phase 6 post-PRF). Passphrases ship on both web and Tauri. Globe-icon language menu added to nav once 2+ languages live (after task #40).\n\nReplaces prior subtasks with the 8-phase plan from the design doc.",
         "status": "pending",
         "priority": "high",
-        "dependencies": [
-          42
-        ],
+        "dependencies": [],
         "subtasks": [
           {
             "id": 1,
@@ -540,17 +489,6 @@
         ]
       },
       {
-        "id": 38,
-        "title": "CLI ↔ AMK preferences sync (passphrase import/export parity)",
-        "description": "Slim follow-up to task #37: wire the CLI to optionally push/pull the AMK-wrapped preferences blob, so users with both CLI and app share the same saved passphrases (and other prefs). Most of the original task #38 scope (auto-decrypt UX, default-passphrase prefill, passphrase management UI) has been folded into #37 v2 plan: .taskmaster/plans/task-37-unified-preferences.md.\n\nRemaining work:\n- 'secrt config sync pull' / 'secrt config sync push' commands (or similar) that fetch/store the AMK blob using the shared Preferences struct from secrt-core.\n- Map between CLI TOML keys and Preferences fields per the mapping table in the plan doc.\n- Decide CLI-only behavior for fields the CLI doesn't honor (use_keychain, api_key, show_input).\n\nDepends on task #37 landing first (introduces the shared Preferences struct, server endpoints, and crypto envelope this task consumes).",
-        "status": "pending",
-        "priority": "low",
-        "dependencies": [
-          37
-        ],
-        "subtasks": []
-      },
-      {
         "id": 39,
         "title": "Auto-copy share link after secret creation",
         "description": "After successfully creating a secret, automatically copy the share link to the clipboard using copySensitive (which excludes from clipboard history on all platforms). The CLI does this by default via auto_copy config. Add a preference toggle (auto_copy in task #37's preferences store) so users can disable it. Show a brief toast or visual indicator confirming the copy. Do NOT auto-copy claimed secret text — that stays as a manual CopyButton action.",
@@ -601,64 +539,6 @@
             "id": 2,
             "title": "Add jurisdiction section to whitepaper",
             "description": "Citations-backed treatment in docs/whitepaper.md. Lift operational details from the secrt.is deployment guide. Specific statutes (Icelandic Act on the Protection of Privacy 90/2018, PIPEDA, Charter), MLAT exposure analysis, why Iceland and Canada were chosen over US/UK/EU, 1984 Hosting's track record. Note the IPv4-only limitation honestly. Aimed at security researchers and B2B procurement reviewers.",
-            "status": "pending"
-          }
-        ]
-      },
-      {
-        "id": 42,
-        "title": "Passkey PRF-based AMK wrapping (zero-knowledge passkey UX)",
-        "description": "**Design doc:** `crates/secrt-server/docs/prf-amk-wrapping.md` — read this first. Contains the exact KDF formulas, AAD layout, wire format, schema migration, HTTP route definitions, flow diagrams, threat model, test-vector template, and open questions. The summary below is a map; the doc is the territory.\n\nAdd WebAuthn PRF extension as an alternative path for deriving the AMK wrap-key, so new devices can recover the AMK by signing in with a passkey instead of scanning a sync-link QR. This is the single biggest UX win available for the zero-knowledge notes product — it replicates the 'walk up, tap passkey, see your stuff' flow that Proton/Standard Notes can't offer because they still require a master password.\n\n## What stays the same\nThe AMK itself (random 32-byte key), AES-256-GCM envelope encryption, note encryption (HKDF(AMK, salt, 'secrt-note-v1')), the amk_wrappers table structure, the commitment hash, the versioning, the AAD binding, envelope encryption, url_key, Argon2id passphrases. This is purely an additive path at the 'how do we derive wrap_key' layer.\n\n## What changes\nCurrent: wrap_key = HKDF(api_key_root, root_salt, 'secrt-amk-wrap-v1', 32), keyed per-API-key.\nNew: wrap_key = HKDF(prf_output, cred_salt, 'secrt-amk-wrap-prf-v1', 32), keyed per-passkey-credential.\nServer adds a new amk_wrappers row variant keyed by credential_id instead of api_key_prefix. Both paths coexist.\n\n## Browser support matrix (as of April 2026)\n- Chrome/Edge on Windows 11 25H2 + Windows Hello: Chrome 147+ (PRF-on-create landed Feb 2026)\n- Safari 18+ on iOS 18.4+ / macOS 15+ with iCloud Keychain: works\n- Chrome on Android + Google Password Manager: PRF-by-default, most mature\n- Firefox 148+: first Firefox with full PRF support (user share still small)\n- External security keys on iOS Safari: broken (hmac-secret returned encrypted) — fall back to sync-link\n\nPRF is an ENHANCEMENT, not a replacement. Keep the existing ECDH/QR sync-link flow for: Firefox ≤147, iOS Safari + external key, account recovery, users who prefer the explicit key-in-hand mental model.\n\n## Key technical gotcha\nThe PRF salt must be STABLE per credential (domain separator, not a nonce). Generate at registration with crypto.getRandomValues(), persist server-side alongside the credential record. Reusing the same salt across devices that sync the same passkey (iCloud Keychain, Google PM) is correct and required for PRF-output determinism across the synced set.\n\n## Affected code\n- web/src/crypto/amk.ts — new deriveAmkWrapKeyFromPrf() alongside existing deriveAmkWrapKey()\n- web/src/features/passkeys/ — registration requests PRF extension; login calls PRF at auth time\n- secrt-core/src/amk.rs — add prf-variant wrap-key derivation path\n- secrt-server migrations — extend amk_wrappers with credential_id column + index\n- secrt-server passkeys routes — store cred_salt at registration; expose wrapped AMK by credential_id\n- spec/v1/server.md — document PRF app-login variant\n- spec/v1/envelope.md — no changes expected (orthogonal concern)",
-        "status": "pending",
-        "priority": "high",
-        "dependencies": [],
-        "subtasks": [
-          {
-            "id": 1,
-            "title": "Research spike: prototype PRF-on-create + PRF-on-get end-to-end",
-            "description": "Standalone HTML/TS prototype in web/ (outside the app shell) that: registers a passkey with PRF extension requested (evaluate: { first: <32-byte random salt> }), stores the salt in localStorage + a mock server blob, then authenticates and derives the same PRF output. Verify on all four target surfaces: Chrome+Windows Hello, Safari+iCloud Keychain (macOS and iOS), Chrome+Android+Google PM. Confirm synced passkey PRF determinism across devices (create on macOS Safari, use on iOS Safari). Document any browser bugs or caveats discovered; update the browser support matrix in the main task description if reality differs.",
-            "status": "done"
-          },
-          {
-            "id": 2,
-            "title": "Server: extend amk_wrappers + passkey credentials for PRF path",
-            "description": "See `crates/secrt-server/docs/prf-amk-wrapping.md` §3.3 (schema) + §3.5 (HTTP routes) + §8 (implementation plan). Migration: add cred_salt (BYTEA, 32 bytes) and prf_supported (BOOL) to webauthn_credentials (or equivalent table). Extend amk_wrappers to be keyable by either api_key_prefix (existing) or credential_id (new) — likely a discriminator column and a nullable fk pair. Add server routes: PUT /api/v1/auth/passkeys/{cred_id}/amk-wrapper (store a PRF-wrapped AMK after user completes registration and client has computed it), GET /api/v1/auth/passkeys/{cred_id}/amk-wrapper (return the wrapped blob at login time, rate-limited, requires fresh session). Index for lookup by credential_id. Update spec/v1/server.md with new endpoints.",
-            "status": "done"
-          },
-          {
-            "id": 3,
-            "title": "Client: passkey registration requests PRF extension + persists salt",
-            "description": "In the registration ceremony (features/passkeys/register), add `extensions: { prf: { eval: { first: new Uint8Array(salt32) } } }`. Generate salt32 with crypto.getRandomValues(). POST salt32 to server alongside the credential creation response — stored on webauthn_credentials.cred_salt. Inspect clientExtensionResults.prf to detect PRF support: if prf.enabled is true, mark credential as PRF-capable server-side; if false or undefined, credential is legacy and the user will use sync-link for this credential only. Do NOT fail registration if PRF unsupported — fall through gracefully.",
-            "status": "done"
-          },
-          {
-            "id": 4,
-            "title": "Client: PRF wrap/unwrap crypto path",
-            "description": "See `crates/secrt-server/docs/prf-amk-wrapping.md` §3.1 (derivation formula), §3.2 (AAD layout), §9 (test vectors — fill in before landing). In web/src/crypto/amk.ts and secrt-core/src/amk.rs, add deriveAmkWrapKeyFromPrf(prfOutput: Uint8Array, credSalt: Uint8Array) -> wrap_key, using HKDF-SHA256 with info='secrt-amk-wrap-prf-v1'. Reuse existing WrappedAmk { ct, nonce, version } structure and AAD format (bind to credential_id instead of api_key_prefix for PRF wrappers). Add unit tests round-tripping wrap→unwrap with known test vectors. Ensure AAD binding prevents cross-credential replay.",
-            "status": "done"
-          },
-          {
-            "id": 5,
-            "title": "Client: login flow fetches + unwraps PRF-wrapped AMK",
-            "description": "See `crates/secrt-server/docs/prf-amk-wrapping.md` §4.4 (new-device login flow diagram) + §4.5 (upgrade path). After successful passkey authentication that returned a PRF output: fetch GET /api/v1/auth/passkeys/{cred_id}/amk-wrapper, unwrap with the PRF-derived wrap_key, store AMK in IndexedDB via existing storeAmk(). If the credential has no PRF wrapper yet (first login with a new PRF-capable credential), trigger a one-time 'upgrade' flow: derive AMK via the existing path (user may need to sync-link from another device), then create a PRF wrapper for this credential so future logins skip the sync-link step. Handle the 'PRF not supported on this browser today' case by falling through to sync-link.",
-            "status": "done"
-          },
-          {
-            "id": 6,
-            "title": "Feature detection + fallback UX",
-            "description": "Detect PRF support at page load (PublicKeyCredential.isConditionalMediationAvailable + test PRF extension echo on a dummy assertion). Settings page shows per-credential status: 'Passkey login derives your key automatically' (PRF-enabled) vs 'This credential uses sync-link key transfer' (legacy). Registration flow copy: when PRF supported, 'Your passkey will unlock your notes automatically on new devices.' When PRF not supported: 'You'll use the sync-link flow on new devices until your browser adds passkey-key-derivation support.' Recovery messaging: make it explicit that losing all passkeys means data loss unless user has a sync-link recovery code somewhere.",
-            "status": "done"
-          },
-          {
-            "id": 7,
-            "title": "Tests + browser matrix CI",
-            "description": "Unit tests for wrap/unwrap round-trip in both Rust and TS. Integration test for register-with-PRF → store wrapper → login on different 'device' (different IndexedDB) → unwrap → verify AMK bytes match. Playwright browser matrix job covering Chrome desktop, Safari desktop, Chrome Android (if feasible). Manual test script for iCloud Keychain sync across macOS+iOS. Document the CI browser matrix in CONTRIBUTING.md.\n\nExplicit scenario — CLI bootstrap with PRF: end-to-end test of `secrt auth login` in a brand-new browser profile (no prior AMK in IndexedDB). Expected: verification-URL page triggers PRF login, unwraps server-stored AMK, user taps Approve, ECDH handoff to CLI succeeds, CLI wraps under api-key-root and stores via `/amk-wrappers`. Today this scenario requires the user to paste an API key or run `sync` first; with PRF it should be single-tap. Covered in design doc §4.6.",
-            "status": "done"
-          },
-          {
-            "id": 8,
-            "title": "Blog post: 'How we replaced the master password with a passkey without giving up zero-knowledge'",
-            "description": "Technical deep-dive blog post on jdlien's blog (webartisan.info) explaining: the zero-knowledge UX problem, why existing services still use master passwords, how WebAuthn PRF works, the salt design, the fallback strategy, what the final UX looks like. Target audience: privacy-conscious developers who will then try secrt and tell friends. Dovetails with the April 'blog weekly' commitment (FOCUS.md Big Rocks). Draft after Phase 4-5 land so screenshots are real.",
             "status": "pending"
           }
         ]
@@ -975,34 +855,12 @@
         "subtasks": []
       },
       {
-        "id": 59,
-        "title": "Make `html_responses_carry_csp_and_no_store` test resilient to unbuilt SPA",
-        "description": "The test in crates/secrt-server/tests/api_behavior.rs asserts the CSP contains 'sha256-' source hashes. That only holds when web/dist/ is populated (so the embedded SPA index.html has its inline FOUC <script>). In CI, the test job runs `cargo nextest run` without first running `pnpm build`, so the server falls back to the stub template at crates/secrt-server/templates/index.html which has no inline scripts → no hashes → assertion fails.\n\nThis fails on every CI run (failed in 0.16.4, 0.16.5). Releases are unaffected because release-server.yml builds the frontend before building the server. But main stays red on CI.\n\nFix options: (a) gate the 'sha256-' assertion behind a check for inline scripts in the served HTML (simplest); (b) make CI run `pnpm build` before `cargo test`; (c) split the test — assert build_csp behaviour with a fixed HTML fixture, separately assert the served CSP shape without specific hashes.\n\nRecommend (a) — smallest change, tests stay self-contained.",
-        "status": "pending",
-        "priority": "low",
-        "dependencies": [],
-        "subtasks": []
-      },
-      {
         "id": 60,
         "title": "Review draft PRF trust-implications section in docs/whitepaper.md",
         "description": "A first-pass section was drafted on 2026-04-27 covering the trust-model implications of PRF-based AMK wrapping. Two locations in docs/whitepaper.md, both marked as draft pending review:\n\n1. New subsection \"PRF-Based AMK Wrapping (Passkey Recovery)\" under \"Encrypted Notes (Account Master Key)\", placed between \"CLI Device Authorization & ECDH Transfer\" and \"Commitment Protocol\". Introduces what PRF wrapping is + the trust-set expansion (passkey provider becomes part of the recovery path) + per-provider tier comparison (Apple/Google/Bitwarden/1Password/Dashlane) + recommendation for hardware-bound passkeys vs synced passkeys vs API-key sync.\n\n2. New bullet in the \"Threat Analysis\" subsection summarising the synced-passkey trust boundary and pointing back at section (1).\n\nTable of contents updated to include the new subsection (with a *(draft — pending review)* marker).\n\nReview goals:\n- Tweak wording/flow to JD's voice — first-pass is in Rachel's voice and reads slightly more academic than the rest of the whitepaper.\n- Confirm the per-provider table is fair and accurate (1Password Secret Key claim, Apple iCloud E2E + recovery design, Google Password Manager recovery path framing, Bitwarden/Dashlane master-password-only framing). These are summary-level claims and worth a sanity-check against current provider docs before the section ships.\n- Confirm the recommendation framing — currently says \"hardware-bound or stick with API-key sync\" for high-stakes threat models. Decide whether to be more or less prescriptive.\n- Decide whether to remove the \"draft — pending review\" markers and ship in the next whitepaper version bump, or keep gated until PRF actually lands in production (current plan: subtasks 1–4 of task #42 land first, login flow follows, then this section becomes accurate-as-shipped instead of accurate-as-designed).\n- The same trust-boundary content should also be reflected in crates/secrt-server/docs/prf-amk-wrapping.md §threat-model — the plan at /Users/jdlien/.claude/plans/yeah-plan-mode-activated-crystalline-mango.md flags this in constraint #3. Keep the two documents aligned in substance even if they differ in tone/audience.\n\nRelated: task #42 (PRF feature work). This task is doc-only and not blocking on #42's implementation.",
         "status": "pending",
         "priority": "medium",
-        "dependencies": [
-          42
-        ],
-        "subtasks": []
-      },
-      {
-        "id": 62,
-        "title": "Diagnostic logging for AMK / PRF flows",
-        "description": "Replaces silent `} catch {}` blocks across passkey registration, login, settings add-passkey, and PRF unwrap/upgrade/fallback-ceremony paths with gated `[secrt:<label>]` console traces. Two-layer gate: dev builds always log via `import.meta.env.DEV`; prod builds log only via `localStorage.setItem('secrt:debug', '1')`. No data leaves the device. Logs include 8-byte SHA-256 fingerprints of PRF outputs and AMK material to verify cross-device determinism without exposing raw secrets, plus WebAuthn `authenticatorAttachment`. Plan at `.taskmaster/plans/task-62-prf-amk-diagnostic-logging.md`. Shipped in v0.17.5 (2026-05-02).",
-        "status": "done",
-        "priority": "high",
-        "dependencies": [
-          42
-        ],
+        "dependencies": [],
         "subtasks": []
       },
       {
@@ -1011,9 +869,7 @@
         "description": "When PRF-on-get-only authenticators (YubiKey on Chrome/Edge/Vivaldi) register, the user has to tap the key twice — once for registration, once for the fallback get() ceremony to extract PRF. Today the second prompt appears with no UI explanation; many users dismiss it thinking the system is broken. Add a non-blocking 'Tap your security key one more time to enable cross-device unlock' status overlay between the two ceremonies. Doesn't fix the touch count, removes the 'why is it asking again?' failure mode. Hooks already present via `[secrt:prf-fallback-ceremony]` decision points. Files: `web/src/lib/passkey-prf.ts` (entry callback), `web/src/features/auth/RegisterPage.tsx`, `web/src/features/settings/SettingsPage.tsx`, new `web/src/components/CeremonyStatusOverlay.tsx`.",
         "status": "pending",
         "priority": "medium",
-        "dependencies": [
-          62
-        ],
+        "dependencies": [],
         "subtasks": []
       },
       {
@@ -1022,20 +878,7 @@
         "description": "Today when PRF unwrap fails (Apple-Safari interception) or PRF extension is stripped (Firefox 150.1 + external YubiKey), the user lands silently in tier-2 — logged in, no notes, no explanation. The diagnostic-logging hooks at `[secrt:prf-unwrap]` and `[secrt:webauthn-get]` already detect these paths. Lift them into UI: when `prfExtPresent: false` or `OperationError` on unwrap, surface an actionable inline message tailored to the cohort. Higher leverage than #63 because it bridges the broken-cohort scenarios that have no other recourse. Files: `web/src/features/auth/LoginPage.tsx`, `web/src/components/PrfFailureNotice.tsx` (new), copy informed by `prf-amk-wrapping.md` §11 cohort matrix.   UPDATE 2026-05-02 — copy must be browser×OS×credential-class aware, not flat-Firefox/flat-Safari. Source-level investigation in `firefox-prf-source-investigation.md` shows the Firefox+USB-key gap is specifically a macOS bridge bug in `MacOSWebAuthnService.mm` (security-key request class never gets PRF wired); Firefox/Linux and Firefox/Windows route through `authrs_bridge` and `webauthn.dll` respectively, both of which support PRF. Predicted-but-untested behavior: Firefox+USB-key on Linux/Windows works. Cohort-specific suggestions: (1) Firefox/macOS + cross-platform key → 'use Chrome/Edge here, or scan a QR with your phone passkey'; (2) Firefox/Linux or Firefox/Windows + cross-platform key seeing `prfExtPresent: false` → this is unexpected, treat as bug-report path; (3) Safari/any + cross-platform key → unfixable (Apple framework re-wrap), recommend complementary platform credential. Detection inputs: parse `navigator.userAgent` for browser+OS, plus `authenticatorAttachment` from the assertion, plus AAGUID once #66 lands. Resolve cohort split empirically before finalizing copy (Firefox/Win + Firefox/Linux tests pending).",
         "status": "pending",
         "priority": "high",
-        "dependencies": [
-          62
-        ],
-        "subtasks": []
-      },
-      {
-        "id": 65,
-        "title": "Bitwarden onboarding copy (Tier 1 UX)",
-        "description": "Plain-language note shown at registration time when we detect a content-script presence (heuristic — sniff for extension-injected globals; brittle but graceful when wrong): 'If you use Bitwarden or a similar password-manager extension, you may see its prompt twice during setup — click Use your device or hardware key both times. Disable the extension first if you'd prefer a smoother flow.' Saves the ~30% who otherwise dismiss the second popup and break PRF setup. Refined Bitwarden model in `prf-amk-wrapping.md` §11 informs the copy.",
-        "status": "pending",
-        "priority": "low",
-        "dependencies": [
-          62
-        ],
+        "dependencies": [],
         "subtasks": []
       },
       {
@@ -1087,65 +930,49 @@
       },
       {
         "id": 68,
-        "title": "Server-mediated AMK transfer (device-pair / auto-sync flow)",
-        "description": "Replace the current copy/paste sync-link with an active device-pair flow: a logged-in browser 'listens' for new-device sign-in attempts and offers to transfer the AMK with explicit user confirmation. Uses the same ECDH primitive the Tauri app-login flow already implements (`crates/secrt-server/src/http/app_login.rs`) — generalized to any browser-to-browser transfer. Threat model is non-trivial: the server learns pairing metadata it doesn't see today, and a stolen-passkey attacker who reaches tier-2 could spam-request transfers. Mitigations: out-of-band code visible on both screens that the user must verify match, rate limiting, ECDH so server can't decrypt the AMK in transit. Spec required before code.\n\n--- 2026-05-02 reconsideration (JD + Rachel) ---\nLow priority; possibly not worth doing as written. Conclusions from the discussion:\n\n1. STOLEN-PASSKEY THREAT: largely a wash. Passkey alone doesn't grant the AMK — attacker still needs a wrapped-AMK blob. This feature gives them a new path (request transfer + hope user approves), but the out-of-band code + explicit click is the same defense pattern we accept for every other confirmation prompt.\n\n2. METADATA LEAK: overstated. Today's copy-paste flow already tells the server: device A uploaded a blob, device B fetched it, both IPs, both UAs, timing. New bits are just real-time presence + visibility into rejected/expired attempts. Real but not categorical.\n\n3. ACTUAL PROBLEM: requires a live, logged-in listener on another device. Subtask 5 already concedes the cold-start case has to fall back to copy-paste. So this is an enhancement for the 'laptop-open, adding-phone' case only.\n\n4. WHY NOT AUTO-SEND (zero-click): turns every logged-in browser into a continuously-armed AMK dispenser. Coffee-shop laptop unlocked for 30s = silent AMK exfil with no user-side trail. The click IS the consent; killing it kills the consent. Also breaks incident forensics — today every transfer has a user-initiated trail; auto-send leaves only server-side timestamps. No.\n\n5. NET: a one-tap approve on phone vs. paste-a-link-from-phone is a wash. This feature turns mild tedium into slightly more mild tedium. Better engineering payoff is polishing the existing copy-paste flow (QR code, clearer 'I'm on phone' / 'I'm on desktop' branching, better receiving-side UX) rather than building a parallel system that still has to fall back to copy-paste anyway.\n\nKeep on the books, but don't build it before the existing flow has been polished and we have user signal that it's actually painful. Revisit if/when copy-paste UX is already clean and listening-presence becomes cheap (e.g. SSE infra exists for another reason).",
+        "title": "Browser-to-browser AMK transfer (pair-code + bidirectional QR)",
+        "description": "Full plan: .taskmaster/plans/task-68-amk-pair-code.md (May 2, 2026). Surface the existing XXXX-XXXX device-auth primitive as a web-to-web AMK transfer flow with a bidirectional rendezvous-QR. Replaces the killed listener/inbox/SSE design. Security upgrade over today payload-QR: rendezvous-QR carries only a slot ID + ephemeral pubkey, not the encrypted AMK blob.",
         "status": "pending",
-        "priority": "low",
-        "dependencies": [
-          62
-        ],
+        "priority": "high",
+        "dependencies": [],
         "subtasks": [
           {
             "id": 1,
-            "title": "Write design spec covering threat model, state machine, UI confirmation flow",
+            "title": "Backend tweaks: role field on pairing slot + tests",
             "status": "pending",
-            "description": "Threat-modelled: server compromise (must not see AMK), stolen-passkey-tier-2 attacker (legitimate user must reject via existing device), MITM (out-of-band code prevents key swap), phishing (real device wouldn't see request from fake server). Document at `crates/secrt-server/docs/amk-device-pair.md`."
+            "description": "Confirm device-auth endpoints accept web-to-web case; add role (send/receive) to slot record; verify rate limits; explicit tests for both directions."
           },
           {
             "id": 2,
-            "title": "Server endpoint: pairing request lifecycle (create/poll/approve/expire)",
+            "title": "Rendezvous URL scheme + QR render/scan helpers",
             "status": "pending",
-            "description": "New endpoints: POST /api/v1/auth/amk-pair/request (new device posts ECDH pubkey, gets pairing_code), GET /api/v1/auth/amk-pair/{id}/status (new device polls), POST /api/v1/auth/amk-pair/{id}/approve (existing device posts encrypted blob). 5-minute expiry. Rate limit per user."
+            "description": "Define secrt://pair/{slot_id}?role=...&pk=... scheme. TS encode/decode helpers. QR render via existing lib. QR scan via jsQR (or qr-scanner wrapper). Skip native BarcodeDetector — Safari fallback dominates."
           },
           {
             "id": 3,
-            "title": "Existing-device listener (poll or SSE)",
+            "title": "PairDisplayPage (displaying-device UI)",
             "status": "pending",
-            "description": "Logged-in browser polls /api/v1/auth/amk-pair/inbox for pending requests. SSE upgrade later if poll cost is meaningful. Notification UI when a request arrives."
+            "description": "Role-aware: on receive, generate ECDH keypair and publish pubkey; on send, wait for joiner pubkey. Render QR + typed code as paired siblings. Poll for completion. Handle error states (expired, max attempts, decrypt failure)."
           },
           {
             "id": 4,
-            "title": "Approval UI — show pairing code, device fingerprint, request user confirmation",
+            "title": "PairJoinPage (joining-device UI)",
             "status": "pending",
-            "description": "Display the pairing code (6 chars, derived from ECDH pubkey hash so a key swap by server changes the code). Show the new device's user-agent / IP / timestamp. Two-button approve/reject. Optional 'always trust devices in this network' toggle is OUT — explicit per-pair only."
+            "description": "Two inputs: Scan QR (camera modal) + typed XXXX-XXXX. Both resolve to slot ID. Branch on slot role. Reuse DevicePage approval UX pattern. Display receivers UA/IP/time for sender confirmation."
           },
           {
             "id": 5,
-            "title": "Fallback to existing copy-paste sync-link when no device is online",
+            "title": "UX consolidation: demote sync link, retire payload-QR",
             "status": "pending",
-            "description": "If no listener responds within ~30s, fall through to the existing sync-link UI. Don't deprecate the old flow — it's the only option when the user has no other authenticated device."
+            "description": "Sync link stays for async transfer, demoted to More options disclosure. Retire SyncNotesKeyButtons payload-QR rendering — sweep tests, docs, onboarding copy in the same commit."
+          },
+          {
+            "id": 6,
+            "title": "Spec updates + docs",
+            "status": "pending",
+            "description": "Add web-to-web AMK transfer section to spec/v1/server.md (URL scheme, role-aware slot semantics, security upgrade rationale). Update spec/v1/api.md if new fields land. Update web README."
           }
         ]
-      },
-      {
-        "id": 69,
-        "title": "1Password PRF retest on Chromium/macOS",
-        "description": "Verified 2026-05-02 across 6 platform/browser combinations: Mac Chrome (registration), Mac Safari, Mac Firefox, Windows Chrome, Windows Firefox, iPhone Safari. Same credential `2hX0aGOL` produced byte-identical PRF output `88c149421125d06f` and AMK fingerprint `7b3e927196ba2163` everywhere. End-to-end AMK transfer worked on every surface, including iPhone Safari (which is broken for YubiKey). PRF returned at create() — single touch at registration. Mechanism: 1Password presents as `authenticatorAttachment: \"platform\"` via Apple ASCredentialProviderExtension on iOS / browser extension on desktop, exempting it from the Apple framework hmac-secret re-wrap behaviour that breaks external CTAP2 authenticators. 1Password promoted to recommended cross-ecosystem option in `crates/secrt-server/docs/prf-amk-wrapping.md` §11. Hypothesis H5 in `prf-cross-device-testing.md` §5 marked resolved-disproved positively. Android 14+ verification still open as H6 (Pixel 4a stuck on Android 13 cannot do passkeys at all due to Credential Manager API floor — not a 1Password limitation).",
-        "status": "done",
-        "priority": "medium",
-        "dependencies": [
-          62
-        ],
-        "subtasks": []
-      },
-      {
-        "id": 70,
-        "title": "Cohort matrix UX strategy — how do we present 'works here, not there' without scaring users",
-        "description": "The honest cohort matrix (which credential type works on which surface) is bad UX even when accurate. Six-axis grid of password manager × OS × browser × authenticator type, with most cells partially-broken. Documentation alone won't carry it. Need a strategy: at registration, suggest the right authenticator for the user's cohort; at sign-in, surface the right fallback when PRF fails (task #64); at settings, help users add complementary passkeys to cover gaps. This task is the strategy/IA work, not a single feature — its outputs feed into #64, #66, #67, #71.",
-        "status": "pending",
-        "priority": "low",
-        "dependencies": [],
-        "subtasks": []
       },
       {
         "id": 71,
@@ -1153,99 +980,8 @@
         "description": "User-facing docs page (NOT the internal architecture doc) that turns the cohort matrix into actionable recommendations: 'I'm an Apple user → use iCloud Keychain'; 'I have a YubiKey → great on Mac/Windows/Linux Chromium, also add an iCloud Keychain passkey for iPhone'; 'I use Bitwarden as my main vault → expect to use sync-links since their authenticator drops PRF.' Honesty about limitations without scaring people away. Lives at `docs/passkey-recommendations.md` or similar; linked from registration flow.",
         "status": "pending",
         "priority": "low",
-        "dependencies": [
-          70
-        ],
-        "subtasks": []
-      },
-      {
-        "id": 72,
-        "title": "Cross-server sync URL: detect mismatch and explain it loudly",
-        "description": "**SUPERSEDED by task 73 subtask 4** (anti-rogue-instance defense in depth, /Users/jdlien/.claude/plans/okay-just-write-this-glistening-nebula.md). The cross-instance behavior described below is replaced with a tighter rule: hard-block credential leakage to URL-derived hosts in sync/burn/info, not warn-and-proceed. Original task body retained below for audit trail.\n\n---\n\nWhen `secrt sync <url>` (or `secrt get <sync-url>`) targets a server the configured API key is not registered on, the CLI must say so plainly instead of falling through to the misleading 'API key may not be linked to a user' error.\n\n**Repro (real user hit, 2026-05-09):** JD's CLI was authed to `https://secrt.ca` (per `secrt auth status`). He scanned a QR code that handed him a `https://secrt.is/sync/...` URL (Iceland deployment, separate DB). `run_sync` derives `base_url` from the URL itself (`crates/secrt-cli/src/sync.rs:213-230`), overriding his configured server. The `claim()` call succeeded (anonymous, URL-key authed). Then `client.info()` against secrt.is with his secrt.ca key returned `authenticated: false, user_id: None` — secrt.is's `/info` handler swallows the auth error (`crates/secrt-server/src/http/mod.rs:3982-3989`) and returns a 200. The CLI then surfaced 'server did not return user_id (API key may not be linked to a user)' from `sync.rs:37-39`. Wrong diagnosis, wrong remediation hint, dead end for the user.\n\n**Required behavior:**\n\n1. **`sync.rs:34-39` (`import_amk`):** before checking `info.user_id`, check `info.authenticated`. If false, return an error like:\n   ```\n   error: this API key is not registered on <derived-base-url>\n     hint: your configured server is <configured-base-url>\n     hint: generate the sync link from <configured-base-url> instead, or run `secrt auth login --base-url <derived-base-url>` to register here\n   ```\n   The CLI knows both the configured base URL (from config/keychain/env) and the URL it derived from the sync link, so it can produce a precise message naming both.\n\n2. **`run_sync` (and any other sync-URL entry point — `secrt get` for sync URLs in `cli/get.rs` if applicable):** when the derived base URL differs from the configured base URL AND no explicit `--base-url` was passed, print a warning *before* claiming, e.g. `warning: sync URL targets <derived> but you're configured for <configured>; proceeding against <derived>`. Do not block — the user may legitimately be syncing from a friend's deployment — but make the mismatch visible up front, not at the failure tail.\n\n3. **Reserve the existing 'API key may not be linked to a user' message** for the case it actually describes: `authenticated == true && user_id.is_none()`. That's the real legacy-key / unlinked-key case (e.g. `users` row deleted with `ON DELETE SET NULL` on `api_keys.user_id`, or a key registered before user accounts existed).\n\n**Test coverage to add in `crates/secrt-cli/tests/cli_sync.rs`:**\n- Sync URL whose host differs from configured `--base-url`, with a stub server returning `authenticated: false, user_id: null` → assert error mentions both URLs and does NOT mention 'not linked to a user'.\n- Sync URL whose host matches configured base URL, server returns `authenticated: true, user_id: null` → assert error still mentions 'not linked to a user' (legacy path preserved).\n- Sync URL whose host matches configured base URL, server returns `authenticated: true, user_id: Some(...)` → succeeds.\n\n**Related but separate (do not bundle):** the server-side decision to return 200 with `authenticated: false` for an unknown key is intentional (anonymous /info is supported and we don't want to leak whether a key exists). Don't change the server response; fix the CLI's interpretation.\n\nSpec touch: update `spec/v1/cli.md § sync` to document the precondition check and the two distinct error cases.",
-        "status": "deferred",
-        "priority": "medium",
         "dependencies": [],
         "subtasks": []
-      },
-      {
-        "id": 73,
-        "title": "Anti-rogue-instance defense in depth",
-        "description": "Layered defense against malicious API-compatible secrt forks. Establishes a single source of truth for official instances (spec/v1/instances.md + JSON), promotes trust policy into secrt-core as a typed verdict (Official/TrustedCustom/DevLocal/Untrusted), wires CLI warnings + credential-leak hard-blocks into all commands (incl. auth via a unified resolver), strengthens the web SPA's unknown-host warning copy, widens Tauri CSP from one host to all official instances, and adds SRI to the web bundle for asset-tampering defense.\n\nFull plan: /Users/jdlien/.claude/plans/okay-just-write-this-glistening-nebula.md\n\nSupersedes task 72 (subtask 3 closes its requirements with a tighter behavior).",
-        "status": "done",
-        "priority": "high",
-        "dependencies": [],
-        "subtasks": [
-          {
-            "id": 1,
-            "title": "Spec — instances.md + instances.json",
-            "description": "Create spec/v1/instances.md (normative trust policy, verdict definitions, wildcard invariant, change process) and spec/v1/instances.json (machine-readable apex/origin/hosting/security_contact for secrt.ca and secrt.is). Update spec/v1/README.md table.",
-            "status": "done"
-          },
-          {
-            "id": 2,
-            "title": "secrt-core::instance + TrustDecision",
-            "description": "New crates/secrt-core/src/instance.rs with KNOWN_INSTANCES, TrustDecision enum, classify_origin(), normalize_origin(). Promote `url` to direct dep. Tests pin to spec/v1/instances.json. TS rewrites normalizeHost→normalizeOrigin in web/src/lib/config.ts using URL API. Vitest pins to same JSON; getInfrastructure() drift test added.",
-            "status": "done"
-          },
-          {
-            "id": 3,
-            "title": "CLI resolver refactor — BaseUrlSource enum, unified auth resolver",
-            "description": "Replace pa.base_url_from_flag bool with BaseUrlSource enum (Flag/Env/Config/Default/UrlDerived). Delete auth.rs:resolve_base_url duplicate; route auth through cli.rs:resolve_globals_with_config. Unify URL-host derivation in sync/get/burn/info into one helper. ~100 LOC churn. Lands as its own PR before the warning logic.",
-            "status": "done"
-          },
-          {
-            "id": 4,
-            "title": "CLI warnings + credential-leak hard-block + SPA copy",
-            "description": "New crates/secrt-cli/src/instance_trust.rs with warn_if_unofficial() called from make_api factory (covers all commands incl. auth). Hard-block: sync/burn/info refuse to send API key to URL-derived host that doesn't match configured one. Warn-only: get (unauthenticated). New Config::trusted_servers field. Move task 72's info.authenticated check up from import_amk into handle_sync_url. Strengthen web/src/features/send/SendPage.tsx unknown-host inline error copy. Tests: cli_sync, cli_burn, cli_info, cli_get, SendPage.test.tsx. Spec: cli.md gets 'Instance trust' section. CLOSES TASK 72.",
-            "status": "done"
-          },
-          {
-            "id": 5,
-            "title": "Tauri CSP widen + hardcoded-host cleanup",
-            "description": "Widen connect-src in crates/secrt-desktop/tauri.conf.json from secrt.ca only to all KNOWN_INSTANCES origins. New tests/csp_drift.rs asserts CSP matches secrt-core constant. Replace hardcoded 'https://secrt.ca' in web/src/lib/config.ts:14 and web/src/lib/url.ts:16,30 with shared PRIMARY_OFFICIAL_ORIGIN constant. Self-host Tauri support (runtime base-URL config + dynamic CSP) is DEFERRED to a separate task.",
-            "status": "done"
-          },
-          {
-            "id": 6,
-            "title": "SRI on web SPA bundle (asset integrity for trusted HTML)",
-            "description": "Hand-rolled Vite plugin (~30 LOC, web/vite-plugins/sri.ts) injects integrity=sha384-... + crossorigin=anonymous on all external <script>/<link> in built index.html. Three-pronged tests: (1) plugin unit test against synthetic fixture (no build needed), (2) gated SRI_VERIFY_BUILD=1 integration test against real dist/, (3) Rust test asserting server token-replacement preserves integrity= attrs (synthetic fixture, doesn't depend on dist being populated). CI: frontend job runs pnpm build before SRI integration test. Reframed as asset-tampering defense; cross-host bundle pinning is a separate future task.",
-            "status": "done"
-          }
-        ]
-      },
-      {
-        "id": 74,
-        "title": "Fix mobile footer viewport/safe-area layout",
-        "description": "On mobile devices the web footer can be pushed below the visible bottom even when the page content is shorter than the viewport. This affects the shared web UI and therefore Tauri mobile builds. Repro observed on an iPhone 17 / iOS 26.4 simulator: the footer is technically visible but sits behind the bottom Liquid Glass Safari address bar. Current layout uses `flex min-h-screen flex-col` in `web/src/components/Layout.tsx`, while the footer only applies bottom padding with `env(safe-area-inset-bottom)`. Suspected root cause: Tailwind `min-h-screen` maps to `100vh`, which can represent the mobile layout viewport rather than the visible dynamic viewport under Safari/Chrome browser chrome or mobile WebViews. Safe-area padding protects content from hardware cutouts and the home indicator; it does not represent transient browser chrome like Safari's bottom address bar, and it does not shrink a too-tall `100vh` container. Also review whether footer padding should be `calc(1rem + env(safe-area-inset-bottom))` rather than `max(1rem, env(...))` so the normal spacing is preserved when an inset exists.",
-        "status": "done",
-        "priority": "medium",
-        "dependencies": [],
-        "subtasks": [
-          {
-            "id": 1,
-            "title": "Reproduce on mobile browser and Tauri mobile WebView",
-            "description": "Check a short-content route such as `/` or `/login` on iOS Safari, Android Chrome, and the Tauri mobile WebView if available. iOS simulator and desktop browser were manually verified after the fix; Android/Tauri mobile can be spot-checked later if a device/emulator is available.",
-            "status": "done"
-          },
-          {
-            "id": 2,
-            "title": "Replace `min-h-screen` with a dynamic viewport-safe app shell",
-            "description": "Prefer `min-h-dvh` / `min-height: 100dvh` for modern mobile browsers, with a fallback for older WebKit if needed. Keep the shell as the flex column that owns `mt-auto` footer placement.",
-            "status": "done"
-          },
-          {
-            "id": 3,
-            "title": "Rework footer safe-area padding",
-            "description": "Use a bottom padding formula that includes both normal footer breathing room and the safe-area inset, e.g. `calc(1rem + env(safe-area-inset-bottom))`, instead of treating the inset as a replacement for the normal padding.",
-            "status": "done"
-          },
-          {
-            "id": 4,
-            "title": "Add mobile layout regression coverage",
-            "description": "Deferred after manual iOS simulator and desktop verification. Add Playwright or visual screenshot coverage later if this layout regresses or mobile browser chrome behavior changes again.",
-            "status": "deferred"
-          }
-        ]
       }
     ]
   }
