@@ -1,5 +1,10 @@
 import { describe, it, expect } from 'vitest';
-import { formatShareLink, parseShareUrl } from './url';
+import {
+  formatShareLink,
+  parseShareUrl,
+  formatPairUrl,
+  parsePairUrl,
+} from './url';
 import { base64urlEncode, base64urlDecode } from '../crypto/encoding';
 
 /** Generate a 32-byte url_key for testing. */
@@ -184,5 +189,73 @@ describe('parseShareUrl', () => {
     expect(result).not.toBeNull();
     expect(result!.urlKey).toEqual(urlKey);
     expect(base64urlEncode(result!.urlKey)).toBe(urlKeyB64);
+  });
+});
+
+describe('formatPairUrl', () => {
+  it('encodes a code into a /pair?mode=join URL on the current origin', () => {
+    expect(formatPairUrl('K7MQ-3F2A')).toBe(
+      `${window.location.origin}/pair?mode=join&code=K7MQ-3F2A`,
+    );
+  });
+
+  it('respects an explicit base URL', () => {
+    expect(formatPairUrl('AAAA-BBBB', 'https://example.com')).toBe(
+      'https://example.com/pair?mode=join&code=AAAA-BBBB',
+    );
+  });
+});
+
+describe('parsePairUrl', () => {
+  it('accepts a bare XXXX-XXXX code', () => {
+    expect(parsePairUrl('K7MQ-3F2A')).toEqual({ code: 'K7MQ-3F2A' });
+  });
+
+  it('uppercases lower-case typed input', () => {
+    expect(parsePairUrl('k7mq-3f2a')).toEqual({ code: 'K7MQ-3F2A' });
+  });
+
+  it('strips whitespace', () => {
+    expect(parsePairUrl('  K7MQ-3F2A  ')).toEqual({ code: 'K7MQ-3F2A' });
+  });
+
+  it('parses a fully qualified /pair URL', () => {
+    expect(
+      parsePairUrl('https://secrt.ca/pair?mode=join&code=K7MQ-3F2A'),
+    ).toEqual({ code: 'K7MQ-3F2A' });
+  });
+
+  it('parses a bare-host pasted /pair URL (coerces to https)', () => {
+    expect(parsePairUrl('secrt.ca/pair?mode=join&code=AAAA-BBBB')).toEqual({
+      code: 'AAAA-BBBB',
+    });
+  });
+
+  it('round-trips formatPairUrl', () => {
+    const url = formatPairUrl('Z9X8-Y7W6', 'https://secrt.is');
+    expect(parsePairUrl(url)).toEqual({ code: 'Z9X8-Y7W6' });
+  });
+
+  it('rejects an invalid code shape', () => {
+    expect(parsePairUrl('K7MQ3F2A')).toBeNull();
+    expect(parsePairUrl('K7MQ-3F2')).toBeNull();
+    expect(parsePairUrl('K7MQ-3F2AA')).toBeNull();
+    expect(parsePairUrl('')).toBeNull();
+  });
+
+  it('rejects a URL whose path is not /pair', () => {
+    expect(
+      parsePairUrl('https://secrt.ca/login?mode=join&code=K7MQ-3F2A'),
+    ).toBeNull();
+  });
+
+  it('rejects a /pair URL without a code param', () => {
+    expect(parsePairUrl('https://secrt.ca/pair?mode=join')).toBeNull();
+  });
+
+  it('rejects a /pair URL with a malformed code', () => {
+    expect(
+      parsePairUrl('https://secrt.ca/pair?mode=join&code=NOPE'),
+    ).toBeNull();
   });
 });

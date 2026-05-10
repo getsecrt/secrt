@@ -31,6 +31,54 @@ export function formatSyncLink(
   return `${origin}/sync/${id}#${base64urlEncode(urlKey)}`;
 }
 
+/**
+ * Build the public pairing URL the displayer encodes into a QR.
+ * Carries only the rendezvous code — never a private poll token.
+ */
+export function formatPairUrl(code: string, baseUrl?: string): string {
+  const origin =
+    baseUrl ?? (isTauri() ? PRIMARY_OFFICIAL_ORIGIN : window.location.origin);
+  return `${origin}/pair?mode=join&code=${encodeURIComponent(code)}`;
+}
+
+/** Strict XXXX-XXXX shape using the user-code alphabet (uppercase A-Z and 0-9). */
+const PAIR_CODE_RE = /^[A-Z0-9]{4}-[A-Z0-9]{4}$/;
+
+/**
+ * Parse a pair code from either a fully qualified `/pair?mode=join&code=…`
+ * URL (QR scan) or a bare `XXXX-XXXX` form (typed entry). Lower-case input
+ * is upper-cased before validation. Returns null if no valid code is found.
+ */
+export function parsePairUrl(input: string): { code: string } | null {
+  const trimmed = input.trim();
+  if (!trimmed) return null;
+
+  // Bare code: typed entry path (case-insensitive).
+  const upper = trimmed.toUpperCase();
+  if (PAIR_CODE_RE.test(upper)) {
+    return { code: upper };
+  }
+
+  // URL form. Tolerate missing protocol so pasted hosts still work.
+  let normalized = trimmed;
+  if (!/^https?:\/\//i.test(normalized)) {
+    normalized = `https://${normalized}`;
+  }
+
+  let parsed: URL;
+  try {
+    parsed = new URL(normalized);
+  } catch {
+    return null;
+  }
+  if (!/^\/pair\/?$/i.test(parsed.pathname)) return null;
+  const raw = parsed.searchParams.get('code');
+  if (!raw) return null;
+  const code = raw.toUpperCase();
+  if (!PAIR_CODE_RE.test(code)) return null;
+  return { code };
+}
+
 /** Minimum secret ID length (real IDs are 22 chars / 16 bytes base64url). */
 const MIN_ID_LEN = 16;
 

@@ -641,6 +641,192 @@ export async function appLoginApprove(
   );
 }
 
+/* ── Web-to-Web Pair API ─────────────────────────── */
+
+export type PairRole = 'send' | 'receive';
+
+export interface PairStartResponse {
+  user_code: string;
+  /** Private bearer token. Never embed in URLs or QR codes. */
+  displayer_poll_token: string;
+  expires_at: string;
+}
+
+export interface PairAmkTransfer {
+  ct: string;
+  nonce: string;
+  ecdh_public_key: string;
+}
+
+export interface PairPollResponse {
+  /** 'pending' | 'claimed' | 'approved' | 'cancelled' | 'expired'. */
+  status: string;
+  /** Surfaced only to the role=send displayer when status='claimed'. */
+  joiner_user_agent?: string;
+  /** Reserved; always null in v1. */
+  joiner_geo_label?: string | null;
+  joiner_seen_at?: string;
+  peer_ecdh_public_key?: string;
+  amk_transfer?: PairAmkTransfer;
+}
+
+export interface PairClaimResponse {
+  /** Private bearer token for the joiner side. Never embed in URLs or QR codes. */
+  joiner_poll_token: string;
+  expires_at: string;
+}
+
+/**
+ * Distinguishable response from `pairChallenge`:
+ * - `kind === 'ok'` (HTTP 200, slot is pending)
+ * - `kind === 'not_found'` (HTTP 404)
+ * - `kind === 'terminal'` (HTTP 409 with body `{ state }`)
+ * - throws on 401/403/429/5xx (treated as transport errors)
+ */
+export type PairChallengeResult =
+  | { kind: 'ok'; role: PairRole; displayer_ecdh_public_key?: string }
+  | { kind: 'not_found' }
+  | { kind: 'terminal'; state: 'claimed' | 'approved' | 'cancelled' };
+
+export async function pairStart(
+  token: string,
+  req: { role: PairRole; ecdh_public_key?: string },
+  signal?: AbortSignal,
+): Promise<PairStartResponse> {
+  return requestJson<PairStartResponse>(
+    '/api/v1/auth/pair/start',
+    {
+      method: 'POST',
+      headers: {
+        authorization: `Bearer ${token}`,
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify(req),
+    },
+    signal,
+  );
+}
+
+export async function pairPoll(
+  token: string,
+  pollToken: string,
+  signal?: AbortSignal,
+): Promise<PairPollResponse> {
+  return requestJson<PairPollResponse>(
+    '/api/v1/auth/pair/poll',
+    {
+      method: 'POST',
+      headers: {
+        authorization: `Bearer ${token}`,
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({ poll_token: pollToken }),
+    },
+    signal,
+  );
+}
+
+export async function pairClaim(
+  token: string,
+  req: { user_code: string; ecdh_public_key: string },
+  signal?: AbortSignal,
+): Promise<PairClaimResponse> {
+  return requestJson<PairClaimResponse>(
+    '/api/v1/auth/pair/claim',
+    {
+      method: 'POST',
+      headers: {
+        authorization: `Bearer ${token}`,
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify(req),
+    },
+    signal,
+  );
+}
+
+export async function pairChallenge(
+  token: string,
+  userCode: string,
+  signal?: AbortSignal,
+): Promise<PairChallengeResult> {
+  const base = getApiBase();
+  const res = await fetch(
+    `${base}/api/v1/auth/pair/challenge?user_code=${encodeURIComponent(userCode)}`,
+    {
+      method: 'GET',
+      headers: {
+        authorization: `Bearer ${token}`,
+        accept: 'application/json',
+      },
+      credentials: base ? 'include' : 'same-origin',
+      signal,
+    },
+  );
+
+  if (res.status === 200) {
+    const body = (await res.json()) as {
+      role: PairRole;
+      displayer_ecdh_public_key?: string;
+    };
+    return {
+      kind: 'ok',
+      role: body.role,
+      displayer_ecdh_public_key: body.displayer_ecdh_public_key,
+    };
+  }
+  if (res.status === 404) {
+    return { kind: 'not_found' };
+  }
+  if (res.status === 409) {
+    const body = (await res.json().catch(() => ({}))) as { state?: string };
+    const state = body.state;
+    if (state === 'claimed' || state === 'approved' || state === 'cancelled') {
+      return { kind: 'terminal', state };
+    }
+    throw new Error(`unexpected /challenge 409 body: ${JSON.stringify(body)}`);
+  }
+  throw new Error(await readApiError(res));
+}
+
+export async function pairApprove(
+  token: string,
+  req: { user_code: string; amk_transfer: PairAmkTransfer },
+  signal?: AbortSignal,
+): Promise<{ ok: boolean }> {
+  return requestJson<{ ok: boolean }>(
+    '/api/v1/auth/pair/approve',
+    {
+      method: 'POST',
+      headers: {
+        authorization: `Bearer ${token}`,
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify(req),
+    },
+    signal,
+  );
+}
+
+export async function pairCancel(
+  token: string,
+  pollToken: string,
+  signal?: AbortSignal,
+): Promise<{ ok: boolean }> {
+  return requestJson<{ ok: boolean }>(
+    '/api/v1/auth/pair/cancel',
+    {
+      method: 'POST',
+      headers: {
+        authorization: `Bearer ${token}`,
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({ poll_token: pollToken }),
+    },
+    signal,
+  );
+}
+
 /* ── Device Auth Challenge API ───────────────────── */
 
 export async function getDeviceChallenge(
