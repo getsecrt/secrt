@@ -42,13 +42,12 @@ export const KNOWN_INSTANCES: readonly string[] = ['secrt.ca', 'secrt.is'];
  * pass `isKnownInstance`).
  *
  * Primary callers pass `URL.hostname` which is already port-stripped per
- * WHATWG; the function still tolerates an accidental port suffix.
+ * WHATWG. IPv6 hosts are returned bracket-stripped and lowercased.
  */
 export function normalizeHost(host: string): string {
   let h = host.toLowerCase();
-  // Trim accidental port suffix (defensive — URL.hostname has none).
-  const colon = h.indexOf(':');
-  if (colon !== -1) h = h.slice(0, colon);
+  // Strip IPv6 brackets if present (URL.hostname for IPv6 is `[::1]`).
+  if (h.startsWith('[') && h.endsWith(']')) h = h.slice(1, -1);
   // Trim trailing FQDN dot.
   if (h.endsWith('.')) h = h.slice(0, -1);
   for (const known of KNOWN_INSTANCES) {
@@ -65,6 +64,96 @@ export function normalizeHost(host: string): string {
  */
 export function isKnownInstance(host: string): boolean {
   return KNOWN_INSTANCES.includes(normalizeHost(host));
+}
+
+/** Typed verdict on whether a base URL is trustworthy. Mirrors the Rust
+ *  `secrt_core::TrustDecision` enum — same inputs MUST produce the same
+ *  verdict in both implementations (enforced by spec-vector tests).
+ */
+export type TrustDecision =
+  | { kind: 'official'; apex: string }
+  | { kind: 'trustedCustom' }
+  | { kind: 'devLocal' }
+  | { kind: 'untrusted' };
+
+/**
+ * Normalize a base URL to its origin string (`scheme://host[:port]`).
+ * Returns `null` if parsing fails or the URL has no host. Uses the
+ * platform `URL` API so IPv6 brackets and ports survive correctly.
+ */
+export function normalizeOrigin(baseUrl: string): string | null {
+  let u: URL;
+  try {
+    u = new URL(baseUrl);
+  } catch {
+    return null;
+  }
+  if (!u.hostname) return null;
+  const scheme = u.protocol.slice(0, -1).toLowerCase();
+  const host = u.hostname.toLowerCase();
+  // Re-bracket IPv6 hosts (URL.hostname strips them on some engines).
+  const hostFmt = host.includes(':') && !host.startsWith('[') ? `[${host}]` : host;
+  return u.port ? `${scheme}://${hostFmt}:${u.port}` : `${scheme}://${hostFmt}`;
+}
+
+function isDevLocalHost(host: string): boolean {
+  if (!host) return false;
+  const h = host.toLowerCase();
+  if (h === 'localhost' || h.endsWith('.local')) return true;
+  // IPv4 127.0.0.0/8.
+  if (/^127\.\d+\.\d+\.\d+$/.test(h)) return true;
+  // IPv6 loopback (URL.hostname returns `[::1]` on some engines, `::1` on others).
+  const stripped = h.startsWith('[') && h.endsWith(']') ? h.slice(1, -1) : h;
+  if (stripped === '::1' || stripped === '0:0:0:0:0:0:0:1') return true;
+  return false;
+}
+
+/**
+ * Compute the trust verdict for a base URL against the official list
+ * and a caller-provided list of user-trusted hosts. Mirrors the Rust
+ * implementation in `secrt_core::classify_origin`.
+ *
+ * Rules:
+ *   - Returns `untrusted` if the URL fails to parse or uses anything
+ *     other than http/https.
+ *   - `official` requires `https`, default port (no explicit port), and
+ *     a host that equals or is a strict subdomain of an entry in
+ *     `KNOWN_INSTANCES`. Non-default ports force opt-in via
+ *     `trustedCustom`.
+ *   - `devLocal` covers `localhost`, `127.0.0.0/8`, `::1`, and `*.local`.
+ *   - `trustedCustom` matches when the host (lowercased) equals an
+ *     entry in `trustedCustom`.
+ */
+export function classifyOrigin(
+  baseUrl: string,
+  trustedCustom: readonly string[] = [],
+): TrustDecision {
+  let u: URL;
+  try {
+    u = new URL(baseUrl);
+  } catch {
+    return { kind: 'untrusted' };
+  }
+  const scheme = u.protocol.slice(0, -1).toLowerCase();
+  if (scheme !== 'http' && scheme !== 'https') {
+    return { kind: 'untrusted' };
+  }
+  const rawHost = u.hostname;
+  if (!rawHost) return { kind: 'untrusted' };
+  if (isDevLocalHost(rawHost)) return { kind: 'devLocal' };
+
+  const host = rawHost.toLowerCase();
+  if (scheme === 'https' && !u.port) {
+    for (const known of KNOWN_INSTANCES) {
+      if (host === known || host.endsWith(`.${known}`)) {
+        return { kind: 'official', apex: known };
+      }
+    }
+  }
+  for (const trusted of trustedCustom) {
+    if (host === trusted.toLowerCase()) return { kind: 'trustedCustom' };
+  }
+  return { kind: 'untrusted' };
 }
 
 /**

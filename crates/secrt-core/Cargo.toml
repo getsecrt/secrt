@@ -14,3 +14,4 @@ base64.workspace = true
 hex.workspace = true
 zstd.workspace = true
 argon2.workspace = true
+url.workspace = true

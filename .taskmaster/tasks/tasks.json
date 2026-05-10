@@ -1185,7 +1185,7 @@
             "id": 2,
             "title": "secrt-core::instance + TrustDecision",
             "description": "New crates/secrt-core/src/instance.rs with KNOWN_INSTANCES, TrustDecision enum, classify_origin(), normalize_origin(). Promote `url` to direct dep. Tests pin to spec/v1/instances.json. TS rewrites normalizeHost→normalizeOrigin in web/src/lib/config.ts using URL API. Vitest pins to same JSON; getInfrastructure() drift test added.",
-            "status": "pending"
+            "status": "done"
           },
           {
             "id": 3,
