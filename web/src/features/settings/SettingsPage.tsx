@@ -915,7 +915,14 @@ function SettingsContent() {
           subtitle="Allow your encrypted notes to be viewed on another browser or device."
           class="mb-3"
         />
-        <div class="text-center">
+        <div class="flex flex-col items-center gap-3 text-center">
+          <button
+            type="button"
+            class="btn btn-primary tracking-wider uppercase"
+            onClick={() => navigate('/pair?mode=display&role=send')}
+          >
+            Pair Another Device
+          </button>
           <SyncNotesKeyButton />
         </div>
       </div>

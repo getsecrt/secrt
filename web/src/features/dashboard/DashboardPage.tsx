@@ -528,6 +528,17 @@ function DashboardContent() {
           API Keys & Account Settings
         </a>
 
+        <a
+          href="/pair?mode=display&role=receive"
+          class="link"
+          onClick={(e: MouseEvent) => {
+            e.preventDefault();
+            navigate('/pair?mode=display&role=receive');
+          }}
+        >
+          Pair with another device
+        </a>
+
         <SyncNotesKeyButton />
       </div>
 
