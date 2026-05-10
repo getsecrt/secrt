@@ -4,6 +4,7 @@ import { resolve } from 'node:path';
 import { defineConfig, loadEnv } from 'vite';
 import tailwindcss from '@tailwindcss/vite';
 import preact from '@preact/preset-vite';
+import sri from './vite-plugins/sri';
 
 /** Read the workspace version from the root Cargo.toml (single source of truth). */
 function readCargoVersion(): string {
@@ -26,7 +27,7 @@ export default defineConfig(({ mode }) => {
     define: {
       'import.meta.env.VITE_APP_VERSION': JSON.stringify(appVersion),
     },
-    plugins: [tailwindcss(), preact()],
+    plugins: [tailwindcss(), preact(), sri()],
     server: {
       host: 'localhost',
       port: 5173,
@@ -55,7 +56,10 @@ export default defineConfig(({ mode }) => {
     },
     test: {
       environment: 'happy-dom',
-      include: ['src/**/*.test.{ts,tsx}'],
+      include: [
+        'src/**/*.test.{ts,tsx}',
+        'vite-plugins/**/*.test.{ts,tsx}',
+      ],
       setupFiles: ['src/test-setup.ts'],
       coverage: {
         provider: 'v8',
