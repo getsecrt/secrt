@@ -63,18 +63,87 @@ impl ApiClient {
         );
     }
 
-    fn handle_ureq_error(&self, err: ureq::Error) -> String {
-        let msg = err.to_string();
-        if msg.contains("tls") || msg.contains("certificate") || msg.contains("ssl") {
-            format!("TLS error connecting to {}: {}", self.base_url, msg)
-        } else if msg.contains("dns") || msg.contains("resolve") || msg.contains("No such host") {
-            format!("cannot resolve host {}: {}", self.base_url, msg)
-        } else if msg.contains("timed out") || msg.contains("timeout") {
-            format!("connection to {} timed out", self.base_url)
-        } else if msg.contains("Connection refused") || msg.contains("connection refused") {
-            format!("connection refused by {}", self.base_url)
+    /// Format a JSON-decode failure into something a user can act on.
+    /// For truly Untrusted hosts (where this most commonly means "you
+    /// pointed at a non-secrt server and got back HTML"), point at the
+    /// likely cause instead of leaking serde's column-number diagnostics.
+    /// DevLocal and Official hosts keep the verbose decode message —
+    /// the assumption "may not be a secrt server" would be wrong there.
+    fn decode_error<E: std::fmt::Display>(&self, e: E) -> String {
+        let host = secrt_core::host_of(&self.base_url).unwrap_or_else(|| self.base_url.clone());
+        if matches!(
+            secrt_core::classify_origin(&self.base_url, &[]),
+            secrt_core::TrustDecision::Untrusted
+        ) {
+            format!(
+                "{host} returned a response that wasn't a valid secrt API reply — \
+                 it may not be a secrt server"
+            )
         } else {
-            format!("HTTP request failed: {}", msg)
+            format!("decode response: {e}")
+        }
+    }
+
+    fn handle_ureq_error(&self, err: ureq::Error) -> String {
+        let host = secrt_core::host_of(&self.base_url).unwrap_or_else(|| self.base_url.clone());
+        // Hint at the *root cause* (likely "this isn't a secrt server")
+        // when the connection fails to a host we have no reason to
+        // believe is one. Only fires for Untrusted: Official hosts are
+        // assumed to be a secrt server (the failure is a network or
+        // outage problem), and DevLocal is usually the user's own dev
+        // server where the same assumption holds.
+        let untrusted = matches!(
+            secrt_core::classify_origin(&self.base_url, &[]),
+            secrt_core::TrustDecision::Untrusted
+        );
+        let not_secrt_hint = if untrusted {
+            format!(" — {host} may not be a secrt server")
+        } else {
+            String::new()
+        };
+
+        // Variant-match first (most reliable) and fall back to message
+        // substrings for transports whose error variant we don't pattern
+        // explicitly. Drops ureq's `docs.rs` link and rustls internals
+        // from user-visible output; the raw cause is still in the logs
+        // if the caller chooses to surface it elsewhere.
+        match &err {
+            ureq::Error::Tls(_) => {
+                return format!("could not establish a secure connection to {host}{not_secrt_hint}")
+            }
+            ureq::Error::Io(io_err) => {
+                use std::io::ErrorKind::*;
+                return match io_err.kind() {
+                    NotFound => {
+                        format!("could not resolve {host}; check the spelling or your network")
+                    }
+                    TimedOut => format!("connection to {host} timed out"),
+                    ConnectionRefused => {
+                        format!("{host} refused the connection{not_secrt_hint}")
+                    }
+                    ConnectionReset | ConnectionAborted | UnexpectedEof => {
+                        format!("connection to {host} was closed unexpectedly{not_secrt_hint}")
+                    }
+                    _ => format!("could not connect to {host}{not_secrt_hint}"),
+                };
+            }
+            _ => {}
+        }
+
+        let msg_lc = err.to_string().to_lowercase();
+        if msg_lc.contains("tls") || msg_lc.contains("certificate") || msg_lc.contains("ssl") {
+            format!("could not establish a secure connection to {host}{not_secrt_hint}")
+        } else if msg_lc.contains("dns")
+            || msg_lc.contains("resolve")
+            || msg_lc.contains("no such host")
+        {
+            format!("could not resolve {host}; check the spelling or your network")
+        } else if msg_lc.contains("timed out") || msg_lc.contains("timeout") {
+            format!("connection to {host} timed out")
+        } else if msg_lc.contains("connection refused") {
+            format!("{host} refused the connection{not_secrt_hint}")
+        } else {
+            format!("could not connect to {host}{not_secrt_hint}")
         }
     }
 
@@ -202,8 +271,8 @@ impl ApiClient {
         let body_str = resp
             .into_body()
             .read_to_string()
-            .map_err(|e| format!("decode response: {}", e))?;
-        serde_json::from_str(&body_str).map_err(|e| format!("decode response: {}", e))
+            .map_err(|e| self.decode_error(e))?;
+        serde_json::from_str(&body_str).map_err(|e| self.decode_error(e))
     }
 
     /// Poll for device authorization completion (unauthenticated).
@@ -228,8 +297,8 @@ impl ApiClient {
         let body_str = resp
             .into_body()
             .read_to_string()
-            .map_err(|e| format!("decode response: {}", e))?;
-        serde_json::from_str(&body_str).map_err(|e| format!("decode response: {}", e))
+            .map_err(|e| self.decode_error(e))?;
+        serde_json::from_str(&body_str).map_err(|e| self.decode_error(e))
     }
 }
 
@@ -265,9 +334,9 @@ impl SecretApi for ApiClient {
         let body_str = resp
             .into_body()
             .read_to_string()
-            .map_err(|e| format!("decode response: {}", e))?;
+            .map_err(|e| self.decode_error(e))?;
         let result: CreateResponse =
-            serde_json::from_str(&body_str).map_err(|e| format!("decode response: {}", e))?;
+            serde_json::from_str(&body_str).map_err(|e| self.decode_error(e))?;
 
         Ok(result)
     }
@@ -293,9 +362,9 @@ impl SecretApi for ApiClient {
         let body_str = resp
             .into_body()
             .read_to_string()
-            .map_err(|e| format!("decode response: {}", e))?;
+            .map_err(|e| self.decode_error(e))?;
         let result: ClaimResponse =
-            serde_json::from_str(&body_str).map_err(|e| format!("decode response: {}", e))?;
+            serde_json::from_str(&body_str).map_err(|e| self.decode_error(e))?;
 
         Ok(result)
     }
@@ -354,8 +423,8 @@ impl SecretApi for ApiClient {
         let body_str = resp
             .into_body()
             .read_to_string()
-            .map_err(|e| format!("decode response: {}", e))?;
-        serde_json::from_str(&body_str).map_err(|e| format!("decode response: {}", e))
+            .map_err(|e| self.decode_error(e))?;
+        serde_json::from_str(&body_str).map_err(|e| self.decode_error(e))
     }
 
     fn get_secret_metadata(&self, id: &str) -> Result<SecretMetadataItem, String> {
@@ -377,8 +446,8 @@ impl SecretApi for ApiClient {
         let body_str = resp
             .into_body()
             .read_to_string()
-            .map_err(|e| format!("decode response: {}", e))?;
-        serde_json::from_str(&body_str).map_err(|e| format!("decode response: {}", e))
+            .map_err(|e| self.decode_error(e))?;
+        serde_json::from_str(&body_str).map_err(|e| self.decode_error(e))
     }
 
     fn update_secret_meta(
@@ -441,9 +510,9 @@ impl SecretApi for ApiClient {
         let body_str = resp
             .into_body()
             .read_to_string()
-            .map_err(|e| format!("decode response: {}", e))?;
+            .map_err(|e| self.decode_error(e))?;
         let wrapper: AmkWrapperResponse =
-            serde_json::from_str(&body_str).map_err(|e| format!("decode response: {}", e))?;
+            serde_json::from_str(&body_str).map_err(|e| self.decode_error(e))?;
         Ok(Some(wrapper))
     }
 
@@ -519,9 +588,9 @@ impl SecretApi for ApiClient {
         let body_str = resp
             .into_body()
             .read_to_string()
-            .map_err(|e| format!("decode response: {}", e))?;
+            .map_err(|e| self.decode_error(e))?;
         let result: InfoResponse =
-            serde_json::from_str(&body_str).map_err(|e| format!("decode response: {}", e))?;
+            serde_json::from_str(&body_str).map_err(|e| self.decode_error(e))?;
 
         // Refresh the local update-check cache from the typed body fields,
         // covering the path where advisory headers may have been stripped
@@ -808,19 +877,50 @@ mod tests {
         };
 
         let tls = client.handle_ureq_error(ureq::Error::Tls("certificate verify failed"));
-        assert!(tls.contains("TLS error connecting to"));
+        assert!(
+            tls.contains("could not establish a secure connection to example.com"),
+            "got: {tls}"
+        );
+        assert!(
+            tls.contains("may not be a secrt server"),
+            "unofficial host should get the not-secrt hint; got: {tls}"
+        );
+        // The rustls/docs.rs noise from the ureq error must be hidden.
+        assert!(
+            !tls.contains("docs.rs") && !tls.contains("close_notify"),
+            "should not leak rustls internals; got: {tls}"
+        );
 
         let dns = client.handle_ureq_error(ureq::Error::Io(std::io::Error::new(
             std::io::ErrorKind::NotFound,
             "No such host",
         )));
-        assert!(dns.contains("cannot resolve host"));
+        assert!(dns.contains("could not resolve example.com"), "got: {dns}");
 
         let timeout = client.handle_ureq_error(ureq::Error::Io(std::io::Error::new(
             std::io::ErrorKind::TimedOut,
             "timed out",
         )));
-        assert!(timeout.contains("timed out"));
+        assert!(timeout.contains("timed out"), "got: {timeout}");
+    }
+
+    #[test]
+    fn handle_ureq_error_official_host_omits_not_secrt_hint() {
+        // Official hosts shouldn't be told "may not be a secrt server" —
+        // that would be misleading for transient network issues.
+        let client = ApiClient {
+            base_url: "https://secrt.ca".into(),
+            api_key: String::new(),
+        };
+        let tls = client.handle_ureq_error(ureq::Error::Tls("handshake failed"));
+        assert!(
+            !tls.contains("may not be a secrt server"),
+            "official host must not get the unofficial hint; got: {tls}"
+        );
+        assert!(
+            tls.contains("could not establish a secure connection to secrt.ca"),
+            "got: {tls}"
+        );
     }
 
     #[test]
