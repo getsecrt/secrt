@@ -1854,14 +1854,25 @@ fn decode_and_verify_registration(
             warn!("passkey register: client_data_json not valid base64url");
         })?;
 
+    let expected_origin = derive_expected_origin(&cfg.public_base_url);
+    let expected_rp_id = derive_rp_id(&cfg.public_base_url);
     parse_registration(
         &auth_data,
         &cdj,
         expected_challenge_b64u,
-        derive_expected_origin(&cfg.public_base_url),
-        derive_rp_id(&cfg.public_base_url),
+        expected_origin,
+        expected_rp_id,
     )
-    .map_err(|err| log_verify_error("passkey register", err))
+    .map_err(|err| {
+        log_verify_error(
+            "passkey register",
+            err,
+            &cdj,
+            &auth_data,
+            expected_origin,
+            expected_rp_id,
+        )
+    })
 }
 
 /// Decode the login wire fields and run them through `verify_assertion`.
@@ -1895,24 +1906,84 @@ fn decode_and_verify_assertion(
             warn!("passkey login: stored public_key not valid base64url");
         })?;
 
+    let expected_origin = derive_expected_origin(&cfg.public_base_url);
+    let expected_rp_id = derive_rp_id(&cfg.public_base_url);
     let ctx = AssertionContext {
         stored_pubkey_sec1: &pubkey,
         stored_sign_count,
         expected_challenge_b64u,
-        expected_origin: derive_expected_origin(&cfg.public_base_url),
-        expected_rp_id: derive_rp_id(&cfg.public_base_url),
+        expected_origin,
+        expected_rp_id,
     };
     let req = AssertionRequest {
         authenticator_data: &auth_data,
         client_data_json: &cdj,
         signature: &sig,
     };
-    verify_assertion(&ctx, &req).map_err(|err| log_verify_error("passkey login", err))
+    verify_assertion(&ctx, &req).map_err(|err| {
+        log_verify_error(
+            "passkey login",
+            err,
+            &cdj,
+            &auth_data,
+            expected_origin,
+            expected_rp_id,
+        )
+    })
 }
 
-fn log_verify_error(scope: &str, err: VerifyError) {
-    // Discriminator is logged server-side only — never surfaced over the wire.
-    warn!(scope, error = err.as_str(), "webauthn verification failed");
+/// Log a WebAuthn verification failure with the discriminator. For the two
+/// variants whose values are public per-RP identifiers (`OriginMismatch`,
+/// `RpIdHashMismatch`), also include the received-vs-expected pair so a
+/// misconfigured `PUBLIC_BASE_URL` is diagnosable from the server's own log
+/// without having to spelunk through clientDataJSON in DevTools. Other
+/// discriminators stay opaque — their values are either sensitive
+/// (`InvalidSignature` over secret bits) or unhelpful for the reader.
+fn log_verify_error(
+    scope: &str,
+    err: VerifyError,
+    client_data_json: &[u8],
+    authenticator_data: &[u8],
+    expected_origin: &str,
+    expected_rp_id: &str,
+) {
+    match err {
+        VerifyError::OriginMismatch => {
+            let received = serde_json::from_slice::<serde_json::Value>(client_data_json)
+                .ok()
+                .and_then(|v| v.get("origin").and_then(|o| o.as_str()).map(str::to_string))
+                .unwrap_or_else(|| "<unparseable>".to_string());
+            warn!(
+                scope,
+                error = err.as_str(),
+                received_origin = %received,
+                expected_origin = %expected_origin,
+                "webauthn verification failed: origin mismatch"
+            );
+        }
+        VerifyError::RpIdHashMismatch => {
+            let received_hex = authenticator_data
+                .get(..32)
+                .map(hex::encode)
+                .unwrap_or_else(|| "<short>".to_string());
+            let expected_hex = hex::encode(
+                ring::digest::digest(&ring::digest::SHA256, expected_rp_id.as_bytes()).as_ref(),
+            );
+            warn!(
+                scope,
+                error = err.as_str(),
+                received_rp_id_hash = %received_hex,
+                expected_rp_id = %expected_rp_id,
+                expected_rp_id_hash = %expected_hex,
+                "webauthn verification failed: rp_id hash mismatch"
+            );
+        }
+        _ => {
+            // Discriminator only. Variant values for the remaining errors
+            // are either sensitive or unhelpful to surface.
+            warn!(scope, error = err.as_str(), "webauthn verification failed");
+        }
+    }
 }
 
 /// First 8 chars of a base64url credential_id — enough to correlate with
