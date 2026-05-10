@@ -3715,23 +3715,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "94143f37725109f92c262ed2cf5e59bce7498c01bcc1502d7b9afe439a4e9f49"
 
 [[package]]
-name = "secrt-app"
-version = "0.17.7"
-dependencies = [
- "arboard",
- "base64 0.22.1",
- "dirs",
- "keyring",
- "ring",
- "secrt-core",
- "serde",
- "serde_json",
- "tauri",
- "tauri-build",
- "tauri-plugin-shell",
-]
-
-[[package]]
 name = "secrt-cli"
 version = "0.17.7"
 dependencies = [
@@ -3764,6 +3747,23 @@ dependencies = [
  "serde_json",
  "url",
  "zstd",
+]
+
+[[package]]
+name = "secrt-desktop"
+version = "0.17.7"
+dependencies = [
+ "arboard",
+ "base64 0.22.1",
+ "dirs",
+ "keyring",
+ "ring",
+ "secrt-core",
+ "serde",
+ "serde_json",
+ "tauri",
+ "tauri-build",
+ "tauri-plugin-shell",
 ]
 
 [[package]]

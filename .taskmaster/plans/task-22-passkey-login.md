@@ -33,9 +33,9 @@ Registration is similar but uses `navigator.credentials.create()` with `resident
 
 ### Tauri App Config
 
-- **Tauri conf:** `crates/secrt-app/tauri.conf.json`
+- **Tauri conf:** `crates/secrt-desktop/tauri.conf.json`
 - **CSP:** `default-src 'self'; connect-src ipc: http://ipc.localhost https://secrt.ca`
-- **No auth plugins** — currently only crypto commands (seal, open, derive_claim_token) in `crates/secrt-app/src/lib.rs`
+- **No auth plugins** — currently only crypto commands (seal, open, derive_claim_token) in `crates/secrt-desktop/src/lib.rs`
 - **No Tauri auth-specific code yet** — auth pages load identically to browser
 
 ### WebAuthn Parameters Used

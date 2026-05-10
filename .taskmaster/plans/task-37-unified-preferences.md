@@ -726,8 +726,8 @@ Plus a similar line near the "Clear local data" button explaining what it does a
 | `web/src/components/Nav.tsx` | Remove dark-mode toggle; add gear icon for unauth |
 | `web/src/components/ThemeToggle.tsx` | Keep `D` shortcut; remove visual button |
 | `web/src/lib/shortcuts.ts` (**new or extended**) | `Cmd+,` / `Ctrl+,` |
-| `crates/secrt-app/src/lib.rs` | New `biometric_authenticate` Tauri command |
-| `crates/secrt-app/tauri.conf.json` | macOS menu `Preferences… ⌘,` |
+| `crates/secrt-desktop/src/lib.rs` | New `biometric_authenticate` Tauri command |
+| `crates/secrt-desktop/tauri.conf.json` | macOS menu `Preferences… ⌘,` |
 
 ---
 
@@ -746,7 +746,7 @@ Plus a similar line near the "Clear local data" button explaining what it does a
 - **Design discussion transcripts:** sessions of 2026-04-26 (Claude Code), including Codex review and follow-up triage; session of 2026-05-01 (Claude Code) covering YubiKey cross-device PRF verification, iPhone Safari + external authenticator failure mechanism, badge taxonomy, and credential-metadata folding into this plan.
 - **Prior task notes:** task-37 description (in `tasks.json`), task-38, task-34, task-42, task-45, task-49, GitHub issues #28, #29.
 - **Related crypto:** `web/src/crypto/amk.ts`, `crates/secrt-core/src/crypto.rs`, `crates/secrt-server/docs/prf-amk-wrapping.md`.
-- **AMK persistence layer:** `web/src/lib/amk-store.ts`, `crates/secrt-app/src/lib.rs` (keyring commands).
+- **AMK persistence layer:** `web/src/lib/amk-store.ts`, `crates/secrt-desktop/src/lib.rs` (keyring commands).
 - **Existing auth flow:** `web/src/lib/auth-context.tsx`, `web/src/features/auth/LoginPage.tsx`, `web/src/features/auth/RegisterPage.tsx`.
 - **Existing settings UI:** `web/src/features/settings/SettingsPage.tsx`.
 - **Existing CLI config:** `crates/secrt-cli/src/config.rs`.

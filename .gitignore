@@ -19,5 +19,5 @@ web/coverage
 .claude/settings.local.json
 .claude/.credentials.json
 .claude/*.lock
-crates/secrt-app/gen/
+crates/secrt-desktop/gen/
 .venv-fixtures/

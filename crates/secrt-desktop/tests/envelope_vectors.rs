@@ -1,7 +1,7 @@
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use base64::Engine;
-use secrt_app::{derive_claim_token_inner, open_secret_inner, seal_secret_inner};
 use secrt_core::EnvelopeError;
+use secrt_desktop::{derive_claim_token_inner, open_secret_inner, seal_secret_inner};
 use serde::Deserialize;
 
 #[allow(dead_code)]

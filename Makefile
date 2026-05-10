@@ -1,5 +1,5 @@
 .PHONY: dev server web \
-       test test-rust test-rust-fallback test-doc test-app \
+       test test-rust test-rust-fallback test-doc test-desktop test-app \
        test-cli test-server test-core test-web \
        lint lint-rust lint-web \
        build build-rust build-web \
@@ -24,24 +24,24 @@ web: ## Start frontend only
 # ── Testing ──────────────────────────────────────────────
 #
 # Default Rust test runs use cargo-nextest (~3.5× faster than `cargo test`
-# on this workspace) and exclude `secrt-app` (Tauri) — local devs working
+# on this workspace) and exclude `secrt-desktop` (Tauri) — local devs working
 # on CLI/server should not pay Tauri's 12× target-dir cost. Use
-# `make test-app` when you actually need to test the desktop app.
+# `make test-desktop` when you actually need to test the desktop app.
 #
 # Scoped targets (`test-cli`, `test-server`, `test-core`) avoid rebuilding
 # unrelated crates' deps when iterating on a single area.
 
 test: test-rust test-web ## Run all tests (Rust + frontend)
 
-test-rust: check-nextest ## Run Rust tests (nextest, excludes secrt-app)
-	cargo nextest run --workspace --exclude secrt-app
+test-rust: check-nextest ## Run Rust tests (nextest, excludes secrt-desktop)
+	cargo nextest run --workspace --exclude secrt-desktop
 	$(MAKE) --no-print-directory test-doc
 
 test-rust-fallback: ## Run Rust tests via cargo (slower; for envs without nextest)
-	cargo test --workspace --exclude secrt-app
+	cargo test --workspace --exclude secrt-desktop
 
 test-doc: ## Run doctests (nextest skips these)
-	cargo test --doc --workspace --exclude secrt-app
+	cargo test --doc --workspace --exclude secrt-desktop
 
 test-cli: check-nextest ## Run only secrt-cli tests
 	cargo nextest run -p secrt-cli
@@ -52,8 +52,10 @@ test-server: check-nextest ## Run only secrt-server tests
 test-core: check-nextest ## Run only secrt-core tests
 	cargo nextest run -p secrt-core
 
-test-app: ## Run secrt-app (Tauri desktop) tests — heavy, opt-in
-	cargo test -p secrt-app
+test-desktop: ## Run secrt-desktop (Tauri) tests — heavy, opt-in
+	cargo test -p secrt-desktop
+
+test-app: test-desktop ## Alias for test-desktop (legacy name)
 
 test-web: ## Run frontend tests
 	pnpm -C web test
@@ -74,14 +76,14 @@ check-nextest:
 
 # ── Linting ──────────────────────────────────────────────
 #
-# Excludes secrt-app to match CI; the Tauri target dir bloat is not worth
-# paying on every clippy run. If you're touching secrt-app, lint it
-# explicitly with: cargo clippy -p secrt-app -- -D warnings
+# Excludes secrt-desktop to match CI; the Tauri target dir bloat is not worth
+# paying on every clippy run. If you're touching secrt-desktop, lint it
+# explicitly with: cargo clippy -p secrt-desktop -- -D warnings
 
 lint: lint-rust lint-web ## Run all linters
 
-lint-rust: ## Run Rust linters (excludes secrt-app)
-	cargo clippy --workspace --exclude secrt-app --all-targets -- -D warnings
+lint-rust: ## Run Rust linters (excludes secrt-desktop)
+	cargo clippy --workspace --exclude secrt-desktop --all-targets -- -D warnings
 	cargo fmt --all -- --check
 
 lint-web: ## Run frontend linters

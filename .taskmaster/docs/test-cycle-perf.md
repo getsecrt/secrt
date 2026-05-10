@@ -23,7 +23,7 @@ inline as we go; old measurements stay so we can see drift over time.
 ## Repository facts (snapshot 2026-04-26)
 
 - Workspace: 4 published crates — `secrt-core`, `secrt-cli`, `secrt-server`,
-  `secrt-app`. CI excludes `secrt-app` (Tauri).
+  `secrt-desktop`. CI excludes `secrt-desktop` (Tauri).
 - ~46k LOC of test code across `crates/*/tests/`.
 - `crates/secrt-cli/tests/` — **18 integration test files** (each = its own
   test binary, separately linked). Largest: `cli_dispatch.rs` (1158 lines).
@@ -33,7 +33,7 @@ inline as we go; old measurements stay so we can see drift over time.
 - No `rust-toolchain.toml` pin → local 1.95.0, CI uses
   `dtolnay/rust-toolchain@stable` (drift hit us once already this week).
 - `cargo-nextest` was not installed; installed during this investigation.
-- `make test-rust` → `cargo test --workspace` (no `--exclude secrt-app`, so
+- `make test-rust` → `cargo test --workspace` (no `--exclude secrt-desktop`, so
   local Tauri builds too — significant local cost, see [J] below).
 - `make lint-rust` → `cargo clippy --workspace -- -D warnings` + `cargo fmt --all -- --check`.
 
@@ -46,18 +46,18 @@ Raw logs: `/tmp/secrt-perf/cold.log` and `/tmp/secrt-perf/incremental.log`
 
 | # | Scenario | Command | Wall | CPU (×) | Notes |
 |---|---|---|---|---|---|
-| A | Cold build tests (no secrt-app) | `cargo test -W --exclude secrt-app --no-run` | **29.8s** | 5.8× | the canonical CI test build |
-| J | Cold build tests **with** secrt-app | `cargo test --workspace --no-run` | **57.3s** | 5.9× | what `make test-rust` does locally |
+| A | Cold build tests (no secrt-desktop) | `cargo test -W --exclude secrt-desktop --no-run` | **29.8s** | 5.8× | the canonical CI test build |
+| J | Cold build tests **with** secrt-desktop | `cargo test --workspace --no-run` | **57.3s** | 5.9× | what `make test-rust` does locally |
 | B | No-op rebuild tests | (same, no source changes) | 0.4s | 0.6× | cargo bookkeeping only |
 | C | Touch one src file, rebuild tests | (touch `secrt-cli/src/lib.rs`) | **2.5s** | 4.4× | very cheap |
 | D | Touch shared helpers, rebuild | (touch `secrt-cli/tests/helpers.rs`) | **1.6s** | 5.0× | smaller, no downstream lib re-link |
-| E | Test exec via `cargo test` | `cargo test -W --exclude secrt-app` (warm) | **25.7s** | 0.83× | sequential across binaries |
-| F | Test exec via `cargo nextest` | `cargo nextest run -W --exclude secrt-app` | **7.3s** | 4.7× | **3.5× faster** (1092 tests in 6.2s) |
+| E | Test exec via `cargo test` | `cargo test -W --exclude secrt-desktop` (warm) | **25.7s** | 0.83× | sequential across binaries |
+| F | Test exec via `cargo nextest` | `cargo nextest run -W --exclude secrt-desktop` | **7.3s** | 4.7× | **3.5× faster** (1092 tests in 6.2s) |
 | G | Touch src, incremental clippy | `cargo clippy ... -D warnings` | 12.0s | 4.6× | rebuilds downstream cli |
 | H | No-op clippy | (same, no changes) | 0.3s | trivial | — |
 | I | Cold clippy | (after `cargo clean`) | **17.3s** | 3.9× | matches CI command exactly |
 
-Target dir size: **293 MB** (excl. secrt-app) → **3.5 GB** (incl. secrt-app).
+Target dir size: **293 MB** (excl. secrt-desktop) → **3.5 GB** (incl. secrt-desktop).
 That's a 12× explosion when local devs run `make test-rust` because Tauri
 pulls webkit/wry/etc.
 
@@ -67,9 +67,9 @@ pulls webkit/wry/etc.
    3.5× faster than `cargo test` for the exact same suite (26 s → 7 s) with
    zero code changes. `cargo test` runs binaries one-at-a-time; nextest runs
    them in parallel. CPU saturation tells the story: 0.83× vs 4.7×.
-2. **Cold build is fine — when secrt-app is excluded.** 30 s for ~36 test
+2. **Cold build is fine — when secrt-desktop is excluded.** 30 s for ~36 test
    binaries on M2 Max is not the killer. Aligning local `make test-rust` with
-   CI (`--exclude secrt-app`) almost halves cold build time and shrinks the
+   CI (`--exclude secrt-desktop`) almost halves cold build time and shrinks the
    target dir 12×.
 3. **Incremental builds are already fast.** 1.6–2.5 s after touching one file.
    The "umbrella binary" refactor (collapsing `tests/cli_*.rs` into one bin)
@@ -80,9 +80,9 @@ pulls webkit/wry/etc.
    downstream test files. Pre-existing tech debt; not in scope tonight, but
    worth a follow-up task. (See "Known issues — not in scope" below.)
 5. **Where is "15–20 min" actually coming from?** Single full local cycle
-   measures ~73 s (excl. secrt-app) or ~120 s (incl. secrt-app). The pain is
+   measures ~73 s (excl. secrt-desktop) or ~120 s (incl. secrt-desktop). The pain is
    almost certainly:
-     - `make test-rust` building secrt-app locally (~2× cost + huge cache)
+     - `make test-rust` building secrt-desktop locally (~2× cost + huge cache)
      - `cargo test` 3.5× slower than necessary (no nextest)
      - CI round-trip per push (~5–8 min × 3-4 iterations = 20+ min waiting)
      - rust-analyzer or branch-switching invalidating incremental cache and
@@ -93,11 +93,11 @@ pulls webkit/wry/etc.
 ## CI redundancy & shape
 
 `.github/workflows/ci.yml` (push to main, PRs):
-- `check` job: `cargo fmt --check` + `cargo clippy --workspace --exclude secrt-app -- -D warnings` (ubuntu)
-- `test` job: `cargo test --workspace --exclude secrt-app` on **ubuntu, macos, windows** matrix
+- `check` job: `cargo fmt --check` + `cargo clippy --workspace --exclude secrt-desktop -- -D warnings` (ubuntu)
+- `test` job: `cargo test --workspace --exclude secrt-desktop` on **ubuntu, macos, windows** matrix
 
 `.github/workflows/release-cli.yml` (`cli/v*` tag push):
-- `test` job: `cargo test --workspace --exclude secrt-app` + `cargo clippy --workspace --exclude secrt-app -- -D warnings` (ubuntu only) **— REDUNDANT**: same checks ran on the merge commit in ci.yml.
+- `test` job: `cargo test --workspace --exclude secrt-desktop` + `cargo clippy --workspace --exclude secrt-desktop -- -D warnings` (ubuntu only) **— REDUNDANT**: same checks ran on the merge commit in ci.yml.
 - `build` job: 5-platform matrix (darwin amd64+arm64, linux musl amd64+arm64, windows amd64) with `fail-fast: true` **— RISKY**: any one platform's flake aborts the rest, forcing a re-tag.
 
 `.github/workflows/release-server.yml` (`server/v*` tag push):
@@ -114,7 +114,7 @@ Both are zero-risk and high-impact for daily local iteration.
       `cargo install --locked cargo-nextest` line).
 - [ ] In `Makefile`, change `test-rust` to:
       ```
-      cargo nextest run --workspace --exclude secrt-app
+      cargo nextest run --workspace --exclude secrt-desktop
       ```
       Add a separate `test-rust-app` target for the rare times someone needs
       to test the desktop app locally. (Keep `cargo test` doctests covered:
@@ -175,7 +175,7 @@ Both are zero-risk and high-impact for daily local iteration.
 | Date | Decision | Rationale |
 |---|---|---|
 | 2026-04-26 | Adopt cargo-nextest as the default local test runner | Measured 3.5× speedup with zero code changes |
-| 2026-04-26 | Align `make test-rust` with CI (`--exclude secrt-app`) | secrt-app inflates cold build 2× and target dir 12× |
+| 2026-04-26 | Align `make test-rust` with CI (`--exclude secrt-desktop`) | secrt-desktop inflates cold build 2× and target dir 12× |
 | 2026-04-26 | Pin toolchain via `rust-toolchain.toml = "1.95.0"` | Drift between local 1.95 and CI's "stable" caused a real failure this week |
 | 2026-04-26 | Drop redundant test/clippy job from `release-cli.yml` and `release-server.yml` | Same checks already passed in ci.yml on the merge commit; toolchain pin closes the drift gap |
 | 2026-04-26 | Set `fail-fast: false` on release build matrix | One platform's transient flake should not waste the rest, forcing a re-tag |
@@ -188,8 +188,8 @@ Both are zero-risk and high-impact for daily local iteration.
 
 | Cycle | Before | After | Win |
 |---|---|---|---|
-| `make test-rust` warm | ~25 s (cargo test full workspace incl. secrt-app) | **8.8 s** (nextest, --exclude secrt-app, doctests) | ~3× |
-| `make test-rust` cold | ~57 s (incl. secrt-app) | **30 s** (excl. secrt-app) | ~2× + 3.5 GB → 293 MB target |
+| `make test-rust` warm | ~25 s (cargo test full workspace incl. secrt-desktop) | **8.8 s** (nextest, --exclude secrt-desktop, doctests) | ~3× |
+| `make test-rust` cold | ~57 s (incl. secrt-desktop) | **30 s** (excl. secrt-desktop) | ~2× + 3.5 GB → 293 MB target |
 | `make test-cli` warm (new) | n/a — had to run full workspace | **22.6 s** total wall (~5 s test exec) | scope = much smaller rebuild graph |
 | `make lint-rust` warm | ~21 s | ~21 s | unchanged (same command) |
 | CI per-push | 1× lint runner + 3× test runners | 3× test runners (ubuntu does lint+test inline) | ~30–40 s saved per push |

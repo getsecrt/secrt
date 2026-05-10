@@ -51,16 +51,16 @@ jobs:
 
       - name: Clippy (ubuntu only)
         if: matrix.os == 'ubuntu-latest'
-        run: cargo clippy --workspace --exclude secrt-app --all-targets -- -D warnings
+        run: cargo clippy --workspace --exclude secrt-desktop --all-targets -- -D warnings
 
       - name: Test
-        run: cargo nextest run --workspace --exclude secrt-app
+        run: cargo nextest run --workspace --exclude secrt-desktop
 
       # Doctests run on ubuntu only — they exercise pure Rust API surface
       # that's identical across platforms; nextest does not run them.
       - name: Doctests (ubuntu only)
         if: matrix.os == 'ubuntu-latest'
-        run: cargo test --doc --workspace --exclude secrt-app
+        run: cargo test --doc --workspace --exclude secrt-desktop
 
   frontend:
     name: Frontend (ubuntu-latest)

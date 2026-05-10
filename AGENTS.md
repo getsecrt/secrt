@@ -87,7 +87,7 @@ are guaranteed to match.
 
 The `Makefile` is the day-to-day entry point. Default Rust test/lint
 targets use `cargo nextest` (~3.5× faster than `cargo test` here) and
-exclude `secrt-app` (Tauri inflates the target dir 12× and isn't relevant
+exclude `secrt-desktop` (Tauri inflates the target dir 12× and isn't relevant
 to CLI/server work). See `.taskmaster/docs/test-cycle-perf.md` for the
 measurements behind these defaults.
 
@@ -95,7 +95,7 @@ measurements behind these defaults.
 # Build everything
 cargo build --workspace             # or: make build-rust
 
-# Run all Rust tests (excludes secrt-app; uses nextest)
+# Run all Rust tests (excludes secrt-desktop; uses nextest)
 make test-rust
 
 # Scoped runs — only rebuild one crate's deps
@@ -106,9 +106,9 @@ make test-core
 # Lint (matches CI exactly)
 make lint-rust
 
-# secrt-app (Tauri) — heavy, opt-in
-make test-app
-cargo clippy -p secrt-app -- -D warnings
+# secrt-desktop (Tauri) — heavy, opt-in
+make test-desktop
+cargo clippy -p secrt-desktop -- -D warnings
 
 # Release build (size-optimized, LTO, stripped)
 cargo build --release -p secrt-cli   # or: make release
@@ -127,10 +127,10 @@ same suite with `cargo test`. Install nextest with
 > - Edits in `crates/secrt-server/` only → `make test-server`
 > - Edits touching `secrt-core` (a dep of cli + server) → `make test-rust`
 >   (run the full suite — both downstream crates need verification)
-> - Edits in `crates/secrt-app/` (Tauri desktop) → `make test-app`
+> - Edits in `crates/secrt-desktop/` (Tauri desktop) → `make test-desktop`
 > - Frontend edits in `web/` → `make test-web` (no Rust test needed)
-> - Cross-cutting edits → `make test-rust` (then `make test-app` if you
->   touched anything secrt-app re-exports)
+> - Cross-cutting edits → `make test-rust` (then `make test-desktop` if you
+>   touched anything secrt-desktop re-exports)
 >
 > Run the full `make test-rust` once before opening a PR regardless, to
 > catch dep-graph surprises. The scoped targets are for the iteration
@@ -183,8 +183,8 @@ Always run before committing code changes:
 
 ```sh
 cargo fmt --all             # auto-fix formatting
-make lint-rust              # clippy + fmt-check (excludes secrt-app)
-make test-rust              # nextest run (excludes secrt-app)
+make lint-rust              # clippy + fmt-check (excludes secrt-desktop)
+make test-rust              # nextest run (excludes secrt-desktop)
 ```
 
 CI runs the same `lint-rust` + `test-rust` commands plus `cargo test --doc`

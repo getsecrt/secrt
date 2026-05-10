@@ -14,7 +14,7 @@
 
   - **Web SPA — Subresource Integrity on the production bundle.** A hand-rolled Vite plugin (`web/vite-plugins/sri.ts`) injects `integrity="sha384-…"` and `crossorigin="anonymous"` on every external `<script src>` and `<link rel="stylesheet"|"modulepreload">` in `dist/index.html`. Defends against asset tampering when the HTML itself is trusted: CDN compromise, partial server compromise where `dist/assets/*.js` is overwritten but `index.html` isn't, or a compromised proxy modifying JS in flight. *Not* a rogue-instance defense — a malicious server controls `index.html` and could strip `integrity=`.
 
-  - **Tauri CSP widened to all official instances.** `crates/secrt-app/tauri.conf.json` `connect-src` now lists every origin in `secrt_core::KNOWN_INSTANCES` (was hardcoded to `https://secrt.ca` only). A drift test in `crates/secrt-app/tests/csp_drift.rs` parses the config and fails if a new instance is added to the spec without widening the desktop CSP. Self-host Tauri support (runtime base-URL config, dynamic CSP) is intentionally deferred.
+  - **Tauri CSP widened to all official instances.** `crates/secrt-desktop/tauri.conf.json` `connect-src` now lists every origin in `secrt_core::KNOWN_INSTANCES` (was hardcoded to `https://secrt.ca` only). A drift test in `crates/secrt-desktop/tests/csp_drift.rs` parses the config and fails if a new instance is added to the spec without widening the desktop CSP. Self-host Tauri support (runtime base-URL config, dynamic CSP) is intentionally deferred.
 
   - **`secrt_core::instance` module + spec contract.** New `KNOWN_INSTANCES` constant and `TrustDecision` enum (`Official` / `TrustedCustom` / `DevLocal` / `Untrusted`), shared between Rust and TypeScript. Spec: `spec/v1/instances.md` and `spec/v1/instances.json` (machine-readable apex / origin / hosting / security_contact for `secrt.ca` and `secrt.is`). Both Rust and TS test suites pin their lists to the JSON so they can't drift.
 
@@ -410,7 +410,7 @@ _No server runtime changes — the server stores AMK wrappers as opaque blobs an
 
 ### Changed
 
-- **Tauri app credential storage:** file-based fallback for OS keychain storage when macOS Tahoe keychain is broken (set succeeds but get returns `errSecItemNotFound`). Credentials stored in `~/Library/Application Support/ca.secrt.app/credentials.json`. Auto-detected via probe on startup.
+- **Tauri app credential storage:** file-based fallback for OS keychain storage when macOS Tahoe keychain is broken (set succeeds but get returns `errSecItemNotFound`). Credentials stored in `~/Library/Application Support/ca.secrt.desktop/credentials.json`. Auto-detected via probe on startup.
 - **Tauri app devtools:** WebInspector now auto-opens in debug builds for easier development.
 
 ## 0.14.5 — 2026-02-22
@@ -418,7 +418,7 @@ _No server runtime changes — the server stores AMK wrappers as opaque blobs an
 ### Added
 
 - **ECDH-based AMK transfer in app login flow:** the browser can now encrypt the user's Account Master Key (AMK) and hand it to the Tauri desktop app during login approval. The `/app/start` endpoint accepts an optional `ecdh_public_key`, embeds it in the `verification_url` as `&ek=`, and the `/app/approve` endpoint accepts an `amk_transfer` blob (`ct`, `nonce`, `ecdh_public_key`) which is stored on the challenge and returned by `/app/poll`.
-- **OS keychain storage in Tauri app:** session tokens, cached profiles, and AMK are now stored in the OS keychain (`keyring` crate, service `ca.secrt.app`) instead of renderer-accessible storage. Tauri IPC commands (`keyring_set`, `keyring_get`, `keyring_delete`) enforce a Rust-side key allowlist.
+- **OS keychain storage in Tauri app:** session tokens, cached profiles, and AMK are now stored in the OS keychain (`keyring` crate, service `ca.secrt.desktop`) instead of renderer-accessible storage. Tauri IPC commands (`keyring_set`, `keyring_get`, `keyring_delete`) enforce a Rust-side key allowlist.
 - **Verification URL safety guard (web):** `isAllowedVerificationUrl()` validates that verification URLs are HTTPS and match the expected API origin before opening the system browser, preventing open-redirect and protocol-hijack attacks.
 - **Spec documentation:** app login endpoints fully documented in `api.md`, `server.md`, and `openapi.yaml`.
 - **Tauri native crypto test vectors:** all 5 spec envelope vectors verified through the Tauri IPC command layer with deterministic RNG injection.

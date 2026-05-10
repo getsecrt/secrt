@@ -33,9 +33,9 @@ make test-rust
 ```
 
 CI enforces formatting, linting, and tests — PRs that fail any of them will
-not be merged. `make test-rust` and `make lint-rust` exclude `secrt-app`
+not be merged. `make test-rust` and `make lint-rust` exclude `secrt-desktop`
 (Tauri) by default to keep iteration fast; if you're touching the desktop
-app, run `make test-app` and `cargo clippy -p secrt-app -- -D warnings`
+app, run `make test-desktop` and `cargo clippy -p secrt-desktop -- -D warnings`
 explicitly.
 
 For scoped iteration, `make test-cli`, `make test-server`, and

@@ -203,7 +203,7 @@ fn copy_sensitive(text: String) -> Result<(), String> {
 // We try the OS keychain first; if a set+verify round-trip fails,
 // we fall back to a JSON file in the app data directory.
 
-const KEYRING_SERVICE: &str = "ca.secrt.app";
+const KEYRING_SERVICE: &str = "ca.secrt.desktop";
 const ALLOWED_KEY_PREFIXES: &[&str] = &["session_token", "session_profile", "amk:"];
 const FALLBACK_FILENAME: &str = "credentials.json";
 
@@ -224,7 +224,7 @@ fn validate_keyring_key(key: &str) -> Result<(), String> {
 }
 
 /// Return the path to the fallback credentials file.
-/// Uses the standard app data directory: ~/Library/Application Support/ca.secrt.app/
+/// Uses the standard app data directory: ~/Library/Application Support/ca.secrt.desktop/
 fn fallback_path() -> Result<PathBuf, String> {
     let dir = dirs::data_dir()
         .ok_or("cannot determine app data directory")?

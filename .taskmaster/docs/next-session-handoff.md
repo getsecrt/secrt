@@ -20,7 +20,7 @@ These all landed in commits up to `a9b7305` (`chore: bump version to 0.16.2`):
 
 - Task A — frontend CI gap closed (new `Frontend (ubuntu-latest)` job in `.github/workflows/ci.yml`)
 - Task B — release-cli notarization parallelization (validated in production on the cli/v0.16.2 release run — succeeded)
-- Task C — `cargo clippy --workspace --exclude secrt-app --all-targets -- -D warnings` is now clean and required by CI + Makefile
+- Task C — `cargo clippy --workspace --exclude secrt-desktop --all-targets -- -D warnings` is now clean and required by CI + Makefile
 - pnpm/action-setup v4 → v6 (Node.js 24)
 - Task #55 — `secrt update` permission-denied message branches: `sudo secrt update` for system paths (`/usr/local/bin`, etc.), `--install-dir ~/.local/bin` for user-space paths
 
