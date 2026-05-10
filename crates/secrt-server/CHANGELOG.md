@@ -2,6 +2,26 @@
 
 ## Unreleased
 
+## 0.17.7 — 2026-05-09
+
+### Security
+
+- **Layered defense against malicious / API-compatible secrt forks (web + Tauri side).**
+
+  No server runtime behavior changed in this release; the work below is a coordinated frontend / desktop / spec contribution to the same defense. The CLI side is documented in detail in `crates/secrt-cli/CHANGELOG.md` for the same release.
+
+  - **Web SPA — Get-Secret unknown-host warning strengthened.** The inline error that fires when a user pastes a share / sync URL for an unknown host now names the threat (logged secrets, stolen secrets, page tampering exfiltrating the URL key) instead of the prior meek "open it directly if you trust it." Files: `web/src/features/send/SendPage.tsx`.
+
+  - **Web SPA — Subresource Integrity on the production bundle.** A hand-rolled Vite plugin (`web/vite-plugins/sri.ts`) injects `integrity="sha384-…"` and `crossorigin="anonymous"` on every external `<script src>` and `<link rel="stylesheet"|"modulepreload">` in `dist/index.html`. Defends against asset tampering when the HTML itself is trusted: CDN compromise, partial server compromise where `dist/assets/*.js` is overwritten but `index.html` isn't, or a compromised proxy modifying JS in flight. *Not* a rogue-instance defense — a malicious server controls `index.html` and could strip `integrity=`.
+
+  - **Tauri CSP widened to all official instances.** `crates/secrt-app/tauri.conf.json` `connect-src` now lists every origin in `secrt_core::KNOWN_INSTANCES` (was hardcoded to `https://secrt.ca` only). A drift test in `crates/secrt-app/tests/csp_drift.rs` parses the config and fails if a new instance is added to the spec without widening the desktop CSP. Self-host Tauri support (runtime base-URL config, dynamic CSP) is intentionally deferred.
+
+  - **`secrt_core::instance` module + spec contract.** New `KNOWN_INSTANCES` constant and `TrustDecision` enum (`Official` / `TrustedCustom` / `DevLocal` / `Untrusted`), shared between Rust and TypeScript. Spec: `spec/v1/instances.md` and `spec/v1/instances.json` (machine-readable apex / origin / hosting / security_contact for `secrt.ca` and `secrt.is`). Both Rust and TS test suites pin their lists to the JSON so they can't drift.
+
+  - **Token-replace survival test.** `crates/secrt-server/tests/sri_survives_token_replace.rs` asserts that the server's `__PUBLIC_BASE_URL__` substitution (`assets.rs::spa_index_html_with_base`) and the secret-page meta-tag rewrite chain (`http/mod.rs::handle_secret_page`) preserve `integrity=` attributes on bundled `<script>` and `<link>` tags. Synthetic fixture, so it doesn't depend on `web/dist` being populated in CI.
+
+  CI: `.github/workflows/ci.yml` `frontend` job now runs `pnpm build` and a gated `pnpm test:sri` after the regular vitest pass, so the integrity values in `dist/index.html` are verified against the actual on-disk asset bytes on every CI run.
+
 ## 0.17.5 — 2026-05-02
 
 ### Added

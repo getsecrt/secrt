@@ -2,6 +2,50 @@
 
 ## Unreleased
 
+## 0.17.7 — 2026-05-09
+
+### Security
+
+- **Layered defense against malicious / API-compatible secrt forks.**
+
+  A user whose CLI is pointed at a fork — via config, env, flag, or a phished share/sync URL — is no longer silently complicit. Every command that talks to a server now warns when the host is non-official and non-`trusted_servers`; commands that send an API key (`sync`, `burn`, `info`) hard-block when a URL-derived host doesn't match the configured base.
+
+  - **Warn on every command.** `send`, `get`, `sync`, `burn`, `info`, and `auth` emit a loud stderr warning before talking to any host that isn't an official instance, an entry in your `trusted_servers` config, or a `localhost` / `*.local` / loopback address. Wildcard subdomains of official apexes (`my.secrt.is`, `team.secrt.ca`) collapse to the apex and don't warn.
+
+  - **Hard-block cross-instance credential leak.** `sync`, `burn`, and `info` refuse to send an API key to a URL-derived host that doesn't normalize-equal your configured base URL. Previously the CLI would silently swap to the URL host and either fail confusingly or, in the worst case, leak the key. Override with an explicit `--base-url <derived>` if you really meant to switch instances.
+
+  - **`trusted_servers` config field.** Self-hosters silence the warning for their own deployments by adding `trusted_servers = ["my.host"]` to `~/.config/secrt/config.toml`. Pattern matches the existing `decryption_passphrases` field.
+
+  - **Unified base-URL resolver.** Every command — including `auth login/setup/status/logout` — now routes through one resolver with a typed `BaseUrlSource` enum (`Flag` / `Env` / `Config` / `Default` / `UrlDerived`). Closes a previous gap where `auth`'s parallel resolver bypassed the centralized warning chokepoint.
+
+  Spec: `spec/v1/instances.md`, `spec/v1/instances.json`, `spec/v1/cli.md` § Instance Trust. Closes task 72.
+
+### Changed
+
+- **HTTP error messages humanized.** When the CLI can't reach a server, the error no longer dumps raw rustls / `docs.rs` noise. New helpers in `client.rs` variant-match `ureq::Error` and `io::ErrorKind` directly. For untrusted hosts, both helpers append `<host> may not be a secrt server` so the failure mode is named, not just exposed.
+
+  Files: `crates/secrt-cli/src/client.rs`.
+
+- **Cross-instance hard-block copy trimmed; semantic colors applied.** The hard-block message used to be five lines explaining *why* the credential leak would happen; it now leads with the diagnosis and the one-line fix. Colors match the rest of the CLI: red `error:`, bold-cyan hosts, cyan command, yellow option.
+
+  ```
+  error: this sync URL is for secrt.is, but you're configured for secrt.ca.
+    To switch instances, run:
+    secrt auth login --base-url https://secrt.is
+  ```
+
+  Files: `crates/secrt-cli/src/instance_trust.rs`.
+
+- **Helpful hint on 401 when `--base-url` host differs from configured.** Commands that auto-load an API key from keychain (`send`, `list`, `burn`, `info`) no longer leave the user staring at a bare "server error (401): unauthorized" when the explanation is "your key is for the other instance." A second line names the host mismatch and points at `secrt auth login`.
+
+  Files: `crates/secrt-cli/src/instance_trust.rs`, plus the `send`, `list`, `burn`, `info` command modules.
+
+### Fixed
+
+- **`--base-url secrt.is` (and other scheme-less hosts) no longer warn as unofficial.** The trust classifier requires a parseable URL, and `Url::parse("secrt.is")` fails — previously every scheme-less base URL classified as `Untrusted` and tripped the new unofficial-instance warning, even on official apexes. The resolver now prepends `https://` for any scheme-less value coming from `--base-url`, `SECRET_BASE_URL`, or the config file. Explicit `http://` schemes are preserved so localhost / dev workflows still work.
+
+  Files: `crates/secrt-cli/src/cli.rs`.
+
 ## 0.17.6 — 2026-05-03
 
 ### Changed
