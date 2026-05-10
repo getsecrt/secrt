@@ -148,6 +148,11 @@ pub struct ParsedArgs {
 
     // Decryption passphrase list (from config/keychain, not CLI flags)
     pub decryption_passphrases: Vec<String>,
+
+    /// Self-hosted hosts the user has decided to trust (from config).
+    /// Suppresses the off-list "unofficial instance" warning for those
+    /// hosts. Does NOT exempt cross-instance credential-leak hard-block.
+    pub trusted_servers: Vec<String>,
 }
 
 #[derive(Debug)]
@@ -609,6 +614,12 @@ pub fn resolve_globals_with_config(
         if let Some(false) = config.auto_copy {
             pa.no_copy = true;
         }
+    }
+
+    // trusted_servers: copy from config so per-command trust checks don't
+    // need to reload the file.
+    if pa.trusted_servers.is_empty() && !config.trusted_servers.is_empty() {
+        pa.trusted_servers = config.trusted_servers.clone();
     }
 }
 

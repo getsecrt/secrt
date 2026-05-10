@@ -65,7 +65,12 @@ fn burn_bare_id() {
 #[test]
 fn burn_share_url() {
     let url = make_share_url(DEAD_URL, "abc123");
-    let (mut deps, _stdout, stderr) = TestDepsBuilder::new().build();
+    // Pin base_url to the share URL's host via env so the cross-instance
+    // hard-block doesn't fire — this test is about the network-failure
+    // path, not credential-leak protection.
+    let (mut deps, _stdout, stderr) = TestDepsBuilder::new()
+        .env("SECRET_BASE_URL", DEAD_URL)
+        .build();
     let code = cli::run(
         &args(&["secrt", "burn", &url, "--api-key", "sk_test"]),
         &mut deps,
@@ -351,4 +356,51 @@ fn burn_prefix_ambiguous_shows_error() {
     assert_eq!(code, 1);
     let err = stderr.to_string();
     assert!(err.contains("ambiguous"), "should show ambiguous: {}", err);
+}
+
+// ---------- Anti-rogue-instance defense ----------
+
+/// Burn with a share URL whose host doesn't match the configured base
+/// must hard-block — sending the API key to a different server is the
+/// credential-leak case task 73 was filed to prevent.
+#[test]
+fn burn_cross_instance_blocks() {
+    let url = make_share_url("https://secrt.is", "abc123");
+    // Default config → configured base is https://secrt.ca; URL points
+    // at secrt.is. No mock_burn registered: burn must NOT be called.
+    let (mut deps, _stdout, stderr) = TestDepsBuilder::new().build();
+    let code = cli::run(
+        &args(&["secrt", "burn", &url, "--api-key", "sk_test"]),
+        &mut deps,
+    );
+    let err = stderr.to_string();
+    assert_eq!(code, 2, "should hard-block; stderr: {err}");
+    assert!(
+        err.contains("this burn URL is for secrt.is"),
+        "names derived host; stderr: {err}"
+    );
+    assert!(
+        err.contains("you're configured for secrt.ca"),
+        "names configured host; stderr: {err}"
+    );
+}
+
+/// Same cross-instance URL but `--base-url` opts in: block bypassed.
+#[test]
+fn burn_cross_instance_with_explicit_flag_proceeds() {
+    let url = make_share_url("https://secrt.is", "abc123");
+    let (mut deps, _stdout, stderr) = TestDepsBuilder::new().mock_burn(Ok(())).build();
+    let code = cli::run(
+        &args(&[
+            "secrt",
+            "burn",
+            "--base-url",
+            "https://secrt.is",
+            &url,
+            "--api-key",
+            "sk_test",
+        ]),
+        &mut deps,
+    );
+    assert_eq!(code, 0, "stderr: {}", stderr);
 }

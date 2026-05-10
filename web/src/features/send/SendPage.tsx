@@ -113,7 +113,12 @@ function GetSecretForm() {
     // offer to redirect or shell-open — the user must trust it themselves.
     if (!isKnownInstance(parsed.host)) {
       setGetError(
-        `This link is for an unknown secrt instance (${parsed.host}). Open it directly in your browser if you trust it.`,
+        `This link points at an unknown secrt server (${parsed.host}). ` +
+          `We don't know who operates it — secrets retrieved through that server ` +
+          `could be logged or stolen by whoever runs it, and the page they serve ` +
+          `could be modified to exfiltrate the encryption key from the URL. ` +
+          `If you trust the server, open the link directly in your browser. ` +
+          `Don't paste links from sources you don't trust.`,
       );
       return;
     }

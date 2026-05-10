@@ -152,6 +152,7 @@ fn run_auth_login(args: &[String], deps: &mut Deps) -> i32 {
 
     let c = color_func((deps.is_tty)());
     let base_url = pa.base_url.clone();
+    crate::instance_trust::warn_if_unofficial(&base_url, &pa.trusted_servers, &mut deps.stderr);
 
     // 1. Generate root_key (32 bytes random)
     let mut root_key = vec![0u8; secrt_core::API_KEY_ROOT_LEN];
@@ -529,6 +530,7 @@ fn run_auth_setup(args: &[String], deps: &mut Deps) -> i32 {
 
     let c = color_func((deps.is_tty)());
     let base_url = pa.base_url.clone();
+    crate::instance_trust::warn_if_unofficial(&base_url, &pa.trusted_servers, &mut deps.stderr);
 
     // Prompt for API key
     let api_key = match (deps.read_pass)("Paste your API key (sk2_...): ", &mut deps.stderr) {
@@ -597,6 +599,7 @@ fn run_auth_status(args: &[String], deps: &mut Deps) -> i32 {
 
     let c = color_func((deps.is_tty)());
     let base_url = pa.base_url.clone();
+    crate::instance_trust::warn_if_unofficial(&base_url, &pa.trusted_servers, &mut deps.stderr);
     let (api_key, source) = resolve_existing_key(deps);
 
     if api_key.is_empty() {

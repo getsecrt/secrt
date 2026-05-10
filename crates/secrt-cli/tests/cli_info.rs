@@ -6,6 +6,7 @@ use base64::Engine;
 use helpers::{args, TestDepsBuilder};
 use secrt_cli::cli;
 use secrt_cli::client::{AmkWrapperResponse, EncMetaNoteV1, EncMetaV1, SecretMetadataItem};
+use secrt_cli::envelope::crypto::b64_encode;
 
 fn sample_meta() -> SecretMetadataItem {
     SecretMetadataItem {
@@ -248,5 +249,31 @@ fn info_enc_meta_with_amk_shows_decrypted_note() {
         !out.contains("(encrypted)"),
         "should not show encrypted placeholder: {}",
         out
+    );
+}
+
+// ---------- Anti-rogue-instance defense ----------
+
+/// `secrt info <https://secrt.is/s/...>` while configured for secrt.ca
+/// must hard-block before sending the API key. No mock_get_secret_metadata
+/// registered — if the block didn't fire, the test would panic.
+#[test]
+fn info_cross_instance_blocks() {
+    let api_key = sample_api_key();
+    let key_b64 = b64_encode(&[42u8; 32]);
+    let url = format!("https://secrt.is/s/abc123def456#{}", key_b64);
+    let (mut deps, _stdout, stderr) = TestDepsBuilder::new()
+        .env("SECRET_API_KEY", &api_key)
+        .build();
+    let code = cli::run(&args(&["secrt", "info", &url]), &mut deps);
+    let err = stderr.to_string();
+    assert_eq!(code, 2, "should hard-block; stderr: {err}");
+    assert!(
+        err.contains("this info URL is for secrt.is"),
+        "names derived host; stderr: {err}"
+    );
+    assert!(
+        err.contains("you're configured for secrt.ca"),
+        "names configured host; stderr: {err}"
     );
 }

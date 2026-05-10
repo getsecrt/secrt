@@ -98,6 +98,22 @@ pub fn classify_origin(base_url: &str, trusted_custom: &[String]) -> TrustDecisi
     TrustDecision::Untrusted
 }
 
+/// Extract the host portion of a URL — lowercased domain or stringified
+/// IP — without scheme, port, or path. IPv6 hosts are returned with
+/// brackets (`[::1]`). Returns `None` for unparseable URLs.
+///
+/// Useful for diagnostic output ("pointing at `evil.tld`") that doesn't
+/// want the full origin and doesn't want to display the user's port.
+pub fn host_of(base_url: &str) -> Option<String> {
+    let parsed = Url::parse(base_url).ok()?;
+    let host = parsed.host()?;
+    Some(match &host {
+        Host::Domain(d) => d.to_ascii_lowercase(),
+        Host::Ipv4(ip) => ip.to_string(),
+        Host::Ipv6(ip) => format!("[{ip}]"),
+    })
+}
+
 /// Normalize a URL to its origin string (`scheme://host[:port]`). Returns
 /// `None` if parsing fails or the URL has no host. Preserves IPv6
 /// brackets correctly (the `url` crate does the right thing here, unlike

@@ -211,6 +211,7 @@ pub fn run_list(args: &[String], deps: &mut Deps) -> i32 {
         }
     };
     resolve_globals(&mut pa, deps);
+    crate::instance_trust::warn_if_unofficial(&pa.base_url, &pa.trusted_servers, &mut deps.stderr);
 
     if pa.api_key.is_empty() {
         write_error(

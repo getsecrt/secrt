@@ -41,6 +41,7 @@ pub fn run_send(args: &[String], deps: &mut Deps) -> i32 {
         }
     };
     resolve_globals(&mut pa, deps);
+    crate::instance_trust::warn_if_unofficial(&pa.base_url, &pa.trusted_servers, &mut deps.stderr);
 
     // Read plaintext from exactly one source
     let mut plaintext = match read_plaintext(&pa, deps) {

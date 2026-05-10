@@ -51,11 +51,19 @@ pub fn run_get(args: &[String], deps: &mut Deps) -> i32 {
 
     // Derive base URL from share/sync URL if not explicitly set via flag/env.
     derive_base_url_from_url(&share_url, &mut pa);
+    crate::instance_trust::warn_if_unofficial(&pa.base_url, &pa.trusted_servers, &mut deps.stderr);
     let base_url = pa.base_url.clone();
 
-    // If this is a sync URL, delegate to the sync handler
+    // If this is a sync URL, delegate to the sync handler — but first
+    // refuse to send the API key cross-instance (unauthenticated share
+    // get is warn-only; sync sends credentials).
     let (id, url_key) = match parsed {
         envelope::ParsedSecretUrl::Sync { id, url_key } => {
+            if let Err(code) =
+                crate::instance_trust::block_if_cross_instance(&pa, "sync", &mut deps.stderr)
+            {
+                return code;
+            }
             return crate::sync::handle_sync_url(
                 &id,
                 &url_key,

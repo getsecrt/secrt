@@ -17,7 +17,7 @@ pub use apikey::{
     VERIFIER_DOMAIN_TAG, WIRE_API_KEY_PREFIX,
 };
 pub use crypto::{b64_encode, derive_claim_token, open, requires_passphrase, seal};
-pub use instance::{classify_origin, normalize_origin, TrustDecision, KNOWN_INSTANCES};
+pub use instance::{classify_origin, host_of, normalize_origin, TrustDecision, KNOWN_INSTANCES};
 pub use server::{hash_claim_token, normalize_api_ttl, validate_claim_hash, DEFAULT_TTL_SECONDS};
 pub use ttl::parse_ttl;
 pub use types::*;

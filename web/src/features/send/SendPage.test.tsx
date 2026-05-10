@@ -1046,7 +1046,10 @@ describe('SendPage', () => {
         await user.click(screen.getByRole('button', { name: /View Secret/i }));
 
         expect(
-          screen.getByText(/unknown secrt instance \(evil\.tld\)/i),
+          screen.getByText(/unknown secrt server \(evil\.tld\)/i),
+        ).toBeInTheDocument();
+        expect(
+          screen.getByText(/exfiltrate the encryption key/i),
         ).toBeInTheDocument();
         expect(
           screen.queryByRole('button', {

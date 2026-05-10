@@ -20,6 +20,13 @@ pub struct Config {
     pub update_check: Option<bool>,
     #[serde(default)]
     pub decryption_passphrases: Vec<String>,
+    /// Self-hosted hosts the user has decided to trust. Listed hosts
+    /// silence the "pointing at an unofficial secrt instance" warning;
+    /// they do NOT exempt you from the cross-instance credential-leak
+    /// hard-block (that's a per-invocation safety check). Match the
+    /// host of `base_url` exactly (apex + any subdomain prefix).
+    #[serde(default)]
+    pub trusted_servers: Vec<String>,
 }
 
 /// Returns the config file path: $XDG_CONFIG_HOME/secrt/config.toml
@@ -216,6 +223,11 @@ pub const CONFIG_TEMPLATE: &str = "\
 # Show a one-line banner on stderr when a newer secrt version is available
 # (default: true). Layered with --no-update-check and SECRET_NO_UPDATE_CHECK=1.
 # update_check = true
+
+# Self-hosted hosts you have decided to trust. Hosts listed here silence
+# the \"pointing at an unofficial secrt instance\" warning. (They do NOT
+# exempt you from the cross-instance credential-leak hard-block.)
+# trusted_servers = [\"my-self-hosted.example\"]
 ";
 
 /// Create a config file from the template. Returns Ok(path) on success.

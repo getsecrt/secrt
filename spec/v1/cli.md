@@ -24,6 +24,44 @@ A conforming CLI:
 - MUST NOT log plaintext, passphrases, claim tokens, or URL fragments to stderr/stdout logs.
 - SHOULD avoid unsafe input methods that leak to shell history.
 
+## Instance Trust
+
+Conforming CLIs classify the resolved `base_url` against
+`spec/v1/instances.md` (Official / TrustedCustom / DevLocal / Untrusted)
+and apply two layered checks:
+
+- **Off-list warning.** Every command that talks to a server (`send`,
+  `get`, `list`, `info`, `burn`, `sync`, `auth login`, `auth setup`,
+  `auth status`) MUST emit a loud stderr warning when the verdict is
+  `Untrusted`. The warning explains what an unofficial operator could
+  do (log plaintext/ciphertext/credentials, ship a tampered SPA bundle,
+  refuse atomic-claim semantics) and tells the user how to silence it
+  via the `trusted_servers` config key.
+- **Cross-instance credential-leak hard-block.** The credential-bearing
+  commands (`sync`, `burn`, `info`) MUST refuse to run when a share or
+  sync URL on argv silently overrode the configured `base_url` AND the
+  derived host doesn't refer to the same logical instance. ("Same
+  logical instance" collapses wildcard subdomains under an Official
+  apex per `instances.md § Wildcard-Trust Invariant`; for non-Official
+  hosts, identity requires equal lowercased hosts.) The block diagnoses
+  with both URLs and points the user at `secrt auth login --base-url
+  <derived>` if they really meant to switch instances. An explicit
+  `--base-url` flag or `SECRET_BASE_URL` env var bypasses the block —
+  the user has signaled intent.
+
+`get` is unauthenticated and warn-only (URL-key auth alone, no API key
+sent). When `get` is handed a sync URL it delegates to the sync handler,
+at which point the hard-block applies.
+
+`sync` additionally distinguishes two post-claim failure modes after
+its `info()` precondition check: `authenticated == false` ("this API
+key is not registered on `<derived>`") versus
+`authenticated == true && user_id.is_none()` (the legacy unlinked-key
+case, "API key may not be linked to a user"). The cross-instance block
+above prevents the silent-host-override path from reaching this check
+in the first place; what's left here is the user's `--base-url` opt-in
+landing on a server their key isn't registered on.
+
 ## Command Surface (v1)
 
 Reference binary name in examples: `secrt`.

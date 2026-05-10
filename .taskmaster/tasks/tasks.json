@@ -1197,7 +1197,7 @@
             "id": 4,
             "title": "CLI warnings + credential-leak hard-block + SPA copy",
             "description": "New crates/secrt-cli/src/instance_trust.rs with warn_if_unofficial() called from make_api factory (covers all commands incl. auth). Hard-block: sync/burn/info refuse to send API key to URL-derived host that doesn't match configured one. Warn-only: get (unauthenticated). New Config::trusted_servers field. Move task 72's info.authenticated check up from import_amk into handle_sync_url. Strengthen web/src/features/send/SendPage.tsx unknown-host inline error copy. Tests: cli_sync, cli_burn, cli_info, cli_get, SendPage.test.tsx. Spec: cli.md gets 'Instance trust' section. CLOSES TASK 72.",
-            "status": "pending"
+            "status": "done"
           },
           {
             "id": 5,

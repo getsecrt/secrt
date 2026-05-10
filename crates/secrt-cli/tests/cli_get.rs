@@ -1459,3 +1459,30 @@ fn get_tty_no_candidates_shows_notice() {
         err
     );
 }
+
+// ---------- Anti-rogue-instance defense ----------
+
+/// `secrt get <https://evil.tld/s/...>` is unauthenticated — warn loudly
+/// but do NOT hard-block. The user must be free to retrieve secrets
+/// from arbitrary servers (URL-key auth alone), they just need to know
+/// they're trusting the operator.
+#[test]
+fn get_off_list_share_url_warns_but_proceeds() {
+    let url = make_share_url("https://evil.tld", "abc123");
+    let (mut deps, _stdout, stderr) = TestDepsBuilder::new()
+        .mock_claim(Err("network error".into()))
+        .build();
+    let code = cli::run(&args(&["secrt", "get", &url]), &mut deps);
+    let err = stderr.to_string();
+    assert!(
+        err.contains("unofficial secrt instance"),
+        "warning fires; stderr: {err}"
+    );
+    assert!(err.contains("evil.tld"), "names host; stderr: {err}");
+    assert!(
+        !err.contains("this sync URL is for"),
+        "must NOT hard-block (share URL is unauthenticated); stderr: {err}"
+    );
+    // Exit code from claim() failure, not the trust layer.
+    let _ = code;
+}

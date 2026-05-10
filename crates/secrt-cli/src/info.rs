@@ -175,6 +175,12 @@ pub fn run_info(args: &[String], deps: &mut Deps) -> i32 {
         }
     }
 
+    crate::instance_trust::warn_if_unofficial(&pa.base_url, &pa.trusted_servers, &mut deps.stderr);
+    if let Err(code) = crate::instance_trust::block_if_cross_instance(&pa, "info", &mut deps.stderr)
+    {
+        return code;
+    }
+
     let client = (deps.make_api)(&pa.base_url, &pa.api_key);
 
     // Try exact ID first; on 404, attempt prefix resolution

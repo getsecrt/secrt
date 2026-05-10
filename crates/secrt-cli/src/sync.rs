@@ -8,10 +8,14 @@ use crate::cli::{derive_base_url_from_url, parse_flags, resolve_globals, CliErro
 use crate::color::{color_func, SUCCESS};
 use crate::passphrase::write_error;
 
-/// Import a raw 32-byte AMK: wrap it with the caller's API key and upload to the server.
+/// Import a raw 32-byte AMK: wrap it with the caller's API key and
+/// upload to the server. Caller MUST have already verified the
+/// `info()` precondition (`authenticated == true && user_id.is_some()`)
+/// — see `handle_sync_url` below. This function trusts that contract.
 pub(crate) fn import_amk(
     amk_bytes: &[u8],
     api_key: &str,
+    user_id: &str,
     client: &dyn secrt_core::api::SecretApi,
 ) -> Result<(), String> {
     use secrt_core::amk;
@@ -30,14 +34,7 @@ pub(crate) fn import_amk(
     let wrap_key = amk::derive_amk_wrap_key(&local_key.root_key)
         .map_err(|e| format!("derive wrap key: {}", e))?;
 
-    // Fetch user_id from the info endpoint (API key auth)
-    let info = client
-        .info()
-        .map_err(|e| format!("fetch user info: {}", e))?;
-    let user_id = info.user_id.ok_or_else(|| {
-        "server did not return user_id (API key may not be linked to a user)".to_string()
-    })?;
-    let user_id_bytes = uuid::Uuid::parse_str(&user_id)
+    let user_id_bytes = uuid::Uuid::parse_str(user_id)
         .map_err(|e| format!("server returned invalid user_id UUID: {}", e))?
         .into_bytes();
 
@@ -131,8 +128,53 @@ pub(crate) fn handle_sync_url(
         }
     };
 
+    // Precondition for AMK import: the server must recognize our API
+    // key (`authenticated == true`) AND it must be linked to a user
+    // (`user_id.is_some()`). Diagnose each case distinctly — the
+    // `cross-instance` block above already covers the silent-host-
+    // override case; what's left here is "user opted in via --base-url"
+    // (key not registered on this server) and the legacy unlinked-key
+    // case (registered but no user account).
+    let info = match client.info() {
+        Ok(i) => i,
+        Err(e) => {
+            write_error(
+                &mut deps.stderr,
+                json,
+                is_tty,
+                &format!("fetch user info: {}", e),
+            );
+            return 1;
+        }
+    };
+    if !info.authenticated {
+        write_error(
+            &mut deps.stderr,
+            json,
+            is_tty,
+            &format!(
+                "this API key is not registered on {base_url}; \
+                 generate the sync link from the server your key is registered on, \
+                 or run `secrt auth login --base-url {base_url}` to register here"
+            ),
+        );
+        return 1;
+    }
+    let user_id = match info.user_id {
+        Some(id) => id,
+        None => {
+            write_error(
+                &mut deps.stderr,
+                json,
+                is_tty,
+                "server did not return user_id (API key may not be linked to a user)",
+            );
+            return 1;
+        }
+    };
+
     // Import the AMK
-    match import_amk(&opened.content, api_key, &*client) {
+    match import_amk(&opened.content, api_key, &user_id, &*client) {
         Ok(()) => {
             if !silent {
                 let _ = writeln!(
@@ -211,6 +253,11 @@ pub fn run_sync(args: &[String], deps: &mut Deps) -> i32 {
 
     // Derive base URL from the sync URL if not explicitly set via flag/env.
     derive_base_url_from_url(&raw_url, &mut pa);
+    crate::instance_trust::warn_if_unofficial(&pa.base_url, &pa.trusted_servers, &mut deps.stderr);
+    if let Err(code) = crate::instance_trust::block_if_cross_instance(&pa, "sync", &mut deps.stderr)
+    {
+        return code;
+    }
 
     handle_sync_url(
         &id,
