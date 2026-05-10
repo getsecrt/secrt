@@ -19,7 +19,7 @@ use std::io::Write;
 use secrt_core::{classify_origin, host_of, TrustDecision};
 
 use crate::cli::{BaseUrlSource, ParsedArgs};
-use crate::color::{color_func, OPT, URL, WARN};
+use crate::color::{color_func, CMD, ERROR, OPT, URL, WARN};
 
 /// Emit a loud warning to `stderr` when `base_url` classifies as
 /// `Untrusted`. No-op for `Official`, `TrustedCustom`, and `DevLocal`.
@@ -77,6 +77,7 @@ pub fn block_if_cross_instance(
     pa: &ParsedArgs,
     command: &str,
     stderr: &mut dyn Write,
+    is_stderr_tty: bool,
 ) -> Result<(), i32> {
     if pa.base_url_source != BaseUrlSource::UrlDerived {
         return Ok(());
@@ -89,21 +90,60 @@ pub fn block_if_cross_instance(
     let configured_host =
         host_of(&pa.configured_base_url).unwrap_or_else(|| pa.configured_base_url.clone());
 
+    let c = color_func(is_stderr_tty);
     let _ = writeln!(
         stderr,
-        "error: this {command} URL is for {derived_host}, but you're configured for {configured_host}."
+        "{} this {command} URL is for {}, but you're configured for {}.",
+        c(ERROR, "error:"),
+        c(URL, &derived_host),
+        c(URL, &configured_host),
     );
+    let _ = writeln!(stderr, "  To switch instances, run:");
     let _ = writeln!(
         stderr,
-        "  this won't work — your API key isn't registered on {derived_host},"
+        "  {} {} {}",
+        c(CMD, "secrt auth login"),
+        c(OPT, "--base-url"),
+        c(URL, &pa.base_url),
     );
-    let _ = writeln!(
-        stderr,
-        "  and sending it there would leak credentials to a server you didn't choose."
-    );
-    let _ = writeln!(stderr, "  if you really meant to switch instances, run:");
-    let _ = writeln!(stderr, "    secrt auth login --base-url {}", pa.base_url);
     Err(2)
+}
+
+/// Decorate a server error string with a host-mismatch hint when a
+/// 401 likely means "your auto-loaded API key is for a different
+/// host," not "your key is invalid." The hint fires when the user
+/// passed an explicit `--base-url` (`Flag` source) AND that host
+/// differs from the one their key was registered against.
+///
+/// Returns `err` unchanged when the error isn't a 401, when no flag
+/// was passed, or when the flagged host equals the configured one.
+pub fn decorate_auth_error(err: &str, pa: &ParsedArgs, is_stderr_tty: bool) -> String {
+    if !err.contains("(401)") {
+        return err.to_string();
+    }
+    if pa.base_url_source != BaseUrlSource::Flag {
+        return err.to_string();
+    }
+    if same_logical_instance(&pa.base_url, &pa.configured_base_url) {
+        return err.to_string();
+    }
+    let flagged = match host_of(&pa.base_url) {
+        Some(h) => h,
+        None => return err.to_string(),
+    };
+    let configured = match host_of(&pa.configured_base_url) {
+        Some(h) => h,
+        None => return err.to_string(),
+    };
+    let c = color_func(is_stderr_tty);
+    format!(
+        "{err}\n  Your API key is for {}, not {}. To switch, run:\n  {} {} {}",
+        c(URL, &configured),
+        c(URL, &flagged),
+        c(CMD, "secrt auth login"),
+        c(OPT, "--base-url"),
+        c(URL, &pa.base_url),
+    )
 }
 
 /// Two URLs refer to the same logical secrt instance when:
@@ -213,7 +253,7 @@ mod tests {
     fn block_no_op_when_source_not_url_derived() {
         let pa = pa_with("https://secrt.is", "https://secrt.ca", BaseUrlSource::Flag);
         let out = capture(|w| {
-            assert_eq!(block_if_cross_instance(&pa, "sync", w), Ok(()));
+            assert_eq!(block_if_cross_instance(&pa, "sync", w, false), Ok(()));
         });
         assert!(out.is_empty(), "got: {out:?}");
     }
@@ -227,7 +267,7 @@ mod tests {
             BaseUrlSource::UrlDerived,
         );
         let out = capture(|w| {
-            assert_eq!(block_if_cross_instance(&pa, "sync", w), Ok(()));
+            assert_eq!(block_if_cross_instance(&pa, "sync", w, false), Ok(()));
         });
         assert!(out.is_empty(), "got: {out:?}");
     }
@@ -240,7 +280,7 @@ mod tests {
             BaseUrlSource::UrlDerived,
         );
         let out = capture(|w| {
-            assert_eq!(block_if_cross_instance(&pa, "sync", w), Err(2));
+            assert_eq!(block_if_cross_instance(&pa, "sync", w, false), Err(2));
         });
         assert!(
             out.contains("this sync URL is for secrt.is"),
@@ -254,6 +294,36 @@ mod tests {
             out.contains("secrt auth login --base-url https://secrt.is"),
             "got: {out:?}"
         );
+        assert!(out.contains("To switch instances"), "got: {out:?}");
+    }
+
+    #[test]
+    fn block_uses_semantic_colors_when_stderr_is_tty() {
+        let pa = pa_with(
+            "https://secrt.is",
+            "https://secrt.ca",
+            BaseUrlSource::UrlDerived,
+        );
+        let out = capture(|w| {
+            let _ = block_if_cross_instance(&pa, "sync", w, true);
+        });
+        // error: in red (31)
+        assert!(out.contains("\x1b[31merror:\x1b[0m"), "red error: {out:?}");
+        // hosts in bold cyan (1;36)
+        assert!(
+            out.contains("\x1b[1;36msecrt.is\x1b[0m"),
+            "host in bold cyan: {out:?}"
+        );
+        // command in cyan (36)
+        assert!(
+            out.contains("\x1b[36msecrt auth login\x1b[0m"),
+            "command in cyan: {out:?}"
+        );
+        // option in yellow (33)
+        assert!(
+            out.contains("\x1b[33m--base-url\x1b[0m"),
+            "option in yellow: {out:?}"
+        );
     }
 
     #[test]
@@ -265,12 +335,78 @@ mod tests {
         );
         for cmd in ["sync", "burn", "info"] {
             let out = capture(|w| {
-                let _ = block_if_cross_instance(&pa, cmd, w);
+                let _ = block_if_cross_instance(&pa, cmd, w, false);
             });
             assert!(
                 out.contains(&format!("this {cmd} URL is for evil.tld")),
                 "cmd={cmd} got: {out:?}"
             );
         }
+    }
+
+    #[test]
+    fn decorate_auth_error_passes_through_non_401() {
+        let pa = pa_with("https://secrt.is", "https://secrt.ca", BaseUrlSource::Flag);
+        let err = "server error (404): not found";
+        assert_eq!(decorate_auth_error(err, &pa, false), err);
+    }
+
+    #[test]
+    fn decorate_auth_error_no_op_when_source_not_flag() {
+        // Default source — user didn't pass --base-url, so a 401 means
+        // their key is genuinely invalid. No host-mismatch hint.
+        let pa = pa_with(
+            "https://secrt.ca",
+            "https://secrt.ca",
+            BaseUrlSource::Default,
+        );
+        let err = "server error (401): unauthorized";
+        assert_eq!(decorate_auth_error(err, &pa, false), err);
+    }
+
+    #[test]
+    fn decorate_auth_error_no_op_when_flag_matches_configured() {
+        let pa = pa_with("https://secrt.ca", "https://secrt.ca", BaseUrlSource::Flag);
+        let err = "server error (401): unauthorized";
+        assert_eq!(decorate_auth_error(err, &pa, false), err);
+    }
+
+    #[test]
+    fn decorate_auth_error_appends_hint_for_flag_cross_instance() {
+        let pa = pa_with("https://secrt.is", "https://secrt.ca", BaseUrlSource::Flag);
+        let err = "server error (401): unauthorized";
+        let out = decorate_auth_error(err, &pa, false);
+        assert!(out.starts_with(err), "should preserve original: {out:?}");
+        assert!(
+            out.contains("Your API key is for secrt.ca, not secrt.is"),
+            "missing host names: {out:?}"
+        );
+        assert!(
+            out.contains("secrt auth login --base-url https://secrt.is"),
+            "missing register command: {out:?}"
+        );
+    }
+
+    #[test]
+    fn decorate_auth_error_uses_semantic_colors_when_stderr_is_tty() {
+        let pa = pa_with("https://secrt.is", "https://secrt.ca", BaseUrlSource::Flag);
+        let err = "server error (401): unauthorized";
+        let out = decorate_auth_error(err, &pa, true);
+        assert!(
+            out.contains("\x1b[1;36msecrt.ca\x1b[0m"),
+            "configured host bold cyan: {out:?}"
+        );
+        assert!(
+            out.contains("\x1b[1;36msecrt.is\x1b[0m"),
+            "flagged host bold cyan: {out:?}"
+        );
+        assert!(
+            out.contains("\x1b[36msecrt auth login\x1b[0m"),
+            "command in cyan: {out:?}"
+        );
+        assert!(
+            out.contains("\x1b[33m--base-url\x1b[0m"),
+            "option in yellow: {out:?}"
+        );
     }
 }

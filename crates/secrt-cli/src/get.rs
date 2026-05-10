@@ -65,9 +65,12 @@ pub fn run_get(args: &[String], deps: &mut Deps) -> i32 {
     // get is warn-only; sync sends credentials).
     let (id, url_key) = match parsed {
         envelope::ParsedSecretUrl::Sync { id, url_key } => {
-            if let Err(code) =
-                crate::instance_trust::block_if_cross_instance(&pa, "sync", &mut deps.stderr)
-            {
+            if let Err(code) = crate::instance_trust::block_if_cross_instance(
+                &pa,
+                "sync",
+                &mut deps.stderr,
+                stderr_tty,
+            ) {
                 return code;
             }
             return crate::sync::handle_sync_url(

@@ -182,7 +182,8 @@ pub fn run_info(args: &[String], deps: &mut Deps) -> i32 {
         &mut deps.stderr,
         stderr_tty,
     );
-    if let Err(code) = crate::instance_trust::block_if_cross_instance(&pa, "info", &mut deps.stderr)
+    if let Err(code) =
+        crate::instance_trust::block_if_cross_instance(&pa, "info", &mut deps.stderr, stderr_tty)
     {
         return code;
     }
@@ -216,11 +217,12 @@ pub fn run_info(args: &[String], deps: &mut Deps) -> i32 {
             }
         },
         Err(e) => {
+            let decorated = crate::instance_trust::decorate_auth_error(&e, &pa, stderr_tty);
             write_error(
                 &mut deps.stderr,
                 pa.json,
                 (deps.is_tty)(),
-                &format!("info failed: {}", e),
+                &format!("info failed: {}", decorated),
             );
             return 1;
         }

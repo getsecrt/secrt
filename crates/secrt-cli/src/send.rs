@@ -207,7 +207,8 @@ pub fn run_send(args: &[String], deps: &mut Deps) -> i32 {
             if is_tty && !pa.silent {
                 let _ = writeln!(deps.stderr);
             }
-            write_error(&mut deps.stderr, pa.json, is_tty, &e);
+            let decorated = crate::instance_trust::decorate_auth_error(&e, &pa, stderr_tty);
+            write_error(&mut deps.stderr, pa.json, is_tty, &decorated);
             return 1;
         }
     };

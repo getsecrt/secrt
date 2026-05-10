@@ -260,7 +260,8 @@ pub fn run_sync(args: &[String], deps: &mut Deps) -> i32 {
         &mut deps.stderr,
         stderr_tty,
     );
-    if let Err(code) = crate::instance_trust::block_if_cross_instance(&pa, "sync", &mut deps.stderr)
+    if let Err(code) =
+        crate::instance_trust::block_if_cross_instance(&pa, "sync", &mut deps.stderr, stderr_tty)
     {
         return code;
     }
