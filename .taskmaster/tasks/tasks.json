@@ -1212,6 +1212,40 @@
             "status": "done"
           }
         ]
+      },
+      {
+        "id": 74,
+        "title": "Fix mobile footer viewport/safe-area layout",
+        "description": "On mobile devices the web footer can be pushed below the visible bottom even when the page content is shorter than the viewport. This affects the shared web UI and therefore Tauri mobile builds. Repro observed on an iPhone 17 / iOS 26.4 simulator: the footer is technically visible but sits behind the bottom Liquid Glass Safari address bar. Current layout uses `flex min-h-screen flex-col` in `web/src/components/Layout.tsx`, while the footer only applies bottom padding with `env(safe-area-inset-bottom)`. Suspected root cause: Tailwind `min-h-screen` maps to `100vh`, which can represent the mobile layout viewport rather than the visible dynamic viewport under Safari/Chrome browser chrome or mobile WebViews. Safe-area padding protects content from hardware cutouts and the home indicator; it does not represent transient browser chrome like Safari's bottom address bar, and it does not shrink a too-tall `100vh` container. Also review whether footer padding should be `calc(1rem + env(safe-area-inset-bottom))` rather than `max(1rem, env(...))` so the normal spacing is preserved when an inset exists.",
+        "status": "done",
+        "priority": "medium",
+        "dependencies": [],
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "Reproduce on mobile browser and Tauri mobile WebView",
+            "description": "Check a short-content route such as `/` or `/login` on iOS Safari, Android Chrome, and the Tauri mobile WebView if available. iOS simulator and desktop browser were manually verified after the fix; Android/Tauri mobile can be spot-checked later if a device/emulator is available.",
+            "status": "done"
+          },
+          {
+            "id": 2,
+            "title": "Replace `min-h-screen` with a dynamic viewport-safe app shell",
+            "description": "Prefer `min-h-dvh` / `min-height: 100dvh` for modern mobile browsers, with a fallback for older WebKit if needed. Keep the shell as the flex column that owns `mt-auto` footer placement.",
+            "status": "done"
+          },
+          {
+            "id": 3,
+            "title": "Rework footer safe-area padding",
+            "description": "Use a bottom padding formula that includes both normal footer breathing room and the safe-area inset, e.g. `calc(1rem + env(safe-area-inset-bottom))`, instead of treating the inset as a replacement for the normal padding.",
+            "status": "done"
+          },
+          {
+            "id": 4,
+            "title": "Add mobile layout regression coverage",
+            "description": "Deferred after manual iOS simulator and desktop verification. Add Playwright or visual screenshot coverage later if this layout regresses or mobile browser chrome behavior changes again.",
+            "status": "deferred"
+          }
+        ]
       }
     ]
   }

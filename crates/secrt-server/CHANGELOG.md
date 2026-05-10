@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+### Fixed
+
+- **Web footer stays above mobile browser chrome.** The shared web/Tauri app shell now uses the dynamic viewport height so short pages keep the footer visible above mobile browser toolbars, with safe-area padding preserved for hardware insets.
+
+  Files: `web/src/components/Layout.tsx`. Task: #74.
+
 ## 0.17.7 — 2026-05-09
 
 ### Security

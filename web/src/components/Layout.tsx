@@ -21,7 +21,7 @@ export function Layout({ children, maxWidth = 'max-w-2xl' }: LayoutProps) {
   };
 
   return (
-    <div class="flex min-h-screen flex-col">
+    <div class="flex min-h-dvh flex-col">
       <a
         href="#main-content"
         class="sr-only focus:not-sr-only focus:absolute focus:z-50 focus:rounded focus:bg-surface focus:px-4 focus:py-2 focus:text-text focus:shadow"
@@ -53,7 +53,7 @@ export function Layout({ children, maxWidth = 'max-w-2xl' }: LayoutProps) {
         {children}
       </main>
 
-      <footer class="mt-auto flex flex-col items-center gap-2 pt-4 pb-[max(1rem,env(safe-area-inset-bottom))] text-xs text-faint">
+      <footer class="mt-auto flex flex-col items-center gap-2 pt-4 pb-[calc(1rem_+_env(safe-area-inset-bottom))] text-xs text-faint">
         <div class="flex items-center gap-2">
           <div class="w-26 text-right">
             &copy; {new Date().getFullYear()} JD Lien
