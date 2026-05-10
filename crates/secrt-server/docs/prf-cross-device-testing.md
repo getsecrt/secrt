@@ -377,6 +377,44 @@ The Firefox/macOS gap from Round E2 is now empirically scoped to **macOS only**.
 
 **Side observation: Firefox 149.0.2 already has working PRF for USB on Linux.** The Mozilla bug write-up can cite this — the Firefox-side PRF support on the authrs path was working at least one minor release earlier than 150.1 on macOS still drops it. Not blocking the bug, but reinforces that the Firefox/macOS gap is a macOS-bridge issue, not a Firefox-the-product timeline issue.
 
+### Round H — Firefox/macOS pref-toggle workaround empirically validates Option B, 2026-05-03
+
+**Goal:** answer the standing needinfo question from [bug 1985777](https://bugzilla.mozilla.org/show_bug.cgi?id=1985777) comment 4 (Daniel Veditz, 2025): does flipping `security.webauthn.enable_macos_passkeys` to `false` change the behavior? If yes, that's empirical proof the gap is in the macOS dispatch path (Apple framework / `MacOSWebAuthnService.mm`), not in Firefox's PRF support generally — which directly validates the Option B fix shape (route USB+PRF through `authrs_bridge`).
+
+**Setup:** Firefox 150.1 on macOS 26.4.1, same YubiKey 5C NFC, same Test3 credential `d2Bv_6Qz` registered on Chrome/Windows in Round F3. `about:config` pref `security.webauthn.enable_macos_passkeys` toggled from default `true` to `false`. **Firefox restart required** — flipping the pref live had no effect (`prfExtPresent: false` persisted), consistent with `WebAuthnService::WebAuthnService()` constructing `mPlatformService = NewMacOSWebAuthnServiceIfAvailable()` once at service startup.
+
+| # | Surface | `prfOutputFingerprint` | Outcome |
+|---|---|---|---|
+| H1 | Firefox/macOS 26.4.1, pref live-toggled, no restart | `null` (`prfExtPresent: false`) | No change — pref read at construction, not per-call |
+| H2 | Firefox/macOS 26.4.1, pref `false` after restart | **`50a29d48c9bb78e2`** ← matches F3, F4, G2 | ✓ AMK unwrap success, `amkFingerprint: 5383cf93d8c11e51` matches F3 |
+
+**Key console trace from H2 (Firefox/macOS, pref disabled, AMK transfers):**
+
+```
+[secrt:webauthn-get]   {credIdPrefix: "d2Bv_6Qz", authenticatorAttachment: "cross-platform",
+                        prfRequested: true, prfExtPresent: true, hasPrfOutput: true, …}
+[secrt:prf-unwrap]     {hasWrapper: true, wrapperHasSalt: true, wrapperVersion: 1,
+                        hasPrfOutput: true, prfOutputFingerprint: "50a29d48c9bb78e2",
+                        credIdPrefix: "d2Bv_6Qz", …}
+[secrt:prf-unwrap]     attempting unwrap, no local AMK
+[secrt:amk-store]      {op: "store", amkFingerprint: "5383cf93d8c11e51"}
+[secrt:prf-unwrap]     {result: "success", amkFingerprint: "5383cf93d8c11e51"}
+```
+
+**Round H interpretation.**
+
+H2 is decisive on two fronts:
+
+1. **The same credential `d2Bv_6Qz` now produces fingerprint `50a29d48c9bb78e2` on Firefox/macOS** — byte-identical with Chrome/Windows registration (F3), Firefox/Windows sign-in (F4), and Firefox/Linux sign-in (G2). Same physical key, same credential, same value across four browser+OS combinations once Firefox/macOS is taken out of the Apple framework path. This is the "raw `hmac-secret` works on Firefox/macOS too if you bypass `ASAuthorizationController`" empirical confirmation.
+
+2. **AMK transfers cleanly to Firefox/macOS-with-pref-disabled** — the wrapper sealed by Chrome/Windows registration (F3) unwraps successfully, yielding the same AMK fingerprint `5383cf93d8c11e51`. Full positive cross-OS-and-cross-browser AMK transfer Chrome/Windows → Firefox/macOS works, given the dispatch override.
+
+**This empirically validates Option B as the correct fix shape.** The dispatch-redirect approach (route USB-when-PRF-requested away from `MacOSWebAuthnService` to `authrs_bridge`) produces working PRF byte-identical with every other Firefox+OS and Chromium+OS combination. The bug is purely in the dispatch logic; the underlying authrs path on macOS already works.
+
+**User-level workaround implications.** Flipping `security.webauthn.enable_macos_passkeys = false` is a working-but-imperfect workaround for Firefox/macOS users who use only USB security keys with PRF-using RPs. The trade-off: this also disables iCloud Keychain platform-passkey integration in Firefox/macOS (those route through `MacOSWebAuthnService` too). Users with mixed credentials lose iCloud Keychain passkey access in Firefox while gaining USB-key PRF. Documented in `yubikeys.md` §2.2 as a workaround with caveats; not a recommended default.
+
+**Bug-1985777 implications.** Round H directly answers the question that stalled the original report. Reopen comment can lead with this evidence.
+
 ---
 
 ## 4. Failure mode catalog

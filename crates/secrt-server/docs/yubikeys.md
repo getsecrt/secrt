@@ -69,7 +69,11 @@ About:config has no `prf`-prefixed preference. No subordinate Mozilla bugzilla b
 
 The macOS 15 SDK does **not** expose `.prf` on the security-key class — only platform credentials. The macOS 26.4 SDK adds it (verified in headers locally 2026-05-02). Cross-browser empirical capture on macOS 26.4.1 (`prf-cross-device-testing.md` Round E) confirms Apple still re-wraps `hmac-secret` for external authenticators on the new OS — Apple did not change the framework's privacy boundary in macOS 26. So Option A's value is bounded: it brings Firefox/macOS-26.4+ from "no PRF" to "Safari-equivalent wrapped PRF" — better than today, but not topology-correct.
 
-**Workaround for users on Firefox/macOS today:** scan a QR code with a phone-based passkey for the same account (caBLE) — PRF travels through the platform request path. Or use Chrome/Edge/Vivaldi.
+**Workarounds for users on Firefox/macOS today (in order of recommendability):**
+
+1. **Use Chrome/Edge/Vivaldi for accounts that depend on PRF.** These bypass Apple's framework via CTAP HID directly. No trade-offs.
+2. **Scan a QR code with a phone-based passkey for the same account (caBLE).** PRF travels through the platform request path. Requires having a phone-based passkey enrolled.
+3. **Power-user workaround — flip `security.webauthn.enable_macos_passkeys` to `false` in `about:config` and restart Firefox.** Empirically validated on Firefox 150.1 / macOS 26.4.1 (Round H, 2026-05-03): this routes USB security keys through `authrs_bridge` and produces working raw `hmac-secret` PRF, byte-identical with Chromium and Firefox/Linux/Windows. **Trade-off:** also disables iCloud Keychain platform-passkey integration in Firefox/macOS. Users with mixed credentials (USB key + iCloud Keychain) will lose iCloud Keychain passkey access in Firefox while gaining USB-key PRF. For users who only use USB security keys, this is a clean fix. Don't enable for daily Firefox use unless you've made the trade explicitly.
 
 ### 2.3 The double-touch problem at registration — CTAP2 spec
 
