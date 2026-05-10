@@ -516,17 +516,35 @@ On a new device, the client retrieves the wrapped blob, derives the same wrap ke
 
 ### Cross-Device Sync
 
-For users who want to sync the AMK to another browser without configuring an API key on that device, secrt provides a manual sync mechanism that tunnels through the existing one-time secret infrastructure:
+For users who want to sync the AMK to another browser without configuring an API key on that device, secrt provides two transports, both client-driven and zero-knowledge to the server.
+
+#### Browser-to-browser pairing (`/pair`, recommended)
+
+The primary path is a synchronous rendezvous between two same-account sessions, modelled on the CLI device-auth flow:
+
+1. **Displayer:** One browser visits `/pair` and posts to `/api/v1/auth/pair/start`, which returns an 8-character `user_code` (formatted `XXXX-XXXX`) and the displayer's poll token. The browser renders the code as text and as a QR encoding only `https://<host>/pair?mode=join&code=XXXX-XXXX` — no key material in the QR, ever.
+
+2. **Joiner:** The second browser visits the QR-linked URL (or types the code by hand) and posts to `/api/v1/auth/pair/claim`. Both sides exchange ephemeral P-256 ECDH public keys, derive an identical transfer key via HKDF, and the AMK-holding side encrypts the AMK with AES-256-GCM against that key.
+
+3. **Receiver-side commit-before-store:** Before persisting the decrypted AMK to IndexedDB, the receiver fetches its account's `amk_commit` from the server and verifies that the decrypted bytes hash to the same commit. A mismatch refuses the store and clears local state.
+
+4. **Slot lifecycle:** The rendezvous slot lives in `webauthn_challenges` with a 10-minute TTL and is deleted atomically on the receiver's first successful poll. The reaper deletes unconsumed slots at expiry. The server only ever sees public ECDH keys, the public `user_code`, and ciphertext.
+
+This path keeps wrapping secrets entirely on the user's devices — no third party (cloud clipboard, browser history, password manager, message archive) sees even ciphertext. The user-visible `user_code` is the public rendezvous identifier and is safe to display, encode in QR, and type by hand; the private poll tokens are session-bound and never embedded in URLs or QR codes. See `spec/v1/server.md` §6.4 for the full state machine, threat model, and privacy posture.
+
+#### Sync link (asynchronous fallback)
+
+When the two browsers cannot be open simultaneously, secrt also exposes a link-based fallback that tunnels through the existing one-time secret pipeline:
 
 1. **Source browser:** The `SyncNotesKeyButton` component seals the raw AMK bytes as a standard one-time secret (using the existing envelope encryption) with a short 10-minute TTL.
 
-2. **Sync link:** A `/sync/{id}#<urlKey>` URL is generated and displayed to the user (via QR code or copy/paste).
+2. **Sync link:** A `/sync/{id}#<urlKey>` URL is generated and displayed to the user for copy/paste. The UI deliberately does not render this URL as a QR code: sync URLs are bearer tokens equivalent in sensitivity to the AMK itself, and an offline screen capture or shoulder-surf of a QR is a strictly larger surface than copy/paste between trusted devices.
 
-3. **Target browser:** Opening the sync link routes to a dedicated `SyncPage` that claims the one-time secret, decrypts the envelope to recover the raw AMK, validates it is exactly 32 bytes, and stores it in IndexedDB.
+3. **Target browser:** Opening the sync link routes to a dedicated `SyncPage` that claims the one-time secret, decrypts the envelope to recover the raw AMK, validates it is exactly 32 bytes, runs the same commit-before-store check as the pairing path, and stores it in IndexedDB.
 
 4. **Self-destruct:** The secret is consumed by the one-time claim, so the link cannot be reused. The short TTL limits the exposure window.
 
-This reuses the existing zero-knowledge secret sharing pipeline — no new crypto, no new server endpoints — just a specialized UI flow for transferring the AMK between browsers.
+This reuses the existing zero-knowledge secret sharing pipeline — no new crypto, no new server endpoints — just a specialized UI flow for transferring the AMK between browsers when synchronous pairing isn't practical.
 
 ### CLI Device Authorization & ECDH Transfer
 
@@ -623,7 +641,9 @@ The commitment is blinded (the domain tag prevents rainbow table attacks) and re
 
 **IndexedDB exposure:** If an attacker gains access to the browser's IndexedDB on a logged-in device, they can extract the raw AMK and decrypt all notes. This is equivalent to the existing threat model non-goal of compromised client devices — if the attacker owns the browser, they can read anything the user can read.
 
-**Sync link interception:** A sync link is a standard one-time secret with a 10-minute TTL. The same protections apply: HTTPS transport, URL fragment key separation, one-time atomic claim. An attacker would need to both intercept the link and claim it before the user does.
+**Pair-rendezvous interception:** The `user_code` displayed by `/pair` and encoded in its QR is a public rendezvous identifier; possessing it is not sufficient to retrieve any AMK material. Every `/api/v1/auth/pair/*` endpoint requires a same-user session and the slot is bound to a single `user_id` at `/start`, so an attacker who intercepts the QR cannot claim or approve the slot without already controlling a session on the target account. AMK material in transit is sealed under the AES-GCM key derived from the two ephemeral P-256 keys via HKDF; the server only sees ciphertext.
+
+**Sync link interception:** A sync link is a standard one-time secret with a 10-minute TTL. The same protections apply: HTTPS transport, URL fragment key separation, one-time atomic claim. An attacker would need to both intercept the link and claim it before the user does. Because sync URLs are themselves bearer-equivalent to the AMK, the UI does not render them as QR codes — the `/pair` flow is the recommended path when synchronous transfer is possible.
 
 **AMK commitment mismatch:** A compromised server could accept a second, attacker-controlled AMK commitment. However, this only affects future notes encrypted with the forked AMK — existing notes remain bound to the original AMK and cannot be re-encrypted without it. Additionally, the attacker would still need a valid API key root secret to wrap and upload the forged AMK, which the server doesn't have.
 
