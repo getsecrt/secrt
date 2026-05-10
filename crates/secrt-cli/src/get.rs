@@ -51,7 +51,13 @@ pub fn run_get(args: &[String], deps: &mut Deps) -> i32 {
 
     // Derive base URL from share/sync URL if not explicitly set via flag/env.
     derive_base_url_from_url(&share_url, &mut pa);
-    crate::instance_trust::warn_if_unofficial(&pa.base_url, &pa.trusted_servers, &mut deps.stderr);
+    let stderr_tty = (deps.is_stderr_tty)();
+    crate::instance_trust::warn_if_unofficial(
+        &pa.base_url,
+        &pa.trusted_servers,
+        &mut deps.stderr,
+        stderr_tty,
+    );
     let base_url = pa.base_url.clone();
 
     // If this is a sync URL, delegate to the sync handler — but first

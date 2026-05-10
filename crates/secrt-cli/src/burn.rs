@@ -97,7 +97,13 @@ pub fn run_burn(args: &[String], deps: &mut Deps) -> i32 {
         }
     }
 
-    crate::instance_trust::warn_if_unofficial(&pa.base_url, &pa.trusted_servers, &mut deps.stderr);
+    let stderr_tty = (deps.is_stderr_tty)();
+    crate::instance_trust::warn_if_unofficial(
+        &pa.base_url,
+        &pa.trusted_servers,
+        &mut deps.stderr,
+        stderr_tty,
+    );
     if let Err(code) = crate::instance_trust::block_if_cross_instance(&pa, "burn", &mut deps.stderr)
     {
         return code;

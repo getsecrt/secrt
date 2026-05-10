@@ -397,7 +397,7 @@ fn send_off_list_base_url_warns_but_proceeds() {
     );
     let err = stderr.to_string();
     assert!(
-        err.contains("unofficial secrt instance"),
+        err.contains("not an official secrt instance"),
         "warning fires; stderr: {err}"
     );
     assert!(err.contains("evil.tld"), "names host; stderr: {err}");
@@ -440,7 +440,7 @@ fn send_trusted_servers_silences_warning() {
     );
     let err = stderr.to_string();
     assert!(
-        !err.contains("unofficial secrt instance"),
+        !err.contains("not an official secrt instance"),
         "warning silenced by trusted_servers; stderr: {err}"
     );
     let _ = code; // exit code is from mocked network failure, not relevant here.

@@ -19,10 +19,19 @@ use std::io::Write;
 use secrt_core::{classify_origin, host_of, TrustDecision};
 
 use crate::cli::{BaseUrlSource, ParsedArgs};
+use crate::color::{color_func, OPT, URL, WARN};
 
 /// Emit a loud warning to `stderr` when `base_url` classifies as
 /// `Untrusted`. No-op for `Official`, `TrustedCustom`, and `DevLocal`.
-pub fn warn_if_unofficial(base_url: &str, trusted_servers: &[String], stderr: &mut dyn Write) {
+///
+/// `is_stderr_tty` gates ANSI color codes — pass `false` for piped or
+/// redirected stderr so the warning stays plain text.
+pub fn warn_if_unofficial(
+    base_url: &str,
+    trusted_servers: &[String],
+    stderr: &mut dyn Write,
+    is_stderr_tty: bool,
+) {
     if !matches!(
         classify_origin(base_url, trusted_servers),
         TrustDecision::Untrusted
@@ -30,39 +39,25 @@ pub fn warn_if_unofficial(base_url: &str, trusted_servers: &[String], stderr: &m
         return;
     }
     let host = host_of(base_url).unwrap_or_else(|| base_url.to_string());
+    let c = color_func(is_stderr_tty);
     let _ = writeln!(
         stderr,
-        "warning: pointing at an unofficial secrt instance ({host})."
+        "{} {} is not an official secrt instance.",
+        c(WARN, "Warning:"),
+        c(URL, &host),
     );
+    let _ = writeln!(stderr);
     let _ = writeln!(
         stderr,
-        "  We don't know who runs this server. Anything you send,"
+        "  We can't verify who operates it. If you don't know, exercise caution."
     );
+    let _ = writeln!(stderr);
     let _ = writeln!(
         stderr,
-        "  retrieve, or authenticate against it is only as safe as"
+        "  Silence: {}",
+        c(OPT, &format!("trusted_servers = [\"{host}\"]")),
     );
-    let _ = writeln!(
-        stderr,
-        "  whoever operates it. They could be logging plaintext,"
-    );
-    let _ = writeln!(
-        stderr,
-        "  ciphertext, access patterns, or API keys; modifying the"
-    );
-    let _ = writeln!(
-        stderr,
-        "  web bundle to exfiltrate keys; or refusing to honor"
-    );
-    let _ = writeln!(stderr, "  atomic-claim semantics.");
-    let _ = writeln!(
-        stderr,
-        "  If you didn't deliberately configure this, stop now."
-    );
-    let _ = writeln!(
-        stderr,
-        "  Silence with: trusted_servers = [\"{host}\"]  in ~/.config/secrt/config.toml"
-    );
+    let _ = writeln!(stderr, "  in {}", c(URL, "~/.config/secrt/config.toml"));
 }
 
 /// Refuse to proceed when argv overrode the configured `base_url` with a
@@ -144,42 +139,74 @@ mod tests {
 
     #[test]
     fn warn_silent_for_official() {
-        let out = capture(|w| warn_if_unofficial("https://secrt.ca", &[], w));
+        let out = capture(|w| warn_if_unofficial("https://secrt.ca", &[], w, false));
         assert!(out.is_empty(), "got: {out:?}");
     }
 
     #[test]
     fn warn_silent_for_official_wildcard() {
-        let out = capture(|w| warn_if_unofficial("https://my.secrt.is", &[], w));
+        let out = capture(|w| warn_if_unofficial("https://my.secrt.is", &[], w, false));
         assert!(out.is_empty(), "got: {out:?}");
     }
 
     #[test]
     fn warn_silent_for_devlocal() {
-        let out = capture(|w| warn_if_unofficial("http://localhost:8080", &[], w));
+        let out = capture(|w| warn_if_unofficial("http://localhost:8080", &[], w, false));
         assert!(out.is_empty(), "got: {out:?}");
     }
 
     #[test]
     fn warn_silent_for_trusted_server() {
         let out = capture(|w| {
-            warn_if_unofficial("https://my-self.example", &["my-self.example".into()], w)
+            warn_if_unofficial(
+                "https://my-self.example",
+                &["my-self.example".into()],
+                w,
+                false,
+            )
         });
         assert!(out.is_empty(), "got: {out:?}");
     }
 
     #[test]
     fn warn_fires_for_evil_tld() {
-        let out = capture(|w| warn_if_unofficial("https://evil.tld", &[], w));
-        assert!(out.contains("unofficial secrt instance"), "got: {out:?}");
+        let out = capture(|w| warn_if_unofficial("https://evil.tld", &[], w, false));
+        assert!(
+            out.contains("not an official secrt instance"),
+            "got: {out:?}"
+        );
         assert!(out.contains("evil.tld"), "got: {out:?}");
         assert!(out.contains("trusted_servers"), "got: {out:?}");
+        assert!(out.contains("~/.config/secrt/config.toml"), "got: {out:?}");
     }
 
     #[test]
     fn warn_fires_for_lookalike() {
-        let out = capture(|w| warn_if_unofficial("https://foosecrt.is", &[], w));
+        let out = capture(|w| warn_if_unofficial("https://foosecrt.is", &[], w, false));
         assert!(out.contains("foosecrt.is"), "got: {out:?}");
+    }
+
+    #[test]
+    fn warn_uses_ansi_when_stderr_is_tty() {
+        let out = capture(|w| warn_if_unofficial("https://evil.tld", &[], w, true));
+        assert!(
+            out.contains("\x1b["),
+            "should contain ANSI escapes: {out:?}"
+        );
+        assert!(
+            out.contains("\x1b[33mWarning:\x1b[0m"),
+            "yellow Warning: prefix; got: {out:?}"
+        );
+        assert!(
+            out.contains("\x1b[1;36mevil.tld\x1b[0m"),
+            "bold cyan host; got: {out:?}"
+        );
+    }
+
+    #[test]
+    fn warn_plain_text_when_stderr_not_tty() {
+        let out = capture(|w| warn_if_unofficial("https://evil.tld", &[], w, false));
+        assert!(!out.contains("\x1b["), "should not contain ANSI: {out:?}");
     }
 
     #[test]

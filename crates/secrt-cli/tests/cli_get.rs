@@ -1475,7 +1475,7 @@ fn get_off_list_share_url_warns_but_proceeds() {
     let code = cli::run(&args(&["secrt", "get", &url]), &mut deps);
     let err = stderr.to_string();
     assert!(
-        err.contains("unofficial secrt instance"),
+        err.contains("not an official secrt instance"),
         "warning fires; stderr: {err}"
     );
     assert!(err.contains("evil.tld"), "names host; stderr: {err}");

@@ -253,7 +253,13 @@ pub fn run_sync(args: &[String], deps: &mut Deps) -> i32 {
 
     // Derive base URL from the sync URL if not explicitly set via flag/env.
     derive_base_url_from_url(&raw_url, &mut pa);
-    crate::instance_trust::warn_if_unofficial(&pa.base_url, &pa.trusted_servers, &mut deps.stderr);
+    let stderr_tty = (deps.is_stderr_tty)();
+    crate::instance_trust::warn_if_unofficial(
+        &pa.base_url,
+        &pa.trusted_servers,
+        &mut deps.stderr,
+        stderr_tty,
+    );
     if let Err(code) = crate::instance_trust::block_if_cross_instance(&pa, "sync", &mut deps.stderr)
     {
         return code;
