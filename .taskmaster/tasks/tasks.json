@@ -1203,7 +1203,7 @@
             "id": 5,
             "title": "Tauri CSP widen + hardcoded-host cleanup",
             "description": "Widen connect-src in crates/secrt-app/tauri.conf.json from secrt.ca only to all KNOWN_INSTANCES origins. New tests/csp_drift.rs asserts CSP matches secrt-core constant. Replace hardcoded 'https://secrt.ca' in web/src/lib/config.ts:14 and web/src/lib/url.ts:16,30 with shared PRIMARY_OFFICIAL_ORIGIN constant. Self-host Tauri support (runtime base-URL config + dynamic CSP) is DEFERRED to a separate task.",
-            "status": "pending"
+            "status": "done"
           },
           {
             "id": 6,

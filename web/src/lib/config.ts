@@ -11,7 +11,7 @@ export function getApiBase(): string {
   if (!isTauri()) return '';
   // In dev mode, Vite proxy handles /api → secrt.ca; use relative URLs.
   // In production Tauri builds, there's no proxy — use absolute URL.
-  return import.meta.env.DEV ? '' : 'https://secrt.ca';
+  return import.meta.env.DEV ? '' : PRIMARY_OFFICIAL_ORIGIN;
 }
 
 /**
@@ -29,6 +29,15 @@ export function getApiBase(): string {
  * enumerate the same set of hosts.
  */
 export const KNOWN_INSTANCES: readonly string[] = ['secrt.ca', 'secrt.is'];
+
+/**
+ * The primary official origin — used as the production fallback for
+ * Tauri builds (which load from local files and have no meaningful
+ * window.location.origin). Derived from `KNOWN_INSTANCES[0]`; the spec
+ * vector test pins this to `spec/v1/instances.json`'s first entry so
+ * the apex list and the Tauri fallback never drift.
+ */
+export const PRIMARY_OFFICIAL_ORIGIN = `https://${KNOWN_INSTANCES[0]}`;
 
 /**
  * Lowercase a host and collapse known-instance subdomains to the apex.

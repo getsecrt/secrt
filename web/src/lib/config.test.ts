@@ -6,6 +6,7 @@ import {
   normalizeOrigin,
   getInfrastructure,
   KNOWN_INSTANCES,
+  PRIMARY_OFFICIAL_ORIGIN,
 } from './config';
 import spec from '../../../spec/v1/instances.json';
 
@@ -60,6 +61,13 @@ describe('spec drift', () => {
   it('KNOWN_INSTANCES matches the spec apex list', () => {
     const specApexes = spec.official_instances.map((e) => e.apex);
     expect([...KNOWN_INSTANCES]).toEqual(specApexes);
+  });
+
+  it('PRIMARY_OFFICIAL_ORIGIN matches the spec primary origin', () => {
+    expect(PRIMARY_OFFICIAL_ORIGIN).toBe(
+      `https://${spec.official_instances[0].apex}`,
+    );
+    expect(PRIMARY_OFFICIAL_ORIGIN).toBe(spec.official_instances[0].origin);
   });
 });
 
