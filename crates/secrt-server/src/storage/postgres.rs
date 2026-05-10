@@ -996,6 +996,77 @@ impl AuthStore for PgStore {
         })
     }
 
+    async fn cas_update_challenge_json(
+        &self,
+        challenge_id: &str,
+        purpose: &str,
+        expected_statuses: &[&str],
+        new_challenge_json: &str,
+        now: DateTime<Utc>,
+    ) -> Result<(), StorageError> {
+        // Indexability note: `challenge_json::jsonb->>'status'` is a JSON
+        // path predicate and bypasses btree on a hypothetical top-level
+        // `status` column. Fine at secrt's current row counts (web-pair
+        // slots are short-lived and capped per session); the lever for the
+        // future archaeologist who hits this in EXPLAIN ANALYZE is to
+        // promote `status` to a real column with an index, not to add a
+        // JSON-path index.
+        let client = self.pool.get().await?;
+        let expected_vec: Vec<&str> = expected_statuses.to_vec();
+        let n = client
+            .execute(
+                "UPDATE webauthn_challenges \
+                 SET challenge_json=$1 \
+                 WHERE challenge_id=$2 \
+                   AND purpose=$3 \
+                   AND expires_at>$4 \
+                   AND (challenge_json::jsonb->>'status') = ANY($5)",
+                &[
+                    &new_challenge_json,
+                    &challenge_id,
+                    &purpose,
+                    &now,
+                    &expected_vec,
+                ],
+            )
+            .await?;
+        if n == 0 {
+            return Err(StorageError::NotFound);
+        }
+        Ok(())
+    }
+
+    async fn find_challenge_by_joiner_poll_token(
+        &self,
+        joiner_poll_token: &str,
+        purpose: &str,
+        now: DateTime<Utc>,
+    ) -> Result<ChallengeRecord, StorageError> {
+        let client = self.pool.get().await?;
+        let row = client
+            .query_opt(
+                "SELECT id, challenge_id, user_id, purpose, challenge_json, expires_at, created_at \
+                 FROM webauthn_challenges \
+                 WHERE purpose=$1 AND expires_at>$2 \
+                   AND challenge_json::jsonb->>'joiner_poll_token'=$3 \
+                 LIMIT 1",
+                &[&purpose, &now, &joiner_poll_token],
+            )
+            .await?;
+        let Some(row) = row else {
+            return Err(StorageError::NotFound);
+        };
+        Ok(ChallengeRecord {
+            id: row.try_get(0)?,
+            challenge_id: row.try_get(1)?,
+            user_id: row.try_get(2)?,
+            purpose: row.try_get(3)?,
+            challenge_json: row.try_get(4)?,
+            expires_at: row.try_get(5)?,
+            created_at: row.try_get(6)?,
+        })
+    }
+
     async fn update_display_name(
         &self,
         user_id: UserId,

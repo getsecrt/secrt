@@ -518,6 +518,51 @@ impl AuthStore for MemStore {
         Err(StorageError::NotFound)
     }
 
+    async fn cas_update_challenge_json(
+        &self,
+        challenge_id: &str,
+        purpose: &str,
+        expected_statuses: &[&str],
+        new_challenge_json: &str,
+        now: DateTime<Utc>,
+    ) -> Result<(), StorageError> {
+        let mut m = self.challenges.lock().expect("challenges mutex poisoned");
+        let rec = m
+            .get_mut(challenge_id)
+            .filter(|r| r.purpose == purpose && r.expires_at > now)
+            .ok_or(StorageError::NotFound)?;
+        let current_status = serde_json::from_str::<serde_json::Value>(&rec.challenge_json)
+            .ok()
+            .and_then(|v| v.get("status").and_then(|s| s.as_str()).map(String::from))
+            .unwrap_or_default();
+        if !expected_statuses.iter().any(|s| *s == current_status) {
+            return Err(StorageError::NotFound);
+        }
+        rec.challenge_json = new_challenge_json.to_string();
+        Ok(())
+    }
+
+    async fn find_challenge_by_joiner_poll_token(
+        &self,
+        joiner_poll_token: &str,
+        purpose: &str,
+        now: DateTime<Utc>,
+    ) -> Result<ChallengeRecord, StorageError> {
+        let m = self.challenges.lock().expect("challenges mutex poisoned");
+        for rec in m.values() {
+            if rec.purpose != purpose || rec.expires_at <= now {
+                continue;
+            }
+            if let Ok(json) = serde_json::from_str::<serde_json::Value>(&rec.challenge_json) {
+                if json.get("joiner_poll_token").and_then(|v| v.as_str()) == Some(joiner_poll_token)
+                {
+                    return Ok(rec.clone());
+                }
+            }
+        }
+        Err(StorageError::NotFound)
+    }
+
     async fn count_apikey_registrations_by_user_since(
         &self,
         user_id: UserId,

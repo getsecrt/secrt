@@ -366,6 +366,34 @@ pub trait AuthStore: Send + Sync {
         now: DateTime<Utc>,
     ) -> Result<ChallengeRecord, StorageError>;
 
+    /// Atomic compare-and-set update of a challenge's JSON. Succeeds only if
+    /// the row exists with the given (`challenge_id`, `purpose`), is
+    /// unexpired, and the stored `challenge_json->>'status'` is in
+    /// `expected_statuses`. Returns `NotFound` on any mismatch — callers
+    /// translate that to a 409. The single SQL statement gives concurrent
+    /// callers exactly-one-winner semantics for status transitions
+    /// (used by the `/auth/pair/*` endpoints to prevent racing claims and
+    /// approves; see `crates/secrt-server/src/http/mod.rs`).
+    async fn cas_update_challenge_json(
+        &self,
+        challenge_id: &str,
+        purpose: &str,
+        expected_statuses: &[&str],
+        new_challenge_json: &str,
+        now: DateTime<Utc>,
+    ) -> Result<(), StorageError>;
+
+    /// Find a challenge whose `challenge_json->>'joiner_poll_token'`
+    /// matches. Used by the `/auth/pair/poll` joiner-side path: the row's
+    /// `challenge_id` is the displayer's token, so the joiner's private
+    /// poll token can only be located via the JSON path.
+    async fn find_challenge_by_joiner_poll_token(
+        &self,
+        joiner_poll_token: &str,
+        purpose: &str,
+        now: DateTime<Utc>,
+    ) -> Result<ChallengeRecord, StorageError>;
+
     async fn update_display_name(
         &self,
         user_id: UserId,
@@ -749,6 +777,36 @@ where
     ) -> Result<ChallengeRecord, StorageError> {
         (**self)
             .find_challenge_by_user_code(user_code, purpose, now)
+            .await
+    }
+
+    async fn cas_update_challenge_json(
+        &self,
+        challenge_id: &str,
+        purpose: &str,
+        expected_statuses: &[&str],
+        new_challenge_json: &str,
+        now: DateTime<Utc>,
+    ) -> Result<(), StorageError> {
+        (**self)
+            .cas_update_challenge_json(
+                challenge_id,
+                purpose,
+                expected_statuses,
+                new_challenge_json,
+                now,
+            )
+            .await
+    }
+
+    async fn find_challenge_by_joiner_poll_token(
+        &self,
+        joiner_poll_token: &str,
+        purpose: &str,
+        now: DateTime<Utc>,
+    ) -> Result<ChallengeRecord, StorageError> {
+        (**self)
+            .find_challenge_by_joiner_poll_token(joiner_poll_token, purpose, now)
             .await
     }
 
