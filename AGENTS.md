@@ -303,16 +303,17 @@ Pre-1.0, lockstep is honest only at coordinated breaks (wire-format changes, spe
 2. Update `secrt-core` version in `crates/secrt-cli/Cargo.toml` and `crates/secrt-server/Cargo.toml` dependencies (both crates depend on `secrt-core`, so this stays in lockstep regardless of which top-level component is releasing)
 3. Add a changelog entry to **whichever component(s) actually changed.** Don't write placeholder no-op entries for the unchanged component — omit its version heading entirely.
 4. **If this server release contains a wire-format change that breaks older CLIs**, bump `MIN_SUPPORTED_CLI_VERSION` in `crates/secrt-server/src/lib.rs` to the new floor in the same commit. The CLI surfaces this value via `/api/v1/info` and the `X-Secrt-Min-Cli-Version` advisory header to nudge users to upgrade. The v0.15.0 AAD format break is the canonical example.
-5. Commit: `chore: bump version to X.Y.Z` (or scope to the changed component, e.g. `chore(cli): bump version to X.Y.Z`)
-6. Tag the changed component(s): `git tag cli/vX.Y.Z` and/or `git tag server/vX.Y.Z`. Tag only what has a CHANGELOG entry — `extract-changelog-entry.sh` will fail the workflow on missing entries.
-7. Push: `git push origin main <tag>` (push only the tags you created)
-8. **Release notes are auto-populated by the workflows.** Both `release-cli.yml` and `release-server.yml` extract the version's CHANGELOG entry via `scripts/extract-changelog-entry.sh` and pass it as the GitHub Release body, with the title set to the exact tag name. If the CHANGELOG lacks an entry for the version being released, the workflow fails — fix the CHANGELOG, push a follow-up commit on the tag, and re-tag (or re-run the workflow against the existing tag via `gh run rerun`).
-9. Verify the tag(s) you pushed resolve correctly:
-   ```sh
-   git ls-remote --tags origin cli/vX.Y.Z       # or server/vX.Y.Z
-   gh release view cli/vX.Y.Z --json tagName,name,publishedAt,url
-   ```
-10. **Do not use** `releases/latest` for server artifact selection. GitHub "latest" is repo-wide and may point to a CLI release.
+5. **For server releases, update pinned version refs in `docs/self-hosting.md`** — the `VERSION="server/vX.Y.Z"` line in Phase 7.1 and the example `releases/download/server%2FvX.Y.Z/...` URL in the troubleshooting note below it. Operators copy-paste from this doc; stale pins send them to old binaries. Grep for the previous version string to catch any others: `rg "server/v" docs/self-hosting.md`.
+6. Commit: `chore: bump version to X.Y.Z` (or scope to the changed component, e.g. `chore(cli): bump version to X.Y.Z`)
+7. Tag the changed component(s): `git tag cli/vX.Y.Z` and/or `git tag server/vX.Y.Z`. Tag only what has a CHANGELOG entry — `extract-changelog-entry.sh` will fail the workflow on missing entries.
+8. Push: `git push origin main <tag>` (push only the tags you created)
+9. **Release notes are auto-populated by the workflows.** Both `release-cli.yml` and `release-server.yml` extract the version's CHANGELOG entry via `scripts/extract-changelog-entry.sh` and pass it as the GitHub Release body, with the title set to the exact tag name. If the CHANGELOG lacks an entry for the version being released, the workflow fails — fix the CHANGELOG, push a follow-up commit on the tag, and re-tag (or re-run the workflow against the existing tag via `gh run rerun`).
+10. Verify the tag(s) you pushed resolve correctly:
+    ```sh
+    git ls-remote --tags origin cli/vX.Y.Z       # or server/vX.Y.Z
+    gh release view cli/vX.Y.Z --json tagName,name,publishedAt,url
+    ```
+11. **Do not use** `releases/latest` for server artifact selection. GitHub "latest" is repo-wide and may point to a CLI release.
    - For server downloads, always use tag-pinned URLs (`/releases/download/server%2FvX.Y.Z/...`).
    - If automation needs "latest server tag", query and filter by tag prefix:
      ```sh
