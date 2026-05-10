@@ -1295,6 +1295,8 @@ Browser support for the PRF extension is bleeding-edge (Chrome 147+, Safari 18+,
 
 A **sync secret** is a short-lived one-time secret whose plaintext is the raw 32-byte AMK. Sync secrets reuse the standard secret infrastructure; the server makes no protocol-level distinction from any other secret. The "sync" distinction exists entirely at the client layer.
 
+> **Browser-to-browser preferred path.** When both browsers are available simultaneously, clients SHOULD use the Web-to-Web Pairing flow (`/api/v1/auth/pair/*`, see `spec/v1/server.md` §6.4 and §Web-to-Web Pairing above) instead of the sync-secret transport. The pair flow keeps wrapping material entirely on user devices — no third party (cloud clipboard, browser history, password manager) sees even ciphertext — and binds the slot to a single `user_id` so the public rendezvous QR cannot be claimed by an unauthenticated observer. Sync secrets remain the documented asynchronous fallback when synchronous pairing is impractical.
+
 ##### Create side (browser)
 
 1. Read the 32-byte AMK from local storage.
@@ -1328,6 +1330,7 @@ Residual risks clients SHOULD surface to users when presenting a sync URL:
 - **Clipboard sync** — Apple Universal Clipboard, Windows Cloud Clipboard, and similar features replicate clipboards across devices and may expose the URL to unintended hosts.
 - **Browser history and password managers** — pasting a sync URL into a browser address bar may be captured by history, sync, or URL-grabbing password managers.
 - **Terminal logs** — pasting a sync URL into a terminal captures it in shell history and any remote logging.
+- **QR rendering** — because the URL itself is bearer-equivalent to the AMK, clients MUST NOT render sync URLs as QR codes. A QR code is trivial to capture out-of-band (camera shoulder-surf, projected slide, screen recording) and offers no value over direct copy/paste between trusted devices. The QR-coded transport for AMK transfer is the Web-to-Web Pairing flow, whose QR encodes only the public `user_code`.
 
 Treat sync URLs as ephemeral transfer material: consume immediately on the destination device, do not persist or bookmark.
 

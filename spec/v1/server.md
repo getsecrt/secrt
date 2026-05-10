@@ -178,6 +178,7 @@ The header is an internal signal between the reverse proxy and the application a
 - `GET /api/v1/apikeys`
 - `POST /api/v1/apikeys/{prefix}/revoke`
 - `GET /device`
+- `GET /pair` (SPA marker for the Web-to-Web Pairing flow; serves the same index.html as `/`. See §6.4 and `api.md § Web-to-Web Pairing` for the protocol.)
 - `POST /api/v1/auth/device/start`
 - `POST /api/v1/auth/device/poll`
 - `POST /api/v1/auth/device/approve`

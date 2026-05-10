@@ -539,7 +539,16 @@ function DashboardContent() {
           Pair with another device
         </a>
 
-        <SyncNotesKeyButton />
+        {hasAmk && (
+          <details class="text-center">
+            <summary class="link-subtle cursor-pointer text-sm text-muted">
+              More options
+            </summary>
+            <div class="mt-2">
+              <SyncNotesKeyButton />
+            </div>
+          </details>
+        )}
       </div>
 
       {/* Secret detail modal */}

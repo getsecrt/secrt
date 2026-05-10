@@ -118,6 +118,7 @@ export function SyncNotesKeyButton() {
             title="Notes Key Link"
             subtitle="Open link in the browser you want to sync."
             bare
+            showQr={false}
           />
         )}
 

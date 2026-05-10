@@ -16,6 +16,17 @@
 
   Spec: `spec/v1/server.md` § 6.4, `spec/v1/api.md` § Web-to-Web Pairing. Files: `crates/secrt-server/src/http/mod.rs`, `crates/secrt-server/src/storage/{mod,postgres}.rs`. Task: #68.
 
+### Changed
+
+- **Payload-QR retired on the AMK sync path; `/pair` is now the canonical browser-to-browser AMK transfer UX.** The link-based sync transport (`SyncNotesKeyButton` + `/sync/{id}#<urlKey>`) remains available as an asynchronous fallback for cases where both browsers cannot be open simultaneously, but the source-browser UI no longer renders the sync URL as a QR code.
+
+  Why: sync URLs are bearer-equivalent to the AMK itself. Rendering a bearer URL as a QR invites offline capture (camera shoulder-surf, projected slide, screen recording) without giving any UX win over direct copy/paste between trusted devices. The Web-to-Web Pairing flow keeps wrapping material entirely on user devices and binds the rendezvous slot to a single `user_id`, so the QR it does render is provably safe (encodes only the public `user_code`, useless without a same-user session).
+
+  - Web: `web/src/features/send/ShareResult.tsx` grows a `showQr?: boolean` prop (default `true` — normal one-shot secrets are unaffected). `web/src/components/SyncNotesKeyButton.tsx` passes `showQr={false}`. Dashboard/Settings demote `SyncNotesKeyButton` under the primary `/pair` call-to-action.
+  - Docs: `docs/whitepaper.md § Cross-Device Sync` rewritten to lead with the rendezvous primitive and frame the sync link as the async fallback. New "Pair-rendezvous interception" entry in the Threat Analysis. `spec/v1/api.md § Sync secrets` adds a normative pointer to §Web-to-Web Pairing and a MUST NOT clause on rendering sync URLs as QR. `spec/v1/server.md § Route Surface` now lists `GET /pair` explicitly with a cross-link to §6.4.
+
+  No wire-format change; CLI is unaffected. Files: `web/src/features/send/ShareResult.tsx`, `web/src/components/SyncNotesKeyButton.tsx`, `web/src/features/dashboard/DashboardPage.tsx`, `web/src/features/settings/SettingsPage.tsx`, `docs/whitepaper.md`, `spec/v1/api.md`, `spec/v1/server.md`. Task: #68 (PR 3 of 3).
+
 ### Fixed
 
 - **Web footer stays above mobile browser chrome.** The shared web/Tauri app shell now uses the dynamic viewport height so short pages keep the footer visible above mobile browser toolbars, with safe-area padding preserved for hardware insets.

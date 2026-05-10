@@ -906,26 +906,48 @@ function AccountCard() {
   );
 }
 
+function NotesKeyCard() {
+  const auth = useAuth();
+  const [hasAmk, setHasAmk] = useState(false);
+
+  useEffect(() => {
+    if (!auth.userId) return;
+    loadAmk(auth.userId).then((amk) => setHasAmk(amk !== null));
+  }, [auth.userId]);
+
+  return (
+    <div class="card">
+      <CardHeading
+        title="Notes Key"
+        subtitle="Allow your encrypted notes to be viewed on another browser or device."
+        class="mb-3"
+      />
+      <div class="flex flex-col items-center gap-3 text-center">
+        <button
+          type="button"
+          class="btn btn-primary tracking-wider uppercase"
+          onClick={() => navigate('/pair?mode=display&role=send')}
+        >
+          Pair Another Device
+        </button>
+        {hasAmk && (
+          <>
+            <p class="text-sm text-muted">
+              Pairing is the recommended path. If both browsers can't be open
+              at the same time, you can use the link-based fallback below.
+            </p>
+            <SyncNotesKeyButton />
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function SettingsContent() {
   return (
     <div class="space-y-4">
-      <div class="card">
-        <CardHeading
-          title="Notes Key"
-          subtitle="Allow your encrypted notes to be viewed on another browser or device."
-          class="mb-3"
-        />
-        <div class="flex flex-col items-center gap-3 text-center">
-          <button
-            type="button"
-            class="btn btn-primary tracking-wider uppercase"
-            onClick={() => navigate('/pair?mode=display&role=send')}
-          >
-            Pair Another Device
-          </button>
-          <SyncNotesKeyButton />
-        </div>
-      </div>
+      <NotesKeyCard />
       <ApiKeysCard />
       <PasskeysCard />
       <AccountCard />

@@ -66,6 +66,10 @@ interface ShareResultProps {
   resetLabel?: string;
   /** Skip the outer card wrapper (e.g. when rendered inside a modal). */
   bare?: boolean;
+  /** Render the QR encoding of `shareUrl`. Defaults to true. The AMK-sync
+   * flow disables this — sync URLs are too sensitive to invite an offline
+   * scan-and-walk-away threat surface. */
+  showQr?: boolean;
 }
 
 export function ShareResult({
@@ -76,6 +80,7 @@ export function ShareResult({
   subtitle,
   resetLabel = 'Send Another Secret',
   bare = false,
+  showQr = true,
 }: ShareResultProps) {
   return (
     <div class={bare ? 'space-y-5' : 'card space-y-5'}>
@@ -125,9 +130,11 @@ export function ShareResult({
         )}
       </div>
 
-      <div class="mt-7 flex justify-center">
-        <QrCanvas url={shareUrl} />
-      </div>
+      {showQr && (
+        <div class="mt-7 flex justify-center">
+          <QrCanvas url={shareUrl} />
+        </div>
+      )}
 
       <div>
         <p class="mb-1 text-center text-sm">
