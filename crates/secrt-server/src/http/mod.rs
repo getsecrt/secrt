@@ -937,6 +937,7 @@ pub fn build_router(state: Arc<AppState>) -> Router {
         .route("/settings", get(handle_index))
         .route("/device", get(handle_index))
         .route("/app-login", get(handle_index))
+        .route("/pair", get(handle_index))
         .route("/about", get(handle_index))
         .route("/sync/{id}", get(handle_index))
         .route("/robots.txt", get(handle_robots_txt))

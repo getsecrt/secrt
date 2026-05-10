@@ -12,6 +12,7 @@ export type Route =
   | { page: 'settings' }
   | { page: 'device' }
   | { page: 'app-login' }
+  | { page: 'pair' }
   | { page: 'about' }
   | { page: 'theme' }
   | { page: 'not-found' };
@@ -61,6 +62,10 @@ export function matchRoute(path: string): Route {
 
   if (path === '/app-login') {
     return { page: 'app-login' };
+  }
+
+  if (path === '/pair') {
+    return { page: 'pair' };
   }
 
   if (path === '/about') {

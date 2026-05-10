@@ -12,6 +12,7 @@ import { DashboardPage } from './features/dashboard/DashboardPage';
 import { SettingsPage } from './features/settings/SettingsPage';
 import { DevicePage } from './features/auth/DevicePage';
 import { AppLoginPage } from './features/auth/AppLoginPage';
+import { PairPage } from './features/pair/PairPage';
 import { SyncPage } from './features/sync/SyncPage';
 import { AboutPage } from './features/about/AboutPage';
 import { ThemePage } from './features/test/ThemePage';
@@ -41,6 +42,7 @@ export function App() {
       settings: 'Settings — secrt',
       device: 'Approve Device — secrt',
       'app-login': 'Authorize App — secrt',
+      pair: 'Pair Device — secrt',
       about: 'About — secrt',
       'not-found': 'Not Found — secrt',
     };
@@ -85,6 +87,9 @@ export function App() {
       break;
     case 'app-login':
       page = <AppLoginPage />;
+      break;
+    case 'pair':
+      page = <PairPage />;
       break;
     case 'about':
       page = <AboutPage />;
