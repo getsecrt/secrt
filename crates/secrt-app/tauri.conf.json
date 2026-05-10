@@ -3,8 +3,14 @@
   "productName": "Secrt",
   "identifier": "ca.secrt.app",
   "build": {
-    "beforeDevCommand": "SECRT_API_ORIGIN=https://secrt.ca pnpm dev",
-    "beforeBuildCommand": "pnpm build:tauri",
+    "beforeDevCommand": {
+      "script": "SECRT_API_ORIGIN=https://secrt.ca pnpm dev",
+      "cwd": "../../web"
+    },
+    "beforeBuildCommand": {
+      "script": "pnpm build:tauri",
+      "cwd": "../../web"
+    },
     "devUrl": "http://localhost:5173",
     "frontendDist": "../../web/dist"
   },
