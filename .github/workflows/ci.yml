@@ -87,3 +87,17 @@ jobs:
       - name: Vitest
         working-directory: web
         run: pnpm test
+
+      # SRI integration test (web/vite-plugins/sri.integration.test.ts) is
+      # gated behind SRI_VERIFY_BUILD=1 because vanilla `pnpm test` doesn't
+      # run `vite build`, and reading `web/dist/index.html` without a fresh
+      # build would either skip silently or assert against stale bytes.
+      # We build first, then re-run vitest with the gate enabled — this
+      # exercises the real production bundle's integrity attributes.
+      - name: Build production bundle
+        working-directory: web
+        run: pnpm build
+
+      - name: Vitest (SRI verification against built bundle)
+        working-directory: web
+        run: pnpm test:sri

@@ -1171,7 +1171,7 @@
         "id": 73,
         "title": "Anti-rogue-instance defense in depth",
         "description": "Layered defense against malicious API-compatible secrt forks. Establishes a single source of truth for official instances (spec/v1/instances.md + JSON), promotes trust policy into secrt-core as a typed verdict (Official/TrustedCustom/DevLocal/Untrusted), wires CLI warnings + credential-leak hard-blocks into all commands (incl. auth via a unified resolver), strengthens the web SPA's unknown-host warning copy, widens Tauri CSP from one host to all official instances, and adds SRI to the web bundle for asset-tampering defense.\n\nFull plan: /Users/jdlien/.claude/plans/okay-just-write-this-glistening-nebula.md\n\nSupersedes task 72 (subtask 3 closes its requirements with a tighter behavior).",
-        "status": "in-progress",
+        "status": "done",
         "priority": "high",
         "dependencies": [],
         "subtasks": [
@@ -1209,7 +1209,7 @@
             "id": 6,
             "title": "SRI on web SPA bundle (asset integrity for trusted HTML)",
             "description": "Hand-rolled Vite plugin (~30 LOC, web/vite-plugins/sri.ts) injects integrity=sha384-... + crossorigin=anonymous on all external <script>/<link> in built index.html. Three-pronged tests: (1) plugin unit test against synthetic fixture (no build needed), (2) gated SRI_VERIFY_BUILD=1 integration test against real dist/, (3) Rust test asserting server token-replacement preserves integrity= attrs (synthetic fixture, doesn't depend on dist being populated). CI: frontend job runs pnpm build before SRI integration test. Reframed as asset-tampering defense; cross-host bundle pinning is a separate future task.",
-            "status": "pending"
+            "status": "done"
           }
         ]
       }
