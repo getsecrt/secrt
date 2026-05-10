@@ -923,6 +923,10 @@ function SettingsContent() {
           >
             Pair Another Device
           </button>
+          <p class="text-sm text-muted">
+            Pairing is the recommended path. If both browsers can't be open
+            at the same time, you can use the link-based fallback below.
+          </p>
           <SyncNotesKeyButton />
         </div>
       </div>
