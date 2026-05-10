@@ -6,12 +6,11 @@ use base64::Engine;
 use ring::agreement;
 use ring::rand::SystemRandom;
 
-use crate::cli::Deps;
+use crate::cli::{parse_flags, resolve_globals, CliError, Deps, ParsedArgs};
 use crate::client::{AmkTransferPayload, ApiClient};
 use crate::color::{color_func, CMD, DIM, HEADING, OPT, SUCCESS, WARN};
+use crate::passphrase::write_error;
 use crate::qr::render_qr_compact;
-
-const DEFAULT_BASE_URL: &str = "https://secrt.ca";
 
 /// Entry point for `secrt auth <subcommand>`.
 pub fn run_auth(args: &[String], deps: &mut Deps) -> i32 {
@@ -40,30 +39,25 @@ pub fn run_auth(args: &[String], deps: &mut Deps) -> i32 {
     }
 }
 
-/// Resolve base_url from flags, env, or config.
-fn resolve_base_url(args: &[String], deps: &Deps) -> String {
-    // Check --base-url flag
-    let mut i = 0;
-    while i < args.len() {
-        if args[i] == "--base-url" {
-            if i + 1 < args.len() {
-                return args[i + 1].clone();
-            }
-        } else if let Some(val) = args[i].strip_prefix("--base-url=") {
-            return val.to_string();
+/// Parse global flags (incl. `--base-url`) and resolve the base URL via the
+/// shared resolver. All `auth` subcommands route through this so the same
+/// flag/env/config/default precedence — and any future trust checks bound
+/// to it — apply uniformly. Returns Err on flag parse failure (the caller
+/// should propagate the i32 exit code).
+fn parse_and_resolve(args: &[String], deps: &mut Deps) -> Result<ParsedArgs, i32> {
+    let mut pa = match parse_flags(args) {
+        Ok(pa) => pa,
+        Err(CliError::ShowHelp) => {
+            crate::cli::print_auth_help(deps);
+            return Err(0);
         }
-        i += 1;
-    }
-    // Check env
-    if let Some(env) = (deps.getenv)("SECRET_BASE_URL") {
-        return env;
-    }
-    // Check config
-    let config = crate::config::load_config_with(&*deps.getenv, &mut std::io::sink());
-    if let Some(ref url) = config.base_url {
-        return url.clone();
-    }
-    DEFAULT_BASE_URL.into()
+        Err(CliError::Error(e)) => {
+            write_error(&mut deps.stderr, false, (deps.is_tty)(), &e);
+            return Err(2);
+        }
+    };
+    resolve_globals(&mut pa, deps);
+    Ok(pa)
 }
 
 /// Shared logic: store an API key in keychain or config file.
@@ -146,10 +140,10 @@ fn store_api_key(api_key: &str, deps: &mut Deps) -> i32 {
 
 /// `secrt auth login` — Browser-based device authorization.
 fn run_auth_login(args: &[String], deps: &mut Deps) -> i32 {
-    if args.iter().any(|a| a == "-h" || a == "--help") {
-        crate::cli::print_auth_help(deps);
-        return 0;
-    }
+    let pa = match parse_and_resolve(args, deps) {
+        Ok(pa) => pa,
+        Err(code) => return code,
+    };
 
     // Check for existing credentials
     if !confirm_if_authenticated(deps) {
@@ -157,7 +151,7 @@ fn run_auth_login(args: &[String], deps: &mut Deps) -> i32 {
     }
 
     let c = color_func((deps.is_tty)());
-    let base_url = resolve_base_url(args, deps);
+    let base_url = pa.base_url.clone();
 
     // 1. Generate root_key (32 bytes random)
     let mut root_key = vec![0u8; secrt_core::API_KEY_ROOT_LEN];
@@ -523,10 +517,10 @@ fn handle_amk_transfer(
 
 /// `secrt auth setup` — Interactively paste an API key.
 fn run_auth_setup(args: &[String], deps: &mut Deps) -> i32 {
-    if args.iter().any(|a| a == "-h" || a == "--help") {
-        crate::cli::print_auth_help(deps);
-        return 0;
-    }
+    let pa = match parse_and_resolve(args, deps) {
+        Ok(pa) => pa,
+        Err(code) => return code,
+    };
 
     // Check for existing credentials
     if !confirm_if_authenticated(deps) {
@@ -534,7 +528,7 @@ fn run_auth_setup(args: &[String], deps: &mut Deps) -> i32 {
     }
 
     let c = color_func((deps.is_tty)());
-    let base_url = resolve_base_url(args, deps);
+    let base_url = pa.base_url.clone();
 
     // Prompt for API key
     let api_key = match (deps.read_pass)("Paste your API key (sk2_...): ", &mut deps.stderr) {
@@ -596,13 +590,13 @@ fn run_auth_setup(args: &[String], deps: &mut Deps) -> i32 {
 
 /// `secrt auth status` — Show current auth state.
 fn run_auth_status(args: &[String], deps: &mut Deps) -> i32 {
-    if args.iter().any(|a| a == "-h" || a == "--help") {
-        crate::cli::print_auth_help(deps);
-        return 0;
-    }
+    let pa = match parse_and_resolve(args, deps) {
+        Ok(pa) => pa,
+        Err(code) => return code,
+    };
 
     let c = color_func((deps.is_tty)());
-    let base_url = resolve_base_url(args, deps);
+    let base_url = pa.base_url.clone();
     let (api_key, source) = resolve_existing_key(deps);
 
     if api_key.is_empty() {

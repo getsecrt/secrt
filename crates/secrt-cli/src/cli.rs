@@ -58,6 +58,27 @@ pub struct Deps {
     pub _test_drop_handles: Vec<Box<dyn std::any::Any>>,
 }
 
+/// How a `base_url` was determined. Drives instance-trust warnings and
+/// the credential-leak hard-block: a flag/env override means the user
+/// has signaled intent and bypasses the cross-instance hard-block; a
+/// URL-derived override (e.g. host of a share/sync URL on argv) is the
+/// suspicious case that gets blocked when it sends an API key.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum BaseUrlSource {
+    /// Explicit `--base-url` flag.
+    Flag,
+    /// `SECRET_BASE_URL` env var.
+    Env,
+    /// `base_url` from the user's TOML config file.
+    Config,
+    /// Built-in `DEFAULT_BASE_URL` fallback.
+    #[default]
+    Default,
+    /// Overridden by the host of a share/sync URL passed on argv,
+    /// having previously been resolved as Config or Default.
+    UrlDerived,
+}
+
 /// Parsed global and command-specific flags.
 #[derive(Default)]
 pub struct ParsedArgs {
@@ -65,7 +86,15 @@ pub struct ParsedArgs {
 
     // Global
     pub base_url: String,
-    pub base_url_from_flag: bool,
+    /// How `base_url` was determined. Set by `parse_flags` (Flag) and
+    /// `resolve_globals_with_config` (Env/Config/Default), then mutated
+    /// by `derive_base_url_from_url` if a URL on argv overrides.
+    pub base_url_source: BaseUrlSource,
+    /// The base URL the user *configured* (via flag/env/config/default),
+    /// snapshotted before any URL-derived override. When
+    /// `base_url_source == UrlDerived`, this is what `base_url` was
+    /// before the override and lets diagnostics name both URLs.
+    pub configured_base_url: String,
     pub api_key: String,
     pub json: bool,
 
@@ -419,7 +448,7 @@ pub fn parse_flags(args: &[String]) -> Result<ParsedArgs, CliError> {
             "--json" => pa.json = true,
             "--base-url" => {
                 pa.base_url = next_val!("--base-url");
-                pa.base_url_from_flag = true;
+                pa.base_url_source = BaseUrlSource::Flag;
             }
             "--api-key" => pa.api_key = next_val!("--api-key"),
             "--ttl" => pa.ttl = next_val!("--ttl"),
@@ -509,12 +538,18 @@ pub fn resolve_globals_with_config(
     if pa.base_url.is_empty() {
         if let Some(env) = (deps.getenv)("SECRET_BASE_URL") {
             pa.base_url = env;
+            pa.base_url_source = BaseUrlSource::Env;
         } else if let Some(ref url) = config.base_url {
             pa.base_url = url.clone();
+            pa.base_url_source = BaseUrlSource::Config;
         } else {
             pa.base_url = DEFAULT_BASE_URL.into();
+            pa.base_url_source = BaseUrlSource::Default;
         }
     }
+    // Snapshot the configured URL before any URL-derived override so
+    // diagnostics can name both URLs in the cross-instance hard-block.
+    pa.configured_base_url = pa.base_url.clone();
     if pa.api_key.is_empty() {
         if let Some(env) = (deps.getenv)("SECRET_API_KEY") {
             pa.api_key = env;
@@ -575,6 +610,37 @@ pub fn resolve_globals_with_config(
             pa.no_copy = true;
         }
     }
+}
+
+/// If a share/sync/info URL on argv carries an explicit `scheme://host[:port]`
+/// prefix, derive the origin and override `pa.base_url` with it — but only
+/// when the user hasn't already pinned the base URL via `--base-url` or
+/// `SECRET_BASE_URL`. The override snapshots the prior `pa.base_url` into
+/// `pa.configured_base_url` and switches `pa.base_url_source` to
+/// `UrlDerived` so the trust layer can hard-block credential leakage.
+///
+/// Returns `true` iff an override happened. A no-op for bare IDs, URLs
+/// without a scheme, or when the user has explicitly fixed the base URL.
+pub fn derive_base_url_from_url(raw_url: &str, pa: &mut ParsedArgs) -> bool {
+    if matches!(pa.base_url_source, BaseUrlSource::Flag | BaseUrlSource::Env) {
+        return false;
+    }
+    let scheme_end = match raw_url.find("://") {
+        Some(idx) => idx,
+        None => return false,
+    };
+    let after_scheme = &raw_url[scheme_end + 3..];
+    let path_start = match after_scheme.find('/') {
+        Some(idx) => idx,
+        None => return false,
+    };
+    let derived = raw_url[..scheme_end + 3 + path_start].to_string();
+    if derived == pa.base_url {
+        return false;
+    }
+    pa.base_url = derived;
+    pa.base_url_source = BaseUrlSource::UrlDerived;
+    true
 }
 
 // --- Config subcommands ---
@@ -1755,7 +1821,7 @@ mod tests {
     fn flags_base_url() {
         let pa = parse_flags(&s(&["--base-url", "https://example.com"])).unwrap();
         assert_eq!(pa.base_url, "https://example.com");
-        assert!(pa.base_url_from_flag);
+        assert_eq!(pa.base_url_source, BaseUrlSource::Flag);
     }
 
     #[test]
@@ -1977,7 +2043,7 @@ mod tests {
     fn flags_eq_base_url() {
         let pa = parse_flags(&s(&["--base-url=https://example.com"])).unwrap();
         assert_eq!(pa.base_url, "https://example.com");
-        assert!(pa.base_url_from_flag);
+        assert_eq!(pa.base_url_source, BaseUrlSource::Flag);
     }
 
     #[test]
@@ -2343,6 +2409,7 @@ mod tests {
         let mut pa = ParsedArgs::default();
         resolve_globals_with_config(&mut pa, &deps, &config);
         assert_eq!(pa.base_url, "https://secrt.ca");
+        assert_eq!(pa.base_url_source, BaseUrlSource::Default);
     }
 
     #[test]
@@ -2354,6 +2421,7 @@ mod tests {
         let mut pa = ParsedArgs::default();
         resolve_globals_with_config(&mut pa, &deps, &config);
         assert_eq!(pa.base_url, "https://test.example.com");
+        assert_eq!(pa.base_url_source, BaseUrlSource::Env);
     }
 
     #[test]
@@ -2364,8 +2432,10 @@ mod tests {
         let config = crate::config::Config::default();
         let mut pa = ParsedArgs::default();
         pa.base_url = "https://flag.example.com".into();
+        pa.base_url_source = BaseUrlSource::Flag;
         resolve_globals_with_config(&mut pa, &deps, &config);
         assert_eq!(pa.base_url, "https://flag.example.com");
+        assert_eq!(pa.base_url_source, BaseUrlSource::Flag);
     }
 
     #[test]
@@ -2398,6 +2468,8 @@ mod tests {
         let mut pa = ParsedArgs::default();
         resolve_globals_with_config(&mut pa, &deps, &config);
         assert_eq!(pa.base_url, "https://config.example.com");
+        assert_eq!(pa.base_url_source, BaseUrlSource::Config);
+        assert_eq!(pa.configured_base_url, "https://config.example.com");
     }
 
     #[test]

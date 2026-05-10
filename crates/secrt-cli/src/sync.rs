@@ -4,7 +4,7 @@ use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use base64::Engine;
 use ring::rand::SecureRandom;
 
-use crate::cli::{parse_flags, resolve_globals, CliError, Deps};
+use crate::cli::{derive_base_url_from_url, parse_flags, resolve_globals, CliError, Deps};
 use crate::color::{color_func, SUCCESS};
 use crate::passphrase::write_error;
 
@@ -180,10 +180,10 @@ pub fn run_sync(args: &[String], deps: &mut Deps) -> i32 {
         return 2;
     }
 
-    let raw_url = &pa.args[0];
+    let raw_url = pa.args[0].clone();
 
     // Parse the URL
-    let parsed = match crate::envelope::parse_secret_url(raw_url) {
+    let parsed = match crate::envelope::parse_secret_url(&raw_url) {
         Ok(p) => p,
         Err(e) => {
             write_error(
@@ -209,30 +209,13 @@ pub fn run_sync(args: &[String], deps: &mut Deps) -> i32 {
         }
     };
 
-    // Derive base URL from the sync URL if not explicitly set
-    let base_url = if !pa.base_url_from_flag && (deps.getenv)("SECRET_BASE_URL").is_none() {
-        if raw_url.contains("://") {
-            if let Some(scheme_end) = raw_url.find("://") {
-                let after_scheme = &raw_url[scheme_end + 3..];
-                if let Some(path_start) = after_scheme.find('/') {
-                    raw_url[..scheme_end + 3 + path_start].to_string()
-                } else {
-                    pa.base_url.clone()
-                }
-            } else {
-                pa.base_url.clone()
-            }
-        } else {
-            pa.base_url.clone()
-        }
-    } else {
-        pa.base_url.clone()
-    };
+    // Derive base URL from the sync URL if not explicitly set via flag/env.
+    derive_base_url_from_url(&raw_url, &mut pa);
 
     handle_sync_url(
         &id,
         &url_key,
-        &base_url,
+        &pa.base_url,
         &pa.api_key,
         deps,
         pa.json,

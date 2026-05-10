@@ -1191,7 +1191,7 @@
             "id": 3,
             "title": "CLI resolver refactor — BaseUrlSource enum, unified auth resolver",
             "description": "Replace pa.base_url_from_flag bool with BaseUrlSource enum (Flag/Env/Config/Default/UrlDerived). Delete auth.rs:resolve_base_url duplicate; route auth through cli.rs:resolve_globals_with_config. Unify URL-host derivation in sync/get/burn/info into one helper. ~100 LOC churn. Lands as its own PR before the warning logic.",
-            "status": "pending"
+            "status": "done"
           },
           {
             "id": 4,

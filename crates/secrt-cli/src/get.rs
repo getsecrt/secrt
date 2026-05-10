@@ -1,7 +1,9 @@
 use std::fs;
 use std::io::Write;
 
-use crate::cli::{parse_flags, print_get_help, resolve_globals, CliError, Deps};
+use crate::cli::{
+    derive_base_url_from_url, parse_flags, print_get_help, resolve_globals, CliError, Deps,
+};
 use crate::color::{color_func, DIM, LABEL, SUCCESS, WARN};
 use crate::envelope::{self, EnvelopeError, OpenParams, PayloadMeta};
 use crate::fileutil::{extract_file_hint, resolve_output_path};
@@ -31,10 +33,10 @@ pub fn run_get(args: &[String], deps: &mut Deps) -> i32 {
         return 2;
     }
 
-    let share_url = &pa.args[0];
+    let share_url = pa.args[0].clone();
 
     // Parse URL to extract ID, url_key, and detect sync URLs
-    let parsed = match envelope::parse_secret_url(share_url) {
+    let parsed = match envelope::parse_secret_url(&share_url) {
         Ok(r) => r,
         Err(e) => {
             write_error(
@@ -47,25 +49,9 @@ pub fn run_get(args: &[String], deps: &mut Deps) -> i32 {
         }
     };
 
-    // Derive base URL from share URL if not explicitly set via flag/env
-    let base_url = if !pa.base_url_from_flag && (deps.getenv)("SECRET_BASE_URL").is_none() {
-        if share_url.contains("://") {
-            if let Some(scheme_end) = share_url.find("://") {
-                let after_scheme = &share_url[scheme_end + 3..];
-                if let Some(path_start) = after_scheme.find('/') {
-                    share_url[..scheme_end + 3 + path_start].to_string()
-                } else {
-                    pa.base_url.clone()
-                }
-            } else {
-                pa.base_url.clone()
-            }
-        } else {
-            pa.base_url.clone()
-        }
-    } else {
-        pa.base_url.clone()
-    };
+    // Derive base URL from share/sync URL if not explicitly set via flag/env.
+    derive_base_url_from_url(&share_url, &mut pa);
+    let base_url = pa.base_url.clone();
 
     // If this is a sync URL, delegate to the sync handler
     let (id, url_key) = match parsed {
