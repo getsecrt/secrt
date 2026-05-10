@@ -651,19 +651,146 @@ If you want zero-downtime kernel patching, skip ahead to Phase 14 (Ubuntu Pro + 
 
 ---
 
-## Phase 9.5: Postfix Defensive Binding
+## Phase 9.5: Outbound Mail (msmtp + Transactional Relay)
 
-⚠️ **Easy to miss:** Ubuntu's `unattended-upgrades` / `apt-listchanges` / `needrestart` install chain pulls in Postfix as a dependency for local mail. Out of the box, Postfix listens on `inet_interfaces = all` (`0.0.0.0:25` + `[::]:25`). UFW blocks it externally, but defense-in-depth: bind to loopback only so a future UFW misconfiguration doesn't expose port 25.
+Ubuntu's `unattended-upgrades` / `apt-listchanges` / `needrestart` install chain pulls in Postfix as a dependency for local mail delivery. We don't actually need a full SMTP daemon on this box — we need a *send-only* relay so cron, unattended-upgrades, and (later) monitoring alerts can deliver mail to a real inbox. Replace Postfix with `msmtp` and route through a transactional email provider.
+
+**Why a transactional provider over Gmail/Workspace SMTP:** consumer mail (Gmail, Outlook 365, Workspace) is increasingly hostile to long-lived app-password authentication for SMTP — Google has been narrowing scopes year-over-year, and OAuth2 SMTP is high-maintenance for headless servers. Transactional providers issue long-lived API tokens that don't deprecate, segregate transactional traffic from marketing-email reputation pools, and offer better deliverability for system-generated mail.
+
+**Pick any one — they're functionally interchangeable here:**
+
+| Provider | Free tier | Notes |
+|---|---|---|
+| **Zoho ZeptoMail** | ~250 emails/day after onboarding | Strict transactional-only enforcement; Zoho ecosystem if you already use Zoho Mail |
+| **AWS SES** | 200 emails/day from EC2, $0.10/1000 elsewhere | Lowest cost at scale; needs AWS account |
+| **Postmark** | 100 emails/month | Excellent transactional reputation, simple onboarding |
+| **Mailgun** | 5,000 emails/month for 3 months, then paid | Strong API; good for higher-volume needs |
+| **Resend** | 3,000 emails/month | Newer, developer-friendly tooling |
+
+The setup pattern is the same regardless — the only difference is the SMTP host/port/credentials. Examples below use the ZeptoMail values; substitute your provider's.
+
+### 9.5.1 — Set up the sender (one-time, web UI)
+
+1. Sign up with your chosen provider.
+2. **Add Domain** → enter `your-domain.example`. The provider issues 2–3 DNS records:
+   - **TXT** at `<selector>._domainkey.your-domain.example` — DKIM public key
+   - **TXT** at `your-domain.example` — SPF: ensure their `include:` directive is present alongside any existing SPF (do NOT replace — merge)
+   - **CNAME** for return-path verification (some providers)
+3. Add the records at your DNS provider. The DKIM record name is typically entered *relative* (`<selector>._domainkey`) — most interfaces auto-append the apex.
+4. Wait for propagation (authoritative ~seconds, public resolvers ~minutes), then verify each record at the provider.
+5. Generate an SMTP credential (often called "API token", "Mail Agent", or "SMTP credentials" depending on provider). Save it securely — most providers won't show it again, only let you regenerate.
+
+### 9.5.2 — Replace Postfix with msmtp
 
 ```bash
-# Only needed if postfix is installed (it usually is after Phase 9)
-if systemctl is-active --quiet postfix; then
-  postconf -e "inet_interfaces = loopback-only"
-  systemctl restart postfix
-  # Verify — should show only 127.0.0.1:25 and [::1]:25
-  ss -tlnp | grep ':25 '
-fi
+# Install msmtp (relay-only MTA), msmtp-mta (sendmail symlink), mailutils (`mail` cmd).
+# Auto-removes postfix as part of resolving the sendmail-providing alternatives.
+apt install -y msmtp msmtp-mta mailutils
+
+# Confirm sendmail is now msmtp:
+ls -la /usr/sbin/sendmail   # should symlink to ../bin/msmtp
+
+# Postfix may linger as installed-but-inactive after the install. Purge explicitly:
+apt purge -y postfix
 ```
+
+### 9.5.3 — Configure msmtp
+
+Write `/etc/msmtprc`. **Mode 640, group `mail`** so unprivileged service users (e.g. `netdata`, added in Phase 16) can read it without exposing the credential to all users on the system.
+
+```bash
+cat > /etc/msmtprc << 'EOF'
+# Global settings
+defaults
+auth           on
+tls            on
+tls_trust_file /etc/ssl/certs/ca-certificates.crt
+logfile        /var/log/msmtp.log
+aliases        /etc/msmtp-aliases
+source_ip      0.0.0.0
+timeout        30
+
+# Transactional account (substitute your provider's host/port/user)
+account        relay
+host           smtp.zeptomail.com
+protocol       smtp
+port           587
+from           you@your-domain.example
+user           emailapikey
+password       <PASTE PROVIDER TOKEN HERE>
+
+# Default
+account default : relay
+EOF
+
+chown root:mail /etc/msmtprc
+chmod 640 /etc/msmtprc
+
+# Pre-create the log file world-writable so any user invoking msmtp can append.
+# Without this, only root sends will succeed; unprivileged users get a silent
+# "account default not found: no configuration file available" failure
+# because msmtp can't write its log before reading its config.
+touch /var/log/msmtp.log
+chown root:root /var/log/msmtp.log
+chmod 666 /var/log/msmtp.log
+```
+
+Common SMTP endpoints for the providers above:
+
+| Provider | Host | Port | Username |
+|---|---|---|---|
+| ZeptoMail | `smtp.zeptomail.com` | 587 | `emailapikey` (literal) |
+| AWS SES | `email-smtp.<region>.amazonaws.com` | 587 | IAM access key ID |
+| Postmark | `smtp.postmarkapp.com` | 587 | server token (used as both user + pass) |
+| Mailgun | `smtp.mailgun.org` | 587 | mailbox username |
+| Resend | `smtp.resend.com` | 587 | `resend` (literal) |
+
+### 9.5.4 — Aliases (so system mail to `root` reaches a real inbox)
+
+```bash
+cat > /etc/aliases << 'EOF'
+root: you@your-domain.example
+EOF
+
+cat > /etc/msmtp-aliases << 'EOF'
+root: you@your-domain.example
+default: you@your-domain.example
+EOF
+
+chmod 644 /etc/aliases /etc/msmtp-aliases
+```
+
+### 9.5.5 — Add users that need to send mail to the `mail` group
+
+Any service or shell user that needs to relay mail must be in the `mail` group to read `/etc/msmtprc`. Add the admin user now; service users (Phase 16) get added when their service first needs to alert.
+
+```bash
+usermod -aG mail youradmin
+
+# Service users will be added later as needed:
+# usermod -aG mail netdata     # for Netdata alerts (Phase 16)
+
+# A user's existing processes don't pick up the new group until they re-login.
+# For a service: systemctl restart <service>.
+# For a shell session: log out/back in, or use `sg mail -c '...'` for one-offs.
+```
+
+### 9.5.6 — Verify
+
+```bash
+# Test as root (works immediately)
+echo 'Test from secrt-srv via msmtp+relay.' | mail -s '[secrt-srv] relay test (root)' you@your-domain.example
+
+# Test as unprivileged user (verifies the mail-group permission pattern)
+sg mail -c "echo 'Test from unprivileged user.' | mail -s '[secrt-srv] relay test (user)' you@your-domain.example"
+
+# Check log — both should show smtpstatus=250, exitcode=EX_OK
+tail -5 /var/log/msmtp.log
+
+# Both messages should land in the recipient inbox within seconds.
+```
+
+If the user-level send fails with `account default not found: no configuration file available`, the user is not in the `mail` group yet. Run `groups` to confirm.
 
 ---
 
@@ -871,13 +998,308 @@ Anything less than A+ is a regression — investigate before letting the preload
 
 ---
 
+## Phase 16: Monitoring (Netdata)
+
+Lightweight, all-local metrics collection with anomaly detection and email alerts. Uses Netdata as the substrate — it covers system, processes, disk, network, systemd units, journald, and PostgreSQL out of the box, plus has built-in ML anomaly detection that becomes useful after ~1 week of baselines.
+
+**What this gives you:**
+- Real-time + historical metrics dashboard
+- ~125 stock alarms covering the obvious operational surfaces
+- PostgreSQL collector with 50+ charts including per-database size, connections, deadlocks, transactions
+- Email alerts routed through Phase 9.5's mail relay
+
+**What this deliberately does NOT include and why:**
+- **AIDE** (file integrity monitoring) — marginal here. `secrt-server`'s systemd hardening (`ProtectSystem=strict`, `ReadOnlyPaths=/`, `NoNewPrivileges=true`) already prevents the file-modification scenarios AIDE would detect after the fact. A cheaper alternative: a fixed `sha256sum` baseline on a handful of files (the secrt-server binary, Caddyfile, sudoers, key configs) refreshed on each release.
+- **ClamAV** — secrt's payloads are ciphertext the server cannot decrypt. Signature-matching against random bytes adds zero security value. Also won't fit memory-wise on a 1 GB box.
+- **Heavy Netdata plugins** (eBPF, OTel collectors, Python plugins) — they don't auto-enable on most KVM/QEMU/Vultr-class virtual NICs anyway, and we'd disable them if they did.
+
+### 16.1 Install Netdata
+
+```bash
+# Pull the official kickstart. Inspect before running (good habit).
+wget -O /tmp/netdata-kickstart.sh https://get.netdata.cloud/kickstart.sh
+less /tmp/netdata-kickstart.sh
+
+# Dry-run first (shows which install path it picks — native package on Ubuntu).
+sh /tmp/netdata-kickstart.sh --dry-run
+
+# Install. Don't start it yet — we want to bind to localhost first.
+sh /tmp/netdata-kickstart.sh \
+  --non-interactive \
+  --stable-channel \
+  --disable-telemetry \
+  --dont-start-it
+
+# Disk: ~500 MB (most plugins ship as separate packages but don't all run).
+# Active RSS: ~65 MB across all running plugins on a 1 GB box.
+```
+
+### 16.2 Bind dashboard to localhost only
+
+UFW already blocks port 19999, but defense-in-depth: the dashboard listens on `0.0.0.0:19999` by default — change that before first start.
+
+```bash
+cat >> /etc/netdata/netdata.conf << 'EOF'
+
+[web]
+    bind to = 127.0.0.1
+EOF
+
+systemctl enable --now netdata
+
+# Verify — should show 127.0.0.1:19999 only, no 0.0.0.0 or [::]
+ss -tlnp | grep 19999
+```
+
+To view the dashboard from your workstation: `ssh -L 19999:127.0.0.1:19999 secrt-srv` then http://localhost:19999.
+
+**Alternative — Caddy-fronted with auth:** If the SSH-tunnel pattern feels too friction-heavy, you can serve the dashboard at e.g. `https://monitor.your-domain.example` through Caddy with passkey or basic auth. Cost: more attack surface, more cert/auth machinery to maintain. Benefit: one less manual step to glance at metrics. The SSH-tunnel default is the more security-aligned choice for a single-admin appliance — but document your choice if you change it, since it affects the threat model.
+
+### 16.3 Disable the auto-updater (rely on apt)
+
+The kickstart sets up its own update mechanism. Two update systems racing each other is a recipe for surprises.
+
+```bash
+/usr/libexec/netdata/netdata-updater.sh --disable-auto-updates
+
+# Verify — no /etc/cron.daily/netdata*, no netdata-updater.timer
+ls /etc/cron.daily/netdata* 2>/dev/null
+systemctl list-timers --all | grep netdata
+```
+
+Updates now flow through `apt upgrade` when you SSH in. Note: Netdata's third-party repo is *not* in `unattended-upgrades`' allowlist by default. If you want truly hands-off updates, add `"Netdata:*";` to `/etc/apt/apt.conf.d/50unattended-upgrades` — but for a single-purpose box where Netdata changes ought to be visible events, manual `apt upgrade` is the saner posture.
+
+### 16.4 PostgreSQL collector (peer auth, no password)
+
+Create a dedicated PostgreSQL role for Netdata. Linux user `netdata` ↔ PG role `netdata` ↔ unix-socket peer auth = no password stored anywhere.
+
+```bash
+# Create the PG role with monitoring permissions (built-in pg_monitor role).
+sudo -u postgres psql << 'SQL'
+CREATE ROLE netdata WITH LOGIN INHERIT;
+GRANT pg_monitor TO netdata;
+SQL
+
+# Verify peer auth works:
+sudo -u netdata psql -d postgres -c 'SELECT current_user;'
+# → should print "netdata"
+```
+
+`pg_hba.conf` needs no edits — Ubuntu's default `local all all peer` rule covers it.
+
+Configure the collector:
+
+```bash
+cat > /etc/netdata/go.d/postgres.conf << 'EOF'
+# Connects via unix socket using peer auth (no password stored).
+# Linux user 'netdata' maps to PG role 'netdata' with pg_monitor membership.
+# Collector auto-discovers all databases in the cluster from this connection.
+
+jobs:
+  - name: local
+    dsn: 'host=/run/postgresql dbname=postgres user=netdata'
+EOF
+
+chown root:netdata /etc/netdata/go.d/postgres.conf
+chmod 640 /etc/netdata/go.d/postgres.conf
+
+systemctl restart netdata
+sleep 8
+
+# Verify — should report ~50 charts under postgres_local.* including per-DB
+# series like postgres_local.db_secrt_size, db_secrt_connections, etc.
+curl -s http://127.0.0.1:19999/api/v1/charts | \
+  python3 -c 'import json,sys; d=json.load(sys.stdin); pg=[k for k in d.get("charts",{}) if k.startswith("postgres_local.")]; print(f"go.d postgres charts: {len(pg)}")'
+```
+
+### 16.5 Email alerts via Phase 9.5 relay
+
+Add the `netdata` service user to the `mail` group, then point Netdata's notifier at your alert recipient.
+
+```bash
+# Group membership (requires service restart to take effect for running netdata)
+usermod -aG mail netdata
+
+# Copy stock health_alarm_notify.conf to /etc/netdata/ for editing
+cd /etc/netdata && ./edit-config health_alarm_notify.conf
+# (the editor may complain about a terminal; that's OK — the file gets copied
+#  to /etc/netdata/ regardless. Edit with sed or your editor of choice.)
+
+# Patch the three values that matter for email
+sed -i -E '
+  s|^SEND_EMAIL=.*|SEND_EMAIL="YES"|
+  s|^EMAIL_SENDER=.*|EMAIL_SENDER="you@your-domain.example"|
+  s|^DEFAULT_RECIPIENT_EMAIL=.*|DEFAULT_RECIPIENT_EMAIL="you@your-domain.example"|
+' /etc/netdata/health_alarm_notify.conf
+
+# Restart so netdata picks up its new mail-group membership AND the config
+systemctl restart netdata
+
+# Verify supplementary group on the running process
+ps -o user,group,supgrp -p "$(pgrep -x netdata | head -1)"
+# → SUPGRP should include "mail"
+
+# Send test alarms (WARNING + CRITICAL + CLEAR roundtrip)
+sudo -u netdata /usr/libexec/netdata/plugins.d/alarm-notify.sh test
+# → Three messages should arrive in your inbox.
+# → /var/log/msmtp.log should show three entries with smtpstatus=250.
+```
+
+**Optional — plain-text email mode.** Stock Netdata emails are HTML with hardcoded light-theme colors (no `prefers-color-scheme: dark` support). If you prefer plain-text emails (for dark-mode clients, smaller inbox previews), set `EMAIL_PLAINTEXT_ONLY="YES"` in `/etc/netdata/health_alarm_notify.conf`. You lose visual severity color-coding but the subject line still has the severity word.
+
+### 16.6 Initial alarms
+
+Beyond the ~125 stock alarms Netdata loads automatically, four custom alarms cover signals specific to a single-purpose appliance like this one. All thresholds are starting points — refine after observing real load patterns for ~1 week.
+
+**Custom health alarms** — write to `/etc/netdata/health.d/secrt-custom.conf` (640 root:netdata):
+
+```
+# secrt.service must be in active state
+# Chart dimensions: active, inactive, activating, deactivating, failed.
+# Healthy: active=1, all others=0.
+
+ alarm: secrt_service_failed
+    on: systemdunits_service-units.unit_secrt_service_state
+ every: 30s
+  calc: $failed
+ units: bool
+  crit: $this > 0
+ delay: up 30s down 5m
+ class: Errors
+  type: secrt
+  info: secrt.service entered failed state — service is down
+    to: sysadmin
+
+ alarm: secrt_service_inactive
+    on: systemdunits_service-units.unit_secrt_service_state
+ every: 30s
+  calc: $inactive
+ units: bool
+  warn: $this > 0
+ delay: up 1m down 5m
+  info: secrt.service is inactive (stopped)
+    to: sysadmin
+
+# secrt PG database hard size threshold (backstop for disk-fill abuse scenario).
+# Pick thresholds well below your free disk; refine after baselines.
+
+ alarm: secrt_db_size_high
+    on: postgres_local.db_secrt_size
+ every: 1m
+  calc: $size / 1073741824
+ units: GB
+  warn: $this > 3
+  crit: $this > 5
+ delay: up 5m down 1h
+ class: Capacity
+  type: postgres
+component: secrt
+  info: secrt PG database growing larger than expected; investigate inserts/abuse
+    to: sysadmin
+```
+
+**Cert expiry monitoring** — write to `/etc/netdata/go.d/x509check.conf` (640 root:netdata). Stock alarms (`x509check_days_until_expiration`) fire warn at <14 days, crit at <7 days; that's usually fine, no override needed.
+
+```yaml
+jobs:
+  - name: apex
+    source: https://your-domain.example:443
+  - name: www
+    source: https://www.your-domain.example:443
+  # Add an entry per public hostname Caddy serves a cert for.
+```
+
+**SSH login anomaly watch** — `/usr/local/sbin/ssh-login-watch.sh` (755 root:root) + `/etc/cron.d/ssh-login-watch` (644 root:root). Watches `journalctl _SYSTEMD_UNIT=ssh.service` every minute for `Accepted publickey/password/keyboard-interactive` events from a user other than the expected admin user; emails on anomaly. Window matches polling frequency (60s/60s) to avoid duplicate alerts.
+
+```bash
+sudo tee /usr/local/sbin/ssh-login-watch.sh > /dev/null << 'SCRIPT'
+#!/bin/bash
+set -euo pipefail
+
+EXPECTED_USER="youradmin"   # change to your admin username
+RECIPIENT="you@your-domain.example"
+SENDER="you@your-domain.example"
+HOST="$(hostname -f 2>/dev/null || hostname)"
+
+ANOMALIES=$(journalctl _SYSTEMD_UNIT=ssh.service --since '60 seconds ago' --no-pager 2>/dev/null \
+  | grep -E 'Accepted (publickey|password|keyboard-interactive)' \
+  | grep -v " for ${EXPECTED_USER} from " \
+  || true)
+
+[ -z "$ANOMALIES" ] && exit 0
+
+{
+  echo "Subject: [${HOST}] UNEXPECTED SSH LOGIN"
+  echo "From: $SENDER"
+  echo "To: $RECIPIENT"
+  echo ""
+  echo "Successful SSH login(s) from user other than '${EXPECTED_USER}' on ${HOST}:"
+  echo ""
+  echo "$ANOMALIES"
+} | /usr/sbin/sendmail -t
+SCRIPT
+
+sudo chmod 755 /usr/local/sbin/ssh-login-watch.sh
+
+sudo tee /etc/cron.d/ssh-login-watch > /dev/null << 'CRON'
+SHELL=/bin/bash
+PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+* * * * * root /usr/local/sbin/ssh-login-watch.sh 2>/dev/null
+CRON
+sudo chmod 644 /etc/cron.d/ssh-login-watch
+```
+
+If you've restricted SSH to a specific country at the firewall layer (e.g. via GeoIP ipset rules in UFW), this catches "wrong username from a permitted IP." For "logins from unfamiliar IPs within the permitted geography," fail2ban + ipban patterns are a separate (heavier) tool.
+
+Restart Netdata so the new health configs load:
+
+```bash
+systemctl restart netdata
+```
+
+### 16.7 Verification + day-1 noise expectations
+
+```bash
+# Round-trip the email pipe (3 messages: WARNING, CRITICAL, CLEAR)
+sudo -u netdata /usr/libexec/netdata/plugins.d/alarm-notify.sh test
+
+# Alarm count summary — total / warning / critical
+curl -s 'http://127.0.0.1:19999/api/v1/info' | jq '.alarms'
+# Healthy looks like: {"normal": 125+, "warning": 0, "critical": 0}
+
+# Daily-check filter — show only alarms in actually-actionable states.
+# (Intentionally excludes UNDEFINED — see below.)
+curl -s 'http://127.0.0.1:19999/api/v1/alarms?all=true' \
+  | jq -r '.alarms | to_entries[]
+           | select(.value.status == "WARNING" or .value.status == "CRITICAL")
+           | "[\(.value.status)] \(.key)"'
+```
+
+**Expected `UNDEFINED` alarms on a fresh install — don't panic.** A freshly-installed Netdata will report ~10 alarms in `UNDEFINED` state because their math depends on time-series history that doesn't exist yet. Typical list: `disk_fill_rate`, `disk_inode_rate`, `1m_ip_tcp_resets_*`, `load_cpu_number`, various `1m_*` packet-rate alarms. **These self-resolve within hours-to-a-few-days as data accumulates.**
+
+**One UNDEFINED alarm that won't self-resolve on virtualized hosts:** `net.<iface>.interface_speed`. The kernel can't read link speed from `virtio-net` virtual NICs (returns 0 or "unknown"), so the divide-by-zero in the alarm's calc never produces a value. To suppress permanently, drop a same-named override into `/etc/netdata/health.d/` setting the template to `enabled: no`, or route it to `to: silent`.
+
+### 16.8 Anomaly-driven alarms (do later, after ~1 week of baselines)
+
+Once Netdata's ML has established a baseline for normal traffic patterns, layer in alarms for:
+
+- **PostgreSQL growth-rate projection** — alert if at the current 7-day growth rate the volume will fill within N days (operational early warning vs. just disk-full).
+- **Per-IP secret-creation volume** — abuse signal (someone using your instance as anonymous binary storage).
+- **Payload size distribution shift** — p95 size moving up materially indicates pattern-of-use change worth a human look.
+- **Anomaly-driven `secrt-server` restart count** — frequent restarts on a single-purpose box = bad day.
+
+All optional. Stock Netdata health rules cover the obvious operational surfaces (disk, memory, swap pressure, postgres connection saturation, autovacuum, replication slots) out of the box — these anomaly-driven additions are second-order refinements, not gaps.
+
+---
+
 ## Post-Setup Verification
 
 ```bash
 # Services running
-systemctl is-active caddy secrt postgresql ssh fail2ban ufw
+systemctl is-active caddy secrt postgresql ssh fail2ban ufw netdata
 
 # Memory usage — should be well under 500 MB on a 1 GB box
+# (with Netdata enabled, expect ~480 MB used / 961 MB total)
 free -h
 
 # secrt responding
@@ -894,6 +1316,16 @@ fail2ban-client status
 
 # PostgreSQL connections
 sudo -u postgres psql -c "SELECT count(*) FROM pg_stat_activity WHERE datname='secrt';"
+
+# Netdata listening on localhost only
+ss -tlnp | grep 19999
+
+# Mail relay healthy — recent smtpstatus=250 entries expected
+tail -3 /var/log/msmtp.log
+
+# Postgres collector reporting (~50 charts under postgres_local.*)
+curl -s http://127.0.0.1:19999/api/v1/charts | \
+  python3 -c 'import json,sys; d=json.load(sys.stdin); print(len([k for k in d.get("charts",{}) if k.startswith("postgres_local.")]),"postgres charts")'
 ```
 
 ---
