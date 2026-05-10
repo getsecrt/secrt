@@ -1,0 +1,202 @@
+# CodeRabbit configuration for secrt
+# Docs: https://docs.coderabbit.ai/reference/yaml-template
+# Free Pro+ for public repos.
+
+language: "en-US"
+early_access: false
+
+reviews:
+  # "assertive" surfaces more issues. Appropriate for a credential-handling tool
+  # where nitpicks are cheaper than misses. Flip to "chill" if noise becomes a problem.
+  profile: "assertive"
+
+  request_changes_workflow: false
+  high_level_summary: true
+  review_status: true
+  commit_status: true
+  fail_commit_status: false
+  collapse_walkthrough: true
+  changed_files_summary: true
+  sequence_diagrams: true
+  estimate_code_review_effort: true
+  assess_linked_issues: true
+  related_issues: true
+  related_prs: true
+  suggested_labels: true
+  suggested_reviewers: true
+
+  # Cosmetic noise off — this is a security tool, keep PR comments professional.
+  in_progress_fortune: false
+  poem: false
+
+  auto_review:
+    enabled: true
+    auto_incremental_review: true
+    drafts: false
+    base_branches:
+      - main
+    auto_pause_after_reviewed_commits: 5
+
+  path_filters:
+    # Build artifacts
+    - "!target/**"
+    - "!**/dist/**"
+    - "!**/coverage/**"
+    - "!**/test-results/**"
+    - "!web/secrt-web-*.tgz"
+    # Vendored / generated
+    - "!**/node_modules/**"
+    - "!**/.venv-fixtures/**"
+    - "!Cargo.lock"
+    - "!**/pnpm-lock.yaml"
+    - "!**/package-lock.json"
+    # Local-only
+    - "!**/.DS_Store"
+    - "!**/.env"
+    - "!**/.playwright-mcp/**"
+    - "!.taskmaster/**"
+    - "!.claude/**"
+
+  path_instructions:
+    - path: "crates/secrt-core/**"
+      instructions: |
+        This crate contains the cryptographic core. Review with maximum scrutiny:
+        - Verify constant-time comparisons for any secret material (no `==` on key/MAC bytes).
+        - Flag any use of non-CSPRNG randomness for key/nonce/IV generation.
+        - Flag any code path that could leak plaintext or key material via Debug, Display, logs, panics, or error messages.
+        - Confirm `Zeroize` (or equivalent) is applied to in-memory secrets that go out of scope.
+        - Flag nonce/IV reuse risks, especially around AEAD constructions.
+        - Flag any deviation from the documented encryption scheme (see docs/whitepaper.md).
+        - Flag missing AAD where it should bind metadata to ciphertext.
+
+    - path: "crates/secrt-server/**"
+      instructions: |
+        Web-facing service. Review for:
+        - Authn/authz on every route that touches stored ciphertext or user data.
+        - Rate limiting / abuse vectors on share-creation and retrieval endpoints.
+        - Timing-attack resistance on lookups by share ID.
+        - No plaintext secrets in request/response logs, traces, or metrics.
+        - Strict input validation; reject oversized payloads early.
+        - CSRF, CORS, and security headers on any browser-reachable route.
+        - SSRF risks on anything that fetches by URL.
+
+    - path: "crates/secrt-cli/**"
+      instructions: |
+        CLI handles plaintext at I/O boundaries (stdin, env, keychain). Review for:
+        - Secrets must never land in shell history, argv, or process listings.
+        - Keychain/keyring fallback failure modes — do not silently downgrade to insecure storage.
+        - Clipboard handling: prefer ephemeral, document any persistence.
+        - Error messages must not echo the secret being processed.
+
+    - path: "crates/secrt-desktop/**"
+      instructions: |
+        Tauri desktop app. Review for:
+        - Tauri allowlist scoping — no `**/*` wildcards on fs/shell/http capabilities.
+        - IPC command surface: every command should validate its arguments.
+        - WebView CSP must disallow inline scripts and remote origins it doesn't need.
+        - Update mechanism integrity — signature verification must be enforced.
+
+    - path: "web/**"
+      instructions: |
+        Browser frontend. Review for:
+        - XSS via unsanitized DOM injection (`innerHTML`, `dangerouslySetInnerHTML`, etc.).
+        - Secrets never persisted to localStorage/sessionStorage/IndexedDB unless intentional and documented.
+        - Subresource Integrity for any third-party scripts loaded at runtime.
+        - Strict CSP; flag any new external origins added.
+
+    - path: "**/*.md"
+      instructions: |
+        Documentation: focus on accuracy of security claims and user-facing crypto guidance.
+        Do not nitpick prose style. Flag any technical claim that contradicts the code.
+
+    - path: ".github/workflows/**"
+      instructions: |
+        CI workflows. Review for:
+        - Pinned action versions (commit SHA preferred, tag acceptable, `@main` unacceptable).
+        - Secrets exposure: no `${{ secrets.* }}` echoed to logs.
+        - `pull_request_target` and `workflow_run` triggers should be flagged — they have elevated trust.
+        - Permissions block should be present and least-privilege.
+
+  pre_merge_checks:
+    # Warning-level surfacing; not a hard block for a solo-dev workflow.
+    title:
+      mode: "warning"
+      requirements: |
+        Use Conventional Commits style: feat:, fix:, chore:, docs:, refactor:, test:, build:, ci:, perf:
+    description:
+      mode: "warning"
+    docstrings:
+      mode: "off"
+    issue_assessment:
+      mode: "warning"
+
+  finishing_touches:
+    docstrings:
+      enabled: false
+    unit_tests:
+      enabled: false
+
+tools:
+  # Secret scanning — always on for a credential-handling project
+  gitleaks:
+    enabled: true
+  trufflehog:
+    enabled: true
+
+  # Code security analysis
+  semgrep:
+    enabled: true
+  opengrep:
+    enabled: true
+
+  # Rust
+  # (CodeRabbit reads `cargo clippy` output via github-checks if your CI runs it)
+
+  # JS/TS (web frontend)
+  eslint:
+    enabled: true
+  biome:
+    enabled: true
+
+  # Shell scripts (scripts/)
+  shellcheck:
+    enabled: true
+
+  # YAML / GitHub Actions
+  actionlint:
+    enabled: true
+  yamllint:
+    enabled: true
+
+  # Markdown
+  markdownlint:
+    enabled: true
+
+  # CI integration — pull failing job logs into the review context
+  github-checks:
+    enabled: true
+    timeout_ms: 90000
+
+chat:
+  art: false
+  auto_reply: true
+
+knowledge_base:
+  # Set to true if you'd rather CodeRabbit not learn from this repo for future reviews.
+  # For an OSS security tool, leaving learning on is usually fine — it improves review quality
+  # over time and the repo is public anyway.
+  opt_out: false
+  web_search:
+    enabled: true
+  code_guidelines:
+    enabled: true
+    filePatterns:
+      - "AGENTS.md"
+      - "CONTRIBUTING.md"
+      - "SECURITY.md"
+      - "docs/whitepaper.md"
+      - "docs/instance-trust-model.md"
+  learnings:
+    scope: "auto"
+  pull_requests:
+    scope: "auto"
