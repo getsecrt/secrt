@@ -1,7 +1,7 @@
 use std::fs;
 use std::future::Future;
 use std::net::SocketAddr;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -16,9 +16,9 @@ use tokio::sync::Notify;
 use tokio_io_timeout::TimeoutStream;
 use tower::Service;
 use tower_http::timeout::TimeoutLayer;
-use tracing::{error, info};
+use tracing::{error, info, warn};
 
-use crate::config::{Config, ConfigError};
+use crate::config::{Config, ConfigError, DEFAULT_PUBLIC_BASE_URL};
 use crate::http::{build_router, parse_socket_addr, AppState};
 use crate::reaper::start_expiry_reaper;
 use crate::release_poller::{start_release_poller, PollerConfig, ReleaseFetcher, ReqwestFetcher};
@@ -71,12 +71,55 @@ pub async fn run_server_with_shutdown<F>(shutdown: F) -> Result<(), RuntimeError
 where
     F: Future<Output = ()> + Send + 'static,
 {
-    if std::env::var("ENV").unwrap_or_else(|_| "development".to_string()) != "production" {
-        let _ = load_dotenv_if_present(".env");
-    }
+    let is_production =
+        std::env::var("ENV").unwrap_or_else(|_| "development".to_string()) == "production";
+    let dotenv_outcome = if is_production {
+        DotenvLoadOutcome::skipped(".env")
+    } else {
+        load_dotenv_if_present(".env")
+            .unwrap_or_else(|err| DotenvLoadOutcome::error(".env", err.to_string()))
+    };
 
     let cfg = Config::load()?;
     init_logging(&cfg.log_level);
+
+    // One-line bootstrap log so a misconfigured PUBLIC_BASE_URL / LISTEN_ADDR
+    // is visible at boot rather than only via the symptom (WebAuthn 401,
+    // generic origin mismatch). Origin / RP-ID values are public per-RP
+    // identifiers, not secrets.
+    info!(
+        event = "server_bootstrap",
+        public_base_url = %cfg.public_base_url,
+        listen_addr = %cfg.listen_addr,
+        log_level = %cfg.log_level,
+        env = %cfg.env,
+        dotenv = %dotenv_outcome.summary(),
+        cwd = %std::env::current_dir()
+            .map(|p| p.display().to_string())
+            .unwrap_or_else(|_| "<unknown>".to_string()),
+        "server bootstrap"
+    );
+
+    // Dev-mode hint: if .env wasn't found AND PUBLIC_BASE_URL ended up at
+    // the default, the user is almost certainly launching from a directory
+    // that doesn't contain .env (e.g. cargo run executed inside `web/`).
+    // The symptom is `OriginMismatch` on every WebAuthn ceremony against a
+    // Vite dev server on a different port. Tell them where to look.
+    if !is_production
+        && matches!(dotenv_outcome, DotenvLoadOutcome::NotFound(_))
+        && cfg.public_base_url == DEFAULT_PUBLIC_BASE_URL
+    {
+        warn!(
+            cwd = %std::env::current_dir()
+                .map(|p| p.display().to_string())
+                .unwrap_or_else(|_| "<unknown>".to_string()),
+            dotenv_path = %dotenv_outcome.path_display(),
+            "no .env found in current working directory; PUBLIC_BASE_URL is the default {default}. \
+             If you're hitting this server through a Vite dev server on a different port, launch from the repo root \
+             (or export PUBLIC_BASE_URL explicitly) — otherwise WebAuthn registration will fail with OriginMismatch.",
+            default = DEFAULT_PUBLIC_BASE_URL,
+        );
+    }
 
     // Validate listen address early, before expensive DB operations.
     let addr = parse_socket_addr(&cfg.listen_addr)
@@ -249,13 +292,64 @@ async fn shutdown_signal() {
     }
 }
 
-pub fn load_dotenv_if_present(path: impl AsRef<Path>) -> std::io::Result<()> {
-    let path = path.as_ref();
-    if !path.exists() {
-        return Ok(());
+/// Outcome of a `load_dotenv_if_present` call. Carries the resolved path
+/// (relative or absolute, as supplied) so the caller can include it in a
+/// bootstrap log without re-deriving it.
+#[derive(Debug, Clone)]
+pub enum DotenvLoadOutcome {
+    /// File found and parsed; some or all lines may have been skipped (the
+    /// path is included; the count of applied lines is not — the file is
+    /// for local dev, the truth is in the resolved Config).
+    Loaded(PathBuf),
+    /// No file at this path. Bootstrap fell back to process env + defaults.
+    NotFound(PathBuf),
+    /// Production mode — the loader was bypassed entirely. Process env is
+    /// expected to come from systemd `EnvironmentFile=` or similar.
+    Skipped(PathBuf),
+    /// Found the file but failed to read it (permissions, IO error). The
+    /// caller proceeds with process env + defaults but should surface the
+    /// error.
+    Error { path: PathBuf, message: String },
+}
+
+impl DotenvLoadOutcome {
+    fn skipped(path: impl Into<PathBuf>) -> Self {
+        Self::Skipped(path.into())
     }
 
-    let contents = fs::read_to_string(path)?;
+    fn error(path: impl Into<PathBuf>, message: String) -> Self {
+        Self::Error {
+            path: path.into(),
+            message,
+        }
+    }
+
+    /// One-line tag suitable for a structured log field. Stable form so a
+    /// future grep or alert can match on it.
+    pub fn summary(&self) -> String {
+        match self {
+            Self::Loaded(p) => format!("loaded:{}", p.display()),
+            Self::NotFound(p) => format!("not_found:{}", p.display()),
+            Self::Skipped(p) => format!("skipped:{}", p.display()),
+            Self::Error { path, message } => format!("error:{}:{}", path.display(), message),
+        }
+    }
+
+    fn path_display(&self) -> String {
+        match self {
+            Self::Loaded(p) | Self::NotFound(p) | Self::Skipped(p) => p.display().to_string(),
+            Self::Error { path, .. } => path.display().to_string(),
+        }
+    }
+}
+
+pub fn load_dotenv_if_present(path: impl AsRef<Path>) -> std::io::Result<DotenvLoadOutcome> {
+    let path = path.as_ref().to_path_buf();
+    if !path.exists() {
+        return Ok(DotenvLoadOutcome::NotFound(path));
+    }
+
+    let contents = fs::read_to_string(&path)?;
     for line in contents.lines() {
         let line = line.trim();
         if line.is_empty() || line.starts_with('#') {
@@ -272,7 +366,7 @@ pub fn load_dotenv_if_present(path: impl AsRef<Path>) -> std::io::Result<()> {
         std::env::set_var(k.trim(), v.trim());
     }
 
-    Ok(())
+    Ok(DotenvLoadOutcome::Loaded(path))
 }
 
 pub fn init_logging(log_level: &str) {
@@ -324,6 +418,12 @@ mod tests {
             std::env::set_var(key, value);
             Self { key, old }
         }
+
+        fn clear(key: &'static str) -> Self {
+            let old = std::env::var(key).ok();
+            std::env::remove_var(key);
+            Self { key, old }
+        }
     }
 
     impl Drop for EnvGuard {
@@ -340,6 +440,46 @@ mod tests {
     fn dotenv_absent_is_ok() {
         let r = load_dotenv_if_present("/tmp/definitely-not-there-secrt-dotenv");
         assert!(r.is_ok());
+        let outcome = r.unwrap();
+        assert!(matches!(outcome, DotenvLoadOutcome::NotFound(_)));
+        let summary = outcome.summary();
+        assert!(summary.starts_with("not_found:"), "got: {summary}");
+    }
+
+    #[test]
+    fn dotenv_loaded_outcome_reports_path() {
+        let _lock = env_lock();
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("dotenv-outcome");
+        std::fs::write(&path, "DOTENV_OUTCOME_PROBE=hello\n").expect("write dotenv");
+        let _guard = EnvGuard::clear("DOTENV_OUTCOME_PROBE");
+
+        let outcome = load_dotenv_if_present(&path).expect("load dotenv");
+        match outcome {
+            DotenvLoadOutcome::Loaded(p) => assert_eq!(p, path),
+            other => panic!("expected Loaded, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn dotenv_summary_is_stable_per_variant() {
+        // Summary tags are intentionally stable so a future grep / alert can
+        // match on them. Pin the prefixes.
+        assert!(DotenvLoadOutcome::Loaded(PathBuf::from("/x"))
+            .summary()
+            .starts_with("loaded:"));
+        assert!(DotenvLoadOutcome::NotFound(PathBuf::from("/x"))
+            .summary()
+            .starts_with("not_found:"));
+        assert!(DotenvLoadOutcome::Skipped(PathBuf::from("/x"))
+            .summary()
+            .starts_with("skipped:"));
+        assert!(DotenvLoadOutcome::Error {
+            path: PathBuf::from("/x"),
+            message: "perm".to_string(),
+        }
+        .summary()
+        .starts_with("error:"));
     }
 
     #[test]

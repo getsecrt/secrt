@@ -2,6 +2,12 @@ use std::env;
 
 use thiserror::Error;
 
+/// Default for `PUBLIC_BASE_URL` when the env var is unset. Exposed so the
+/// runtime bootstrap can distinguish "user supplied the default explicitly"
+/// from "we fell back silently" and surface a dev-mode hint if the latter
+/// would lead to a confusing WebAuthn `OriginMismatch`.
+pub const DEFAULT_PUBLIC_BASE_URL: &str = "http://localhost:8080";
+
 #[derive(Clone, Debug)]
 pub struct Config {
     pub env: String,
@@ -90,7 +96,7 @@ impl Config {
             return Err(ConfigError::InvalidDbPort(db_port_raw));
         }
 
-        let public_base_url = getenv_default("PUBLIC_BASE_URL", "http://localhost:8080")
+        let public_base_url = getenv_default("PUBLIC_BASE_URL", DEFAULT_PUBLIC_BASE_URL)
             .trim_end_matches('/')
             .to_string();
         if public_base_url.is_empty() {
