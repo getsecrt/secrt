@@ -83,7 +83,7 @@
       },
       {
         "id": 21,
-        "title": "Code signing, notarization, and release pipeline",
+        "title": "Code signing, notarization, and release pipeline for Tauri app",
         "description": "No release workflow exists for secrt-app yet. Need a GitHub Actions workflow (release-app.yml) triggered by app/vX.Y.Z tags that builds for macOS (universal binary), Windows (x64/arm64), and Linux (AppImage/deb). Must include macOS Developer ID signing + notarization and Windows Trusted Signing, mirroring the existing CLI release workflow. Without signing, users get 'unidentified developer' warnings and won't install.",
         "status": "pending",
         "priority": "high",
@@ -1161,11 +1161,57 @@
       {
         "id": 72,
         "title": "Cross-server sync URL: detect mismatch and explain it loudly",
-        "description": "When `secrt sync <url>` (or `secrt get <sync-url>`) targets a server the configured API key is not registered on, the CLI must say so plainly instead of falling through to the misleading 'API key may not be linked to a user' error.\n\n**Repro (real user hit, 2026-05-09):** JD's CLI was authed to `https://secrt.ca` (per `secrt auth status`). He scanned a QR code that handed him a `https://secrt.is/sync/...` URL (Iceland deployment, separate DB). `run_sync` derives `base_url` from the URL itself (`crates/secrt-cli/src/sync.rs:213-230`), overriding his configured server. The `claim()` call succeeded (anonymous, URL-key authed). Then `client.info()` against secrt.is with his secrt.ca key returned `authenticated: false, user_id: None` — secrt.is's `/info` handler swallows the auth error (`crates/secrt-server/src/http/mod.rs:3982-3989`) and returns a 200. The CLI then surfaced 'server did not return user_id (API key may not be linked to a user)' from `sync.rs:37-39`. Wrong diagnosis, wrong remediation hint, dead end for the user.\n\n**Required behavior:**\n\n1. **`sync.rs:34-39` (`import_amk`):** before checking `info.user_id`, check `info.authenticated`. If false, return an error like:\n   ```\n   error: this API key is not registered on <derived-base-url>\n     hint: your configured server is <configured-base-url>\n     hint: generate the sync link from <configured-base-url> instead, or run `secrt auth login --base-url <derived-base-url>` to register here\n   ```\n   The CLI knows both the configured base URL (from config/keychain/env) and the URL it derived from the sync link, so it can produce a precise message naming both.\n\n2. **`run_sync` (and any other sync-URL entry point — `secrt get` for sync URLs in `cli/get.rs` if applicable):** when the derived base URL differs from the configured base URL AND no explicit `--base-url` was passed, print a warning *before* claiming, e.g. `warning: sync URL targets <derived> but you're configured for <configured>; proceeding against <derived>`. Do not block — the user may legitimately be syncing from a friend's deployment — but make the mismatch visible up front, not at the failure tail.\n\n3. **Reserve the existing 'API key may not be linked to a user' message** for the case it actually describes: `authenticated == true && user_id.is_none()`. That's the real legacy-key / unlinked-key case (e.g. `users` row deleted with `ON DELETE SET NULL` on `api_keys.user_id`, or a key registered before user accounts existed).\n\n**Test coverage to add in `crates/secrt-cli/tests/cli_sync.rs`:**\n- Sync URL whose host differs from configured `--base-url`, with a stub server returning `authenticated: false, user_id: null` → assert error mentions both URLs and does NOT mention 'not linked to a user'.\n- Sync URL whose host matches configured base URL, server returns `authenticated: true, user_id: null` → assert error still mentions 'not linked to a user' (legacy path preserved).\n- Sync URL whose host matches configured base URL, server returns `authenticated: true, user_id: Some(...)` → succeeds.\n\n**Related but separate (do not bundle):** the server-side decision to return 200 with `authenticated: false` for an unknown key is intentional (anonymous /info is supported and we don't want to leak whether a key exists). Don't change the server response; fix the CLI's interpretation.\n\nSpec touch: update `spec/v1/cli.md § sync` to document the precondition check and the two distinct error cases.",
-        "status": "pending",
+        "description": "**SUPERSEDED by task 73 subtask 4** (anti-rogue-instance defense in depth, /Users/jdlien/.claude/plans/okay-just-write-this-glistening-nebula.md). The cross-instance behavior described below is replaced with a tighter rule: hard-block credential leakage to URL-derived hosts in sync/burn/info, not warn-and-proceed. Original task body retained below for audit trail.\n\n---\n\nWhen `secrt sync <url>` (or `secrt get <sync-url>`) targets a server the configured API key is not registered on, the CLI must say so plainly instead of falling through to the misleading 'API key may not be linked to a user' error.\n\n**Repro (real user hit, 2026-05-09):** JD's CLI was authed to `https://secrt.ca` (per `secrt auth status`). He scanned a QR code that handed him a `https://secrt.is/sync/...` URL (Iceland deployment, separate DB). `run_sync` derives `base_url` from the URL itself (`crates/secrt-cli/src/sync.rs:213-230`), overriding his configured server. The `claim()` call succeeded (anonymous, URL-key authed). Then `client.info()` against secrt.is with his secrt.ca key returned `authenticated: false, user_id: None` — secrt.is's `/info` handler swallows the auth error (`crates/secrt-server/src/http/mod.rs:3982-3989`) and returns a 200. The CLI then surfaced 'server did not return user_id (API key may not be linked to a user)' from `sync.rs:37-39`. Wrong diagnosis, wrong remediation hint, dead end for the user.\n\n**Required behavior:**\n\n1. **`sync.rs:34-39` (`import_amk`):** before checking `info.user_id`, check `info.authenticated`. If false, return an error like:\n   ```\n   error: this API key is not registered on <derived-base-url>\n     hint: your configured server is <configured-base-url>\n     hint: generate the sync link from <configured-base-url> instead, or run `secrt auth login --base-url <derived-base-url>` to register here\n   ```\n   The CLI knows both the configured base URL (from config/keychain/env) and the URL it derived from the sync link, so it can produce a precise message naming both.\n\n2. **`run_sync` (and any other sync-URL entry point — `secrt get` for sync URLs in `cli/get.rs` if applicable):** when the derived base URL differs from the configured base URL AND no explicit `--base-url` was passed, print a warning *before* claiming, e.g. `warning: sync URL targets <derived> but you're configured for <configured>; proceeding against <derived>`. Do not block — the user may legitimately be syncing from a friend's deployment — but make the mismatch visible up front, not at the failure tail.\n\n3. **Reserve the existing 'API key may not be linked to a user' message** for the case it actually describes: `authenticated == true && user_id.is_none()`. That's the real legacy-key / unlinked-key case (e.g. `users` row deleted with `ON DELETE SET NULL` on `api_keys.user_id`, or a key registered before user accounts existed).\n\n**Test coverage to add in `crates/secrt-cli/tests/cli_sync.rs`:**\n- Sync URL whose host differs from configured `--base-url`, with a stub server returning `authenticated: false, user_id: null` → assert error mentions both URLs and does NOT mention 'not linked to a user'.\n- Sync URL whose host matches configured base URL, server returns `authenticated: true, user_id: null` → assert error still mentions 'not linked to a user' (legacy path preserved).\n- Sync URL whose host matches configured base URL, server returns `authenticated: true, user_id: Some(...)` → succeeds.\n\n**Related but separate (do not bundle):** the server-side decision to return 200 with `authenticated: false` for an unknown key is intentional (anonymous /info is supported and we don't want to leak whether a key exists). Don't change the server response; fix the CLI's interpretation.\n\nSpec touch: update `spec/v1/cli.md § sync` to document the precondition check and the two distinct error cases.",
+        "status": "deferred",
         "priority": "medium",
         "dependencies": [],
         "subtasks": []
+      },
+      {
+        "id": 73,
+        "title": "Anti-rogue-instance defense in depth",
+        "description": "Layered defense against malicious API-compatible secrt forks. Establishes a single source of truth for official instances (spec/v1/instances.md + JSON), promotes trust policy into secrt-core as a typed verdict (Official/TrustedCustom/DevLocal/Untrusted), wires CLI warnings + credential-leak hard-blocks into all commands (incl. auth via a unified resolver), strengthens the web SPA's unknown-host warning copy, widens Tauri CSP from one host to all official instances, and adds SRI to the web bundle for asset-tampering defense.\n\nFull plan: /Users/jdlien/.claude/plans/okay-just-write-this-glistening-nebula.md\n\nSupersedes task 72 (subtask 3 closes its requirements with a tighter behavior).",
+        "status": "in-progress",
+        "priority": "high",
+        "dependencies": [],
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "Spec — instances.md + instances.json",
+            "description": "Create spec/v1/instances.md (normative trust policy, verdict definitions, wildcard invariant, change process) and spec/v1/instances.json (machine-readable apex/origin/hosting/security_contact for secrt.ca and secrt.is). Update spec/v1/README.md table.",
+            "status": "done"
+          },
+          {
+            "id": 2,
+            "title": "secrt-core::instance + TrustDecision",
+            "description": "New crates/secrt-core/src/instance.rs with KNOWN_INSTANCES, TrustDecision enum, classify_origin(), normalize_origin(). Promote `url` to direct dep. Tests pin to spec/v1/instances.json. TS rewrites normalizeHost→normalizeOrigin in web/src/lib/config.ts using URL API. Vitest pins to same JSON; getInfrastructure() drift test added.",
+            "status": "pending"
+          },
+          {
+            "id": 3,
+            "title": "CLI resolver refactor — BaseUrlSource enum, unified auth resolver",
+            "description": "Replace pa.base_url_from_flag bool with BaseUrlSource enum (Flag/Env/Config/Default/UrlDerived). Delete auth.rs:resolve_base_url duplicate; route auth through cli.rs:resolve_globals_with_config. Unify URL-host derivation in sync/get/burn/info into one helper. ~100 LOC churn. Lands as its own PR before the warning logic.",
+            "status": "pending"
+          },
+          {
+            "id": 4,
+            "title": "CLI warnings + credential-leak hard-block + SPA copy",
+            "description": "New crates/secrt-cli/src/instance_trust.rs with warn_if_unofficial() called from make_api factory (covers all commands incl. auth). Hard-block: sync/burn/info refuse to send API key to URL-derived host that doesn't match configured one. Warn-only: get (unauthenticated). New Config::trusted_servers field. Move task 72's info.authenticated check up from import_amk into handle_sync_url. Strengthen web/src/features/send/SendPage.tsx unknown-host inline error copy. Tests: cli_sync, cli_burn, cli_info, cli_get, SendPage.test.tsx. Spec: cli.md gets 'Instance trust' section. CLOSES TASK 72.",
+            "status": "pending"
+          },
+          {
+            "id": 5,
+            "title": "Tauri CSP widen + hardcoded-host cleanup",
+            "description": "Widen connect-src in crates/secrt-app/tauri.conf.json from secrt.ca only to all KNOWN_INSTANCES origins. New tests/csp_drift.rs asserts CSP matches secrt-core constant. Replace hardcoded 'https://secrt.ca' in web/src/lib/config.ts:14 and web/src/lib/url.ts:16,30 with shared PRIMARY_OFFICIAL_ORIGIN constant. Self-host Tauri support (runtime base-URL config + dynamic CSP) is DEFERRED to a separate task.",
+            "status": "pending"
+          },
+          {
+            "id": 6,
+            "title": "SRI on web SPA bundle (asset integrity for trusted HTML)",
+            "description": "Hand-rolled Vite plugin (~30 LOC, web/vite-plugins/sri.ts) injects integrity=sha384-... + crossorigin=anonymous on all external <script>/<link> in built index.html. Three-pronged tests: (1) plugin unit test against synthetic fixture (no build needed), (2) gated SRI_VERIFY_BUILD=1 integration test against real dist/, (3) Rust test asserting server token-replacement preserves integrity= attrs (synthetic fixture, doesn't depend on dist being populated). CI: frontend job runs pnpm build before SRI integration test. Reframed as asset-tampering defense; cross-host bundle pinning is a separate future task.",
+            "status": "pending"
+          }
+        ]
       }
     ]
   }

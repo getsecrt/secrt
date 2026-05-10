@@ -1,0 +1,25 @@
+{
+  "$schema_version": "1",
+  "official_instances": [
+    {
+      "apex": "secrt.ca",
+      "origin": "https://secrt.ca",
+      "wildcard_subdomains": true,
+      "security_contact": "security@secrt.ca",
+      "hosting": {
+        "provider": "DigitalOcean",
+        "country": "Canada"
+      }
+    },
+    {
+      "apex": "secrt.is",
+      "origin": "https://secrt.is",
+      "wildcard_subdomains": true,
+      "security_contact": "security@secrt.is",
+      "hosting": {
+        "provider": "1984.hosting",
+        "country": "Iceland"
+      }
+    }
+  ]
+}
