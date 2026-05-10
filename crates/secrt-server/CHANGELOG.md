@@ -2,6 +2,20 @@
 
 ## Unreleased
 
+### Added
+
+- **`/api/v1/auth/pair/*` endpoint family for browser-to-browser AMK transfer.** A new web-pair flow lets two browsers signed in to the same account move an Account Master Key between themselves via a typed `XXXX-XXXX` rendezvous code (also encodable as a QR over `https://<host>/pair?mode=join&code=...`). Distinct from the existing `device-auth` and `app-login` flows because both sides require a session, the slot is bound to a single `user_id`, and `/approve` does **not** mint an API key — AMK transfer only.
+
+  - **Six endpoints:** `/start`, `/poll`, `/claim`, `/challenge` (GET), `/approve`, `/cancel`. All session-authenticated; cross-user access returns `403`. The slot's `role` field (`send` | `receive`) determines which side supplies the ECDH pubkey first.
+  - **Atomic compare-and-set transitions.** New `AuthStore::cas_update_challenge_json` storage primitive. Concurrent `/claim` or `/approve` calls collapse to exactly one winner via a single SQL UPDATE with `(challenge_json::jsonb->>'status') = ANY($expected)` precondition. Exercised by `pair_claim_concurrent_double_claim` in the new integration suite.
+  - **Two private bearer tokens per slot** (`displayer_poll_token` and `joiner_poll_token`), keeping the public `user_code` safe to display in QR and on screen. `/cancel` requires a private token (not the user_code) so a shoulder-surfer who reads the code off a screen can't race a cancel.
+  - **`/challenge` returns distinguishable terminal-state responses** (`404 not_found` / `409 { state }` / `403` cross-user / `200` happy) so the joiner UI can render specific copy instead of a generic error.
+  - **Privacy posture: no IP, no IP hash exposed to clients.** Joiner metadata is `User-Agent` (truncated to 256 bytes, advisory) and `joiner_seen_at` only. The reserved `joiner_geo_label` field is `null` in v1; a future PR may populate it server-side without a client API break. Slot rows are deleted at expiry by the existing `delete_expired` reaper, not status-marked and retained — a regression-guarded by `pair_slot_deleted_at_expiry`.
+
+  20 new integration tests in `crates/secrt-server/tests/web_pair.rs` covering both happy paths, cross-user reject, no-API-key-mint regression guard, sequential and concurrent double-claim, terminal-state distinguishability, slot-deletion-on-expiry, dual-direction cancel, idempotent re-cancel, wrong-method 405s, and unauthenticated-401 across all six endpoints.
+
+  Spec: `spec/v1/server.md` § 6.4, `spec/v1/api.md` § Web-to-Web Pairing. Files: `crates/secrt-server/src/http/mod.rs`, `crates/secrt-server/src/storage/{mod,postgres}.rs`. Task: #68.
+
 ### Fixed
 
 - **Web footer stays above mobile browser chrome.** The shared web/Tauri app shell now uses the dynamic viewport height so short pages keep the footer visible above mobile browser toolbars, with safe-area padding preserved for hardware insets.

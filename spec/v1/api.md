@@ -659,6 +659,283 @@ Other outcomes:
 - `400` if `user_code` is not found, challenge is not pending, or `amk_transfer` fields are invalid
 - `401` if session token is missing or invalid
 
+### Web-to-Web Pairing (browser-to-browser AMK transfer)
+
+Web-to-web pairing transfers an Account Master Key (AMK) between two
+browsers signed in to the same account. Distinct from `device-auth` (CLI
+login) and `app-login` (desktop app login): both sides require a session,
+the slot is bound to a single `user_id`, and `/approve` does **not** mint
+an API key.
+
+See `spec/v1/server.md` § 6.4 for the full state machine, threat model,
+and privacy posture. A summary of the contract:
+
+- All endpoints require session auth on both displayer and joiner.
+- Slot rows live in `webauthn_challenges` with `purpose = "web-pair"` and
+  10-minute expiry. Rows are deleted at expiry by the existing reaper.
+- Two private bearer tokens per slot: `displayer_poll_token` (returned at
+  `/start`) and `joiner_poll_token` (returned at `/claim` for `role=send`
+  flows). Tokens MUST NOT be embedded in QR codes or URLs.
+- The user-visible `XXXX-XXXX` `user_code` is the public rendezvous
+  identifier; safe to display, encode in QR, and type by hand.
+- Status transitions are atomic compare-and-set: concurrent `/claim` or
+  `/approve` calls collapse to exactly one winner.
+- Response surface never exposes IP or IP-derived correlation tokens.
+  Joiner metadata is `User-Agent` (truncated, advisory) plus a server
+  timestamp; the reserved `joiner_geo_label` field is `null` in v1.
+
+#### Start pairing slot
+
+`POST /api/v1/auth/pair/start`
+
+Headers:
+
+- `Authorization: Bearer uss_<sid>.<secret>`
+- `User-Agent: <UA>` (captured for the displayer side; not currently
+  surfaced to the joiner — reserved for symmetric metadata in a future PR)
+
+Request:
+
+```json
+{
+  "role": "send" | "receive",
+  "ecdh_public_key": "<base64url 65 bytes>"
+}
+```
+
+- `role=receive`: `ecdh_public_key` is **required**. The displayer is the
+  receiver and supplies their ephemeral P-256 public key.
+- `role=send`: `ecdh_public_key` MUST be absent. The joiner will supply
+  their pubkey via `/claim`.
+
+Response (`200`):
+
+```json
+{
+  "user_code": "K7MQ-3F2A",
+  "displayer_poll_token": "<base64url 32 bytes>",
+  "expires_at": "2026-05-10T20:15:00Z"
+}
+```
+
+Other outcomes:
+
+- `400` if `role` is missing/invalid, or pubkey-required-vs-forbidden
+  rules are violated, or pubkey shape is wrong.
+- `401` if session is missing or invalid.
+- `429` if IP rate limit (shared with `apikey_register_limiter`) trips.
+
+#### Poll pairing slot
+
+`POST /api/v1/auth/pair/poll`
+
+Headers:
+
+- `Authorization: Bearer uss_<sid>.<secret>`
+
+Request:
+
+```json
+{ "poll_token": "<displayer_poll_token or joiner_poll_token>" }
+```
+
+Response (`200`):
+
+```json
+{
+  "status": "pending" | "claimed" | "approved" | "cancelled" | "expired",
+  "joiner_user_agent": "<advisory string, only when status='claimed' on a role=send displayer>",
+  "joiner_geo_label": null,
+  "joiner_seen_at": "<ISO 8601, only when status='claimed' on a role=send displayer>",
+  "peer_ecdh_public_key": "<base64url 65 bytes, when relevant for caller's role>",
+  "amk_transfer": {
+    "ct": "<base64url 48 bytes>",
+    "nonce": "<base64url 12 bytes>",
+    "ecdh_public_key": "<base64url 65 bytes>"
+  }
+}
+```
+
+Field semantics:
+
+- `status` is canonical. `expired` is a synthetic terminal returned when
+  the slot row no longer exists (consumed-by-receiver or reaped).
+- `peer_ecdh_public_key` is the joiner's pubkey for the displayer side and
+  the displayer's pubkey for the joiner side, when present.
+- `amk_transfer` is set only on the receiver-side poll response when
+  `status="approved"`. The slot is consumed atomically on this delivery —
+  subsequent polls of the same token return `status="expired"`.
+- `joiner_user_agent` and `joiner_seen_at` are surfaced only to the
+  `role=send` displayer (the sender's approval screen). Receivers do not
+  see joiner-side metadata.
+- The response NEVER contains `joiner_ip`, `joiner_ip_hash`, or any
+  IP-derived value. `joiner_geo_label` is `null` in v1.
+
+Other outcomes:
+
+- `403` if `slot.user_id != session.user_id` (cross-user attempt).
+- `401` if session is missing or invalid.
+- `429` on rate limit.
+
+#### Claim pairing slot (`role=send` joiner posts pubkey)
+
+`POST /api/v1/auth/pair/claim`
+
+Headers:
+
+- `Authorization: Bearer uss_<sid>.<secret>`
+- `User-Agent: <UA>` (captured and surfaced to the displayer for the
+  approval screen).
+
+Request:
+
+```json
+{
+  "user_code": "K7MQ-3F2A",
+  "ecdh_public_key": "<base64url 65 bytes>"
+}
+```
+
+Response (`200`):
+
+```json
+{
+  "joiner_poll_token": "<base64url 32 bytes>",
+  "expires_at": "2026-05-10T20:15:00Z"
+}
+```
+
+Behavior:
+
+1. Find slot by `user_code`. Constant-time recheck.
+2. Verify `slot.user_id == session.user_id`.
+3. Verify `slot.role == "send"` (claim is meaningless for `role=receive`).
+4. Verify `slot.status == "pending"` and no joiner pubkey is set.
+5. Compare-and-set transition `pending → claimed` with the new pubkey,
+   joiner's UA, and timestamp. Concurrent claims race down to one winner.
+
+Other outcomes:
+
+- `400` if `ecdh_public_key` is malformed.
+- `403` cross-user.
+- `409` if the slot does not exist, is expired, is the wrong role, is
+  already claimed, or lost a concurrent CAS race.
+- `401`, `429` as above.
+
+#### Lookup pairing slot (joiner pre-flight)
+
+`GET /api/v1/auth/pair/challenge?user_code=K7MQ-3F2A`
+
+Headers:
+
+- `Authorization: Bearer uss_<sid>.<secret>`
+
+Response (`200`, slot is `pending`):
+
+```json
+{
+  "role": "send" | "receive",
+  "displayer_ecdh_public_key": "<base64url 65 bytes, only when role=receive>"
+}
+```
+
+The joiner uses this to decide which path to take:
+
+- `role=receive` → joiner is the sender; use `displayer_ecdh_public_key`
+  to derive the transfer key, encrypt AMK, and call `/approve`.
+- `role=send` → joiner is the receiver; call `/claim` with their own
+  pubkey, then poll for `amk_transfer`.
+
+Other outcomes:
+
+- `404 { "error": "not_found" }` if the slot doesn't exist or expired.
+- `409 { "state": "claimed" | "approved" | "cancelled" }` if the slot
+  exists but is no longer joinable. Distinguishable terminal-state
+  responses let the joiner UI render specific copy ("already in use" /
+  "already approved" / "cancelled").
+- `403` cross-user.
+- `401`, `429` as above.
+
+#### Approve pairing (sender attaches encrypted AMK)
+
+`POST /api/v1/auth/pair/approve`
+
+Headers:
+
+- `Authorization: Bearer uss_<sid>.<secret>`
+
+Request:
+
+```json
+{
+  "user_code": "K7MQ-3F2A",
+  "amk_transfer": {
+    "ct": "<base64url 48 bytes: 32-byte AMK + 16-byte GCM tag>",
+    "nonce": "<base64url 12 bytes: AES-GCM nonce>",
+    "ecdh_public_key": "<base64url 65 bytes: sender's ephemeral P-256 public key>"
+  }
+}
+```
+
+Response (`200`):
+
+```json
+{ "ok": true }
+```
+
+Behavior:
+
+1. Validates session auth.
+2. Looks up slot by `user_code`. Constant-time recheck.
+3. Verifies `slot.user_id == session.user_id`.
+4. Validates `amk_transfer` field shapes (65/12/48 bytes).
+5. Compare-and-set transition `pending → approved` (`role=receive`) or
+   `claimed → approved` (`role=send`) with the encrypted AMK material
+   attached.
+6. **Does not mint an API key. Does not consume any `auth_token`.** The
+   only side effect is the slot status + payload update.
+
+Other outcomes:
+
+- `400` if `amk_transfer` field shapes are invalid.
+- `403` cross-user.
+- `409` if the slot is in the wrong status (e.g. cancelled, already
+  approved, or `role=send` slot with no joiner pubkey yet) or lost a CAS
+  race.
+- `401`, `429` as above.
+
+#### Cancel pairing slot
+
+`POST /api/v1/auth/pair/cancel`
+
+Headers:
+
+- `Authorization: Bearer uss_<sid>.<secret>`
+
+Request:
+
+```json
+{ "poll_token": "<displayer_poll_token or joiner_poll_token>" }
+```
+
+Cancel takes a private poll token (not the public `user_code`) so an
+attacker who shoulder-surfs the code from a screen cannot race a cancel.
+Either side can cancel.
+
+Response (`200`):
+
+```json
+{ "ok": true }
+```
+
+Idempotent: calling `/cancel` against an already-cancelled, already-
+approved, or unknown slot returns `200` without changing state.
+
+Other outcomes:
+
+- `403` cross-user (when the slot exists and belongs to a different user).
+- `401`, `429` as above.
+
 ### API key management (session required)
 
 #### Register API key auth token

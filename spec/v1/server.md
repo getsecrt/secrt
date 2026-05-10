@@ -186,6 +186,12 @@ The header is an internal signal between the reverse proxy and the application a
 - `POST /api/v1/auth/app/start`
 - `POST /api/v1/auth/app/poll`
 - `POST /api/v1/auth/app/approve`
+- `POST /api/v1/auth/pair/start`
+- `POST /api/v1/auth/pair/poll`
+- `POST /api/v1/auth/pair/claim`
+- `GET /api/v1/auth/pair/challenge`
+- `POST /api/v1/auth/pair/approve`
+- `POST /api/v1/auth/pair/cancel`
 - `PUT /api/v1/amk/wrapper`
 - `GET /api/v1/amk/wrapper`
 - `GET /api/v1/amk/wrappers`
@@ -344,6 +350,153 @@ App login enables desktop applications to obtain a session token via browser-bas
 - `amk_transfer.nonce`: base64url, 12 bytes decoded (AES-GCM nonce).
 - `amk_transfer.ct`: base64url, 48 bytes decoded (32-byte AMK + 16-byte GCM tag).
 - `AppStartRequest` rejects unknown JSON fields (`deny_unknown_fields`).
+
+### 6.4. Web-to-Web Pairing Flow
+
+Web-to-web pairing transfers an Account Master Key (AMK) between two browsers
+that are signed in to the same account. It is a third use of the
+`webauthn_challenges` slot machinery (alongside `device-auth` and
+`app-login`), but with three structural differences:
+
+- **Both sides authenticated.** Unlike `device-auth` (anonymous CLI initiator)
+  and `app-login` (anonymous desktop initiator), `/auth/pair/*` requires a
+  valid session on both the displaying device and the joining device.
+- **Slot bound to a single user.** The slot's `user_id` is set at `/start`;
+  every subsequent endpoint cross-checks `slot.user_id == session.user_id`
+  and returns `403` on mismatch. Cross-account pairing is impossible by
+  construction.
+- **AMK transfer only.** `/auth/pair/approve` does not mint an API key and
+  does not consume an `auth_token`. It only attaches encrypted AMK material
+  to the slot. This isolates web-pair from the API-key registration paths.
+
+Storage reuse: web-pair challenges are stored in `webauthn_challenges` with
+`purpose = "web-pair"` and 10-minute expiry. No schema migration is needed.
+
+**Roles.** Each slot carries a `role` field set at `/start`:
+
+- `role=receive` — the displayer is a fresh browser that needs the AMK. The
+  displayer supplies their ephemeral ECDH public key at `/start`. The joiner
+  is the sender (the device that already has the AMK) and skips `/claim` —
+  they fetch the displayer's pubkey via `/challenge` and immediately
+  `/approve` with the encrypted AMK.
+- `role=send` — the displayer holds the AMK and wants to give it to a fresh
+  browser. The joiner is the receiver. Because the joiner's pubkey isn't
+  known at `/start`, the joiner posts it via `/claim` after locating the
+  slot. Only then does the displayer's `/poll` see a complete pubkey pair
+  and proceed to `/approve`.
+
+**Token layout.** Each slot has two private bearer tokens:
+
+- `displayer_poll_token` — returned by `/start`; the displayer presents it to
+  `/poll`. Implementation note: this token IS the row's `challenge_id`, so
+  primary-key lookup serves the displayer's poll directly.
+- `joiner_poll_token` — returned by `/claim` (or absent for `role=receive`,
+  which has no `/claim` step). The joiner uses it to poll for delivered AMK.
+
+The user-visible `XXXX-XXXX` `user_code` is **not** a bearer token. It is
+the public rendezvous identifier that appears in the QR (encoded as
+`https://<host>/pair?mode=join&code=XXXX-XXXX`) and on screen for typed
+entry. The `user_code` alone is insufficient to access slot state without
+a same-user session, but it is the lookup key for `/challenge`, `/claim`,
+and `/approve`.
+
+**Slot lifecycle.** State machine:
+
+```
+                    /start                           /claim
+   (none) ─────────────────────► pending ────────────────────► claimed
+                                    │                             │
+                       /approve     │            /approve         │
+                  (role=receive)    │      (role=send)            │
+                                    ▼                             ▼
+                                approved                      approved
+                                    │                             │
+                                    └────── consumed by ──────────┘
+                                            receiver's /poll
+                                            (atomic delete)
+
+                                pending or claimed ─────► cancelled
+                                                /cancel
+
+       (any non-terminal state at expires_at) ─────► row deleted by reaper
+```
+
+`expired` is **not** a status value. Slots that no one consumes are deleted
+wholesale by the existing `delete_expired` reaper transaction (see § 13.1).
+A `/poll` against a token whose row no longer exists returns
+`status: "expired"` as a synthetic terminal response so clients can stop
+polling without distinguishing reap-vs-consume.
+
+**Anti-phishing metadata (`role=send` only).** When the joiner calls
+`/claim`, the server captures their `User-Agent` (truncated to 256 bytes)
+and the time. The displayer's `/poll` surfaces these on the approval
+screen so the user can confirm "this is my Windows PC, scanned at 14:02"
+before approving. The metadata is advisory — `User-Agent` is spoofable
+and timestamps are server-side wall clock — but raises the bar against an
+attacker who tricks a user into displaying a code on a hostile site.
+
+**Threat model.**
+
+- **Passive database / storage compromise:** the slot stores only public
+  ECDH keys and ciphertext encrypted with a key the server never possesses.
+  An attacker who reads the database cannot recover any AMK.
+- **Public rendezvous-QR interception:** the QR encodes only the
+  `user_code` plus the displayer's HTTPS origin. An attacker who
+  intercepts the QR can attempt to join the slot, but doing so requires a
+  same-user session — which the attacker doesn't have.
+- **Active malicious server (out of scope):** an attacker with
+  code-execution on the server could substitute its own ECDH public keys
+  mid-flight and re-encrypt to the legitimate receiver, constituting MITM.
+  Out-of-band Short Authentication String (SAS) readback is the standard
+  defense; this protocol does not include it (consistent with `device-auth`
+  and `app-login` decisions). **Operators MUST treat the server binary
+  and its host integrity as part of the trust boundary.** Implementations
+  that need defense against active-server attack should add SAS readback
+  before considering this protocol fit for that threat model.
+
+**Privacy posture (testable).**
+
+- The `/auth/pair/*` endpoints write the request IP to in-memory rate-limit
+  counters only. **No IP-derived value is written to persistent storage**
+  by these endpoints. (The IP rate limiter sits in `apikey_register_limiter`
+  — same primitive as `device-auth` and `app-login`.)
+- Slot rows are **deleted at expiry** by the reaper, not status-marked and
+  retained. The `joiner_user_agent` captured at `/claim` does not outlive
+  the slot. (See `crates/secrt-server/tests/web_pair.rs::pair_slot_deleted_at_expiry`.)
+- The poll response surfaces `joiner_user_agent` (advisory) and
+  `joiner_seen_at` (timestamp) but **never** any IP, IP hash, or other
+  stable IP-derived correlation token. The reserved `joiner_geo_label`
+  field is `null` in v1; a future PR may populate it server-side without
+  a client API break.
+
+**Cross-instance pairing is not supported.** Pairing slots are per-instance.
+Moving an AMK between, e.g., `secrt.ca` and `secrt.is` requires the sync
+link (which is just a one-shot secret with a host-specific URL).
+
+**Closed-tab / network-drop behavior.** If a side stops polling, no active
+notification is sent to the other side. The slot expires at `expires_at`
+(10 min) and is deleted by the reaper; the still-polling side learns of
+the abandonment on its next poll, which returns the synthetic `expired`
+terminal status.
+
+**Atomic transitions.** `/claim`, `/approve`, and `/cancel` use a
+compare-and-set storage primitive (`AuthStore::cas_update_challenge_json`)
+keyed on `(challenge_id, purpose, expected_status, expires_at > now)`.
+Concurrent claims/approves collapse to exactly one winner. The Postgres
+implementation uses `(challenge_json::jsonb->>'status') = ANY($status_array)`
+in a single UPDATE statement.
+
+**Input validation:**
+
+- `role`: `"send"` or `"receive"` (lowercase enum, JSON).
+- `ecdh_public_key`: base64url, 65 bytes decoded (uncompressed P-256).
+  Required for `role=receive` at `/start`; rejected for `role=send` at
+  `/start`; required for `/claim` (only valid when `role=send`); required
+  in `amk_transfer.ecdh_public_key`.
+- `amk_transfer.nonce`: base64url, 12 bytes decoded.
+- `amk_transfer.ct`: base64url, 48 bytes decoded (32-byte AMK + 16-byte GCM tag).
+- `User-Agent` header: truncated to 256 bytes, advisory only.
+- All `Pair*Request` types use `deny_unknown_fields`.
 
 ## 7. Ownership and Quota Model
 
