@@ -540,21 +540,43 @@ pub fn resolve_globals_with_config(
 ) {
     let use_kc = config.use_keychain.unwrap_or(false);
 
+    // Compute env-or-config-or-default *first* so we always know what the
+    // user is "configured for" — even when `--base-url` overrode it. This
+    // is what `configured_base_url` snapshots, so the auth-error decorator
+    // can say "your key is for {configured}, not {flagged}" when the flag
+    // points at a different host than the user's home instance.
+    let env_or_config_or_default = if let Some(env) = (deps.getenv)("SECRET_BASE_URL") {
+        env
+    } else if let Some(ref url) = config.base_url {
+        url.clone()
+    } else {
+        DEFAULT_BASE_URL.into()
+    };
+    let env_or_config_or_default = normalize_base_url_scheme(&env_or_config_or_default);
+
     if pa.base_url.is_empty() {
-        if let Some(env) = (deps.getenv)("SECRET_BASE_URL") {
-            pa.base_url = env;
+        if (deps.getenv)("SECRET_BASE_URL").is_some() {
+            pa.base_url = env_or_config_or_default.clone();
             pa.base_url_source = BaseUrlSource::Env;
-        } else if let Some(ref url) = config.base_url {
-            pa.base_url = url.clone();
+        } else if config.base_url.is_some() {
+            pa.base_url = env_or_config_or_default.clone();
             pa.base_url_source = BaseUrlSource::Config;
         } else {
-            pa.base_url = DEFAULT_BASE_URL.into();
+            pa.base_url = env_or_config_or_default.clone();
             pa.base_url_source = BaseUrlSource::Default;
         }
     }
-    // Snapshot the configured URL before any URL-derived override so
-    // diagnostics can name both URLs in the cross-instance hard-block.
-    pa.configured_base_url = pa.base_url.clone();
+    // Tolerate scheme-less hosts from any source (`--base-url secrt.is`,
+    // `SECRET_BASE_URL=foo.com`, `base_url = "secrt.is"` in config). The
+    // trust classifier and HTTP client both require a parseable URL —
+    // without this, an official host typed without a scheme classifies
+    // as Untrusted and triggers a spurious unofficial-instance warning.
+    pa.base_url = normalize_base_url_scheme(&pa.base_url);
+    // Snapshot the env-or-config-or-default URL — *not* `pa.base_url` —
+    // so the cross-instance hard-block and auth-error decorator can name
+    // the user's home instance even when `--base-url` overrode it. For
+    // non-Flag sources this equals `pa.base_url`; for Flag, it diverges.
+    pa.configured_base_url = env_or_config_or_default;
     if pa.api_key.is_empty() {
         if let Some(env) = (deps.getenv)("SECRET_API_KEY") {
             pa.api_key = env;
@@ -632,6 +654,18 @@ pub fn resolve_globals_with_config(
 ///
 /// Returns `true` iff an override happened. A no-op for bare IDs, URLs
 /// without a scheme, or when the user has explicitly fixed the base URL.
+/// Prepend `https://` to a base URL that lacks a scheme so users can
+/// type `--base-url secrt.is` instead of `--base-url https://secrt.is`.
+/// Empty input passes through. Inputs that already contain `://` are
+/// returned untouched so `http://localhost:8080` and other explicit
+/// schemes still work.
+fn normalize_base_url_scheme(s: &str) -> String {
+    if s.is_empty() || s.contains("://") {
+        return s.to_string();
+    }
+    format!("https://{s}")
+}
+
 pub fn derive_base_url_from_url(raw_url: &str, pa: &mut ParsedArgs) -> bool {
     if matches!(pa.base_url_source, BaseUrlSource::Flag | BaseUrlSource::Env) {
         return false;
@@ -2447,6 +2481,49 @@ mod tests {
         resolve_globals_with_config(&mut pa, &deps, &config);
         assert_eq!(pa.base_url, "https://flag.example.com");
         assert_eq!(pa.base_url_source, BaseUrlSource::Flag);
+    }
+
+    #[test]
+    fn globals_flag_scheme_less_host_gets_https_prepended() {
+        // Regression: `--base-url secrt.is` previously stayed scheme-less
+        // and tripped the trust classifier (Url::parse failed → Untrusted),
+        // which fired a spurious unofficial-instance warning on a real
+        // official host. The resolver must normalize.
+        let deps = make_deps_for_globals(std::collections::HashMap::new());
+        let config = crate::config::Config::default();
+        let mut pa = ParsedArgs::default();
+        pa.base_url = "secrt.is".into();
+        pa.base_url_source = BaseUrlSource::Flag;
+        resolve_globals_with_config(&mut pa, &deps, &config);
+        assert_eq!(pa.base_url, "https://secrt.is");
+        // `configured_base_url` is what env/config/default would have given —
+        // here, the default. This way the auth-error decorator can hint that
+        // the user's key is for secrt.ca, not the flagged secrt.is.
+        assert_eq!(pa.configured_base_url, "https://secrt.ca");
+    }
+
+    #[test]
+    fn globals_env_scheme_less_host_gets_https_prepended() {
+        let mut env = std::collections::HashMap::new();
+        env.insert("SECRET_BASE_URL".into(), "self-hosted.example".into());
+        let deps = make_deps_for_globals(env);
+        let config = crate::config::Config::default();
+        let mut pa = ParsedArgs::default();
+        resolve_globals_with_config(&mut pa, &deps, &config);
+        assert_eq!(pa.base_url, "https://self-hosted.example");
+    }
+
+    #[test]
+    fn globals_explicit_http_scheme_is_preserved() {
+        // localhost / dev users explicitly opt in to http; the
+        // normalizer must not silently upgrade their scheme.
+        let deps = make_deps_for_globals(std::collections::HashMap::new());
+        let config = crate::config::Config::default();
+        let mut pa = ParsedArgs::default();
+        pa.base_url = "http://localhost:8080".into();
+        pa.base_url_source = BaseUrlSource::Flag;
+        resolve_globals_with_config(&mut pa, &deps, &config);
+        assert_eq!(pa.base_url, "http://localhost:8080");
     }
 
     #[test]
