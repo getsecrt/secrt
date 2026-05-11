@@ -1,5 +1,6 @@
 use std::fs;
 use std::future::Future;
+use std::io::IsTerminal;
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -380,12 +381,21 @@ pub fn init_logging(log_level: &str) {
     let filter = tracing_subscriber::EnvFilter::try_from_default_env()
         .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new(level));
 
-    let _ = tracing_subscriber::fmt()
+    // TTY → human-readable text with ANSI colors (WARN=yellow, ERROR=red).
+    // Non-TTY (journald, log shippers, `| jq`, CI) → JSON. The shape is
+    // load-bearing in production; only the local-dev rendering changes.
+    let is_tty = std::io::stdout().is_terminal();
+
+    let builder = tracing_subscriber::fmt()
         .with_env_filter(filter)
-        .json()
-        .with_current_span(false)
-        .with_target(false)
-        .try_init();
+        .with_target(false);
+
+    if is_tty {
+        let _ = builder.with_ansi(true).try_init();
+    } else {
+        // JSON: keep the production shape — flat fields, no nested "span".
+        let _ = builder.json().with_current_span(false).try_init();
+    }
 }
 
 #[cfg(test)]
