@@ -136,46 +136,48 @@ reviews:
     unit_tests:
       enabled: false
 
-tools:
-  # Secret scanning — always on for a credential-handling project
-  gitleaks:
-    enabled: true
-  trufflehog:
-    enabled: true
+  # Per-tool toggles must be nested under `reviews:` — top-level `tools:`
+  # is silently ignored by CodeRabbit's current schema.
+  tools:
+    # Secret scanning — always on for a credential-handling project
+    gitleaks:
+      enabled: true
+    trufflehog:
+      enabled: true
 
-  # Code security analysis
-  semgrep:
-    enabled: true
-  opengrep:
-    enabled: true
+    # Code security analysis
+    semgrep:
+      enabled: true
+    opengrep:
+      enabled: true
 
-  # Rust
-  # (CodeRabbit reads `cargo clippy` output via github-checks if your CI runs it)
+    # Rust
+    # (CodeRabbit reads `cargo clippy` output via github-checks if your CI runs it)
 
-  # JS/TS (web frontend)
-  eslint:
-    enabled: true
-  biome:
-    enabled: true
+    # JS/TS (web frontend)
+    eslint:
+      enabled: true
+    biome:
+      enabled: true
 
-  # Shell scripts (scripts/)
-  shellcheck:
-    enabled: true
+    # Shell scripts (scripts/)
+    shellcheck:
+      enabled: true
 
-  # YAML / GitHub Actions
-  actionlint:
-    enabled: true
-  yamllint:
-    enabled: true
+    # YAML / GitHub Actions
+    actionlint:
+      enabled: true
+    yamllint:
+      enabled: true
 
-  # Markdown
-  markdownlint:
-    enabled: true
+    # Markdown
+    markdownlint:
+      enabled: true
 
-  # CI integration — pull failing job logs into the review context
-  github-checks:
-    enabled: true
-    timeout_ms: 90000
+    # CI integration — pull failing job logs into the review context
+    github-checks:
+      enabled: true
+      timeout_ms: 90000
 
 chat:
   art: false
