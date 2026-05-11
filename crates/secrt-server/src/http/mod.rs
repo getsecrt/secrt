@@ -1815,24 +1815,6 @@ fn random_b64(len: usize) -> Result<String, ()> {
     Ok(URL_SAFE_NO_PAD.encode(b))
 }
 
-/// Derive the WebAuthn RP ID from `public_base_url`. Strips scheme, path,
-/// and port — browsers reject ports in `rp.id`. For `https://secrt.is` →
-/// `secrt.is`; for `http://localhost:8080` → `localhost`.
-fn derive_rp_id(public_base_url: &str) -> &str {
-    let s = public_base_url
-        .strip_prefix("https://")
-        .or_else(|| public_base_url.strip_prefix("http://"))
-        .unwrap_or(public_base_url);
-    let s = s.split('/').next().unwrap_or(s);
-    s.split(':').next().unwrap_or(s)
-}
-
-/// Expected `clientDataJSON.origin` value. Trims trailing slash so we
-/// match the canonical form a browser produces.
-fn derive_expected_origin(public_base_url: &str) -> &str {
-    public_base_url.trim_end_matches('/')
-}
-
 /// Decode the base64url-encoded register/add wire fields and run them
 /// through the verifier. Returns `()` on failure — the handler maps any
 /// error to opaque `401`. The discriminator is logged so observability
@@ -1854,8 +1836,12 @@ fn decode_and_verify_registration(
             warn!("passkey register: client_data_json not valid base64url");
         })?;
 
-    let expected_origin = derive_expected_origin(&cfg.public_base_url);
-    let expected_rp_id = derive_rp_id(&cfg.public_base_url);
+    // cfg.public_base_url is canonicalized to scheme://host[:port] by
+    // Config::load, and cfg.rp_id is the matching host. Both are guaranteed
+    // to be the canonical bytes a browser produces for clientDataJSON.origin
+    // and the WebAuthn RP ID respectively, so we pass them through directly.
+    let expected_origin = cfg.public_base_url.as_str();
+    let expected_rp_id = cfg.rp_id.as_str();
     parse_registration(
         &auth_data,
         &cdj,
@@ -1906,8 +1892,10 @@ fn decode_and_verify_assertion(
             warn!("passkey login: stored public_key not valid base64url");
         })?;
 
-    let expected_origin = derive_expected_origin(&cfg.public_base_url);
-    let expected_rp_id = derive_rp_id(&cfg.public_base_url);
+    // See decode_and_verify_registration: cfg.public_base_url / cfg.rp_id
+    // are canonical-by-construction from Config::load.
+    let expected_origin = cfg.public_base_url.as_str();
+    let expected_rp_id = cfg.rp_id.as_str();
     let ctx = AssertionContext {
         stored_pubkey_sec1: &pubkey,
         stored_sign_count,
@@ -1983,10 +1971,9 @@ fn log_verify_error(
             // with embedded newlines (log injection) or a 10 MB string
             // (log spam) cannot poison the WARN line.
             let received_origin = sanitize_origin_for_log(&raw);
-            // expected_origin flows in from derive_expected_origin(public_base_url).
-            // An operator-typo'd PUBLIC_BASE_URL could otherwise leak a
-            // fragment, query, or userinfo into shipped logs. Same scrub.
-            let expected_origin = sanitize_origin_for_log(expected_origin);
+            // `expected_origin` comes from cfg.public_base_url, which
+            // Config::load canonicalizes to scheme://host[:port] with no
+            // path/query/fragment/userinfo. Safe to log verbatim.
             warn!(
                 scope,
                 error = err.as_str(),
@@ -6617,6 +6604,7 @@ mod tests {
             env: "test".into(),
             listen_addr: "127.0.0.1:0".into(),
             public_base_url: "https://example.com".into(),
+            rp_id: "example.com".into(),
             log_level: "error".into(),
             database_url: String::new(),
             db_host: "127.0.0.1".into(),

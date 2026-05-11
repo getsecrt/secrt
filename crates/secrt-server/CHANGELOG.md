@@ -27,6 +27,14 @@
 
   No wire-format change; CLI is unaffected. Files: `web/src/features/send/ShareResult.tsx`, `web/src/components/SyncNotesKeyButton.tsx`, `web/src/features/dashboard/DashboardPage.tsx`, `web/src/features/settings/SettingsPage.tsx`, `docs/whitepaper.md`, `spec/v1/api.md`, `spec/v1/server.md`. Task: #68 (PR 3 of 3).
 
+- **`PUBLIC_BASE_URL` is now canonicalized at startup; non-origin values are rejected with a specific error.** `Config::load` parses the env var through `url::Url`, validates that it is a `scheme://host[:port]` origin only (http or https), and stores the WHATWG-canonical form in `cfg.public_base_url` plus the WebAuthn host as `cfg.rp_id`. Path, query, fragment, userinfo, or non-HTTP schemes are rejected with `ConfigError::PublicBaseUrlNotOrigin { component }` / `PublicBaseUrlBadScheme` instead of being silently accepted and producing a downstream WebAuthn `OriginMismatch`.
+
+  Why: the previous string-split helpers (`derive_rp_id` / `derive_expected_origin`) and the WebAuthn verifier could see different bytes from the same `PUBLIC_BASE_URL` if it contained a fragment, query, or trailing slash. The logger sanitized; the verifier didn't. The new arrangement keeps the verifier, logger, and share-URL formatter all reading the same canonical value pinned in `Config`.
+
+  **Operator action (rare):** existing instances with non-canonical `PUBLIC_BASE_URL` will fail to start with a clear error pointing at the offending component. Both first-party instances (`secrt.is`, `secrt.ca`) already use canonical values, so no operational change is needed there. Self-hosters who set values like `https://example.com/` (trailing slash — now stripped automatically, no action needed) are fine; values like `https://example.com/path` or `https://user:pass@host` must be fixed in `.env` / systemd `EnvironmentFile=` before upgrading.
+
+  Files: `crates/secrt-server/src/config.rs`, `crates/secrt-server/src/http/mod.rs` (retire `derive_rp_id` / `derive_expected_origin`), `crates/secrt-server/src/runtime.rs`. PR: #44.
+
 ### Fixed
 
 - **Web footer stays above mobile browser chrome.** The shared web/Tauri app shell now uses the dynamic viewport height so short pages keep the footer visible above mobile browser toolbars, with safe-area padding preserved for hardware insets.

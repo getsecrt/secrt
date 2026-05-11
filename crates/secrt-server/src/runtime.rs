@@ -87,28 +87,13 @@ where
     // One-line bootstrap log so a misconfigured PUBLIC_BASE_URL / LISTEN_ADDR
     // is visible at boot rather than only via the symptom (WebAuthn 401,
     // generic origin mismatch). Origin / RP-ID values are public per-RP
-    // identifiers, not secrets.
-    //
-    // Strip URL fragment, query, and userinfo before logging:
-    // `public_base_url` is operator-supplied and already URL-validated in
-    // Config::load, so this is defense-in-depth against an operator typo
-    // (trailing `#…`, accidental `?token=…`, `user:pass@host`) ending up
-    // in shipped logs. If parsing fails — which shouldn't happen since
-    // Config::load rejects invalid URLs — emit a sanitized placeholder
-    // rather than risk logging an unredacted credential.
-    let public_base_url_for_log = url::Url::parse(&cfg.public_base_url)
-        .map(|mut u| {
-            u.set_fragment(None);
-            u.set_query(None);
-            let _ = u.set_username("");
-            let _ = u.set_password(None);
-            u.to_string().trim_end_matches('/').to_string()
-        })
-        .unwrap_or_else(|_| "<invalid-public-base-url>".to_string());
-
+    // identifiers, not secrets — and `cfg.public_base_url` is canonicalized
+    // (`scheme://host[:port]` only, no path/query/fragment/userinfo) by
+    // `Config::load`, so it's safe to log verbatim.
     info!(
         event = "server_bootstrap",
-        public_base_url = %public_base_url_for_log,
+        public_base_url = %cfg.public_base_url,
+        rp_id = %cfg.rp_id,
         listen_addr = %cfg.listen_addr,
         log_level = %cfg.log_level,
         env = %cfg.env,
@@ -373,6 +358,15 @@ pub fn load_dotenv_if_present(path: impl AsRef<Path>) -> std::io::Result<DotenvL
     }
 
     let contents = fs::read_to_string(&path)?;
+    // SAFETY: `std::env::set_var` is on a deprecation path because it is
+    // unsound to mutate the process environment while other threads may
+    // be reading it. This loop is only reached from
+    // `run_server_with_shutdown` *before* `Config::load` and well before
+    // the Tokio runtime spawns any worker threads — the process is still
+    // effectively single-threaded here. If this function is ever called
+    // from a post-runtime context, the calling site must switch to a
+    // thread-safe env-merging strategy (or use a dedicated config-mutex)
+    // instead.
     for line in contents.lines() {
         let line = line.trim();
         if line.is_empty() || line.starts_with('#') {
