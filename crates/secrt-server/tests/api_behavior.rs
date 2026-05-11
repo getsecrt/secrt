@@ -444,7 +444,7 @@ async fn method_not_allowed_and_headers() {
         .and_then(|v| v.to_str().ok())
         .expect("permissions-policy header");
     for token in [
-        "camera=()",
+        "camera=(self)",
         "geolocation=()",
         "microphone=()",
         "interest-cohort=()",
