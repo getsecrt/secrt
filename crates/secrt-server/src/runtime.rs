@@ -88,9 +88,22 @@ where
     // is visible at boot rather than only via the symptom (WebAuthn 401,
     // generic origin mismatch). Origin / RP-ID values are public per-RP
     // identifiers, not secrets.
+    //
+    // Strip any URL fragment / query before logging: `public_base_url` is
+    // operator-supplied and already URL-validated in Config::load, so this
+    // is defense-in-depth against an operator typo (e.g. trailing `#…`)
+    // ending up in shipped logs.
+    let public_base_url_for_log = url::Url::parse(&cfg.public_base_url)
+        .map(|mut u| {
+            u.set_fragment(None);
+            u.set_query(None);
+            u.to_string().trim_end_matches('/').to_string()
+        })
+        .unwrap_or_else(|_| cfg.public_base_url.clone());
+
     info!(
         event = "server_bootstrap",
-        public_base_url = %cfg.public_base_url,
+        public_base_url = %public_base_url_for_log,
         listen_addr = %cfg.listen_addr,
         log_level = %cfg.log_level,
         env = %cfg.env,

@@ -1932,6 +1932,30 @@ fn decode_and_verify_assertion(
     })
 }
 
+/// Reduce a (potentially untrusted) origin string to the canonical
+/// `scheme://host[:port]` tuple suitable for emitting at WARN level.
+/// Returns `<invalid-origin>` if the input does not parse to a URL with
+/// both a scheme and a host. Used to scrub `clientDataJSON.origin` before
+/// it lands in a log line — a hostile peer could otherwise stuff
+/// newlines, control characters, or arbitrarily long blobs into the
+/// `origin` JSON field.
+fn sanitize_origin_for_log(raw: &str) -> String {
+    let Ok(u) = url::Url::parse(raw.trim()) else {
+        return "<invalid-origin>".to_string();
+    };
+    let scheme = u.scheme();
+    let Some(host) = u.host_str() else {
+        return "<invalid-origin>".to_string();
+    };
+    if scheme.is_empty() {
+        return "<invalid-origin>".to_string();
+    }
+    match u.port() {
+        Some(port) => format!("{scheme}://{host}:{port}"),
+        None => format!("{scheme}://{host}"),
+    }
+}
+
 /// Log a WebAuthn verification failure with the discriminator. For the two
 /// variants whose values are public per-RP identifiers (`OriginMismatch`,
 /// `RpIdHashMismatch`), also include the received-vs-expected pair so a
@@ -1949,14 +1973,20 @@ fn log_verify_error(
 ) {
     match err {
         VerifyError::OriginMismatch => {
-            let received = serde_json::from_slice::<serde_json::Value>(client_data_json)
+            let raw = serde_json::from_slice::<serde_json::Value>(client_data_json)
                 .ok()
                 .and_then(|v| v.get("origin").and_then(|o| o.as_str()).map(str::to_string))
-                .unwrap_or_else(|| "<unparseable>".to_string());
+                .unwrap_or_default();
+            // clientDataJSON.origin is attacker-influenceable (any peer can
+            // POST any JSON to /register/finish). Sanitize to the canonical
+            // scheme://host[:port] tuple before logging so a crafted value
+            // with embedded newlines (log injection) or a 10 MB string
+            // (log spam) cannot poison the WARN line.
+            let received_origin = sanitize_origin_for_log(&raw);
             warn!(
                 scope,
                 error = err.as_str(),
-                received_origin = %received,
+                received_origin = %received_origin,
                 expected_origin = %expected_origin,
                 "webauthn verification failed: origin mismatch"
             );
@@ -5195,6 +5225,52 @@ mod tests {
         ApiKeyRecord, ApiKeyRegistrationLimits, AuthStore, ChallengeRecord, PasskeyRecord,
         PrfAmkWrapperRecord, SecretSummary, SessionRecord, StorageUsage, UserRecord,
     };
+
+    #[test]
+    fn sanitize_origin_canonicalizes_and_rejects_garbage() {
+        // Happy paths — already canonical.
+        assert_eq!(
+            sanitize_origin_for_log("http://localhost:5173"),
+            "http://localhost:5173"
+        );
+        assert_eq!(
+            sanitize_origin_for_log("https://secrt.is"),
+            "https://secrt.is"
+        );
+        // Drops path / query / fragment.
+        assert_eq!(
+            sanitize_origin_for_log("http://localhost:5173/register?x=1#frag"),
+            "http://localhost:5173"
+        );
+        // Drops userinfo (`user:pass@host`).
+        assert_eq!(
+            sanitize_origin_for_log("https://user:pass@secrt.is/x"),
+            "https://secrt.is"
+        );
+        // Default port omitted on canonical form.
+        assert_eq!(
+            sanitize_origin_for_log("https://secrt.is:443"),
+            "https://secrt.is"
+        );
+        // Log-injection defense: the underlying URL parser normalizes
+        // whitespace and control characters, so a value like
+        // "https://evil\n.example" lands as "https://evil.example" rather
+        // than as a multi-line WARN. Either way, the output is safe to
+        // log on a single line.
+        let injected = sanitize_origin_for_log("https://evil\n.example");
+        assert!(!injected.contains('\n'), "got: {injected}");
+        assert_eq!(sanitize_origin_for_log(""), "<invalid-origin>");
+        assert_eq!(sanitize_origin_for_log("not-a-url"), "<invalid-origin>");
+        // No host → invalid.
+        assert_eq!(
+            sanitize_origin_for_log("file:///etc/passwd"),
+            "<invalid-origin>"
+        );
+        // Pathological length still bounded by URL parser normalization.
+        let long = format!("https://evil.example/{}", "A".repeat(50_000));
+        let sanitized = sanitize_origin_for_log(&long);
+        assert_eq!(sanitized, "https://evil.example");
+    }
     use async_trait::async_trait;
     use axum::body::Body;
     use axum::http::Request;
