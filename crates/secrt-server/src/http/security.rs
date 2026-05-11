@@ -20,7 +20,7 @@ const CSP_TEMPLATE_TAIL: &str = "; style-src 'self'; \
      font-src 'self'; \
      connect-src 'self'; \
      manifest-src 'self'; \
-     worker-src 'self'; \
+     worker-src 'self' blob:; \
      form-action 'none'; \
      base-uri 'none'; \
      frame-ancestors 'none'; \
@@ -35,7 +35,7 @@ const CSP_NAME: HeaderName = HeaderName::from_static("content-security-policy");
 const COOP_VALUE: HeaderValue = HeaderValue::from_static("same-origin");
 const CORP_VALUE: HeaderValue = HeaderValue::from_static("same-origin");
 const PERMISSIONS_POLICY_VALUE: HeaderValue = HeaderValue::from_static(
-    "accelerometer=(), camera=(), geolocation=(), gyroscope=(), \
+    "accelerometer=(), camera=(self), geolocation=(), gyroscope=(), \
      microphone=(), payment=(), usb=(), interest-cohort=()",
 );
 const NO_STORE_VALUE: HeaderValue = HeaderValue::from_static("no-store");
@@ -199,6 +199,23 @@ mod tests {
         assert!(csp.contains("upgrade-insecure-requests"));
         assert!(!csp.contains("'unsafe-inline'"));
         assert!(!csp.contains("'unsafe-eval'"));
+        // The qr-scanner library used by the pair flow constructs its
+        // decoder via `new Worker(URL.createObjectURL(new Blob([...])))`,
+        // so `blob:` must remain in `worker-src` or the camera-based pair
+        // flow silently stalls in production. See
+        // .taskmaster/plans/qr-scanner-csp-worker-src-fix.md.
+        assert!(csp.contains("worker-src 'self' blob:"));
+    }
+
+    #[test]
+    fn permissions_policy_allows_self_camera() {
+        // First-party camera is required for the pair-flow QR scanner and
+        // future secrt-receive flows. Denying it (`camera=()`) leaves
+        // Safari permissive but breaks Chrome/Firefox getUserMedia.
+        let value = PERMISSIONS_POLICY_VALUE;
+        let v = value.to_str().unwrap();
+        assert!(v.contains("camera=(self)"));
+        assert!(v.contains("microphone=()"));
     }
 
     #[test]
