@@ -643,8 +643,6 @@ export async function appLoginApprove(
 
 /* ── Web-to-Web Pair API ─────────────────────────── */
 
-export type PairRole = 'send' | 'receive';
-
 export interface PairStartResponse {
   user_code: string;
   /** Private bearer token. Never embed in URLs or QR codes. */
@@ -659,21 +657,9 @@ export interface PairAmkTransfer {
 }
 
 export interface PairPollResponse {
-  /** 'pending' | 'claimed' | 'approved' | 'cancelled' | 'expired'. */
+  /** 'pending' | 'approved' | 'cancelled' | 'expired'. */
   status: string;
-  /** Surfaced only to the role=send displayer when status='claimed'. */
-  joiner_user_agent?: string;
-  /** Reserved; always null in v1. */
-  joiner_geo_label?: string | null;
-  joiner_seen_at?: string;
-  peer_ecdh_public_key?: string;
   amk_transfer?: PairAmkTransfer;
-}
-
-export interface PairClaimResponse {
-  /** Private bearer token for the joiner side. Never embed in URLs or QR codes. */
-  joiner_poll_token: string;
-  expires_at: string;
 }
 
 /**
@@ -684,13 +670,13 @@ export interface PairClaimResponse {
  * - throws on 401/403/429/5xx (treated as transport errors)
  */
 export type PairChallengeResult =
-  | { kind: 'ok'; role: PairRole; displayer_ecdh_public_key?: string }
+  | { kind: 'ok'; displayer_ecdh_public_key: string }
   | { kind: 'not_found' }
-  | { kind: 'terminal'; state: 'claimed' | 'approved' | 'cancelled' };
+  | { kind: 'terminal'; state: 'approved' | 'cancelled' };
 
 export async function pairStart(
   token: string,
-  req: { role: PairRole; ecdh_public_key?: string },
+  req: { ecdh_public_key: string },
   signal?: AbortSignal,
 ): Promise<PairStartResponse> {
   return requestJson<PairStartResponse>(
@@ -726,25 +712,6 @@ export async function pairPoll(
   );
 }
 
-export async function pairClaim(
-  token: string,
-  req: { user_code: string; ecdh_public_key: string },
-  signal?: AbortSignal,
-): Promise<PairClaimResponse> {
-  return requestJson<PairClaimResponse>(
-    '/api/v1/auth/pair/claim',
-    {
-      method: 'POST',
-      headers: {
-        authorization: `Bearer ${token}`,
-        'content-type': 'application/json',
-      },
-      body: JSON.stringify(req),
-    },
-    signal,
-  );
-}
-
 export async function pairChallenge(
   token: string,
   userCode: string,
@@ -766,12 +733,10 @@ export async function pairChallenge(
 
   if (res.status === 200) {
     const body = (await res.json()) as {
-      role: PairRole;
-      displayer_ecdh_public_key?: string;
+      displayer_ecdh_public_key: string;
     };
     return {
       kind: 'ok',
-      role: body.role,
       displayer_ecdh_public_key: body.displayer_ecdh_public_key,
     };
   }
@@ -781,7 +746,7 @@ export async function pairChallenge(
   if (res.status === 409) {
     const body = (await res.json().catch(() => ({}))) as { state?: string };
     const state = body.state;
-    if (state === 'claimed' || state === 'approved' || state === 'cancelled') {
+    if (state === 'approved' || state === 'cancelled') {
       return { kind: 'terminal', state };
     }
     throw new Error(`unexpected /challenge 409 body: ${JSON.stringify(body)}`);

@@ -1,16 +1,11 @@
 /**
- * PairDisplayPanel — the side that shows a code + QR for the other browser
- * to scan/type. Two roles:
+ * PairDisplayPanel — Page A of /pair.
  *
- *   role=receive: this browser is new and needs the AMK. Generates an
- *     ephemeral ECDH keypair, posts the pubkey to /start, and polls for an
- *     amk_transfer the joiner-as-sender will produce. Verifies the commit
- *     before storing.
- *
- *   role=send: this browser has the AMK. Posts /start without a pubkey,
- *     waits for a joiner to /claim, then renders an approval screen with
- *     the joiner's UA + timestamp. On approve, encrypts the AMK to the
- *     joiner's pubkey and calls /pair/approve.
+ * This device lacks the AMK. We publish an ephemeral ECDH pubkey at
+ * /start, render the user_code + QR + a MM:SS countdown, and poll
+ * /poll for the amk_transfer that the keyed device will produce on
+ * /approve. The keyed device is the sole actor; this page is purely
+ * receive-side.
  */
 
 import {
@@ -26,13 +21,10 @@ import { navigate } from '../../router';
 import {
   pairStart,
   pairPoll,
-  pairApprove,
   pairCancel,
-  type PairRole,
   type PairStartResponse,
   type PairPollResponse,
 } from '../../lib/api';
-import { loadAmk } from '../../lib/amk-store';
 import { generateEcdhKeyPair, exportPublicKey } from '../../crypto/amk';
 import { base64urlEncode } from '../../crypto/encoding';
 import { CardHeading } from '../../components/CardHeading';
@@ -42,7 +34,6 @@ import {
 } from '../../components/Icons';
 import { CopyButton } from '../../components/CopyButton';
 import {
-  encryptAmkForPeer,
   decryptAmkFromPeer,
   verifyAndStoreReceivedAmk,
   AmkCommitMismatchError,
@@ -50,22 +41,10 @@ import {
 import { formatPairUrl } from '../../lib/url';
 import { usePairPolling } from './use-pair-polling';
 
-interface Props {
-  role: PairRole;
-  onChooseJoin: () => void;
-}
-
 type DisplayState =
   | { kind: 'starting' }
   | { kind: 'waiting'; slot: PairStartResponse }
-  | {
-      kind: 'review-joiner';
-      slot: PairStartResponse;
-      joinerUserAgent: string | null;
-      joinerSeenAt: string | null;
-      peerEcdhPublicKey: string;
-    }
-  | { kind: 'approving'; slot: PairStartResponse }
+  | { kind: 'expired'; slot: PairStartResponse }
   | { kind: 'success' }
   | { kind: 'cross-account-error' }
   | { kind: 'error'; message: string };
@@ -101,17 +80,50 @@ function QrCanvas({ url }: { url: string }) {
   );
 }
 
-function describeUa(ua: string | null): string {
-  if (!ua) return 'Unknown device';
-  // Best-effort tidy-up — UA strings are spoofable advisory copy.
-  return ua.length > 80 ? ua.slice(0, 80) + '…' : ua;
+function formatCountdown(remainingMs: number): string {
+  const totalSec = Math.max(0, Math.floor(remainingMs / 1000));
+  const mm = Math.floor(totalSec / 60)
+    .toString()
+    .padStart(2, '0');
+  const ss = (totalSec % 60).toString().padStart(2, '0');
+  return `${mm}:${ss}`;
 }
 
-export function PairDisplayPanel({ role, onChooseJoin }: Props) {
+function Countdown({
+  expiresAt,
+  onExpired,
+}: {
+  expiresAt: string;
+  onExpired: () => void;
+}) {
+  const target = useMemo(() => Date.parse(expiresAt), [expiresAt]);
+  const [remaining, setRemaining] = useState(() =>
+    Math.max(0, target - Date.now()),
+  );
+  useEffect(() => {
+    if (Number.isNaN(target)) return;
+    const tick = () => {
+      const next = Math.max(0, target - Date.now());
+      setRemaining(next);
+      if (next === 0) onExpired();
+    };
+    tick();
+    const id = window.setInterval(tick, 1000);
+    return () => window.clearInterval(id);
+  }, [target, onExpired]);
+  return (
+    <p class="text-sm text-muted">
+      Expires in{' '}
+      <span class="font-mono tabular-nums">{formatCountdown(remaining)}</span>
+    </p>
+  );
+}
+
+export function PairDisplayPanel() {
   const auth = useAuth();
   const [state, setState] = useState<DisplayState>({ kind: 'starting' });
-  // Holds the ECDH private key for role=receive (cannot live in state — CryptoKey
-  // isn't serializable and must persist across renders without rebuild).
+  // Holds the ECDH private key (cannot live in state — CryptoKey isn't
+  // serializable and must persist across renders without rebuild).
   const privateKeyRef = useRef<CryptoKey | null>(null);
 
   // Start the slot exactly once.
@@ -120,16 +132,11 @@ export function PairDisplayPanel({ role, onChooseJoin }: Props) {
     let cancelled = false;
     (async () => {
       try {
-        let ecdhPublicKey: string | undefined;
-        if (role === 'receive') {
-          const kp = await generateEcdhKeyPair();
-          privateKeyRef.current = kp.privateKey;
-          const pkBytes = await exportPublicKey(kp.publicKey);
-          ecdhPublicKey = base64urlEncode(pkBytes);
-        }
+        const kp = await generateEcdhKeyPair();
+        privateKeyRef.current = kp.privateKey;
+        const pkBytes = await exportPublicKey(kp.publicKey);
         const slot = await pairStart(auth.sessionToken!, {
-          role,
-          ecdh_public_key: ecdhPublicKey,
+          ecdh_public_key: base64urlEncode(pkBytes),
         });
         if (cancelled) return;
         setState({ kind: 'waiting', slot });
@@ -145,29 +152,27 @@ export function PairDisplayPanel({ role, onChooseJoin }: Props) {
     return () => {
       cancelled = true;
     };
-  }, [auth.sessionToken, role]);
+  }, [auth.sessionToken]);
 
-  // Cancel-on-unmount (idempotent on terminal slots).
-  const slotPollToken =
-    state.kind === 'waiting' ||
-    state.kind === 'review-joiner' ||
-    state.kind === 'approving'
-      ? state.slot.displayer_poll_token
-      : null;
+  // Cancel-on-unmount (idempotent on terminal slots). The countdown
+  // expiring is a UI state only — the server is authoritative and the
+  // reaper handles real expiry. Track the live token in a ref so the
+  // cleanup fires once on unmount, not every time `state` flips into
+  // a terminal kind (which would otherwise hit /cancel on timer expiry).
+  const liveSlotRef = useRef<string | null>(null);
+  liveSlotRef.current =
+    state.kind === 'waiting' ? state.slot.displayer_poll_token : null;
   useEffect(() => {
-    if (!slotPollToken || !auth.sessionToken) return;
     return () => {
-      void pairCancel(auth.sessionToken!, slotPollToken).catch(() => {});
+      const token = liveSlotRef.current;
+      if (token && auth.sessionToken) {
+        void pairCancel(auth.sessionToken, token).catch(() => {});
+      }
     };
-  }, [slotPollToken, auth.sessionToken]);
+  }, [auth.sessionToken]);
 
-  // Receiver-side: mid-poll AMK delivery, commit verification, store.
-  const handleReceiverDelivery = useCallback(
-    async (
-      slot: PairStartResponse,
-      poll: PairPollResponse,
-      signal: AbortSignal,
-    ): Promise<boolean> => {
+  const handleDelivery = useCallback(
+    async (poll: PairPollResponse, signal: AbortSignal): Promise<boolean> => {
       if (!auth.sessionToken || !auth.userId || !poll.amk_transfer)
         return false;
       const priv = privateKeyRef.current;
@@ -208,12 +213,9 @@ export function PairDisplayPanel({ role, onChooseJoin }: Props) {
     [auth.sessionToken, auth.userId],
   );
 
-  // Polling handler. One per render — captures `state` via closure but only
-  // dispatches based on the freshly fetched response.
   const onPoll = useCallback(
     async (signal: AbortSignal): Promise<boolean> => {
       if (!auth.sessionToken) return true;
-      // Don't poll while we're not in a polling state.
       if (state.kind !== 'waiting') return true;
       const slot = state.slot;
       try {
@@ -235,34 +237,13 @@ export function PairDisplayPanel({ role, onChooseJoin }: Props) {
           return true;
         }
 
-        if (role === 'receive') {
-          if (res.status === 'approved' && res.amk_transfer) {
-            return handleReceiverDelivery(slot, res, signal);
-          }
-          // pending — keep polling.
-          return false;
+        if (res.status === 'approved' && res.amk_transfer) {
+          return handleDelivery(res, signal);
         }
-
-        // role === 'send'
-        if (res.status === 'claimed' && res.peer_ecdh_public_key) {
-          setState({
-            kind: 'review-joiner',
-            slot,
-            joinerUserAgent: res.joiner_user_agent ?? null,
-            joinerSeenAt: res.joiner_seen_at ?? null,
-            peerEcdhPublicKey: res.peer_ecdh_public_key,
-          });
-          return true;
-        }
-        if (res.status === 'approved') {
-          // Already approved (e.g. tab restored after a prior approve).
-          setState({ kind: 'success' });
-          return true;
-        }
+        // pending — keep polling.
         return false;
       } catch (err) {
         if (signal.aborted) return true;
-        // Transient — let the loop retry.
         const msg = err instanceof Error ? err.message : '';
         if (/401|forbidden|unauthorized/i.test(msg)) {
           setState({ kind: 'error', message: msg });
@@ -271,21 +252,20 @@ export function PairDisplayPanel({ role, onChooseJoin }: Props) {
         return false;
       }
     },
-    [auth.sessionToken, state, role, handleReceiverDelivery],
+    [auth.sessionToken, state, handleDelivery],
   );
 
   usePairPolling(onPoll, { enabled: state.kind === 'waiting' });
 
+  const handleExpired = useCallback(() => {
+    setState((prev) =>
+      prev.kind === 'waiting' ? { kind: 'expired', slot: prev.slot } : prev,
+    );
+  }, []);
+
   const shareUrl = useMemo(() => {
-    if (state.kind === 'starting' || state.kind === 'error') return '';
-    const slotState =
-      state.kind === 'waiting' ||
-      state.kind === 'review-joiner' ||
-      state.kind === 'approving'
-        ? state.slot
-        : null;
-    if (!slotState) return '';
-    return formatPairUrl(slotState.user_code);
+    if (state.kind !== 'waiting') return '';
+    return formatPairUrl(state.slot.user_code);
   }, [state]);
 
   // ── Render ────────────────────────────────────────────────────────
@@ -347,15 +327,11 @@ export function PairDisplayPanel({ role, onChooseJoin }: Props) {
     return (
       <div class="card space-y-4 text-center">
         <CardHeading
-          title={
-            role === 'receive' ? 'Account Key Received' : 'Account Key Sent'
-          }
+          title="Account Key Received"
           icon={<CheckCircleIcon class="size-10 text-success" />}
         />
         <p class="text-muted">
-          {role === 'receive'
-            ? 'This browser can now read your encrypted notes.'
-            : 'The other device now has your account key.'}
+          This browser can now read your encrypted notes.
         </p>
         <button
           type="button"
@@ -368,96 +344,21 @@ export function PairDisplayPanel({ role, onChooseJoin }: Props) {
     );
   }
 
-  if (state.kind === 'review-joiner') {
-    const handleApprove = async () => {
-      if (!auth.sessionToken || !auth.userId) return;
-      setState({ kind: 'approving', slot: state.slot });
-      try {
-        const amk = await loadAmk(auth.userId);
-        if (!amk) {
-          setState({
-            kind: 'error',
-            message:
-              'No account key is stored on this browser. Sign in on a device that has it first.',
-          });
-          return;
-        }
-        const { amkTransfer } = await encryptAmkForPeer(
-          state.peerEcdhPublicKey,
-          amk,
-        );
-        await pairApprove(auth.sessionToken, {
-          user_code: state.slot.user_code,
-          amk_transfer: amkTransfer,
-        });
-        setState({ kind: 'success' });
-      } catch (err) {
-        setState({
-          kind: 'error',
-          message: err instanceof Error ? err.message : 'Approval failed.',
-        });
-      }
-    };
-    const handleReject = async () => {
-      if (!auth.sessionToken) return;
-      try {
-        await pairCancel(auth.sessionToken, state.slot.displayer_poll_token);
-      } catch {
-        /* idempotent — surface a generic message either way */
-      }
-      setState({
-        kind: 'error',
-        message: 'Pairing cancelled.',
-      });
-    };
-
-    const seenAt = state.joinerSeenAt
-      ? new Date(state.joinerSeenAt).toLocaleString()
-      : 'just now';
+  if (state.kind === 'expired') {
     return (
-      <div class="card space-y-4">
+      <div class="card space-y-4 text-center">
         <CardHeading
-          title="Approve this device?"
-          subtitle="A browser signed into your account is asking for your account key."
+          title="Code expired"
+          subtitle="That pairing code is no longer valid."
         />
-        <dl class="space-y-2 text-sm">
-          <div>
-            <dt class="font-medium text-muted">Device</dt>
-            <dd class="break-words">{describeUa(state.joinerUserAgent)}</dd>
-          </div>
-          <div>
-            <dt class="font-medium text-muted">Joined</dt>
-            <dd>{seenAt}</dd>
-          </div>
-        </dl>
-        <p class="bg-surface-alt rounded-md border border-border p-3 text-sm text-muted">
-          Approve only if you started this on the other device. The label above
-          is advisory and can be spoofed.
-        </p>
-        <div class="flex gap-3">
-          <button
-            type="button"
-            class="btn flex-1 tracking-wider uppercase"
-            onClick={handleReject}
-          >
-            Reject
-          </button>
-          <button
-            type="button"
-            class="btn btn-primary flex-1 tracking-wider uppercase"
-            onClick={handleApprove}
-          >
-            Approve
-          </button>
-        </div>
-      </div>
-    );
-  }
-
-  if (state.kind === 'approving') {
-    return (
-      <div class="card text-center">
-        <p class="text-muted">Sending account key…</p>
+        <p class="text-muted">Start over to get a fresh code.</p>
+        <button
+          type="button"
+          class="btn btn-primary tracking-wider uppercase"
+          onClick={() => window.location.reload()}
+        >
+          Restart Pairing
+        </button>
       </div>
     );
   }
@@ -467,11 +368,15 @@ export function PairDisplayPanel({ role, onChooseJoin }: Props) {
   return (
     <div class="card space-y-5 text-center">
       <CardHeading
-        title={role === 'receive' ? 'Pair this browser' : 'Pair another device'}
+        title="Pair this device"
         subtitle={
-          role === 'receive'
-            ? 'Scan or type this on the browser that already has your account key.'
-            : 'Scan or type this on the new browser to send it your account key.'
+          <>
+            On a device with your account key, visit
+            <p class="my-2 text-base font-semibold text-neutral-700 dark:text-neutral-300">
+              {window.location.host}/pair
+            </p>
+            and enter this code:
+          </>
         }
       />
 
@@ -480,18 +385,18 @@ export function PairDisplayPanel({ role, onChooseJoin }: Props) {
       </div>
 
       <div class="flex justify-center">
+        <CopyButton text={shareUrl} label="Copy Pairing Link" />
+      </div>
+
+      <div class="flex justify-center">
         <QrCanvas url={shareUrl} />
       </div>
 
-      <CopyButton text={slot.user_code} label="Copy Code" class="mx-auto" />
+      <Countdown expiresAt={slot.expires_at} onExpired={handleExpired} />
 
-      <p class="text-xs text-muted">
+      <p class="text-muted">
         Both browsers must be signed in as the same account.
       </p>
-
-      <button type="button" class="link" onClick={onChooseJoin}>
-        Or join a code from another device
-      </button>
     </div>
   );
 }

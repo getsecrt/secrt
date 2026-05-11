@@ -38,15 +38,15 @@ export function formatSyncLink(
 export function formatPairUrl(code: string, baseUrl?: string): string {
   const origin =
     baseUrl ?? (isTauri() ? PRIMARY_OFFICIAL_ORIGIN : window.location.origin);
-  return `${origin}/pair?mode=join&code=${encodeURIComponent(code)}`;
+  return `${origin}/pair?code=${encodeURIComponent(code)}`;
 }
 
 /** Strict XXXX-XXXX shape using the user-code alphabet (uppercase A-Z and 0-9). */
 const PAIR_CODE_RE = /^[A-Z0-9]{4}-[A-Z0-9]{4}$/;
 
 /**
- * Parse a pair code from either a fully qualified `/pair?mode=join&code=…`
- * URL (QR scan) or a bare `XXXX-XXXX` form (typed entry). Lower-case input
+ * Parse a pair code from either a fully qualified `/pair?code=…` URL
+ * (QR scan) or a bare `XXXX-XXXX` form (typed entry). Lower-case input
  * is upper-cased before validation. Returns null if no valid code is found.
  */
 export function parsePairUrl(input: string): { code: string } | null {

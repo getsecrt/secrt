@@ -505,6 +505,20 @@ export function LinkIcon(props: IconProps) {
   );
 }
 
+export function CameraIcon(props: IconProps) {
+  return (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      viewBox="0 0 640 640"
+      fill="currentColor"
+      class="size-5"
+      {...props}
+    >
+      <path d="m213 129-10 31h-75c-35 0-64 29-64 64v256c0 35 29 64 64 64h384c35 0 64-29 64-64V224c0-35-29-64-64-64h-75l-10-31c-7-20-25-33-46-33H259c-21 0-39 13-46 33m107 127a96 96 0 1 1 0 192 96 96 0 0 1 0-192" />
+    </svg>
+  );
+}
+
 export function ShareFromSquareIcon(props: IconProps) {
   return (
     <svg

@@ -23,14 +23,15 @@ vi.mock('../../router', () => ({
   navigate: (...args: unknown[]) => mockNavigate(...args),
 }));
 
+const mockLoadAmk = vi.fn<(userId: string) => Promise<Uint8Array | null>>();
+vi.mock('../../lib/amk-store', () => ({
+  loadAmk: (userId: string) => mockLoadAmk(userId),
+}));
+
 // PairPage delegates to two heavy panels — stub them so we can observe
-// which mode/role got dispatched without standing up the whole flow.
+// which mode got dispatched without standing up the whole flow.
 vi.mock('./PairDisplayPanel', () => ({
-  PairDisplayPanel: (props: { role: string }) => (
-    <div data-testid="display-panel" data-role={props.role}>
-      Display
-    </div>
-  ),
+  PairDisplayPanel: () => <div data-testid="display-panel">Display</div>,
 }));
 vi.mock('./PairJoinPanel', () => ({
   PairJoinPanel: (props: { prefilledCode: string | null }) => (
@@ -53,6 +54,7 @@ describe('PairPage', () => {
     mockAuth.userId = 'u1';
     mockAuth.sessionToken = 'tok';
     mockNavigate.mockClear();
+    mockLoadAmk.mockReset();
     setSearch('');
   });
   afterEach(() => {
@@ -60,42 +62,60 @@ describe('PairPage', () => {
     setSearch('');
   });
 
-  it('shows the picker on bare /pair', () => {
+  it('renders Page A (display) when this device has no AMK', async () => {
+    mockLoadAmk.mockResolvedValue(null);
     render(<PairPage />);
-    expect(
-      screen.getByText(/show a code to receive my key/i),
-    ).toBeInTheDocument();
-    expect(
-      screen.getByText(/show a code to send to a new device/i),
-    ).toBeInTheDocument();
+    await waitFor(() =>
+      expect(screen.getByTestId('display-panel')).toBeInTheDocument(),
+    );
+    expect(screen.queryByTestId('join-panel')).toBeNull();
   });
 
-  it('renders the display panel with role=receive when ?mode=display&role=receive', () => {
-    setSearch('?mode=display&role=receive');
+  it('renders Page B (join) with no prefill when this device has the AMK', async () => {
+    mockLoadAmk.mockResolvedValue(new Uint8Array(32));
     render(<PairPage />);
-    const panel = screen.getByTestId('display-panel');
-    expect(panel).toHaveAttribute('data-role', 'receive');
+    await waitFor(() =>
+      expect(screen.getByTestId('join-panel')).toBeInTheDocument(),
+    );
+    expect(screen.getByTestId('join-panel')).toHaveAttribute('data-code', '');
   });
 
-  it('renders the display panel with role=send when ?mode=display&role=send', () => {
-    setSearch('?mode=display&role=send');
+  it('renders Page B prefilled with ?code= when AMK is present', async () => {
+    mockLoadAmk.mockResolvedValue(new Uint8Array(32));
+    setSearch('?code=K7MQ-3F2A');
     render(<PairPage />);
-    expect(screen.getByTestId('display-panel')).toHaveAttribute(
-      'data-role',
-      'send',
+    await waitFor(() =>
+      expect(screen.getByTestId('join-panel')).toHaveAttribute(
+        'data-code',
+        'K7MQ-3F2A',
+      ),
     );
   });
 
-  it('renders the join panel with the deep-linked code', () => {
-    setSearch('?mode=join&code=K7MQ-3F2A');
+  it('uppercases lowercase ?code= input', async () => {
+    mockLoadAmk.mockResolvedValue(new Uint8Array(32));
+    setSearch('?code=k7mq-3f2a');
     render(<PairPage />);
-    const panel = screen.getByTestId('join-panel');
-    expect(panel).toHaveAttribute('data-code', 'K7MQ-3F2A');
+    await waitFor(() =>
+      expect(screen.getByTestId('join-panel')).toHaveAttribute(
+        'data-code',
+        'K7MQ-3F2A',
+      ),
+    );
+  });
+
+  it('falls back to Page A when AMK is absent even with ?code= present', async () => {
+    mockLoadAmk.mockResolvedValue(null);
+    setSearch('?code=K7MQ-3F2A');
+    render(<PairPage />);
+    await waitFor(() =>
+      expect(screen.getByTestId('display-panel')).toBeInTheDocument(),
+    );
   });
 
   it('redirects to /login when unauthenticated', async () => {
     mockAuth.authenticated = false;
-    setSearch('?mode=display&role=receive');
+    mockLoadAmk.mockResolvedValue(null);
     render(<PairPage />);
     await waitFor(() =>
       expect(mockNavigate).toHaveBeenCalledWith(
@@ -104,11 +124,26 @@ describe('PairPage', () => {
     );
   });
 
-  it('renders nothing protected while auth is loading', () => {
+  it('shows a placeholder while auth is loading', () => {
     mockAuth.loading = true;
-    setSearch('?mode=display&role=receive');
+    mockLoadAmk.mockResolvedValue(null);
     render(<PairPage />);
     expect(screen.queryByTestId('display-panel')).toBeNull();
-    expect(screen.getByText(/Loading/i)).toBeInTheDocument();
+    expect(screen.queryByTestId('join-panel')).toBeNull();
+    expect(screen.getByText(/Preparing/i)).toBeInTheDocument();
+  });
+
+  it('shows a placeholder while AMK is loading', () => {
+    let resolveAmk: (v: Uint8Array | null) => void = () => {};
+    mockLoadAmk.mockReturnValue(
+      new Promise<Uint8Array | null>((r) => {
+        resolveAmk = r;
+      }),
+    );
+    render(<PairPage />);
+    expect(screen.queryByTestId('display-panel')).toBeNull();
+    expect(screen.queryByTestId('join-panel')).toBeNull();
+    expect(screen.getByText(/Preparing/i)).toBeInTheDocument();
+    resolveAmk(null);
   });
 });
