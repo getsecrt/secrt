@@ -109,6 +109,29 @@ reviews:
         Documentation: focus on accuracy of security claims and user-facing crypto guidance.
         Do not nitpick prose style. Flag any technical claim that contradicts the code.
 
+    - path: "**/CHANGELOG.md"
+      instructions: |
+        Changelog entries follow the project schema documented in AGENTS.md
+        § "Versioning & changelog" — NOT vanilla Keep a Changelog. Key
+        differences for review:
+
+        - Trailing references (`Spec:`, `Files:`, `Issue:`, `PR:`, `Task:`)
+          are OPTIONAL. Include only those that apply. Operator-side
+          runtime-config changes (rate limits, env-var tuning, dotenv
+          loaders) typically have no Spec link. Work originating from
+          in-session discussion has no Issue/Task link. Do NOT flag a
+          missing optional reference as a "required schema" violation.
+
+        - Headline = one bolded sentence, ≤20 words, period-terminated.
+          Use Keep a Changelog category headings (`Added` / `Changed` /
+          `Fixed` / `Security` / `Deprecated` / `Removed`).
+
+        - Indented paragraph body for the WHY; sub-bullets for related
+          details; references on a separate trailing line.
+
+        Flag content accuracy (does the entry contradict the code?), not
+        schema-shape preferences.
+
     - path: ".github/workflows/**"
       instructions: |
         CI workflows. Review for:
