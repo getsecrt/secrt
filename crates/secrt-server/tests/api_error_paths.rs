@@ -22,6 +22,7 @@ fn cfg() -> Config {
         env: "test".into(),
         listen_addr: "127.0.0.1:0".into(),
         public_base_url: "https://example.com".into(),
+        rp_id: "example.com".into(),
         log_level: "error".into(),
 
         database_url: String::new(),

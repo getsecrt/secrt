@@ -1815,24 +1815,6 @@ fn random_b64(len: usize) -> Result<String, ()> {
     Ok(URL_SAFE_NO_PAD.encode(b))
 }
 
-/// Derive the WebAuthn RP ID from `public_base_url`. Strips scheme, path,
-/// and port — browsers reject ports in `rp.id`. For `https://secrt.is` →
-/// `secrt.is`; for `http://localhost:8080` → `localhost`.
-fn derive_rp_id(public_base_url: &str) -> &str {
-    let s = public_base_url
-        .strip_prefix("https://")
-        .or_else(|| public_base_url.strip_prefix("http://"))
-        .unwrap_or(public_base_url);
-    let s = s.split('/').next().unwrap_or(s);
-    s.split(':').next().unwrap_or(s)
-}
-
-/// Expected `clientDataJSON.origin` value. Trims trailing slash so we
-/// match the canonical form a browser produces.
-fn derive_expected_origin(public_base_url: &str) -> &str {
-    public_base_url.trim_end_matches('/')
-}
-
 /// Decode the base64url-encoded register/add wire fields and run them
 /// through the verifier. Returns `()` on failure — the handler maps any
 /// error to opaque `401`. The discriminator is logged so observability
@@ -1854,14 +1836,29 @@ fn decode_and_verify_registration(
             warn!("passkey register: client_data_json not valid base64url");
         })?;
 
+    // cfg.public_base_url is canonicalized to scheme://host[:port] by
+    // Config::load, and cfg.rp_id is the matching host. Both are guaranteed
+    // to be the canonical bytes a browser produces for clientDataJSON.origin
+    // and the WebAuthn RP ID respectively, so we pass them through directly.
+    let expected_origin = cfg.public_base_url.as_str();
+    let expected_rp_id = cfg.rp_id.as_str();
     parse_registration(
         &auth_data,
         &cdj,
         expected_challenge_b64u,
-        derive_expected_origin(&cfg.public_base_url),
-        derive_rp_id(&cfg.public_base_url),
+        expected_origin,
+        expected_rp_id,
     )
-    .map_err(|err| log_verify_error("passkey register", err))
+    .map_err(|err| {
+        log_verify_error(
+            "passkey register",
+            err,
+            &cdj,
+            &auth_data,
+            expected_origin,
+            expected_rp_id,
+        )
+    })
 }
 
 /// Decode the login wire fields and run them through `verify_assertion`.
@@ -1895,24 +1892,119 @@ fn decode_and_verify_assertion(
             warn!("passkey login: stored public_key not valid base64url");
         })?;
 
+    // See decode_and_verify_registration: cfg.public_base_url / cfg.rp_id
+    // are canonical-by-construction from Config::load.
+    let expected_origin = cfg.public_base_url.as_str();
+    let expected_rp_id = cfg.rp_id.as_str();
     let ctx = AssertionContext {
         stored_pubkey_sec1: &pubkey,
         stored_sign_count,
         expected_challenge_b64u,
-        expected_origin: derive_expected_origin(&cfg.public_base_url),
-        expected_rp_id: derive_rp_id(&cfg.public_base_url),
+        expected_origin,
+        expected_rp_id,
     };
     let req = AssertionRequest {
         authenticator_data: &auth_data,
         client_data_json: &cdj,
         signature: &sig,
     };
-    verify_assertion(&ctx, &req).map_err(|err| log_verify_error("passkey login", err))
+    verify_assertion(&ctx, &req).map_err(|err| {
+        log_verify_error(
+            "passkey login",
+            err,
+            &cdj,
+            &auth_data,
+            expected_origin,
+            expected_rp_id,
+        )
+    })
 }
 
-fn log_verify_error(scope: &str, err: VerifyError) {
-    // Discriminator is logged server-side only — never surfaced over the wire.
-    warn!(scope, error = err.as_str(), "webauthn verification failed");
+/// Reduce a (potentially untrusted) origin string to the canonical
+/// `scheme://host[:port]` tuple suitable for emitting at WARN level.
+/// Returns `<invalid-origin>` if the input does not parse to a URL with
+/// both a scheme and a host. Used to scrub `clientDataJSON.origin` before
+/// it lands in a log line — a hostile peer could otherwise stuff
+/// newlines, control characters, or arbitrarily long blobs into the
+/// `origin` JSON field.
+fn sanitize_origin_for_log(raw: &str) -> String {
+    let Ok(u) = url::Url::parse(raw.trim()) else {
+        return "<invalid-origin>".to_string();
+    };
+    let scheme = u.scheme();
+    let Some(host) = u.host_str() else {
+        return "<invalid-origin>".to_string();
+    };
+    if scheme.is_empty() {
+        return "<invalid-origin>".to_string();
+    }
+    match u.port() {
+        Some(port) => format!("{scheme}://{host}:{port}"),
+        None => format!("{scheme}://{host}"),
+    }
+}
+
+/// Log a WebAuthn verification failure with the discriminator. For the two
+/// variants whose values are public per-RP identifiers (`OriginMismatch`,
+/// `RpIdHashMismatch`), also include the received-vs-expected pair so a
+/// misconfigured `PUBLIC_BASE_URL` is diagnosable from the server's own log
+/// without having to spelunk through clientDataJSON in DevTools. Other
+/// discriminators stay opaque — their values are either sensitive
+/// (`InvalidSignature` over secret bits) or unhelpful for the reader.
+fn log_verify_error(
+    scope: &str,
+    err: VerifyError,
+    client_data_json: &[u8],
+    authenticator_data: &[u8],
+    expected_origin: &str,
+    expected_rp_id: &str,
+) {
+    match err {
+        VerifyError::OriginMismatch => {
+            let raw = serde_json::from_slice::<serde_json::Value>(client_data_json)
+                .ok()
+                .and_then(|v| v.get("origin").and_then(|o| o.as_str()).map(str::to_string))
+                .unwrap_or_default();
+            // clientDataJSON.origin is attacker-influenceable (any peer can
+            // POST any JSON to /register/finish). Sanitize to the canonical
+            // scheme://host[:port] tuple before logging so a crafted value
+            // with embedded newlines (log injection) or a 10 MB string
+            // (log spam) cannot poison the WARN line.
+            let received_origin = sanitize_origin_for_log(&raw);
+            // `expected_origin` comes from cfg.public_base_url, which
+            // Config::load canonicalizes to scheme://host[:port] with no
+            // path/query/fragment/userinfo. Safe to log verbatim.
+            warn!(
+                scope,
+                error = err.as_str(),
+                received_origin = %received_origin,
+                expected_origin = %expected_origin,
+                "webauthn verification failed: origin mismatch"
+            );
+        }
+        VerifyError::RpIdHashMismatch => {
+            let received_hex = authenticator_data
+                .get(..32)
+                .map(hex::encode)
+                .unwrap_or_else(|| "<short>".to_string());
+            let expected_hex = hex::encode(
+                ring::digest::digest(&ring::digest::SHA256, expected_rp_id.as_bytes()).as_ref(),
+            );
+            warn!(
+                scope,
+                error = err.as_str(),
+                received_rp_id_hash = %received_hex,
+                expected_rp_id = %expected_rp_id,
+                expected_rp_id_hash = %expected_hex,
+                "webauthn verification failed: rp_id hash mismatch"
+            );
+        }
+        _ => {
+            // Discriminator only. Variant values for the remaining errors
+            // are either sensitive or unhelpful to surface.
+            warn!(scope, error = err.as_str(), "webauthn verification failed");
+        }
+    }
 }
 
 /// First 8 chars of a base64url credential_id — enough to correlate with
@@ -5124,6 +5216,52 @@ mod tests {
         ApiKeyRecord, ApiKeyRegistrationLimits, AuthStore, ChallengeRecord, PasskeyRecord,
         PrfAmkWrapperRecord, SecretSummary, SessionRecord, StorageUsage, UserRecord,
     };
+
+    #[test]
+    fn sanitize_origin_canonicalizes_and_rejects_garbage() {
+        // Happy paths — already canonical.
+        assert_eq!(
+            sanitize_origin_for_log("http://localhost:5173"),
+            "http://localhost:5173"
+        );
+        assert_eq!(
+            sanitize_origin_for_log("https://secrt.is"),
+            "https://secrt.is"
+        );
+        // Drops path / query / fragment.
+        assert_eq!(
+            sanitize_origin_for_log("http://localhost:5173/register?x=1#frag"),
+            "http://localhost:5173"
+        );
+        // Drops userinfo (`user:pass@host`).
+        assert_eq!(
+            sanitize_origin_for_log("https://user:pass@secrt.is/x"),
+            "https://secrt.is"
+        );
+        // Default port omitted on canonical form.
+        assert_eq!(
+            sanitize_origin_for_log("https://secrt.is:443"),
+            "https://secrt.is"
+        );
+        // Log-injection defense: the underlying URL parser normalizes
+        // whitespace and control characters, so a value like
+        // "https://evil\n.example" lands as "https://evil.example" rather
+        // than as a multi-line WARN. Either way, the output is safe to
+        // log on a single line.
+        let injected = sanitize_origin_for_log("https://evil\n.example");
+        assert!(!injected.contains('\n'), "got: {injected}");
+        assert_eq!(sanitize_origin_for_log(""), "<invalid-origin>");
+        assert_eq!(sanitize_origin_for_log("not-a-url"), "<invalid-origin>");
+        // No host → invalid.
+        assert_eq!(
+            sanitize_origin_for_log("file:///etc/passwd"),
+            "<invalid-origin>"
+        );
+        // Pathological length still bounded by URL parser normalization.
+        let long = format!("https://evil.example/{}", "A".repeat(50_000));
+        let sanitized = sanitize_origin_for_log(&long);
+        assert_eq!(sanitized, "https://evil.example");
+    }
     use async_trait::async_trait;
     use axum::body::Body;
     use axum::http::Request;
@@ -6466,6 +6604,7 @@ mod tests {
             env: "test".into(),
             listen_addr: "127.0.0.1:0".into(),
             public_base_url: "https://example.com".into(),
+            rp_id: "example.com".into(),
             log_level: "error".into(),
             database_url: String::new(),
             db_host: "127.0.0.1".into(),

@@ -2,11 +2,26 @@ use std::env;
 
 use thiserror::Error;
 
+/// Default for `PUBLIC_BASE_URL` when the env var is unset. Exposed so the
+/// runtime bootstrap can distinguish "user supplied the default explicitly"
+/// from "we fell back silently" and surface a dev-mode hint if the latter
+/// would lead to a confusing WebAuthn `OriginMismatch`.
+pub const DEFAULT_PUBLIC_BASE_URL: &str = "http://localhost:8080";
+
 #[derive(Clone, Debug)]
 pub struct Config {
     pub env: String,
     pub listen_addr: String,
+    /// Canonical origin (`scheme://host[:port]`). Always normalized in
+    /// `Config::load`: default port elided, trailing slash removed, no
+    /// path / query / fragment / userinfo. Use directly as the WebAuthn
+    /// expected origin and as a base for share URLs.
     pub public_base_url: String,
+    /// WebAuthn Relying Party ID — the host component of
+    /// `public_base_url`, no scheme, no port. Pinned alongside
+    /// `public_base_url` so the verifier and any logger see the same
+    /// canonical bytes.
+    pub rp_id: String,
     pub log_level: String,
 
     pub database_url: String,
@@ -69,12 +84,80 @@ pub enum ConfigError {
     MissingPublicBaseUrl,
     #[error("invalid PUBLIC_BASE_URL")]
     InvalidPublicBaseUrl,
+    #[error("PUBLIC_BASE_URL must be an origin only (scheme://host[:port]); got {component} component which is not allowed")]
+    PublicBaseUrlNotOrigin { component: &'static str },
+    #[error("PUBLIC_BASE_URL scheme must be http or https; got '{0}'")]
+    PublicBaseUrlBadScheme(String),
     #[error("API_KEY_PEPPER is required in production")]
     MissingApiKeyPepper,
     #[error("SESSION_TOKEN_PEPPER is required in production")]
     MissingSessionTokenPepper,
     #[error("missing env vars: {0}")]
     MissingEnvVars(String),
+}
+
+/// Result of canonicalizing a raw `PUBLIC_BASE_URL` to the
+/// `scheme://host[:port]` form WebAuthn expects.
+struct CanonicalBaseUrl {
+    /// `scheme://host[:port]` with default ports elided (`:443` for
+    /// https, `:80` for http), no trailing slash, no path, no userinfo,
+    /// no query, no fragment.
+    pub origin: String,
+    /// Host component only (`host_str()`), used as the WebAuthn RP ID.
+    pub host: String,
+}
+
+/// Parse and canonicalize a `PUBLIC_BASE_URL` value. Rejects anything
+/// outside the `scheme://host[:port]` form with a specific error so
+/// operators can fix the misconfiguration immediately instead of
+/// debugging a downstream `OriginMismatch` or RP-ID-hash mismatch.
+fn canonicalize_public_base_url(raw: &str) -> Result<CanonicalBaseUrl, ConfigError> {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return Err(ConfigError::MissingPublicBaseUrl);
+    }
+
+    let parsed = url::Url::parse(trimmed).map_err(|_| ConfigError::InvalidPublicBaseUrl)?;
+
+    // WebAuthn ceremonies and the share-URL generator both assume
+    // origin-only inputs. Reject any extra structure explicitly so the
+    // operator gets an actionable error rather than a runtime symptom.
+    let scheme = parsed.scheme();
+    if scheme != "http" && scheme != "https" {
+        return Err(ConfigError::PublicBaseUrlBadScheme(scheme.to_string()));
+    }
+    let path = parsed.path();
+    if !path.is_empty() && path != "/" {
+        return Err(ConfigError::PublicBaseUrlNotOrigin { component: "path" });
+    }
+    if parsed.query().is_some() {
+        return Err(ConfigError::PublicBaseUrlNotOrigin { component: "query" });
+    }
+    if parsed.fragment().is_some() {
+        return Err(ConfigError::PublicBaseUrlNotOrigin {
+            component: "fragment",
+        });
+    }
+    if !parsed.username().is_empty() || parsed.password().is_some() {
+        return Err(ConfigError::PublicBaseUrlNotOrigin {
+            component: "userinfo",
+        });
+    }
+    let host = parsed
+        .host_str()
+        .ok_or(ConfigError::InvalidPublicBaseUrl)?
+        .to_string();
+
+    // Rebuild canonical form. `url::Url::origin().ascii_serialization()`
+    // gives us the WHATWG-canonical tuple origin, which is exactly what
+    // browsers put in `clientDataJSON.origin` — default ports elided,
+    // no trailing slash, case-folded scheme/host.
+    let origin = parsed.origin().ascii_serialization();
+    if origin == "null" {
+        return Err(ConfigError::InvalidPublicBaseUrl);
+    }
+
+    Ok(CanonicalBaseUrl { origin, host })
 }
 
 impl Config {
@@ -90,15 +173,10 @@ impl Config {
             return Err(ConfigError::InvalidDbPort(db_port_raw));
         }
 
-        let public_base_url = getenv_default("PUBLIC_BASE_URL", "http://localhost:8080")
-            .trim_end_matches('/')
-            .to_string();
-        if public_base_url.is_empty() {
-            return Err(ConfigError::MissingPublicBaseUrl);
-        }
-        if url::Url::parse(&public_base_url).is_err() {
-            return Err(ConfigError::InvalidPublicBaseUrl);
-        }
+        let raw_public_base_url = getenv_default("PUBLIC_BASE_URL", DEFAULT_PUBLIC_BASE_URL);
+        let canonical = canonicalize_public_base_url(&raw_public_base_url)?;
+        let public_base_url = canonical.origin;
+        let rp_id = canonical.host;
 
         let api_key_pepper = env::var("API_KEY_PEPPER")
             .unwrap_or_default()
@@ -119,6 +197,7 @@ impl Config {
             env: env_name,
             listen_addr: getenv_default("LISTEN_ADDR", ":8080"),
             public_base_url,
+            rp_id,
             log_level: getenv_default("LOG_LEVEL", "info"),
 
             database_url: env::var("DATABASE_URL")
@@ -352,6 +431,63 @@ mod tests {
             Config::load(),
             Err(ConfigError::InvalidPublicBaseUrl)
         ));
+    }
+
+    #[test]
+    fn public_base_url_canonicalized_to_origin_form() {
+        // `Url::origin().ascii_serialization()` matches what browsers put
+        // in clientDataJSON.origin — default ports elided, no trailing
+        // slash, lowercase scheme/host.
+        for (raw, expected_origin, expected_rp_id) in [
+            (
+                "http://localhost:5173",
+                "http://localhost:5173",
+                "localhost",
+            ),
+            ("https://secrt.is", "https://secrt.is", "secrt.is"),
+            // Trailing slash gets stripped.
+            ("https://secrt.is/", "https://secrt.is", "secrt.is"),
+            // Default ports elided.
+            ("https://secrt.is:443", "https://secrt.is", "secrt.is"),
+            ("http://localhost:80", "http://localhost", "localhost"),
+            // Case-folded scheme/host.
+            ("HTTPS://SECRT.IS", "https://secrt.is", "secrt.is"),
+        ] {
+            let _lock = ENV_LOCK.lock().expect("env lock");
+            let _guards = [EnvGuard::set("PUBLIC_BASE_URL", raw)];
+            let cfg = Config::load().unwrap_or_else(|err| panic!("expected {raw} to load: {err}"));
+            assert_eq!(cfg.public_base_url, expected_origin, "raw={raw}");
+            assert_eq!(cfg.rp_id, expected_rp_id, "raw={raw}");
+        }
+    }
+
+    #[test]
+    fn public_base_url_rejects_non_origin_components() {
+        for (raw, reason) in [
+            ("https://secrt.is/some/path", "path"),
+            ("https://secrt.is?x=1", "query"),
+            ("https://secrt.is#frag", "fragment"),
+            ("https://user:pass@secrt.is", "userinfo"),
+        ] {
+            let _lock = ENV_LOCK.lock().expect("env lock");
+            let _guards = [EnvGuard::set("PUBLIC_BASE_URL", raw)];
+            match Config::load() {
+                Err(ConfigError::PublicBaseUrlNotOrigin { component }) => {
+                    assert_eq!(component, reason, "raw={raw}");
+                }
+                other => panic!("expected NotOrigin({reason}) for {raw}, got {other:?}"),
+            }
+        }
+    }
+
+    #[test]
+    fn public_base_url_rejects_non_http_scheme() {
+        let _lock = ENV_LOCK.lock().expect("env lock");
+        let _guards = [EnvGuard::set("PUBLIC_BASE_URL", "ftp://secrt.is")];
+        match Config::load() {
+            Err(ConfigError::PublicBaseUrlBadScheme(s)) => assert_eq!(s, "ftp"),
+            other => panic!("expected BadScheme, got {other:?}"),
+        }
     }
 
     #[test]
