@@ -31,13 +31,13 @@ import {
   TrashIcon,
   ClipboardIcon,
   SquarePlusIcon,
+  CheckCircleIcon,
   CircleXmarkIcon,
   PasskeyIcon,
   UserIcon,
   XMarkIcon,
   CircleInfoIcon,
 } from '../../components/Icons';
-import { SyncNotesKeyButton } from '../../components/SyncNotesKeyButton';
 import { CardHeading } from '../../components/CardHeading';
 import { Modal } from '../../components/Modal';
 import { navigate } from '../../router';
@@ -906,38 +906,54 @@ function AccountCard() {
   );
 }
 
-function NotesKeyCard() {
+function AccountKeyCard() {
   const auth = useAuth();
-  const [hasAmk, setHasAmk] = useState(false);
+  const [amk, setAmk] = useState<'loading' | 'present' | 'absent'>('loading');
 
   useEffect(() => {
     if (!auth.userId) return;
-    loadAmk(auth.userId).then((amk) => setHasAmk(amk !== null));
+    loadAmk(auth.userId).then((k) => setAmk(k ? 'present' : 'absent'));
   }, [auth.userId]);
 
   return (
     <div class="card">
       <CardHeading
-        title="Notes Key"
-        subtitle="Allow your encrypted notes to be viewed on another browser or device."
+        title="Account Key"
+        subtitle="This key decrypts your notes and other private data — so only you can see it."
         class="mb-3"
       />
       <div class="flex flex-col items-center gap-3 text-center">
-        <button
-          type="button"
-          class="btn btn-primary tracking-wider uppercase"
-          onClick={() => navigate('/pair?mode=display&role=send')}
-        >
-          Pair Another Device
-        </button>
-        {hasAmk && (
-          <>
-            <p class="text-sm text-muted">
-              Pairing is the recommended path. If both browsers can't be open
-              at the same time, you can use the link-based fallback below.
+        {amk === 'loading' && <p class="text-sm text-muted">Checking…</p>}
+        {amk === 'present' && (
+          <div class="space-y-1">
+            <p class="flex items-center justify-center gap-2 font-medium text-success">
+              <CheckCircleIcon class="size-5" />
+              Your key is set up on this browser.
             </p>
-            <SyncNotesKeyButton />
-          </>
+            <p class="text-sm text-muted">
+              Pair another device to use your encrypted data there.
+            </p>
+          </div>
+        )}
+        {amk === 'absent' && (
+          <div class="space-y-1">
+            <p class="flex items-center justify-center gap-2 font-medium text-error">
+              <CircleXmarkIcon class="size-5" />
+              Your key is not set up on this browser.
+            </p>
+            <p class="text-sm text-muted">
+              Pair with a device that already has it to copy the key here.
+            </p>
+          </div>
+        )}
+        {amk !== 'loading' && (
+          <button
+            type="button"
+            class="btn btn-primary tracking-wider uppercase"
+            onClick={() => navigate('/pair')}
+          >
+            Pair Another Device
+          </button>
         )}
       </div>
     </div>
@@ -947,7 +963,7 @@ function NotesKeyCard() {
 function SettingsContent() {
   return (
     <div class="space-y-4">
-      <NotesKeyCard />
+      <AccountKeyCard />
       <ApiKeysCard />
       <PasskeysCard />
       <AccountCard />

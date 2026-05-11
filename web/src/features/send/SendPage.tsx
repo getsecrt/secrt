@@ -756,9 +756,27 @@ export function SendPage() {
             onSubmit={handleSubmit}
             onDragOver={handlePageDragOver}
           >
-            <p class="text-center text-sm text-muted">
-              The server never sees the original text or file.
-            </p>
+            {notesAvailable && noteStatus === 'needs-sync' ? (
+              <div class="text-center text-sm">
+                <p class="font-medium text-error">
+                  Your account key is not set up on this browser.
+                </p>
+                <a
+                  href="/pair"
+                  class="link font-medium"
+                  onClick={(e: MouseEvent) => {
+                    e.preventDefault();
+                    navigate('/pair');
+                  }}
+                >
+                  Pair another device to add it here.
+                </a>
+              </div>
+            ) : (
+              <p class="text-center text-sm text-muted">
+                The server never sees the original text or file.
+              </p>
+            )}
             {/* Content input */}
             <div class="space-y-1">
               <div class="flex items-center justify-between gap-2">
@@ -948,10 +966,10 @@ export function SendPage() {
                 <input
                   disabled
                   class="input border-yellow-600 text-center dark:border-yellow-500/50"
-                  value="Notes Unavailable: No Notes Key"
+                  value="Notes unavailable: no account key"
                 />
                 <p class="text-center text-sm">
-                  Sync Notes Key from an authenticated device to add notes.
+                  Sync Account Key from an authenticated device to add notes.
                 </p>
               </div>
             )}

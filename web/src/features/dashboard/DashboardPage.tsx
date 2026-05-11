@@ -25,7 +25,6 @@ import {
 import { CardHeading } from '../../components/CardHeading';
 import { CopyButton } from '../../components/CopyButton';
 import { Modal } from '../../components/Modal';
-import { SyncNotesKeyButton } from '../../components/SyncNotesKeyButton';
 import { navigate } from '../../router';
 import type { SecretMetadata } from '../../types';
 
@@ -529,26 +528,15 @@ function DashboardContent() {
         </a>
 
         <a
-          href="/pair?mode=display&role=receive"
+          href="/pair"
           class="link"
           onClick={(e: MouseEvent) => {
             e.preventDefault();
-            navigate('/pair?mode=display&role=receive');
+            navigate('/pair');
           }}
         >
-          Pair with another device
+          Pair Account Key with Another Device
         </a>
-
-        {hasAmk && (
-          <details class="text-center">
-            <summary class="link-subtle cursor-pointer text-sm text-muted">
-              More options
-            </summary>
-            <div class="mt-2">
-              <SyncNotesKeyButton />
-            </div>
-          </details>
-        )}
       </div>
 
       {/* Secret detail modal */}
