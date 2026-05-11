@@ -4,15 +4,16 @@
 
 ### Added
 
-- **`/api/v1/auth/pair/*` endpoint family for browser-to-browser AMK transfer.** A new web-pair flow lets two browsers signed in to the same account move an Account Master Key between themselves via a typed `XXXX-XXXX` rendezvous code (also encodable as a QR over `https://<host>/pair?mode=join&code=...`). Distinct from the existing `device-auth` and `app-login` flows because both sides require a session, the slot is bound to a single `user_id`, and `/approve` does **not** mint an API key — AMK transfer only.
+- **`/api/v1/auth/pair/*` endpoint family for one-direction browser-to-browser AMK transfer.** A new web-pair flow lets two browsers signed in to the same account move an Account Master Key between themselves via a typed `XXXX-XXXX` rendezvous code (also encodable as a QR over `https://<host>/pair?code=...`). Distinct from the existing `device-auth` and `app-login` flows because both sides require a session, the slot is bound to a single `user_id`, and `/approve` does **not** mint an API key — AMK transfer only.
 
-  - **Six endpoints:** `/start`, `/poll`, `/claim`, `/challenge` (GET), `/approve`, `/cancel`. All session-authenticated; cross-user access returns `403`. The slot's `role` field (`send` | `receive`) determines which side supplies the ECDH pubkey first.
-  - **Atomic compare-and-set transitions.** New `AuthStore::cas_update_challenge_json` storage primitive. Concurrent `/claim` or `/approve` calls collapse to exactly one winner via a single SQL UPDATE with `(challenge_json::jsonb->>'status') = ANY($expected)` precondition. Exercised by `pair_claim_concurrent_double_claim` in the new integration suite.
-  - **Two private bearer tokens per slot** (`displayer_poll_token` and `joiner_poll_token`), keeping the public `user_code` safe to display in QR and on screen. `/cancel` requires a private token (not the user_code) so a shoulder-surfer who reads the code off a screen can't race a cancel.
-  - **`/challenge` returns distinguishable terminal-state responses** (`404 not_found` / `409 { state }` / `403` cross-user / `200` happy) so the joiner UI can render specific copy instead of a generic error.
-  - **Privacy posture: no IP, no IP hash exposed to clients.** Joiner metadata is `User-Agent` (truncated to 256 bytes, advisory) and `joiner_seen_at` only. The reserved `joiner_geo_label` field is `null` in v1; a future PR may populate it server-side without a client API break. Slot rows are deleted at expiry by the existing `delete_expired` reaper, not status-marked and retained — a regression-guarded by `pair_slot_deleted_at_expiry`.
+  - **Five endpoints:** `/start`, `/poll`, `/challenge` (GET), `/approve`, `/cancel`. All session-authenticated; cross-user access returns `403`. The fresh (keyless) device displays a code; the keyed device types or scans it. There is no role field — the protocol carries one direction only.
+  - **`PairStartRequest` uses `deny_unknown_fields`.** A pre-rework client sending a legacy `role` field is rejected with `400` rather than silently ignored.
+  - **Atomic compare-and-set transitions.** `AuthStore::cas_update_challenge_json` is the sole transition primitive. Concurrent `/approve` calls collapse to exactly one winner via a single SQL UPDATE with `(challenge_json::jsonb->>'status') = ANY($expected)` precondition. State machine: `pending → approved | cancelled | reaped` — no intermediate `claimed` state.
+  - **One private bearer token per slot** (`displayer_poll_token`), keeping the public `user_code` safe to render in QR and on screen. `/cancel` requires the private token (not the user_code) so a shoulder-surfer can't race a cancel.
+  - **`/challenge` returns distinguishable terminal-state responses** (`404 not_found` / `409 { state: "approved" | "cancelled" }` / `403` cross-user / `200` happy with `displayer_ecdh_public_key`) so the joiner UI can render specific copy instead of a generic error.
+  - **Privacy posture: no IP, no IP hash, no User-Agent exposed to clients.** The joiner is the actor, not a remote claimant to be reviewed, so no joiner metadata is captured. Slot rows are deleted at expiry by the existing `delete_expired` reaper, not status-marked and retained — regression-guarded by `pair_slot_deleted_at_expiry`.
 
-  20 new integration tests in `crates/secrt-server/tests/web_pair.rs` covering both happy paths, cross-user reject, no-API-key-mint regression guard, sequential and concurrent double-claim, terminal-state distinguishability, slot-deletion-on-expiry, dual-direction cancel, idempotent re-cancel, wrong-method 405s, and unauthenticated-401 across all six endpoints.
+  15 integration tests in `crates/secrt-server/tests/web_pair.rs` cover the end-to-end happy path, cross-user reject, no-API-key-mint regression guard, terminal-state distinguishability, concurrent-`/approve` CAS race (exactly-one-winner), slot-deletion-on-expiry, cancel-terminates-poll, wrong-method 405s, and unauthenticated-401 across all five endpoints.
 
   Spec: `spec/v1/server.md` § 6.4, `spec/v1/api.md` § Web-to-Web Pairing. Files: `crates/secrt-server/src/http/mod.rs`, `crates/secrt-server/src/storage/{mod,postgres}.rs`. Task: #68.
 
@@ -22,7 +23,7 @@
 
   The previous shared budget (`apikey_register_limiter`, default `0.5 rps, burst 6`) was sized for once-a-day API-key minting and produced spurious `429`s during real pair UX, because the receiver polls every few hundred milliseconds while waiting on the sender to approve.
 
-  - New `web_pair_limiter` covers all six pair handlers (`/start`, `/poll`, `/claim`, `/challenge`, `/approve`, `/cancel`).
+  - New `web_pair_limiter` covers all five pair handlers (`/start`, `/poll`, `/challenge`, `/approve`, `/cancel`).
   - Tunable via `WEB_PAIR_RATE` (default `2.0` rps) and `WEB_PAIR_BURST` (default `30`). Sized for one round trip in a tight cluster (~15 ops) plus continuous polling at 500 ms cadence; still bounds slot-creation abuse.
   - Invalid env values (non-positive rate, non-finite rate, zero burst) silently clamp to the documented defaults rather than fail-fast — these are dev tunables, not security-load-bearing.
   - For local dev, `WEB_PAIR_RATE=100` / `WEB_PAIR_BURST=1000` effectively disables the limiter for rapid manual testing.
@@ -46,6 +47,14 @@
   **Operator action (rare):** existing instances with non-canonical `PUBLIC_BASE_URL` will fail to start with a clear error pointing at the offending component. Both first-party instances (`secrt.is`, `secrt.ca`) already use canonical values, so no operational change is needed there. Self-hosters who set values like `https://example.com/` (trailing slash — now stripped automatically, no action needed) are fine; values like `https://example.com/path` or `https://user:pass@host` must be fixed in `.env` / systemd `EnvironmentFile=` before upgrading.
 
   Files: `crates/secrt-server/src/config.rs`, `crates/secrt-server/src/http/mod.rs` (retire `derive_rp_id` / `derive_expected_origin`), `crates/secrt-server/src/runtime.rs`. PR: #44.
+
+### Deprecated
+
+- **Sync-notes-key link transport (asynchronous AMK transfer via `/sync/<id>#<urlKey>`).** Now that `/pair` is the canonical browser-to-browser AMK transfer UX and works for ~all real flows, the link-based fallback is no longer offered in the UI. The button is removed from Settings; the `/sync/<id>` consumer route and the corresponding server endpoint remain functional so any links in flight against this release still redeem within their 10-minute TTL.
+
+  Why: the link-based transport is a bearer URL containing the encrypted AMK. URLs accumulate in places encrypted ECDH payloads don't (mail history, screenshots, accidental paste-into-Slack, IMAP archives), and the 10-minute TTL is the same window in which `/pair` works without leaving a bearer artifact at all. Two paths for the same job also adds a "which should I use?" UX question. If no real async use case surfaces during the deprecation window, the route and endpoint will be removed in a future release.
+
+  Files: `web/src/features/settings/SettingsPage.tsx`, `web/src/features/dashboard/DashboardPage.tsx`. The `web/src/components/SyncNotesKeyButton.tsx` component file, `formatSyncLink` in `web/src/lib/url.ts`, the `/sync/<id>` SPA route, and the server's secret endpoints remain in place pending the removal pass.
 
 ### Fixed
 
