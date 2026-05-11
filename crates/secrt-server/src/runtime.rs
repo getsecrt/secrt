@@ -89,17 +89,22 @@ where
     // generic origin mismatch). Origin / RP-ID values are public per-RP
     // identifiers, not secrets.
     //
-    // Strip any URL fragment / query before logging: `public_base_url` is
-    // operator-supplied and already URL-validated in Config::load, so this
-    // is defense-in-depth against an operator typo (e.g. trailing `#…`)
-    // ending up in shipped logs.
+    // Strip URL fragment, query, and userinfo before logging:
+    // `public_base_url` is operator-supplied and already URL-validated in
+    // Config::load, so this is defense-in-depth against an operator typo
+    // (trailing `#…`, accidental `?token=…`, `user:pass@host`) ending up
+    // in shipped logs. If parsing fails — which shouldn't happen since
+    // Config::load rejects invalid URLs — emit a sanitized placeholder
+    // rather than risk logging an unredacted credential.
     let public_base_url_for_log = url::Url::parse(&cfg.public_base_url)
         .map(|mut u| {
             u.set_fragment(None);
             u.set_query(None);
+            let _ = u.set_username("");
+            let _ = u.set_password(None);
             u.to_string().trim_end_matches('/').to_string()
         })
-        .unwrap_or_else(|_| cfg.public_base_url.clone());
+        .unwrap_or_else(|_| "<invalid-public-base-url>".to_string());
 
     info!(
         event = "server_bootstrap",
@@ -114,13 +119,17 @@ where
         "server bootstrap"
     );
 
-    // Dev-mode hint: if .env wasn't found AND PUBLIC_BASE_URL ended up at
-    // the default, the user is almost certainly launching from a directory
-    // that doesn't contain .env (e.g. cargo run executed inside `web/`).
+    // Dev-mode hint: if .env wasn't found OR couldn't be read AND
+    // PUBLIC_BASE_URL ended up at the default, the user is almost certainly
+    // launching from a directory that doesn't contain a readable .env
+    // (e.g. cargo run from inside `web/`, or .env with the wrong perms).
     // The symptom is `OriginMismatch` on every WebAuthn ceremony against a
     // Vite dev server on a different port. Tell them where to look.
     if !is_production
-        && matches!(dotenv_outcome, DotenvLoadOutcome::NotFound(_))
+        && matches!(
+            dotenv_outcome,
+            DotenvLoadOutcome::NotFound(_) | DotenvLoadOutcome::Error { .. }
+        )
         && cfg.public_base_url == DEFAULT_PUBLIC_BASE_URL
     {
         warn!(

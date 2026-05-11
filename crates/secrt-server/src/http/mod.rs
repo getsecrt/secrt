@@ -1983,6 +1983,10 @@ fn log_verify_error(
             // with embedded newlines (log injection) or a 10 MB string
             // (log spam) cannot poison the WARN line.
             let received_origin = sanitize_origin_for_log(&raw);
+            // expected_origin flows in from derive_expected_origin(public_base_url).
+            // An operator-typo'd PUBLIC_BASE_URL could otherwise leak a
+            // fragment, query, or userinfo into shipped logs. Same scrub.
+            let expected_origin = sanitize_origin_for_log(expected_origin);
             warn!(
                 scope,
                 error = err.as_str(),
