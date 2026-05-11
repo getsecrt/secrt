@@ -532,11 +532,13 @@ The primary path is a synchronous rendezvous between two same-account sessions. 
 
 This path keeps wrapping secrets entirely on the user's devices — no third party (cloud clipboard, browser history, password manager, message archive) sees even ciphertext. The user-visible `user_code` is the public rendezvous identifier and is safe to display, encode in QR, and type by hand; the displayer's private poll token is session-bound and never embedded in URLs or QR codes. See `spec/v1/server.md` §6.4 for the full state machine, threat model, and privacy posture.
 
-#### Sync link (asynchronous fallback)
+#### Sync link (legacy asynchronous escape hatch)
 
-When the two browsers cannot be open simultaneously, secrt also exposes a link-based fallback that tunnels through the existing one-time secret pipeline:
+> **Not the recommended browser-to-browser path as of 0.18.0.** The first-party web client removed sync-link UI in 0.18.0; new clients SHOULD use Web-to-Web Pairing instead. The wire surface is retained without a removal timeline as an escape hatch for the genuinely asynchronous case — generating a transfer artifact on one device for later redemption on another when the user cannot be in front of both simultaneously — but it is no longer presented as a co-equal alternative to the pair flow.
 
-1. **Source browser:** The `SyncNotesKeyButton` component seals the raw AMK bytes as a standard one-time secret (using the existing envelope encryption) with a short 10-minute TTL.
+When the two browsers cannot be open simultaneously, secrt also exposes a link-based transport that tunnels through the existing one-time secret pipeline:
+
+1. **Source browser:** A `SyncNotesKeyButton`-style component seals the raw AMK bytes as a standard one-time secret (using the existing envelope encryption) with a short 10-minute TTL.
 
 2. **Sync link:** A `/sync/{id}#<urlKey>` URL is generated and displayed to the user for copy/paste. The UI deliberately does not render this URL as a QR code: sync URLs are bearer tokens equivalent in sensitivity to the AMK itself, and an offline screen capture or shoulder-surf of a QR is a strictly larger surface than copy/paste between trusted devices.
 
@@ -544,7 +546,7 @@ When the two browsers cannot be open simultaneously, secrt also exposes a link-b
 
 4. **Self-destruct:** The secret is consumed by the one-time claim, so the link cannot be reused. The short TTL limits the exposure window.
 
-This reuses the existing zero-knowledge secret sharing pipeline — no new crypto, no new server endpoints — just a specialized UI flow for transferring the AMK between browsers when synchronous pairing isn't practical.
+This reuses the existing zero-knowledge secret sharing pipeline — no new crypto, no new server endpoints — just a specialized UI flow. Its remaining advantage over the pair flow is asynchronicity; its remaining cost is that a bearer URL containing the encrypted AMK travels through whatever channel the user pastes it into (mail, message archive, paste history, IMAP backup). The pair flow keeps wrapping material entirely on the two participating devices, which is why it is now the recommended transport whenever both can be online at once.
 
 ### CLI Device Authorization & ECDH Transfer
 
@@ -567,7 +569,7 @@ The ECDH transfer is non-fatal — if it fails (no AMK in the browser, key gener
 
 > **Draft — pending review.** This section describes a recovery path that is in active development and not yet shipped. The cryptographic design is in `spec/v1/api.md` §"AMK wrapping" and `crates/secrt-server/docs/prf-amk-wrapping.md`. Wording, framing, and recommendations here are first-pass and expected to be revised before this section ships in a published whitepaper version.
 
-The API-key wrap path (above) and the ECDH transfer path both require the user to have something in hand on the new device — either an API key, or a browser already holding the AMK that can encode a sync link. For users who only authenticate with a passkey, neither is convenient. The [WebAuthn PRF extension](https://w3c.github.io/webauthn/#prf-extension) (Pseudo-Random Function) lets us add a third recovery path: derive an AMK wrap key directly from the passkey itself.
+The API-key wrap path (above) and the Web-to-Web Pairing path both require the user to have something in hand on the new device — either an API key, or a browser already holding the AMK that can serve as the sender. For users who only authenticate with a passkey, neither is always convenient. The [WebAuthn PRF extension](https://w3c.github.io/webauthn/#prf-extension) (Pseudo-Random Function) lets us add a third recovery path: derive an AMK wrap key directly from the passkey itself.
 
 PRF lets a relying party request that the authenticator emit a deterministic 32-byte secret bound to (a) the credential's private key and (b) a per-RP "evaluation salt" provided by the server. The output is reproducible across devices that hold the same credential and is never extractable except via the authenticator's PRF API. secrt uses this output as input keying material for the AMK wrap key:
 
