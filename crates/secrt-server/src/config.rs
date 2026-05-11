@@ -63,6 +63,15 @@ pub struct Config {
     pub passkey_ceremony_rate: f64,
     pub passkey_ceremony_burst: usize,
 
+    /// Per-IP rate limit shared across the six `/auth/pair/*` endpoints
+    /// (start, poll, claim, challenge, approve, cancel). Tuned to absorb a
+    /// realistic browser-to-browser pair UX — `/poll` alone is called every
+    /// few seconds while a slot is open — without becoming a slot-flooding
+    /// vector. Burst should comfortably cover one full pair round trip
+    /// (~15 ops); sustained rate should cover continuous polling.
+    pub web_pair_rate: f64,
+    pub web_pair_burst: usize,
+
     /// Feature flags
     pub encrypted_notes_enabled: bool,
 
@@ -255,6 +264,14 @@ impl Config {
             // challenges-table fill attack uneconomical.
             passkey_ceremony_rate: getenv_f64_default("PASSKEY_CEREMONY_RATE", 0.5),
             passkey_ceremony_burst: getenv_usize_default("PASSKEY_CEREMONY_BURST", 6),
+
+            // Pair endpoints are session-authenticated and rely on /poll
+            // every few seconds while a slot is open. 2 rps + burst 30
+            // accommodates one round trip (~15 ops in a tight cluster) and
+            // continuous polling at ~500ms cadence indefinitely, while
+            // still bounding slot-creation abuse.
+            web_pair_rate: getenv_f64_default("WEB_PAIR_RATE", 2.0),
+            web_pair_burst: getenv_usize_default("WEB_PAIR_BURST", 30),
 
             encrypted_notes_enabled: getenv_bool_default("ENCRYPTED_NOTES_ENABLED", true),
 
