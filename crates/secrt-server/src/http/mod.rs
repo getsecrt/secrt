@@ -490,12 +490,20 @@ struct AmkTransferJson {
 }
 
 /// Validate an ECDH public key is base64url-encoded uncompressed P-256 (65 bytes).
+///
+/// Rejects values that don't carry the SEC1 uncompressed-point marker (`0x04`).
+/// Full P-256 point-on-curve validation happens client-side at ECDH-derive time;
+/// catching the marker byte here means malformed keys never reach `/challenge`
+/// or downstream key-derivation code paths.
 fn validate_ecdh_public_key(s: &str) -> Result<(), &'static str> {
     let bytes = URL_SAFE_NO_PAD
         .decode(s)
         .map_err(|_| "ecdh_public_key: invalid base64url")?;
     if bytes.len() != 65 {
         return Err("ecdh_public_key: decoded length must be 65 bytes (uncompressed P-256)");
+    }
+    if bytes[0] != 0x04 {
+        return Err("ecdh_public_key: must be SEC1 uncompressed form (0x04 || X || Y)");
     }
     Ok(())
 }
@@ -4161,10 +4169,10 @@ pub async fn handle_pair_challenge_entry(
     // displayer_ecdh_public_key is always set at /start. A pending slot
     // with no pubkey is a server-side invariant violation; surface as 500.
     let Some(displayer_ecdh_public_key) = data.displayer_ecdh_public_key else {
-        error!(
-            challenge_id = %record.challenge_id,
-            "pending web-pair slot missing displayer_ecdh_public_key"
-        );
+        // record.challenge_id is the displayer_poll_token, a private bearer
+        // token. Don't include it in the structured log payload — logs are
+        // retained and searchable.
+        error!("pending web-pair slot missing displayer_ecdh_public_key");
         return internal_server_error();
     };
 

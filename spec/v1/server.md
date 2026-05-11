@@ -399,7 +399,7 @@ same-user session, but it is the lookup key for `/challenge` and
 
 **Slot lifecycle.** State machine:
 
-```
+```text
                     /start                    /approve
    (none) ─────────────────────► pending ──────────────────► approved
                                     │                            │
