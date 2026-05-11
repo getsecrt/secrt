@@ -470,9 +470,13 @@ UPDATE statement.
 
 **Input validation:**
 
-- `ecdh_public_key`: base64url, 65 bytes decoded (uncompressed P-256).
-  Required unconditionally at `/start`; required in
-  `amk_transfer.ecdh_public_key`.
+- `ecdh_public_key`: base64url, 65 bytes decoded (uncompressed P-256,
+  SEC1 form — the `0x04` marker byte is enforced at validation).
+  Required unconditionally at `/start` (the displayer/receiver's
+  ephemeral public key, used by the joiner to derive the transfer
+  key) and inside `amk_transfer` on `/approve` (the joiner/sender's
+  ephemeral public key, used by the displayer to derive the same
+  shared secret on receipt).
 - `amk_transfer.nonce`: base64url, 12 bytes decoded.
 - `amk_transfer.ct`: base64url, 48 bytes decoded (32-byte AMK + 16-byte GCM tag).
 - All `Pair*Request` types use `deny_unknown_fields`. The retired
