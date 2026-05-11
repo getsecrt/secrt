@@ -1015,6 +1015,8 @@ pub fn test_config() -> Config {
         // that exercise the limiter override these directly.
         passkey_ceremony_rate: 100.0,
         passkey_ceremony_burst: 100,
+        web_pair_rate: 1000.0,
+        web_pair_burst: 1000,
         encrypted_notes_enabled: false,
 
         github_poll_interval_seconds: 0,

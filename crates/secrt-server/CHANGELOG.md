@@ -18,6 +18,18 @@
 
 ### Changed
 
+- **`/auth/pair/*` endpoints get their own rate-limit budget, no longer sharing the API-key-mint limiter.**
+
+  The previous shared budget (`apikey_register_limiter`, default `0.5 rps, burst 6`) was sized for once-a-day API-key minting and produced spurious `429`s during real pair UX, because the receiver polls every few hundred milliseconds while waiting on the sender to approve.
+
+  - New `web_pair_limiter` covers all six pair handlers (`/start`, `/poll`, `/claim`, `/challenge`, `/approve`, `/cancel`).
+  - Tunable via `WEB_PAIR_RATE` (default `2.0` rps) and `WEB_PAIR_BURST` (default `30`). Sized for one round trip in a tight cluster (~15 ops) plus continuous polling at 500 ms cadence; still bounds slot-creation abuse.
+  - Invalid env values (non-positive rate, non-finite rate, zero burst) silently clamp to the documented defaults rather than fail-fast — these are dev tunables, not security-load-bearing.
+  - For local dev, `WEB_PAIR_RATE=100` / `WEB_PAIR_BURST=1000` effectively disables the limiter for rapid manual testing.
+  - The `test_config_high_pair_rate` workaround helper in `crates/secrt-server/tests/web_pair.rs` is retired — `test_config()` now provides web-pair limits high enough for the suite.
+
+  Files: `crates/secrt-server/src/config.rs`, `crates/secrt-server/src/http/mod.rs`, `crates/secrt-server/tests/web_pair.rs`, `.env.example`. PR: #47.
+
 - **Payload-QR retired on the AMK sync path; `/pair` is now the canonical browser-to-browser AMK transfer UX.** The link-based sync transport (`SyncNotesKeyButton` + `/sync/{id}#<urlKey>`) remains available as an asynchronous fallback for cases where both browsers cannot be open simultaneously, but the source-browser UI no longer renders the sync URL as a QR code.
 
   Why: sync URLs are bearer-equivalent to the AMK itself. Rendering a bearer URL as a QR invites offline capture (camera shoulder-surf, projected slide, screen recording) without giving any UX win over direct copy/paste between trusted devices. The Web-to-Web Pairing flow keeps wrapping material entirely on user devices and binds the rendezvous slot to a single `user_id`, so the QR it does render is provably safe (encodes only the public `user_code`, useless without a same-user session).

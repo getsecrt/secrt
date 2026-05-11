@@ -23,18 +23,6 @@ use helpers::{test_app_with_store, test_config, with_remote, MemStore};
 use serde_json::{json, Value};
 use tower::ServiceExt;
 
-/// Test config tuned for the pair endpoints: every pair endpoint goes
-/// through `apikey_register_limiter`, and tests routinely make 8+ pair
-/// calls from the in-process "IP" — the default `apikey_register_burst: 6`
-/// trips and produces spurious 429s. Bumping just this one knob keeps the
-/// rest of the rate-limit story honest.
-fn test_config_high_pair_rate() -> secrt_server::config::Config {
-    let mut cfg = test_config();
-    cfg.apikey_register_rate = 100.0;
-    cfg.apikey_register_burst = 1000;
-    cfg
-}
-
 // Valid 65-byte uncompressed P-256 public keys (0x04 + 64 bytes), base64url.
 // Reused verbatim from the device-auth test fixtures at
 // `crates/secrt-server/src/http/mod.rs` so the exact-byte-shape validators
@@ -194,7 +182,7 @@ fn count_web_pair_rows(store: &Arc<MemStore>) -> usize {
 #[tokio::test]
 async fn pair_role_receive_end_to_end() {
     let store = Arc::new(MemStore::default());
-    let app = test_app_with_store(store.clone(), test_config_high_pair_rate());
+    let app = test_app_with_store(store.clone(), test_config());
     let token = register_user(&app, "Alice").await;
 
     // Receiver displays: /start with pubkey.
@@ -244,7 +232,7 @@ async fn pair_role_receive_end_to_end() {
 #[tokio::test]
 async fn pair_role_send_end_to_end() {
     let store = Arc::new(MemStore::default());
-    let app = test_app_with_store(store.clone(), test_config_high_pair_rate());
+    let app = test_app_with_store(store.clone(), test_config());
     let token = register_user(&app, "Alice").await;
 
     let start = body_json(pair_start(&app, &token, json!({ "role": "send" })).await).await;
@@ -282,7 +270,7 @@ async fn pair_role_send_end_to_end() {
 #[tokio::test]
 async fn pair_rejects_cross_user() {
     let store = Arc::new(MemStore::default());
-    let app = test_app_with_store(store.clone(), test_config_high_pair_rate());
+    let app = test_app_with_store(store.clone(), test_config());
     let alice = register_user(&app, "Alice").await;
     let bob = register_user(&app, "Bob").await;
 
@@ -326,7 +314,7 @@ async fn pair_rejects_cross_user() {
 #[tokio::test]
 async fn pair_approve_does_not_mint_api_key() {
     let store = Arc::new(MemStore::default());
-    let app = test_app_with_store(store.clone(), test_config_high_pair_rate());
+    let app = test_app_with_store(store.clone(), test_config());
     let token = register_user(&app, "Alice").await;
     let api_keys_before = store.keys.lock().unwrap().len();
 
@@ -354,7 +342,7 @@ async fn pair_approve_does_not_mint_api_key() {
 #[tokio::test]
 async fn pair_claim_rejects_wrong_code() {
     let store = Arc::new(MemStore::default());
-    let app = test_app_with_store(store.clone(), test_config_high_pair_rate());
+    let app = test_app_with_store(store.clone(), test_config());
     let token = register_user(&app, "Alice").await;
     let _ = pair_start(&app, &token, json!({ "role": "send" })).await;
 
@@ -370,7 +358,7 @@ async fn pair_claim_rejects_wrong_code() {
 #[tokio::test]
 async fn pair_claim_rejects_after_pubkey_already_set() {
     let store = Arc::new(MemStore::default());
-    let app = test_app_with_store(store.clone(), test_config_high_pair_rate());
+    let app = test_app_with_store(store.clone(), test_config());
     let token = register_user(&app, "Alice").await;
 
     let start = body_json(pair_start(&app, &token, json!({ "role": "send" })).await).await;
@@ -392,7 +380,7 @@ async fn pair_claim_rejects_after_pubkey_already_set() {
 #[tokio::test]
 async fn pair_claim_concurrent_double_claim() {
     let store = Arc::new(MemStore::default());
-    let app = test_app_with_store(store.clone(), test_config_high_pair_rate());
+    let app = test_app_with_store(store.clone(), test_config());
     let token = register_user(&app, "Alice").await;
 
     let start = body_json(pair_start(&app, &token, json!({ "role": "send" })).await).await;
@@ -426,7 +414,7 @@ async fn pair_claim_concurrent_double_claim() {
 #[tokio::test]
 async fn pair_cancel_terminates_polls() {
     let store = Arc::new(MemStore::default());
-    let app = test_app_with_store(store.clone(), test_config_high_pair_rate());
+    let app = test_app_with_store(store.clone(), test_config());
     let token = register_user(&app, "Alice").await;
 
     let start = body_json(pair_start(&app, &token, json!({ "role": "send" })).await).await;
@@ -460,7 +448,7 @@ async fn pair_cancel_terminates_polls() {
 #[tokio::test]
 async fn pair_no_ip_in_poll_response() {
     let store = Arc::new(MemStore::default());
-    let app = test_app_with_store(store.clone(), test_config_high_pair_rate());
+    let app = test_app_with_store(store.clone(), test_config());
     let token = register_user(&app, "Alice").await;
 
     let start = body_json(pair_start(&app, &token, json!({ "role": "send" })).await).await;
@@ -488,7 +476,7 @@ async fn pair_no_ip_in_poll_response() {
 #[tokio::test]
 async fn pair_slot_deleted_at_expiry() {
     let store = Arc::new(MemStore::default());
-    let app = test_app_with_store(store.clone(), test_config_high_pair_rate());
+    let app = test_app_with_store(store.clone(), test_config());
     let token = register_user(&app, "Alice").await;
 
     let _ = pair_start(
@@ -521,7 +509,7 @@ async fn pair_slot_deleted_at_expiry() {
 #[tokio::test]
 async fn pair_challenge_returns_409_for_terminal_states() {
     let store = Arc::new(MemStore::default());
-    let app = test_app_with_store(store.clone(), test_config_high_pair_rate());
+    let app = test_app_with_store(store.clone(), test_config());
     let token = register_user(&app, "Alice").await;
 
     // 'cancelled' state.
@@ -569,7 +557,7 @@ async fn pair_challenge_returns_409_for_terminal_states() {
 #[tokio::test]
 async fn pair_amk_transfer_field_validation() {
     let store = Arc::new(MemStore::default());
-    let app = test_app_with_store(store.clone(), test_config_high_pair_rate());
+    let app = test_app_with_store(store.clone(), test_config());
     let token = register_user(&app, "Alice").await;
 
     let s = body_json(
@@ -617,7 +605,7 @@ async fn pair_amk_transfer_field_validation() {
 #[tokio::test]
 async fn pair_start_role_pubkey_validation() {
     let store = Arc::new(MemStore::default());
-    let app = test_app_with_store(store.clone(), test_config_high_pair_rate());
+    let app = test_app_with_store(store.clone(), test_config());
     let token = register_user(&app, "Alice").await;
 
     // role=receive without pubkey → 400.
@@ -652,7 +640,7 @@ async fn pair_start_role_pubkey_validation() {
 #[tokio::test]
 async fn pair_endpoints_reject_wrong_method() {
     let store = Arc::new(MemStore::default());
-    let app = test_app_with_store(store.clone(), test_config_high_pair_rate());
+    let app = test_app_with_store(store.clone(), test_config());
 
     // Use a real session token so we get past auth and hit the method check.
     // (Method check fires before auth in our handlers.)
@@ -694,7 +682,7 @@ async fn pair_endpoints_reject_wrong_method() {
 #[tokio::test]
 async fn pair_poll_unknown_token_returns_expired() {
     let store = Arc::new(MemStore::default());
-    let app = test_app_with_store(store.clone(), test_config_high_pair_rate());
+    let app = test_app_with_store(store.clone(), test_config());
     let token = register_user(&app, "Alice").await;
 
     let resp = pair_poll(&app, &token, "totally-bogus-token-that-does-not-exist").await;
@@ -715,7 +703,7 @@ async fn pair_poll_unknown_token_returns_expired() {
 #[tokio::test]
 async fn pair_cancel_by_joiner_poll_token() {
     let store = Arc::new(MemStore::default());
-    let app = test_app_with_store(store.clone(), test_config_high_pair_rate());
+    let app = test_app_with_store(store.clone(), test_config());
     let token = register_user(&app, "Alice").await;
 
     let start = body_json(pair_start(&app, &token, json!({ "role": "send" })).await).await;
@@ -744,7 +732,7 @@ async fn pair_cancel_by_joiner_poll_token() {
 #[tokio::test]
 async fn pair_cancel_idempotent_after_terminal() {
     let store = Arc::new(MemStore::default());
-    let app = test_app_with_store(store.clone(), test_config_high_pair_rate());
+    let app = test_app_with_store(store.clone(), test_config());
     let token = register_user(&app, "Alice").await;
 
     // Already-cancelled slot.
@@ -784,7 +772,7 @@ async fn pair_cancel_idempotent_after_terminal() {
 #[tokio::test]
 async fn pair_endpoints_require_session_auth() {
     let store = Arc::new(MemStore::default());
-    let app = test_app_with_store(store.clone(), test_config_high_pair_rate());
+    let app = test_app_with_store(store.clone(), test_config());
 
     let no_auth = |method: &str, path: &str, body: Option<Value>| {
         let req = Request::builder()

@@ -63,6 +63,15 @@ pub struct Config {
     pub passkey_ceremony_rate: f64,
     pub passkey_ceremony_burst: usize,
 
+    /// Per-IP rate limit shared across the six `/auth/pair/*` endpoints
+    /// (start, poll, claim, challenge, approve, cancel). Tuned to absorb a
+    /// realistic browser-to-browser pair UX — `/poll` alone is called every
+    /// few seconds while a slot is open — without becoming a slot-flooding
+    /// vector. Burst should comfortably cover one full pair round trip
+    /// (~15 ops); sustained rate should cover continuous polling.
+    pub web_pair_rate: f64,
+    pub web_pair_burst: usize,
+
     /// Feature flags
     pub encrypted_notes_enabled: bool,
 
@@ -193,6 +202,23 @@ impl Config {
             return Err(ConfigError::MissingSessionTokenPepper);
         }
 
+        // Web-pair limiter sanity check. A bucket configured with rate <= 0,
+        // non-finite, or burst == 0 would silently deny every request and
+        // make the pair flow look like a server outage. Clamp to the
+        // documented defaults rather than fail-fast — the env vars are
+        // dev-tunables, not security-load-bearing, and the right failure
+        // mode for "operator typo'd a knob" is "fall back to known good".
+        const WEB_PAIR_RATE_DEFAULT: f64 = 2.0;
+        const WEB_PAIR_BURST_DEFAULT: usize = 30;
+        let mut web_pair_rate = getenv_f64_default("WEB_PAIR_RATE", WEB_PAIR_RATE_DEFAULT);
+        if !web_pair_rate.is_finite() || web_pair_rate <= 0.0 {
+            web_pair_rate = WEB_PAIR_RATE_DEFAULT;
+        }
+        let mut web_pair_burst = getenv_usize_default("WEB_PAIR_BURST", WEB_PAIR_BURST_DEFAULT);
+        if web_pair_burst == 0 {
+            web_pair_burst = WEB_PAIR_BURST_DEFAULT;
+        }
+
         Ok(Self {
             env: env_name,
             listen_addr: getenv_default("LISTEN_ADDR", ":8080"),
@@ -255,6 +281,15 @@ impl Config {
             // challenges-table fill attack uneconomical.
             passkey_ceremony_rate: getenv_f64_default("PASSKEY_CEREMONY_RATE", 0.5),
             passkey_ceremony_burst: getenv_usize_default("PASSKEY_CEREMONY_BURST", 6),
+
+            // Pair endpoints are session-authenticated and rely on /poll
+            // every few seconds while a slot is open. 2 rps + burst 30
+            // accommodates one round trip (~15 ops in a tight cluster) and
+            // continuous polling at ~500ms cadence indefinitely, while
+            // still bounding slot-creation abuse. Values are clamped to
+            // sane defaults above if the env var is non-positive or 0.
+            web_pair_rate,
+            web_pair_burst,
 
             encrypted_notes_enabled: getenv_bool_default("ENCRYPTED_NOTES_ENABLED", true),
 
@@ -488,6 +523,44 @@ mod tests {
             Err(ConfigError::PublicBaseUrlBadScheme(s)) => assert_eq!(s, "ftp"),
             other => panic!("expected BadScheme, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn web_pair_clamps_invalid_values_to_defaults() {
+        // Each row is a bad env var that should be silently clamped to the
+        // documented default (rate 2.0 / burst 30). The point: a fat-fingered
+        // .env should not silently jam the pair flow — the limiter must keep
+        // serving legitimate traffic.
+        for (rate, burst) in [
+            ("0", "0"),   // zeros
+            ("-1", "0"),  // negative rate
+            ("nan", "0"), // non-finite rate
+            ("inf", "0"), // infinite rate
+        ] {
+            let _lock = ENV_LOCK.lock().expect("env lock");
+            let _guards = [
+                EnvGuard::set("WEB_PAIR_RATE", rate),
+                EnvGuard::set("WEB_PAIR_BURST", burst),
+            ];
+            let cfg = Config::load().expect("load");
+            assert_eq!(
+                (cfg.web_pair_rate, cfg.web_pair_burst),
+                (2.0, 30),
+                "rate={rate} burst={burst}"
+            );
+        }
+    }
+
+    #[test]
+    fn web_pair_passes_through_valid_values() {
+        let _lock = ENV_LOCK.lock().expect("env lock");
+        let _guards = [
+            EnvGuard::set("WEB_PAIR_RATE", "50"),
+            EnvGuard::set("WEB_PAIR_BURST", "500"),
+        ];
+        let cfg = Config::load().expect("load");
+        assert_eq!(cfg.web_pair_rate, 50.0);
+        assert_eq!(cfg.web_pair_burst, 500);
     }
 
     #[test]

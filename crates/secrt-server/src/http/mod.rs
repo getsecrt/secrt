@@ -63,6 +63,11 @@ pub struct AppState {
     /// Each /start call inserts a `webauthn_challenges` row with a 10-minute
     /// TTL — without this limiter, an attacker can spam-fill that table.
     pub passkey_ceremony_limiter: Limiter,
+    /// Per-IP gate for `/auth/pair/*` endpoints. Separated from
+    /// `apikey_register_limiter` so that the `/poll` cadence inherent to
+    /// the pair flow doesn't burn the API-key-mint budget on legitimate
+    /// UX. Tuned via `WEB_PAIR_RATE` / `WEB_PAIR_BURST` (see Config).
+    pub web_pair_limiter: Limiter,
     pub owner_hasher: OwnerHasher,
     pub privacy_checked: Arc<AtomicBool>,
     /// Snapshot of the latest known CLI release, refreshed by the GitHub
@@ -93,6 +98,7 @@ impl AppState {
                 cfg.passkey_ceremony_rate,
                 cfg.passkey_ceremony_burst,
             ),
+            web_pair_limiter: Limiter::new(cfg.web_pair_rate, cfg.web_pair_burst),
             owner_hasher: OwnerHasher::new(),
             privacy_checked: Arc::new(AtomicBool::new(false)),
             auth: Authenticator::new(cfg.api_key_pepper.clone(), api_keys.clone()),
@@ -113,6 +119,7 @@ impl AppState {
         self.api_limiter.start_gc(interval, max_idle);
         self.apikey_register_limiter.start_gc(interval, max_idle);
         self.passkey_ceremony_limiter.start_gc(interval, max_idle);
+        self.web_pair_limiter.start_gc(interval, max_idle);
     }
 
     pub fn stop_limiter_gc(&self) {
@@ -121,6 +128,7 @@ impl AppState {
         self.api_limiter.stop();
         self.apikey_register_limiter.stop();
         self.passkey_ceremony_limiter.stop();
+        self.web_pair_limiter.stop();
     }
 }
 
@@ -4082,7 +4090,7 @@ pub async fn handle_pair_start_entry(State(state): State<Arc<AppState>>, req: Re
     }
 
     let ip = get_client_ip(req.headers(), request_connect_addr(&req));
-    if !state.apikey_register_limiter.allow(&ip) {
+    if !state.web_pair_limiter.allow(&ip) {
         return rate_limited();
     }
 
@@ -4179,7 +4187,7 @@ pub async fn handle_pair_poll_entry(State(state): State<Arc<AppState>>, req: Req
     }
 
     let ip = get_client_ip(req.headers(), request_connect_addr(&req));
-    if !state.apikey_register_limiter.allow(&ip) {
+    if !state.web_pair_limiter.allow(&ip) {
         return rate_limited();
     }
 
@@ -4259,7 +4267,7 @@ pub async fn handle_pair_claim_entry(State(state): State<Arc<AppState>>, req: Re
     }
 
     let ip = get_client_ip(req.headers(), request_connect_addr(&req));
-    if !state.apikey_register_limiter.allow(&ip) {
+    if !state.web_pair_limiter.allow(&ip) {
         return rate_limited();
     }
 
@@ -4400,7 +4408,7 @@ pub async fn handle_pair_challenge_entry(
     }
 
     let ip = get_client_ip(req.headers(), request_connect_addr(&req));
-    if !state.apikey_register_limiter.allow(&ip) {
+    if !state.web_pair_limiter.allow(&ip) {
         return rate_limited();
     }
 
@@ -4462,7 +4470,7 @@ pub async fn handle_pair_approve_entry(
     }
 
     let ip = get_client_ip(req.headers(), request_connect_addr(&req));
-    if !state.apikey_register_limiter.allow(&ip) {
+    if !state.web_pair_limiter.allow(&ip) {
         return rate_limited();
     }
 
@@ -4580,7 +4588,7 @@ pub async fn handle_pair_cancel_entry(
     }
 
     let ip = get_client_ip(req.headers(), request_connect_addr(&req));
-    if !state.apikey_register_limiter.allow(&ip) {
+    if !state.web_pair_limiter.allow(&ip) {
         return rate_limited();
     }
 
@@ -6636,6 +6644,8 @@ mod tests {
             apikey_register_ip_max_per_day: 20,
             passkey_ceremony_rate: 100.0,
             passkey_ceremony_burst: 100,
+            web_pair_rate: 1000.0,
+            web_pair_burst: 1000,
             encrypted_notes_enabled: false,
 
             github_poll_interval_seconds: 0,
