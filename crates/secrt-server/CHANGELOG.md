@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.18.1 — 2026-05-11
+
+### Fixed
+
+- **Camera-based QR scanning on `/pair` no longer silently stalls under the enforced CSP.**
+
+  The `qr-scanner` library constructs its decoder via `new Worker(URL.createObjectURL(new Blob([...])))`, but the enforced CSP shipped in 0.16.4 used `worker-src 'self'`, which refuses blob workers. The camera preview started, no decode ever fired, and the library swallowed the worker-creation failure — leaving the modal on a live preview with no error UI on every browser. Widened to `worker-src 'self' blob:`, the standard minimum for inline-worker libraries (qr-scanner, pdf.js, mapbox-gl, monaco).
+
+  - Pinned in `security.rs` unit tests and the `api_behavior` integration test so a future "tighten everything" PR can't silently regress this.
+
+  Plan: `.taskmaster/plans/qr-scanner-csp-worker-src-fix.md`. Files: `crates/secrt-server/src/http/security.rs`, `crates/secrt-desktop/tauri.conf.json`.
+
+### Changed
+
+- **`Permissions-Policy` now allows first-party camera (`camera=(self)` from `camera=()`).**
+
+  The previous `camera=()` value denied every origin including the page itself, which Safari ignored on top-level documents (which is why the iPhone bug presented as a stalled scanner rather than a permissions error) but Chrome and Firefox would have honored — refusing `getUserMedia` outright. `camera=(self)` is the minimum widening: first-party camera works, third-party iframes still cannot. `microphone=()` stays denied; no current or planned flow uses it.
+
 ## 0.18.0 — 2026-05-10
 
 ### Added
