@@ -64,22 +64,47 @@ impl HttpTimeouts {
 
 const PRODUCTION_HTTP_TIMEOUTS: HttpTimeouts = HttpTimeouts::production();
 
-pub async fn run_server() -> Result<(), RuntimeError> {
-    run_server_with_shutdown(shutdown_signal()).await
+/// Synchronously load `.env` into the process environment, before any
+/// async runtime is created.
+///
+/// `std::env::set_var` is unsound from a multi-threaded context, so the
+/// dotenv loader **must** run before the Tokio runtime spawns its
+/// worker pool. The supported call sequence is:
+///
+/// ```text
+/// fn main() {
+///     let dotenv_outcome = secrt_server::runtime::prepare_env();
+///     let rt = tokio::runtime::Builder::new_multi_thread()...
+///     rt.block_on(run_server_with_shutdown(shutdown_signal(), dotenv_outcome))
+/// }
+/// ```
+///
+/// In `ENV=production`, the loader is bypassed entirely — production env
+/// is expected to come from systemd `EnvironmentFile=` or equivalent.
+pub fn prepare_env() -> DotenvLoadOutcome {
+    let is_production =
+        std::env::var("ENV").unwrap_or_else(|_| "development".to_string()) == "production";
+    if is_production {
+        DotenvLoadOutcome::skipped(".env")
+    } else {
+        load_dotenv_if_present(".env")
+            .unwrap_or_else(|err| DotenvLoadOutcome::error(".env", err.to_string()))
+    }
 }
 
-pub async fn run_server_with_shutdown<F>(shutdown: F) -> Result<(), RuntimeError>
+pub async fn run_server(dotenv_outcome: DotenvLoadOutcome) -> Result<(), RuntimeError> {
+    run_server_with_shutdown(shutdown_signal(), dotenv_outcome).await
+}
+
+pub async fn run_server_with_shutdown<F>(
+    shutdown: F,
+    dotenv_outcome: DotenvLoadOutcome,
+) -> Result<(), RuntimeError>
 where
     F: Future<Output = ()> + Send + 'static,
 {
     let is_production =
         std::env::var("ENV").unwrap_or_else(|_| "development".to_string()) == "production";
-    let dotenv_outcome = if is_production {
-        DotenvLoadOutcome::skipped(".env")
-    } else {
-        load_dotenv_if_present(".env")
-            .unwrap_or_else(|err| DotenvLoadOutcome::error(".env", err.to_string()))
-    };
 
     let cfg = Config::load()?;
     init_logging(&cfg.log_level);
@@ -109,22 +134,27 @@ where
     // launching from a directory that doesn't contain a readable .env
     // (e.g. cargo run from inside `web/`, or .env with the wrong perms).
     // The symptom is `OriginMismatch` on every WebAuthn ceremony against a
-    // Vite dev server on a different port. Tell them where to look.
+    // Vite dev server on a different port. Tell them where to look — and
+    // distinguish the two cases so a perms/IO failure points at the file,
+    // not at the launch directory.
+    let dotenv_diagnostic: Option<&'static str> = match &dotenv_outcome {
+        DotenvLoadOutcome::NotFound(_) => Some("not found"),
+        DotenvLoadOutcome::Error { .. } => Some("could not be read"),
+        _ => None,
+    };
     if !is_production
-        && matches!(
-            dotenv_outcome,
-            DotenvLoadOutcome::NotFound(_) | DotenvLoadOutcome::Error { .. }
-        )
+        && dotenv_diagnostic.is_some()
         && cfg.public_base_url == DEFAULT_PUBLIC_BASE_URL
     {
         warn!(
             cwd = %std::env::current_dir()
                 .map(|p| p.display().to_string())
                 .unwrap_or_else(|_| "<unknown>".to_string()),
-            dotenv_path = %dotenv_outcome.path_display(),
-            "no .env found in current working directory; PUBLIC_BASE_URL is the default {default}. \
+            dotenv = %dotenv_outcome.summary(),
+            ".env {state} at the current working directory; PUBLIC_BASE_URL is the default {default}. \
              If you're hitting this server through a Vite dev server on a different port, launch from the repo root \
              (or export PUBLIC_BASE_URL explicitly) — otherwise WebAuthn registration will fail with OriginMismatch.",
+            state = dotenv_diagnostic.unwrap_or(""),
             default = DEFAULT_PUBLIC_BASE_URL,
         );
     }
@@ -321,11 +351,11 @@ pub enum DotenvLoadOutcome {
 }
 
 impl DotenvLoadOutcome {
-    fn skipped(path: impl Into<PathBuf>) -> Self {
+    pub fn skipped(path: impl Into<PathBuf>) -> Self {
         Self::Skipped(path.into())
     }
 
-    fn error(path: impl Into<PathBuf>, message: String) -> Self {
+    pub fn error(path: impl Into<PathBuf>, message: String) -> Self {
         Self::Error {
             path: path.into(),
             message,
@@ -342,13 +372,6 @@ impl DotenvLoadOutcome {
             Self::Error { path, message } => format!("error:{}:{}", path.display(), message),
         }
     }
-
-    fn path_display(&self) -> String {
-        match self {
-            Self::Loaded(p) | Self::NotFound(p) | Self::Skipped(p) => p.display().to_string(),
-            Self::Error { path, .. } => path.display().to_string(),
-        }
-    }
 }
 
 pub fn load_dotenv_if_present(path: impl AsRef<Path>) -> std::io::Result<DotenvLoadOutcome> {
@@ -358,15 +381,13 @@ pub fn load_dotenv_if_present(path: impl AsRef<Path>) -> std::io::Result<DotenvL
     }
 
     let contents = fs::read_to_string(&path)?;
-    // SAFETY: `std::env::set_var` is on a deprecation path because it is
-    // unsound to mutate the process environment while other threads may
-    // be reading it. This loop is only reached from
-    // `run_server_with_shutdown` *before* `Config::load` and well before
-    // the Tokio runtime spawns any worker threads — the process is still
-    // effectively single-threaded here. If this function is ever called
-    // from a post-runtime context, the calling site must switch to a
-    // thread-safe env-merging strategy (or use a dedicated config-mutex)
-    // instead.
+    // SAFETY: `std::env::set_var` is unsound from a multi-threaded
+    // context. Callers must invoke this function *before* a Tokio
+    // runtime (or any other thread pool) is created — `prepare_env()`
+    // is the single supported entry point and is called synchronously
+    // from `fn main()` prior to the runtime builder. The test suite
+    // relies on a process-wide `ENV_LOCK` mutex to serialize the
+    // remaining set_var calls and avoid concurrent reads.
     for line in contents.lines() {
         let line = line.trim();
         if line.is_empty() || line.starts_with('#') {
@@ -375,12 +396,18 @@ pub fn load_dotenv_if_present(path: impl AsRef<Path>) -> std::io::Result<DotenvL
         let Some((k, v)) = line.split_once('=') else {
             continue;
         };
+        // Trim the key BEFORE both the var_os check and the set_var
+        // write — a line like `PUBLIC_BASE_URL = ...` (with surrounding
+        // whitespace) would otherwise slip past the preserve-existing
+        // guard and clobber an already-set env var.
+        let key = k.trim();
+        let value = v.trim();
 
-        if std::env::var_os(k).is_some() {
+        if std::env::var_os(key).is_some() {
             continue;
         }
 
-        std::env::set_var(k.trim(), v.trim());
+        std::env::set_var(key, value);
     }
 
     Ok(DotenvLoadOutcome::Loaded(path))
@@ -839,7 +866,7 @@ mod tests {
             ),
         ];
 
-        let err = run_server_with_shutdown(async {})
+        let err = run_server_with_shutdown(async {}, DotenvLoadOutcome::skipped(".env"))
             .await
             .expect_err("expected error");
         assert!(matches!(err, RuntimeError::ParseListenAddr(_)));
@@ -855,7 +882,7 @@ mod tests {
             EnvGuard::set("DATABASE_URL", "postgres://invalid:%zz"),
         ];
 
-        let err = run_server_with_shutdown(async {})
+        let err = run_server_with_shutdown(async {}, DotenvLoadOutcome::skipped(".env"))
             .await
             .expect_err("expected error");
         assert!(matches!(err, RuntimeError::Storage(_)));
@@ -908,9 +935,10 @@ mod tests {
             EnvGuard::set("API_KEY_PEPPER", "pepper"),
         ];
 
-        let result = run_server_with_shutdown(async {
-            tokio::time::sleep(std::time::Duration::from_millis(40)).await
-        })
+        let result = run_server_with_shutdown(
+            async { tokio::time::sleep(std::time::Duration::from_millis(40)).await },
+            DotenvLoadOutcome::skipped(".env"),
+        )
         .await;
         assert!(result.is_ok(), "{result:?}");
     }
