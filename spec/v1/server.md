@@ -511,6 +511,7 @@ Configured limits:
 - Claim: `1.0 rps`, burst `10` keyed by client IP hash.
 - Authenticated create: `2.0 rps`, burst `20`, keyed by `user:<id>` (session auth) or `apikey:<prefix>` (API key auth).
 - API-key registration: `0.5 rps`, burst `6` keyed by client IP.
+- Web-pair endpoints (`/start`, `/poll`, `/challenge`, `/approve`, `/cancel`): `2 rps`, burst `30`, keyed by client IP. Implemented as `web_pair_limiter`. Sized for one round-trip of tight pair-flow polling at sub-second cadence plus continuous joiner waiting; tunable via `WEB_PAIR_RATE` / `WEB_PAIR_BURST`.
 - Device auth start/poll: uses public create limiter (`0.5 rps`, burst `6`) keyed by client IP hash.
 - Burn: no dedicated limiter in v1 (API key auth + owner checks apply).
 
