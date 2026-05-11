@@ -10,7 +10,13 @@
 import { useEffect, useRef, useState } from 'preact/hooks';
 import QrScanner from 'qr-scanner';
 import { parsePairUrl } from '../../lib/url';
-import { TriangleExclamationIcon, XMarkIcon } from '../../components/Icons';
+import {
+  CameraIcon,
+  TriangleExclamationIcon,
+  XMarkIcon,
+} from '../../components/Icons';
+import { CardHeading } from '../../components/CardHeading';
+import { debugInfo } from '../../lib/debug-log';
 
 interface QrScannerProps {
   /** Called once with a valid pair code; the parent should close the modal. */
@@ -64,8 +70,18 @@ export function QrScannerView({
       video,
       (result) => {
         if (decodedRef.current) return;
+        debugInfo('qr-scanner', {
+          event: 'decode',
+          dataLen: result.data.length,
+        });
         const parsed = parsePairUrl(result.data);
-        if (!parsed) return; // tolerate unrelated QR codes
+        if (!parsed) {
+          debugInfo('qr-scanner', {
+            event: 'decode-non-pair',
+            sample: result.data.slice(0, 40),
+          });
+          return; // tolerate unrelated QR codes
+        }
         decodedRef.current = true;
         onCode(parsed.code);
       },
@@ -77,6 +93,10 @@ export function QrScannerView({
       },
     );
     scannerRef.current = scanner;
+    // Try both polarities (dark-on-light AND light-on-dark). Some capture
+    // pipelines and dark-mode QR renders flip the contrast; default
+    // qr-scanner only checks the original.
+    scanner.setInversionMode('both');
 
     (async () => {
       try {
@@ -153,12 +173,18 @@ export function QrScannerView({
     <div class="space-y-4">
       <button
         type="button"
-        class="btn-icon absolute top-3 right-3"
+        class="absolute top-3 right-3 rounded p-1 text-muted transition-colors hover:text-text"
         onClick={onClose}
         aria-label="Close scanner"
       >
         <XMarkIcon class="size-5" />
       </button>
+
+      <CardHeading
+        class="mb-0!"
+        icon={<CameraIcon class="size-10" />}
+        title="Scan QR Code"
+      />
 
       {(state.kind === 'starting' || state.kind === 'running') && (
         <>
@@ -191,16 +217,6 @@ export function QrScannerView({
               </label>
             </div>
           )}
-
-          <p class="text-center text-sm text-muted">
-            Point your camera at the QR code on the other browser.
-          </p>
-
-          <div class="flex justify-center">
-            <button type="button" class="link" onClick={onTypeInstead}>
-              Type the code instead
-            </button>
-          </div>
         </>
       )}
 

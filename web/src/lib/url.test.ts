@@ -193,15 +193,15 @@ describe('parseShareUrl', () => {
 });
 
 describe('formatPairUrl', () => {
-  it('encodes a code into a /pair?mode=join URL on the current origin', () => {
+  it('encodes a code into a /pair?code= URL on the current origin', () => {
     expect(formatPairUrl('K7MQ-3F2A')).toBe(
-      `${window.location.origin}/pair?mode=join&code=K7MQ-3F2A`,
+      `${window.location.origin}/pair?code=K7MQ-3F2A`,
     );
   });
 
   it('respects an explicit base URL', () => {
     expect(formatPairUrl('AAAA-BBBB', 'https://example.com')).toBe(
-      'https://example.com/pair?mode=join&code=AAAA-BBBB',
+      'https://example.com/pair?code=AAAA-BBBB',
     );
   });
 });
@@ -220,13 +220,13 @@ describe('parsePairUrl', () => {
   });
 
   it('parses a fully qualified /pair URL', () => {
-    expect(
-      parsePairUrl('https://secrt.ca/pair?mode=join&code=K7MQ-3F2A'),
-    ).toEqual({ code: 'K7MQ-3F2A' });
+    expect(parsePairUrl('https://secrt.ca/pair?code=K7MQ-3F2A')).toEqual({
+      code: 'K7MQ-3F2A',
+    });
   });
 
   it('parses a bare-host pasted /pair URL (coerces to https)', () => {
-    expect(parsePairUrl('secrt.ca/pair?mode=join&code=AAAA-BBBB')).toEqual({
+    expect(parsePairUrl('secrt.ca/pair?code=AAAA-BBBB')).toEqual({
       code: 'AAAA-BBBB',
     });
   });
@@ -244,18 +244,14 @@ describe('parsePairUrl', () => {
   });
 
   it('rejects a URL whose path is not /pair', () => {
-    expect(
-      parsePairUrl('https://secrt.ca/login?mode=join&code=K7MQ-3F2A'),
-    ).toBeNull();
+    expect(parsePairUrl('https://secrt.ca/login?code=K7MQ-3F2A')).toBeNull();
   });
 
   it('rejects a /pair URL without a code param', () => {
-    expect(parsePairUrl('https://secrt.ca/pair?mode=join')).toBeNull();
+    expect(parsePairUrl('https://secrt.ca/pair')).toBeNull();
   });
 
   it('rejects a /pair URL with a malformed code', () => {
-    expect(
-      parsePairUrl('https://secrt.ca/pair?mode=join&code=NOPE'),
-    ).toBeNull();
+    expect(parsePairUrl('https://secrt.ca/pair?code=NOPE')).toBeNull();
   });
 });
