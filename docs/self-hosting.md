@@ -471,7 +471,7 @@ mkdir -p /opt/secrt/bin
 # Set architecture (change to arm64 if needed)
 ARCH=amd64
 # Use the latest server release tag (check https://github.com/getsecrt/secrt/releases?q=server)
-VERSION="server/v0.17.7"
+VERSION="server/v0.18.0"
 
 cd /tmp
 gh release download "$VERSION" --repo getsecrt/secrt \
@@ -490,7 +490,7 @@ rm secrt-server-checksums-sha256.txt
 ```
 
 > **Note:** If `gh` is not installed, you can download directly:
-> `curl -fsSL -o /tmp/secrt-server-linux-${ARCH} "https://github.com/getsecrt/secrt/releases/download/server%2Fv0.17.7/secrt-server-linux-${ARCH}"`
+> `curl -fsSL -o /tmp/secrt-server-linux-${ARCH} "https://github.com/getsecrt/secrt/releases/download/server%2Fv0.18.0/secrt-server-linux-${ARCH}"`
 
 ### 7.2 Environment config
 
