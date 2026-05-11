@@ -1036,37 +1036,6 @@ impl AuthStore for PgStore {
         Ok(())
     }
 
-    async fn find_challenge_by_joiner_poll_token(
-        &self,
-        joiner_poll_token: &str,
-        purpose: &str,
-        now: DateTime<Utc>,
-    ) -> Result<ChallengeRecord, StorageError> {
-        let client = self.pool.get().await?;
-        let row = client
-            .query_opt(
-                "SELECT id, challenge_id, user_id, purpose, challenge_json, expires_at, created_at \
-                 FROM webauthn_challenges \
-                 WHERE purpose=$1 AND expires_at>$2 \
-                   AND challenge_json::jsonb->>'joiner_poll_token'=$3 \
-                 LIMIT 1",
-                &[&purpose, &now, &joiner_poll_token],
-            )
-            .await?;
-        let Some(row) = row else {
-            return Err(StorageError::NotFound);
-        };
-        Ok(ChallengeRecord {
-            id: row.try_get(0)?,
-            challenge_id: row.try_get(1)?,
-            user_id: row.try_get(2)?,
-            purpose: row.try_get(3)?,
-            challenge_json: row.try_get(4)?,
-            expires_at: row.try_get(5)?,
-            created_at: row.try_get(6)?,
-        })
-    }
-
     async fn update_display_name(
         &self,
         user_id: UserId,

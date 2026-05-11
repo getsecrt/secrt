@@ -730,77 +730,44 @@ struct AppChallengeJson {
 
 const WEB_PAIR_PURPOSE: &str = "web-pair";
 const WEB_PAIR_EXPIRY_SECS: i64 = 600;
-/// Length in bytes for `displayer_poll_token` and `joiner_poll_token`. These
-/// are private bearer tokens; never include them in QR codes or URLs.
+/// Length in bytes for `displayer_poll_token`. Private bearer token; never
+/// include in QR codes or URLs.
 const PAIR_POLL_TOKEN_LEN: usize = 32;
-/// Truncation cap for the captured `User-Agent` header. Advisory metadata
-/// only; never used as a security check.
-const PAIR_USER_AGENT_MAX_LEN: usize = 256;
-
-#[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Eq, Debug)]
-#[serde(rename_all = "lowercase")]
-enum PairRole {
-    /// Displayer holds the AMK and will send it. Joiner is the receiver.
-    Send,
-    /// Displayer is a fresh device that needs the AMK. Joiner is the sender.
-    Receive,
-}
 
 /// Persisted slot state in `webauthn_challenges.challenge_json` when
 /// `purpose = 'web-pair'`.
 ///
-/// **Token layout:** the row's `challenge_id` IS the `displayer_poll_token`
-/// — one private bearer token, two roles. Primary-key lookup serves the
-/// displayer's `/poll`. The joiner's separate `joiner_poll_token` lives in
-/// this JSON and is found via `find_challenge_by_joiner_poll_token`. Two
-/// tokens, one row.
+/// The pairing flow is asymmetric and single-direction: the displayer is
+/// always the receiver (a fresh browser waiting for an AMK) and the joiner
+/// is always the sender (a browser that already has the AMK). The
+/// displayer's `displayer_poll_token` IS the row's `challenge_id`, so
+/// primary-key lookup serves `/poll` directly. The joiner side completes
+/// synchronously in a single `/approve` round trip, so there is no
+/// joiner-side poll token.
 #[derive(Serialize, Deserialize)]
 struct PairChallengeJson {
     user_code: String,
-    role: PairRole,
-    /// One of: 'pending', 'claimed', 'approved', 'cancelled'. (Expired slots
-    /// are deleted by the reaper rather than transitioning to a status.)
+    /// One of: 'pending', 'approved', 'cancelled'. (Expired slots are
+    /// deleted by the reaper rather than transitioning to a status.)
     status: String,
-    /// Set by `/claim` (when `role=send`). Returned to the joiner from that
-    /// endpoint. Used by the joiner-as-receiver to call `/poll` until
-    /// `amk_transfer` arrives.
-    #[serde(default)]
-    joiner_poll_token: Option<String>,
-    /// Set at `/start` when `role=receive` (displayer supplies pubkey).
+    /// Set at `/start`. The joiner-as-sender reads this via `/challenge`,
+    /// derives an ephemeral transfer key, encrypts the AMK against it, and
+    /// posts the resulting `amk_transfer` via `/approve`.
     #[serde(default)]
     displayer_ecdh_public_key: Option<String>,
-    /// Set by `/claim` when `role=send` (joiner supplies pubkey).
-    #[serde(default)]
-    joiner_ecdh_public_key: Option<String>,
     /// Set by `/approve`. Carries the encrypted AMK to the receiver's next
     /// `/poll`. Validated to {65/12/48}-byte shape via `validate_amk_transfer`.
     #[serde(default)]
     amk_transfer: Option<AmkTransferJson>,
-    /// Captured at the moment the joiner attaches (`/claim` for `role=send`,
-    /// `/start` for `role=receive` since the displayer is the only joiner).
-    /// Truncated to `PAIR_USER_AGENT_MAX_LEN`. Advisory; spoofable.
-    #[serde(default)]
-    joiner_user_agent: Option<String>,
-    /// Reserved field, always `None` in v1. A future PR may populate this
-    /// server-side with a coarse GeoIP label without a client API break.
-    /// Clients MUST treat this field as advisory-or-null.
-    #[serde(default)]
-    joiner_geo_label: Option<String>,
-    /// When the joiner attached (`/claim` succeeded, or `/start` for
-    /// `role=receive`).
-    #[serde(default)]
-    joiner_seen_at: Option<DateTime<Utc>>,
 }
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct PairStartRequest {
-    role: PairRole,
-    /// Required when `role=receive` (the displayer is the receiver and
-    /// supplies their ECDH pubkey at slot creation). Must be absent when
-    /// `role=send`.
-    #[serde(default)]
-    ecdh_public_key: Option<String>,
+    /// Displayer's ECDH P-256 pubkey (uncompressed, base64url, 65 bytes).
+    /// Required unconditionally; role is inferred server-side at first
+    /// joiner action.
+    ecdh_public_key: String,
 }
 
 #[derive(Serialize)]
@@ -815,47 +782,19 @@ struct PairStartResponse {
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct PairPollRequest {
-    /// Either the `displayer_poll_token` or the `joiner_poll_token`.
+    /// The `displayer_poll_token` returned by `/start`. Only the displayer
+    /// polls; the joiner side completes synchronously via `/approve`.
     poll_token: String,
 }
 
 #[derive(Serialize)]
 struct PairPollResponse {
-    /// 'pending' | 'claimed' | 'approved' | 'cancelled'.
+    /// 'pending' | 'approved' | 'cancelled' | 'expired'.
     status: String,
-    /// Surfaced to the `role=send` displayer when status='claimed' so the
-    /// approval UI can render the joiner's UA + timestamp.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    joiner_user_agent: Option<String>,
-    /// Reserved field; always `null` in v1. See `PairChallengeJson`.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    joiner_geo_label: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    joiner_seen_at: Option<DateTime<Utc>>,
-    /// The other side's ECDH pubkey, when relevant for the caller's role.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    peer_ecdh_public_key: Option<String>,
-    /// Set when status='approved' AND the caller is the receiver.
-    /// One-shot: subsequent `/poll` calls return 'expired' (the slot is
-    /// consumed atomically on the first delivery).
+    /// Set when status='approved'. One-shot: subsequent `/poll` calls
+    /// return 'expired' (the slot is consumed atomically on first delivery).
     #[serde(skip_serializing_if = "Option::is_none")]
     amk_transfer: Option<AmkTransferJson>,
-}
-
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct PairClaimRequest {
-    user_code: String,
-    /// Joiner's ECDH P-256 pubkey (uncompressed, base64url, 65 bytes).
-    ecdh_public_key: String,
-}
-
-#[derive(Serialize)]
-struct PairClaimResponse {
-    /// Private bearer token. Joiner uses this to call `/poll` until
-    /// `amk_transfer` arrives.
-    joiner_poll_token: String,
-    expires_at: DateTime<Utc>,
 }
 
 #[derive(Deserialize)]
@@ -865,11 +804,11 @@ pub struct PairChallengeQuery {
 
 #[derive(Serialize)]
 struct PairChallengeResponse {
-    role: PairRole,
-    /// Set when `role=receive` (displayer supplied pubkey at `/start`).
-    /// The joiner-as-sender uses it to derive the ECDH transfer key.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    displayer_ecdh_public_key: Option<String>,
+    /// Always present: the displayer unconditionally supplies a pubkey at
+    /// `/start`. The joiner combines this with its local AMK presence to
+    /// decide whether to call `/approve` directly (joiner-is-sender) or
+    /// `/claim` then poll (joiner-is-receiver).
+    displayer_ecdh_public_key: String,
 }
 
 /// 409 body returned by `/challenge` when the slot exists but is no longer
@@ -1032,7 +971,6 @@ pub fn build_router(state: Arc<AppState>) -> Router {
         .route("/api/v1/auth/app/approve", any(handle_app_approve_entry))
         .route("/api/v1/auth/pair/start", any(handle_pair_start_entry))
         .route("/api/v1/auth/pair/poll", any(handle_pair_poll_entry))
-        .route("/api/v1/auth/pair/claim", any(handle_pair_claim_entry))
         .route(
             "/api/v1/auth/pair/challenge",
             any(handle_pair_challenge_entry),
@@ -3971,111 +3909,48 @@ pub async fn handle_device_challenge_entry(
 // `slot.user_id == session.user_id` and returns 403 on mismatch. AMK-only
 // transfer; no API key minted, no `auth_token` involved.
 
-/// Truncate the request's `User-Agent` to `PAIR_USER_AGENT_MAX_LEN` bytes
-/// without splitting a UTF-8 codepoint. Returns `None` for missing,
-/// non-ASCII-decodable, or empty UA headers.
-fn truncate_user_agent(headers: &HeaderMap) -> Option<String> {
-    let raw = headers.get("user-agent")?.to_str().ok()?;
-    let trimmed = raw.trim();
-    if trimmed.is_empty() {
-        return None;
-    }
-    let mut out = String::with_capacity(PAIR_USER_AGENT_MAX_LEN.min(trimmed.len()));
-    for ch in trimmed.chars() {
-        if out.len() + ch.len_utf8() > PAIR_USER_AGENT_MAX_LEN {
-            break;
-        }
-        out.push(ch);
-    }
-    if out.is_empty() {
-        None
-    } else {
-        Some(out)
-    }
-}
-
-/// Shared body of `/poll`: given a slot record and an authenticated caller,
-/// produce the role-appropriate response. `is_displayer` distinguishes the
-/// two private-token paths so the right metadata + pubkey is surfaced.
+/// Shared body of `/poll`: given a slot record, return the displayer's
+/// view of the slot. Only the displayer polls.
 ///
-/// On status='approved' to the receiver side, this performs an atomic
-/// status transition to terminate further polls. Subsequent calls observe
-/// the slot deletion (or the 'cancelled' status if the displayer races a
-/// /cancel — irrelevant either way: receiver got the AMK exactly once).
+/// On status='approved' with `amk_transfer` set, this performs an atomic
+/// slot consumption to terminate further polls. Subsequent calls observe
+/// the slot deletion (or the 'cancelled' status if a /cancel races —
+/// irrelevant either way: receiver got the AMK exactly once).
 async fn pair_poll_response(
     state: &Arc<AppState>,
     record: &crate::storage::ChallengeRecord,
     data: &PairChallengeJson,
-    is_displayer: bool,
     now: DateTime<Utc>,
 ) -> Response {
-    // Surface joiner metadata only to the role=send displayer (the sender's
-    // approval screen). Receiver-side displayers are themselves the joiner's
-    // counterpart, so this metadata is privacy-leaky to no one but it's
-    // also not useful — skip it to keep the response surface tight.
-    let surface_joiner_meta = is_displayer && data.role == PairRole::Send;
-
-    // For the role=receive happy path, the receiver-as-displayer reads
-    // amk_transfer on its first /poll after the sender's /approve. Atomic
-    // delivery is enforced by deleting the slot before returning the
-    // payload (matching device-auth's consume_challenge pattern at
-    // mod.rs:2941 — one-shot read, no replay window).
     if data.status == "approved" && data.amk_transfer.is_some() {
-        let receiver_polling = matches!(
-            (is_displayer, data.role),
-            (true, PairRole::Receive) | (false, PairRole::Send)
-        );
-        if receiver_polling {
-            match state
-                .auth_store
-                .consume_challenge(&record.challenge_id, WEB_PAIR_PURPOSE, now)
-                .await
-            {
-                Ok(_) => {}
-                Err(StorageError::NotFound) => {
-                    // Already consumed by a concurrent poll.
-                    return json_response(
-                        StatusCode::OK,
-                        PairPollResponse {
-                            status: "expired".into(),
-                            joiner_user_agent: None,
-                            joiner_geo_label: None,
-                            joiner_seen_at: None,
-                            peer_ecdh_public_key: None,
-                            amk_transfer: None,
-                        },
-                    );
-                }
-                Err(e) => {
-                    error!(error = %e, "failed to consume web-pair challenge");
-                    return internal_server_error();
-                }
+        match state
+            .auth_store
+            .consume_challenge(&record.challenge_id, WEB_PAIR_PURPOSE, now)
+            .await
+        {
+            Ok(_) => {}
+            Err(StorageError::NotFound) => {
+                // Already consumed by a concurrent poll.
+                return json_response(
+                    StatusCode::OK,
+                    PairPollResponse {
+                        status: "expired".into(),
+                        amk_transfer: None,
+                    },
+                );
+            }
+            Err(e) => {
+                error!(error = %e, "failed to consume web-pair challenge");
+                return internal_server_error();
             }
         }
     }
-
-    let peer_ecdh = if is_displayer {
-        data.joiner_ecdh_public_key.clone()
-    } else {
-        data.displayer_ecdh_public_key.clone()
-    };
 
     json_response(
         StatusCode::OK,
         PairPollResponse {
             status: data.status.clone(),
-            joiner_user_agent: surface_joiner_meta
-                .then(|| data.joiner_user_agent.clone())
-                .flatten(),
-            joiner_geo_label: surface_joiner_meta
-                .then(|| data.joiner_geo_label.clone())
-                .flatten(),
-            joiner_seen_at: surface_joiner_meta.then_some(data.joiner_seen_at).flatten(),
-            peer_ecdh_public_key: peer_ecdh,
-            amk_transfer: if matches!(
-                (is_displayer, data.role),
-                (true, PairRole::Receive) | (false, PairRole::Send)
-            ) {
+            amk_transfer: if data.status == "approved" {
                 data.amk_transfer.clone()
             } else {
                 None
@@ -4105,22 +3980,14 @@ pub async fn handle_pair_start_entry(State(state): State<Arc<AppState>>, req: Re
         Err(resp) => return resp,
     };
 
-    // Role-specific pubkey requirements:
-    //   role=Receive → displayer is receiver, supplies pubkey at /start.
-    //   role=Send    → displayer is sender; joiner supplies pubkey at /claim.
-    match (payload.role, payload.ecdh_public_key.as_deref()) {
-        (PairRole::Receive, None) => {
-            return bad_request("ecdh_public_key is required when role=receive");
-        }
-        (PairRole::Send, Some(_)) => {
-            return bad_request("ecdh_public_key must not be provided when role=send");
-        }
-        (PairRole::Receive, Some(ek)) => {
-            if let Err(msg) = validate_ecdh_public_key(ek) {
-                return bad_request(msg);
-            }
-        }
-        (PairRole::Send, None) => {}
+    // Displayer unconditionally supplies an ECDH pubkey. Role is inferred
+    // server-side at the first joiner action (/claim → Send, /approve from
+    // pending → Receive). If the joiner turns out to be the receiver, this
+    // pubkey is used by the displayer-as-sender's /approve path; if the
+    // joiner is the sender, this pubkey is what they encrypt to via
+    // /challenge → /approve.
+    if let Err(msg) = validate_ecdh_public_key(&payload.ecdh_public_key) {
+        return bad_request(msg);
     }
 
     let user_code = match generate_user_code() {
@@ -4134,15 +4001,9 @@ pub async fn handle_pair_start_entry(State(state): State<Arc<AppState>>, req: Re
 
     let challenge = PairChallengeJson {
         user_code: user_code.clone(),
-        role: payload.role,
         status: "pending".into(),
-        joiner_poll_token: None,
-        displayer_ecdh_public_key: payload.ecdh_public_key,
-        joiner_ecdh_public_key: None,
+        displayer_ecdh_public_key: Some(payload.ecdh_public_key),
         amk_transfer: None,
-        joiner_user_agent: None,
-        joiner_geo_label: None,
-        joiner_seen_at: None,
     };
     let challenge_json = match serde_json::to_string(&challenge) {
         Ok(v) => v,
@@ -4204,43 +4065,25 @@ pub async fn handle_pair_poll_entry(State(state): State<Arc<AppState>>, req: Req
 
     let now = Utc::now();
 
-    // Try the displayer path first (challenge_id = displayer_poll_token).
-    // Fall back to the joiner-token JSON scan. Both paths verify session-
-    // user matches slot.user_id before returning anything.
-    let (record, is_displayer) = match state
+    // Only the displayer polls (their token is the row's challenge_id).
+    // The joiner side completes synchronously via /approve and has no
+    // poll token. A token that doesn't resolve is a terminal 'expired'.
+    let record = match state
         .auth_store
         .get_challenge(&payload.poll_token, WEB_PAIR_PURPOSE, now)
         .await
     {
-        Ok(rec) => (rec, true),
+        Ok(rec) => rec,
         Err(StorageError::NotFound) => {
-            match state
-                .auth_store
-                .find_challenge_by_joiner_poll_token(&payload.poll_token, WEB_PAIR_PURPOSE, now)
-                .await
-            {
-                Ok(rec) => (rec, false),
-                Err(StorageError::NotFound) => {
-                    // Either: token never existed, slot expired (reaper),
-                    // or amk_transfer was already delivered on a prior
-                    // poll. Surface as a terminal 'expired' state.
-                    return json_response(
-                        StatusCode::OK,
-                        PairPollResponse {
-                            status: "expired".into(),
-                            joiner_user_agent: None,
-                            joiner_geo_label: None,
-                            joiner_seen_at: None,
-                            peer_ecdh_public_key: None,
-                            amk_transfer: None,
-                        },
-                    );
-                }
-                Err(e) => {
-                    error!(error = %e, "failed to find web-pair slot by joiner token");
-                    return internal_server_error();
-                }
-            }
+            // Either: token never existed, slot expired (reaper), or
+            // amk_transfer was already delivered on a prior poll.
+            return json_response(
+                StatusCode::OK,
+                PairPollResponse {
+                    status: "expired".into(),
+                    amk_transfer: None,
+                },
+            );
         }
         Err(e) => {
             error!(error = %e, "failed to get web-pair slot");
@@ -4258,144 +4101,7 @@ pub async fn handle_pair_poll_entry(State(state): State<Arc<AppState>>, req: Req
         Err(_) => return internal_server_error(),
     };
 
-    pair_poll_response(&state, &record, &data, is_displayer, now).await
-}
-
-pub async fn handle_pair_claim_entry(State(state): State<Arc<AppState>>, req: Request) -> Response {
-    if req.method() != Method::POST {
-        return method_not_allowed();
-    }
-
-    let ip = get_client_ip(req.headers(), request_connect_addr(&req));
-    if !state.web_pair_limiter.allow(&ip) {
-        return rate_limited();
-    }
-
-    let headers = req.headers().clone();
-    let (session_user_id, _, _) = match require_session_user(&state, &headers).await {
-        Ok(v) => v,
-        Err(resp) => return resp,
-    };
-
-    let payload: PairClaimRequest = match read_json_body(req, 4 * 1024, None).await {
-        Ok(v) => v,
-        Err(resp) => return resp,
-    };
-
-    if let Err(msg) = validate_ecdh_public_key(&payload.ecdh_public_key) {
-        return bad_request(msg);
-    }
-
-    let now = Utc::now();
-    let record = match state
-        .auth_store
-        .find_challenge_by_user_code(&payload.user_code, WEB_PAIR_PURPOSE, now)
-        .await
-    {
-        Ok(c) => c,
-        Err(StorageError::NotFound) => {
-            return error_response(StatusCode::CONFLICT, "invalid or expired code");
-        }
-        Err(e) => {
-            error!(error = %e, "failed to find web-pair slot for claim");
-            return internal_server_error();
-        }
-    };
-
-    if record.user_id != Some(session_user_id) {
-        return error_response(StatusCode::FORBIDDEN, "forbidden");
-    }
-
-    let mut data: PairChallengeJson = match serde_json::from_str(&record.challenge_json) {
-        Ok(v) => v,
-        Err(_) => return internal_server_error(),
-    };
-
-    // Constant-time user_code recheck (find_challenge_by_user_code already
-    // matched, but we want to defend against any future relaxation of that
-    // method's matching semantics — and to keep the wrong-code path
-    // observably timing-uniform).
-    if !crate::domain::auth::secure_equals_hex(
-        &hex::encode(data.user_code.as_bytes()),
-        &hex::encode(payload.user_code.as_bytes()),
-    ) {
-        return error_response(StatusCode::CONFLICT, "invalid or expired code");
-    }
-
-    if data.role != PairRole::Send {
-        // /claim is only meaningful when the displayer is the sender (the
-        // joiner is supplying their pubkey). For role=receive the joiner
-        // skips /claim and goes straight to /approve with the slot's
-        // displayer_ecdh_public_key from /challenge.
-        return error_response(
-            StatusCode::CONFLICT,
-            "this slot does not accept /claim (use /approve instead)",
-        );
-    }
-
-    if data.status != "pending" {
-        return error_response(StatusCode::CONFLICT, "slot is no longer pending");
-    }
-
-    if data.joiner_ecdh_public_key.is_some() {
-        return error_response(StatusCode::CONFLICT, "slot already claimed");
-    }
-
-    let joiner_poll_token = match random_b64(PAIR_POLL_TOKEN_LEN) {
-        Ok(v) => v,
-        Err(_) => return internal_server_error(),
-    };
-    let joiner_user_agent = truncate_user_agent(&headers);
-
-    data.status = "claimed".into();
-    data.joiner_poll_token = Some(joiner_poll_token.clone());
-    data.joiner_ecdh_public_key = Some(payload.ecdh_public_key);
-    data.joiner_user_agent = joiner_user_agent;
-    // joiner_geo_label stays None in v1 (reserved for a future server-side
-    // GeoIP PR — see spec/v1/server.md "Web-to-web AMK transfer" §Privacy).
-    data.joiner_seen_at = Some(now);
-
-    let new_json = match serde_json::to_string(&data) {
-        Ok(v) => v,
-        Err(_) => return internal_server_error(),
-    };
-
-    // CAS: only succeed if the slot is still status='pending'. Concurrent
-    // claims (two joiners scanning the same QR simultaneously) collapse to
-    // exactly one winner here. Loser sees 409.
-    match state
-        .auth_store
-        .cas_update_challenge_json(
-            &record.challenge_id,
-            WEB_PAIR_PURPOSE,
-            &["pending"],
-            &new_json,
-            now,
-        )
-        .await
-    {
-        Ok(()) => {}
-        Err(StorageError::NotFound) => {
-            // Lost the race, or expired between read and CAS.
-            return error_response(
-                StatusCode::CONFLICT,
-                "slot is no longer pending (already claimed or expired)",
-            );
-        }
-        Err(e) => {
-            error!(error = %e, "failed to CAS-update web-pair slot for claim");
-            return internal_server_error();
-        }
-    }
-
-    let expires_at = record.expires_at;
-    json_response(
-        StatusCode::OK,
-        PairClaimResponse {
-            joiner_poll_token,
-            expires_at,
-        },
-    )
+    pair_poll_response(&state, &record, &data, now).await
 }
 
 pub async fn handle_pair_challenge_entry(
@@ -4452,11 +4158,20 @@ pub async fn handle_pair_challenge_entry(
         );
     }
 
+    // displayer_ecdh_public_key is always set at /start. A pending slot
+    // with no pubkey is a server-side invariant violation; surface as 500.
+    let Some(displayer_ecdh_public_key) = data.displayer_ecdh_public_key else {
+        error!(
+            challenge_id = %record.challenge_id,
+            "pending web-pair slot missing displayer_ecdh_public_key"
+        );
+        return internal_server_error();
+    };
+
     json_response(
         StatusCode::OK,
         PairChallengeResponse {
-            role: data.role,
-            displayer_ecdh_public_key: data.displayer_ecdh_public_key,
+            displayer_ecdh_public_key,
         },
     )
 }
@@ -4514,7 +4229,9 @@ pub async fn handle_pair_approve_entry(
         Err(_) => return internal_server_error(),
     };
 
-    // Constant-time user_code recheck (see /claim for the rationale).
+    // Constant-time user_code recheck (defends against any future relaxation
+    // of `find_challenge_by_user_code`'s matching semantics and keeps the
+    // wrong-code path observably timing-uniform).
     if !crate::domain::auth::secure_equals_hex(
         &hex::encode(data.user_code.as_bytes()),
         &hex::encode(payload.user_code.as_bytes()),
@@ -4522,24 +4239,12 @@ pub async fn handle_pair_approve_entry(
         return error_response(StatusCode::CONFLICT, "invalid or expired code");
     }
 
-    // Approve preconditions:
-    //   role=Send    → joiner has /claim'd, status='claimed', both pubkeys present.
-    //   role=Receive → no /claim step; status='pending', displayer pubkey set,
-    //                  joiner pubkey supplied here via amk_transfer.ecdh_public_key.
-    let expected_statuses: &[&str] = match data.role {
-        PairRole::Send => &["claimed"],
-        PairRole::Receive => &["pending"],
-    };
-    if !expected_statuses.iter().any(|s| *s == data.status) {
+    // Single arm: slot must be 'pending'. The joiner-as-sender posts the
+    // encrypted AMK and transitions the slot atomically. Concurrent
+    // /approve calls against the same slot collapse via the CAS to exactly
+    // one winner; concurrent /cancel similarly.
+    if data.status != "pending" {
         return error_response(StatusCode::CONFLICT, "slot is not in an approvable state");
-    }
-
-    // Capture the joiner-as-sender's UA for the receiver's audit trail
-    // (low-priority — the receiver isn't shown an approval screen, but the
-    // metadata exists if a future UI surfaces it).
-    if data.role == PairRole::Receive && data.joiner_user_agent.is_none() {
-        data.joiner_user_agent = truncate_user_agent(&headers);
-        data.joiner_seen_at = Some(now);
     }
 
     data.status = "approved".into();
@@ -4550,14 +4255,12 @@ pub async fn handle_pair_approve_entry(
         Err(_) => return internal_server_error(),
     };
 
-    // CAS to atomically transition status. Concurrent /approve and
-    // /cancel collapse to a single winner.
     match state
         .auth_store
         .cas_update_challenge_json(
             &record.challenge_id,
             WEB_PAIR_PURPOSE,
-            expected_statuses,
+            &["pending"],
             &new_json,
             now,
         )
@@ -4604,30 +4307,20 @@ pub async fn handle_pair_cancel_entry(
     };
 
     let now = Utc::now();
-    // Look up by either poll token (displayer or joiner). Cancel takes a
-    // private token rather than the public user_code — a shoulder-surfer
-    // who reads the XXXX-XXXX off a screen can't race a cancel.
+    // Cancel takes the displayer's private poll token rather than the
+    // public user_code — a shoulder-surfer who reads the XXXX-XXXX off a
+    // screen can't race a cancel. (Joiner-side cancellation doesn't apply:
+    // the joiner has no poll token; their /approve is synchronous.)
     let record = match state
         .auth_store
         .get_challenge(&payload.poll_token, WEB_PAIR_PURPOSE, now)
         .await
     {
         Ok(rec) => rec,
-        Err(StorageError::NotFound) => match state
-            .auth_store
-            .find_challenge_by_joiner_poll_token(&payload.poll_token, WEB_PAIR_PURPOSE, now)
-            .await
-        {
-            Ok(rec) => rec,
-            Err(StorageError::NotFound) => {
-                // Already terminal/expired/never existed. Idempotent success.
-                return json_response(StatusCode::OK, serde_json::json!({ "ok": true }));
-            }
-            Err(e) => {
-                error!(error = %e, "failed to find web-pair slot for cancel");
-                return internal_server_error();
-            }
-        },
+        Err(StorageError::NotFound) => {
+            // Already terminal/expired/never existed. Idempotent success.
+            return json_response(StatusCode::OK, serde_json::json!({ "ok": true }));
+        }
         Err(e) => {
             error!(error = %e, "failed to get web-pair slot for cancel");
             return internal_server_error();
@@ -4659,7 +4352,7 @@ pub async fn handle_pair_cancel_entry(
         .cas_update_challenge_json(
             &record.challenge_id,
             WEB_PAIR_PURPOSE,
-            &["pending", "claimed"],
+            &["pending"],
             &new_json,
             now,
         )
@@ -5743,28 +5436,6 @@ mod tests {
             }
             rec.challenge_json = new_challenge_json.to_string();
             Ok(())
-        }
-
-        async fn find_challenge_by_joiner_poll_token(
-            &self,
-            joiner_poll_token: &str,
-            purpose: &str,
-            now: DateTime<Utc>,
-        ) -> Result<ChallengeRecord, StorageError> {
-            let m = self.challenges.lock().unwrap();
-            for rec in m.values() {
-                if rec.purpose != purpose || rec.expires_at <= now {
-                    continue;
-                }
-                if let Ok(json) = serde_json::from_str::<serde_json::Value>(&rec.challenge_json) {
-                    if json.get("joiner_poll_token").and_then(|v| v.as_str())
-                        == Some(joiner_poll_token)
-                    {
-                        return Ok(rec.clone());
-                    }
-                }
-            }
-            Err(StorageError::NotFound)
         }
 
         async fn count_apikey_registrations_by_user_since(
