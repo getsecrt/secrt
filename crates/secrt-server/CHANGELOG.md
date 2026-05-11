@@ -50,11 +50,11 @@
 
 ### Deprecated
 
-- **Sync-notes-key link transport (asynchronous AMK transfer via `/sync/<id>#<urlKey>`).** Now that `/pair` is the canonical browser-to-browser AMK transfer UX and works for ~all real flows, the link-based fallback is no longer offered in the UI. The button is removed from Settings; the `/sync/<id>` consumer route and the corresponding server endpoint remain functional so any links in flight against this release still redeem within their 10-minute TTL.
+- **Sync-notes-key link as the default browser-to-browser AMK transport.** `/pair` is now the recommended path. The sync-link button is removed from Settings and the helper imports are gone from Dashboard; the `/sync/<id>` consumer route, the `SyncNotesKeyButton` component, `formatSyncLink`, and the underlying server endpoints remain functional. No removal timeline — the link transport is retained without recommendation as an escape hatch for the genuinely asynchronous case (one device generates a transfer artifact for the other to redeem later, when both can't be online simultaneously). Clients SHOULD NOT add new sync-link entry points.
 
-  Why: the link-based transport is a bearer URL containing the encrypted AMK. URLs accumulate in places encrypted ECDH payloads don't (mail history, screenshots, accidental paste-into-Slack, IMAP archives), and the 10-minute TTL is the same window in which `/pair` works without leaving a bearer artifact at all. Two paths for the same job also adds a "which should I use?" UX question. If no real async use case surfaces during the deprecation window, the route and endpoint will be removed in a future release.
+  Why: the link transport is a bearer URL containing the encrypted AMK. URLs accumulate in places encrypted ECDH payloads don't (mail history, screenshots, accidental paste-into-Slack, IMAP archives). The pair flow keeps wrapping material entirely on the two participating devices and binds the slot to a single `user_id`, which is a meaningfully smaller surface. The only thing the pair flow can't do that sync-link can is bridge a non-simultaneous handoff, which is why the wire surface stays.
 
-  Files: `web/src/features/settings/SettingsPage.tsx`, `web/src/features/dashboard/DashboardPage.tsx`. The `web/src/components/SyncNotesKeyButton.tsx` component file, `formatSyncLink` in `web/src/lib/url.ts`, the `/sync/<id>` SPA route, and the server's secret endpoints remain in place pending the removal pass.
+  Files: `web/src/features/settings/SettingsPage.tsx`, `web/src/features/dashboard/DashboardPage.tsx`. Spec follow-up: `spec/v1/api.md` §Sync secrets, `docs/whitepaper.md` §Sync link, and `spec/v1/api.md` §PRF-Based AMK Wrapping all updated to mark sync-link as not-recommended without scheduling a removal.
 
 ### Fixed
 
