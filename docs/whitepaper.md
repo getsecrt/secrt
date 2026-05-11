@@ -520,17 +520,17 @@ For users who want to sync the AMK to another browser without configuring an API
 
 #### Browser-to-browser pairing (`/pair`, recommended)
 
-The primary path is a synchronous rendezvous between two same-account sessions, modelled on the CLI device-auth flow:
+The primary path is a synchronous rendezvous between two same-account sessions. The flow is asymmetric and one-direction: a fresh browser (no local AMK) displays a code, and a keyed browser (with the AMK) types or scans it.
 
-1. **Displayer:** One browser visits `/pair` and posts to `/api/v1/auth/pair/start`, which returns an 8-character `user_code` (formatted `XXXX-XXXX`) and the displayer's poll token. The browser renders the code as text and as a QR encoding only `https://<host>/pair?mode=join&code=XXXX-XXXX` — no key material in the QR, ever.
+1. **Displayer (fresh device, no AMK):** Visits `/pair`, posts an ephemeral P-256 ECDH public key to `/api/v1/auth/pair/start`, and receives an 8-character `user_code` (formatted `XXXX-XXXX`) plus a private displayer poll token. The browser renders the code as text and as a QR encoding only `https://<host>/pair?code=XXXX-XXXX` — no key material in the QR, ever. It then polls for the encrypted AMK.
 
-2. **Joiner:** The second browser visits the QR-linked URL (or types the code by hand) and posts to `/api/v1/auth/pair/claim`. Both sides exchange ephemeral P-256 ECDH public keys, derive an identical transfer key via HKDF, and the AMK-holding side encrypts the AMK with AES-256-GCM against that key.
+2. **Joiner (keyed device, has AMK):** Visits `/pair`, sees an input prompt instead of a code (because `loadAmk` resolved locally). After typing or scanning the displayer's code, the joiner fetches the displayer's pubkey via `GET /api/v1/auth/pair/challenge`, derives a transfer key via HKDF from the ECDH shared secret, encrypts the AMK with AES-256-GCM, and posts the encrypted bundle to `/api/v1/auth/pair/approve` in one synchronous round trip.
 
-3. **Receiver-side commit-before-store:** Before persisting the decrypted AMK to IndexedDB, the receiver fetches its account's `amk_commit` from the server and verifies that the decrypted bytes hash to the same commit. A mismatch refuses the store and clears local state.
+3. **Receiver-side commit-before-store:** Before persisting the decrypted AMK to IndexedDB, the displayer fetches its account's `amk_commit` from the server and verifies that the decrypted bytes hash to the same commit. A mismatch refuses the store and clears local state.
 
-4. **Slot lifecycle:** The rendezvous slot lives in `webauthn_challenges` with a 10-minute TTL and is deleted atomically on the receiver's first successful poll. The reaper deletes unconsumed slots at expiry. The server only ever sees public ECDH keys, the public `user_code`, and ciphertext.
+4. **Slot lifecycle:** The rendezvous slot lives in `webauthn_challenges` with a 10-minute TTL and is deleted atomically on the displayer's first successful poll after `/approve`. The reaper deletes unconsumed slots at expiry. The server only ever sees public ECDH keys, the public `user_code`, and ciphertext.
 
-This path keeps wrapping secrets entirely on the user's devices — no third party (cloud clipboard, browser history, password manager, message archive) sees even ciphertext. The user-visible `user_code` is the public rendezvous identifier and is safe to display, encode in QR, and type by hand; the private poll tokens are session-bound and never embedded in URLs or QR codes. See `spec/v1/server.md` §6.4 for the full state machine, threat model, and privacy posture.
+This path keeps wrapping secrets entirely on the user's devices — no third party (cloud clipboard, browser history, password manager, message archive) sees even ciphertext. The user-visible `user_code` is the public rendezvous identifier and is safe to display, encode in QR, and type by hand; the displayer's private poll token is session-bound and never embedded in URLs or QR codes. See `spec/v1/server.md` §6.4 for the full state machine, threat model, and privacy posture.
 
 #### Sync link (asynchronous fallback)
 

@@ -383,17 +383,6 @@ pub trait AuthStore: Send + Sync {
         now: DateTime<Utc>,
     ) -> Result<(), StorageError>;
 
-    /// Find a challenge whose `challenge_json->>'joiner_poll_token'`
-    /// matches. Used by the `/auth/pair/poll` joiner-side path: the row's
-    /// `challenge_id` is the displayer's token, so the joiner's private
-    /// poll token can only be located via the JSON path.
-    async fn find_challenge_by_joiner_poll_token(
-        &self,
-        joiner_poll_token: &str,
-        purpose: &str,
-        now: DateTime<Utc>,
-    ) -> Result<ChallengeRecord, StorageError>;
-
     async fn update_display_name(
         &self,
         user_id: UserId,
@@ -796,17 +785,6 @@ where
                 new_challenge_json,
                 now,
             )
-            .await
-    }
-
-    async fn find_challenge_by_joiner_poll_token(
-        &self,
-        joiner_poll_token: &str,
-        purpose: &str,
-        now: DateTime<Utc>,
-    ) -> Result<ChallengeRecord, StorageError> {
-        (**self)
-            .find_challenge_by_joiner_poll_token(joiner_poll_token, purpose, now)
             .await
     }
 

@@ -8,8 +8,9 @@
 //! - both displayer and joiner must be authenticated
 //! - the slot is bound to a single `user_id` and cross-user access is 403
 //! - approve does NOT mint an API key
-//! - claim/approve/cancel use compare-and-set transitions
-//! - response surface never exposes IP or IP-derived correlation tokens
+//! - `/approve` and `/cancel` use compare-and-set transitions
+//! - response surface never exposes IP, IP-derived tokens, or any
+//!   joiner-side metadata
 
 mod helpers;
 
@@ -85,29 +86,6 @@ async fn pair_poll(app: &axum::Router, token: &str, poll_token: &str) -> axum::r
     fire(app, req).await
 }
 
-async fn pair_claim(
-    app: &axum::Router,
-    token: &str,
-    user_code: &str,
-    ecdh_key: &str,
-) -> axum::response::Response {
-    let req = Request::builder()
-        .method("POST")
-        .uri("/api/v1/auth/pair/claim")
-        .header("authorization", format!("Bearer {token}"))
-        .header("content-type", "application/json")
-        .header("user-agent", "Mozilla/5.0 (Joiner/2.0)")
-        .body(Body::from(
-            json!({
-                "user_code": user_code,
-                "ecdh_public_key": ecdh_key,
-            })
-            .to_string(),
-        ))
-        .expect("request");
-    fire(app, req).await
-}
-
 async fn pair_challenge(
     app: &axum::Router,
     token: &str,
@@ -176,37 +154,34 @@ fn count_web_pair_rows(store: &Arc<MemStore>) -> usize {
         .count()
 }
 
-// --- Test 1: role=receive end-to-end ---
+// --- Test: end-to-end happy path ---
 //
-// Receiver displays → sender joins → AMK delivers exactly once.
+// Displayer (fresh device) /start → joiner (keyed device) /challenge →
+// /approve → displayer's /poll receives the AMK exactly once.
 #[tokio::test]
-async fn pair_role_receive_end_to_end() {
+async fn pair_end_to_end() {
     let store = Arc::new(MemStore::default());
     let app = test_app_with_store(store.clone(), test_config());
     let token = register_user(&app, "Alice").await;
 
-    // Receiver displays: /start with pubkey.
-    let start = body_json(
-        pair_start(
-            &app,
-            &token,
-            json!({ "role": "receive", "ecdh_public_key": ECDH_KEY_A }),
-        )
-        .await,
-    )
-    .await;
+    // Displayer (fresh device) /start with its ephemeral ECDH pubkey.
+    let start =
+        body_json(pair_start(&app, &token, json!({ "ecdh_public_key": ECDH_KEY_A })).await).await;
     let user_code = start["user_code"].as_str().expect("user_code").to_string();
     let displayer_poll_token = start["displayer_poll_token"]
         .as_str()
         .expect("displayer_poll_token")
         .to_string();
 
-    // Sender (same user, different browser) looks up the slot.
+    // Joiner (same user, different browser; has AMK locally) looks up the slot.
     let chal = body_json(pair_challenge(&app, &token, &user_code).await).await;
-    assert_eq!(chal["role"], "receive");
     assert_eq!(chal["displayer_ecdh_public_key"], ECDH_KEY_A);
+    assert!(
+        chal.get("role").is_none() || chal["role"].is_null(),
+        "role must not appear on /challenge response"
+    );
 
-    // Sender approves with amk_transfer (no /claim — role=receive skips it).
+    // Joiner (keyed device) /approves: posts the encrypted AMK.
     let approve = pair_approve(&app, &token, &user_code, amk_transfer_json(ECDH_KEY_B)).await;
     assert_eq!(approve.status(), StatusCode::OK);
 
@@ -226,44 +201,7 @@ async fn pair_role_receive_end_to_end() {
         .unwrap_or(true));
 }
 
-// --- Test 2: role=send end-to-end ---
-//
-// Sender displays → receiver claims (supplying pubkey) → sender approves.
-#[tokio::test]
-async fn pair_role_send_end_to_end() {
-    let store = Arc::new(MemStore::default());
-    let app = test_app_with_store(store.clone(), test_config());
-    let token = register_user(&app, "Alice").await;
-
-    let start = body_json(pair_start(&app, &token, json!({ "role": "send" })).await).await;
-    let user_code = start["user_code"].as_str().unwrap().to_string();
-    let displayer_token = start["displayer_poll_token"].as_str().unwrap().to_string();
-
-    // Receiver claims with their pubkey.
-    let claim = body_json(pair_claim(&app, &token, &user_code, ECDH_KEY_B).await).await;
-    let joiner_token = claim["joiner_poll_token"].as_str().unwrap().to_string();
-
-    // Sender's poll surfaces joiner metadata (UA + timestamp + pubkey).
-    let displayer_poll = body_json(pair_poll(&app, &token, &displayer_token).await).await;
-    assert_eq!(displayer_poll["status"], "claimed");
-    assert_eq!(displayer_poll["peer_ecdh_public_key"], ECDH_KEY_B);
-    assert!(displayer_poll["joiner_user_agent"]
-        .as_str()
-        .unwrap()
-        .contains("Joiner/2.0"));
-    assert!(displayer_poll["joiner_seen_at"].is_string());
-
-    // Sender approves.
-    let approve = pair_approve(&app, &token, &user_code, amk_transfer_json(ECDH_KEY_A)).await;
-    assert_eq!(approve.status(), StatusCode::OK);
-
-    // Receiver polls with joiner_poll_token and gets the payload.
-    let recv_poll = body_json(pair_poll(&app, &token, &joiner_token).await).await;
-    assert_eq!(recv_poll["status"], "approved");
-    assert_eq!(recv_poll["amk_transfer"]["ct"], CT);
-}
-
-// --- Test 3: cross-user reject (Codex #1) ---
+// --- Test: cross-user reject ---
 //
 // Bob's session attempts to access a slot Alice created. Every endpoint 403s,
 // even when Bob has the right user_code or stolen displayer_poll_token.
@@ -274,15 +212,8 @@ async fn pair_rejects_cross_user() {
     let alice = register_user(&app, "Alice").await;
     let bob = register_user(&app, "Bob").await;
 
-    let start = body_json(
-        pair_start(
-            &app,
-            &alice,
-            json!({ "role": "receive", "ecdh_public_key": ECDH_KEY_A }),
-        )
-        .await,
-    )
-    .await;
+    let start =
+        body_json(pair_start(&app, &alice, json!({ "ecdh_public_key": ECDH_KEY_A })).await).await;
     let user_code = start["user_code"].as_str().unwrap().to_string();
     let displayer_token = start["displayer_poll_token"].as_str().unwrap().to_string();
 
@@ -301,13 +232,6 @@ async fn pair_rejects_cross_user() {
     // Bob attempts /cancel with Alice's token — 403.
     let cancel = pair_cancel(&app, &bob, &displayer_token).await;
     assert_eq!(cancel.status(), StatusCode::FORBIDDEN);
-
-    // Bob attempts /claim against Alice's role=send slot — separate setup
-    // because the above slot is role=receive (no claim path).
-    let send_start = body_json(pair_start(&app, &alice, json!({ "role": "send" })).await).await;
-    let send_user_code = send_start["user_code"].as_str().unwrap();
-    let bob_claim = pair_claim(&app, &bob, send_user_code, ECDH_KEY_B).await;
-    assert_eq!(bob_claim.status(), StatusCode::FORBIDDEN);
 }
 
 // --- Test 4: approve does NOT mint an API key (Codex #2) ---
@@ -318,15 +242,8 @@ async fn pair_approve_does_not_mint_api_key() {
     let token = register_user(&app, "Alice").await;
     let api_keys_before = store.keys.lock().unwrap().len();
 
-    let start = body_json(
-        pair_start(
-            &app,
-            &token,
-            json!({ "role": "receive", "ecdh_public_key": ECDH_KEY_A }),
-        )
-        .await,
-    )
-    .await;
+    let start =
+        body_json(pair_start(&app, &token, json!({ "ecdh_public_key": ECDH_KEY_A })).await).await;
     let user_code = start["user_code"].as_str().unwrap();
 
     let approve = pair_approve(&app, &token, user_code, amk_transfer_json(ECDH_KEY_B)).await;
@@ -338,153 +255,73 @@ async fn pair_approve_does_not_mint_api_key() {
     assert_eq!(api_keys_before, api_keys_after);
 }
 
-// --- Test 5: /claim rejects wrong user_code with 409 (constant-time path) ---
-#[tokio::test]
-async fn pair_claim_rejects_wrong_code() {
-    let store = Arc::new(MemStore::default());
-    let app = test_app_with_store(store.clone(), test_config());
-    let token = register_user(&app, "Alice").await;
-    let _ = pair_start(&app, &token, json!({ "role": "send" })).await;
-
-    let bad = pair_claim(&app, &token, "WRONG-CODE", ECDH_KEY_B).await;
-    assert_eq!(bad.status(), StatusCode::CONFLICT);
-}
-
-// --- Test 6: sequential single-claim invariant ---
-//
-// Once /claim succeeds (status pending → claimed), a second /claim with the
-// same user_code returns 409. This is the easy-path counterpart to test 7
-// (concurrent double-claim).
-#[tokio::test]
-async fn pair_claim_rejects_after_pubkey_already_set() {
-    let store = Arc::new(MemStore::default());
-    let app = test_app_with_store(store.clone(), test_config());
-    let token = register_user(&app, "Alice").await;
-
-    let start = body_json(pair_start(&app, &token, json!({ "role": "send" })).await).await;
-    let user_code = start["user_code"].as_str().unwrap().to_string();
-
-    let first = pair_claim(&app, &token, &user_code, ECDH_KEY_B).await;
-    assert_eq!(first.status(), StatusCode::OK);
-
-    let second = pair_claim(&app, &token, &user_code, ECDH_KEY_A).await;
-    assert_eq!(second.status(), StatusCode::CONFLICT);
-}
-
-// --- Test 7: concurrent double-claim — exactly one winner (Codex #7) ---
-//
-// Spawn two simultaneous /claim requests against the same role=send slot.
-// The compare-and-set predicate in `cas_update_challenge_json` must ensure
-// exactly one succeeds and the other gets 409 — no "both succeed" failure
-// where the second pubkey silently overwrites the first.
-#[tokio::test]
-async fn pair_claim_concurrent_double_claim() {
-    let store = Arc::new(MemStore::default());
-    let app = test_app_with_store(store.clone(), test_config());
-    let token = register_user(&app, "Alice").await;
-
-    let start = body_json(pair_start(&app, &token, json!({ "role": "send" })).await).await;
-    let user_code = start["user_code"].as_str().unwrap().to_string();
-
-    let app1 = app.clone();
-    let app2 = app.clone();
-    let token1 = token.clone();
-    let token2 = token.clone();
-    let code1 = user_code.clone();
-    let code2 = user_code.clone();
-
-    let h1 = tokio::spawn(async move { pair_claim(&app1, &token1, &code1, ECDH_KEY_A).await });
-    let h2 = tokio::spawn(async move { pair_claim(&app2, &token2, &code2, ECDH_KEY_B).await });
-
-    let r1 = h1.await.unwrap();
-    let r2 = h2.await.unwrap();
-
-    let s1 = r1.status();
-    let s2 = r2.status();
-    let oks = (s1 == StatusCode::OK) as u8 + (s2 == StatusCode::OK) as u8;
-    let conflicts = (s1 == StatusCode::CONFLICT) as u8 + (s2 == StatusCode::CONFLICT) as u8;
-    assert_eq!(
-        (oks, conflicts),
-        (1, 1),
-        "expected exactly one OK and one CONFLICT, got {s1:?} and {s2:?}"
-    );
-}
-
-// --- Test 8: /cancel terminates polls on both sides ---
+// --- Test: /cancel terminates the displayer's poll ---
 #[tokio::test]
 async fn pair_cancel_terminates_polls() {
     let store = Arc::new(MemStore::default());
     let app = test_app_with_store(store.clone(), test_config());
     let token = register_user(&app, "Alice").await;
 
-    let start = body_json(pair_start(&app, &token, json!({ "role": "send" })).await).await;
-    let user_code = start["user_code"].as_str().unwrap().to_string();
+    let start =
+        body_json(pair_start(&app, &token, json!({ "ecdh_public_key": ECDH_KEY_A })).await).await;
     let displayer_token = start["displayer_poll_token"].as_str().unwrap().to_string();
 
-    let claim = body_json(pair_claim(&app, &token, &user_code, ECDH_KEY_B).await).await;
-    let joiner_token = claim["joiner_poll_token"].as_str().unwrap().to_string();
-
-    // Displayer cancels.
     let cancel = pair_cancel(&app, &token, &displayer_token).await;
     assert_eq!(cancel.status(), StatusCode::OK);
 
-    // Both sides see the terminal status on their next poll.
     let d_poll = body_json(pair_poll(&app, &token, &displayer_token).await).await;
-    let j_poll = body_json(pair_poll(&app, &token, &joiner_token).await).await;
     assert_eq!(d_poll["status"], "cancelled");
-    assert_eq!(j_poll["status"], "cancelled");
     // No payload leaked on cancel.
     assert!(d_poll
         .get("amk_transfer")
         .map(|v| v.is_null())
         .unwrap_or(true));
-    assert!(j_poll
-        .get("amk_transfer")
-        .map(|v| v.is_null())
-        .unwrap_or(true));
 }
 
-// --- Test 9: poll response never exposes IP / IP-hash; geo_label null in v1 (Codex #6) ---
+// --- Test: poll response never exposes IP / IP-hash or any joiner-side data ---
+//
+// The asymmetric design surfaces only `status` (and `amk_transfer` on the
+// success poll) — no joiner UA, no peer pubkey, no IP fields, no
+// joiner_geo_label (the field is gone entirely from the response type).
 #[tokio::test]
 async fn pair_no_ip_in_poll_response() {
     let store = Arc::new(MemStore::default());
     let app = test_app_with_store(store.clone(), test_config());
     let token = register_user(&app, "Alice").await;
 
-    let start = body_json(pair_start(&app, &token, json!({ "role": "send" })).await).await;
-    let user_code = start["user_code"].as_str().unwrap().to_string();
+    let start =
+        body_json(pair_start(&app, &token, json!({ "ecdh_public_key": ECDH_KEY_A })).await).await;
     let displayer_token = start["displayer_poll_token"].as_str().unwrap().to_string();
-    let _ = pair_claim(&app, &token, &user_code, ECDH_KEY_B).await;
 
     let poll = body_json(pair_poll(&app, &token, &displayer_token).await).await;
     let obj = poll.as_object().expect("object");
-    assert!(!obj.contains_key("joiner_ip"));
-    assert!(!obj.contains_key("joiner_ip_hash"));
-    // geo_label is `null` in v1 — either absent (skip_serializing_if) or null.
-    let geo = poll.get("joiner_geo_label");
-    assert!(geo.is_none() || geo.unwrap().is_null());
-    // UA is surfaced as expected (advisory).
-    assert!(poll["joiner_user_agent"].is_string());
+    for forbidden in [
+        "joiner_ip",
+        "joiner_ip_hash",
+        "joiner_user_agent",
+        "joiner_seen_at",
+        "joiner_geo_label",
+        "peer_ecdh_public_key",
+    ] {
+        assert!(
+            !obj.contains_key(forbidden),
+            "poll response leaked field: {forbidden}"
+        );
+    }
 }
 
 // --- Test 10: slot rows deleted on expiry — privacy-posture regression guard ---
 //
 // Run a full pair flow, advance the clock past `expires_at`, run the
 // reaper's `delete_expired`, and assert no `purpose='web-pair'` rows
-// remain. Captures the contract that captured `joiner_user_agent` strings
-// do not outlive their slot.
+// remain.
 #[tokio::test]
 async fn pair_slot_deleted_at_expiry() {
     let store = Arc::new(MemStore::default());
     let app = test_app_with_store(store.clone(), test_config());
     let token = register_user(&app, "Alice").await;
 
-    let _ = pair_start(
-        &app,
-        &token,
-        json!({ "role": "receive", "ecdh_public_key": ECDH_KEY_A }),
-    )
-    .await;
+    let _ = pair_start(&app, &token, json!({ "ecdh_public_key": ECDH_KEY_A })).await;
     assert_eq!(count_web_pair_rows(&store), 1);
 
     // Advance past the 10-minute slot TTL. The production Postgres reaper
@@ -513,7 +350,8 @@ async fn pair_challenge_returns_409_for_terminal_states() {
     let token = register_user(&app, "Alice").await;
 
     // 'cancelled' state.
-    let s = body_json(pair_start(&app, &token, json!({ "role": "send" })).await).await;
+    let s =
+        body_json(pair_start(&app, &token, json!({ "ecdh_public_key": ECDH_KEY_A })).await).await;
     let code = s["user_code"].as_str().unwrap().to_string();
     let dt = s["displayer_poll_token"].as_str().unwrap().to_string();
     let _ = pair_cancel(&app, &token, &dt).await;
@@ -522,31 +360,15 @@ async fn pair_challenge_returns_409_for_terminal_states() {
     let body = body_json(chal).await;
     assert_eq!(body["state"], "cancelled");
 
-    // 'approved' state.
-    let s2 = body_json(
-        pair_start(
-            &app,
-            &token,
-            json!({ "role": "receive", "ecdh_public_key": ECDH_KEY_A }),
-        )
-        .await,
-    )
-    .await;
+    // 'approved' state (joiner /approves directly from pending).
+    let s2 =
+        body_json(pair_start(&app, &token, json!({ "ecdh_public_key": ECDH_KEY_A })).await).await;
     let code2 = s2["user_code"].as_str().unwrap().to_string();
     let _ = pair_approve(&app, &token, &code2, amk_transfer_json(ECDH_KEY_B)).await;
     let chal2 = pair_challenge(&app, &token, &code2).await;
     assert_eq!(chal2.status(), StatusCode::CONFLICT);
     let body2 = body_json(chal2).await;
     assert_eq!(body2["state"], "approved");
-
-    // 'claimed' state (role=send slot after a successful /claim).
-    let s3 = body_json(pair_start(&app, &token, json!({ "role": "send" })).await).await;
-    let code3 = s3["user_code"].as_str().unwrap().to_string();
-    let _ = pair_claim(&app, &token, &code3, ECDH_KEY_B).await;
-    let chal3 = pair_challenge(&app, &token, &code3).await;
-    assert_eq!(chal3.status(), StatusCode::CONFLICT);
-    let body3 = body_json(chal3).await;
-    assert_eq!(body3["state"], "claimed");
 
     // Nonexistent code — 404, not 409.
     let chal4 = pair_challenge(&app, &token, "NOPE-NOPE").await;
@@ -560,15 +382,8 @@ async fn pair_amk_transfer_field_validation() {
     let app = test_app_with_store(store.clone(), test_config());
     let token = register_user(&app, "Alice").await;
 
-    let s = body_json(
-        pair_start(
-            &app,
-            &token,
-            json!({ "role": "receive", "ecdh_public_key": ECDH_KEY_A }),
-        )
-        .await,
-    )
-    .await;
+    let s =
+        body_json(pair_start(&app, &token, json!({ "ecdh_public_key": ECDH_KEY_A })).await).await;
     let code = s["user_code"].as_str().unwrap().to_string();
 
     // Wrong nonce length.
@@ -599,36 +414,37 @@ async fn pair_amk_transfer_field_validation() {
     assert_eq!(r.status(), StatusCode::BAD_REQUEST);
 }
 
-// --- Test 13: /start role-pubkey validation ---
+// --- Test 13: /start request validation ---
 //
-// role=receive must include ecdh_public_key; role=send must not.
+// ecdh_public_key is required unconditionally; role is unknown and rejected
+// by deny_unknown_fields; malformed pubkey is 400.
 #[tokio::test]
 async fn pair_start_role_pubkey_validation() {
     let store = Arc::new(MemStore::default());
     let app = test_app_with_store(store.clone(), test_config());
     let token = register_user(&app, "Alice").await;
 
-    // role=receive without pubkey → 400.
-    let r = pair_start(&app, &token, json!({ "role": "receive" })).await;
+    // Missing ecdh_public_key → 400.
+    let r = pair_start(&app, &token, json!({})).await;
     assert_eq!(r.status(), StatusCode::BAD_REQUEST);
 
-    // role=send WITH pubkey → 400.
+    // Malformed ecdh_public_key → 400.
+    let r = pair_start(&app, &token, json!({ "ecdh_public_key": "not-a-key" })).await;
+    assert_eq!(r.status(), StatusCode::BAD_REQUEST);
+
+    // Legacy `role` field rejected by deny_unknown_fields → 400. This is the
+    // back-compat-break that's safe because the feature is unreleased.
     let r = pair_start(
         &app,
         &token,
-        json!({ "role": "send", "ecdh_public_key": ECDH_KEY_A }),
+        json!({ "role": "receive", "ecdh_public_key": ECDH_KEY_A }),
     )
     .await;
     assert_eq!(r.status(), StatusCode::BAD_REQUEST);
 
-    // role=receive with malformed pubkey → 400.
-    let r = pair_start(
-        &app,
-        &token,
-        json!({ "role": "receive", "ecdh_public_key": "not-a-key" }),
-    )
-    .await;
-    assert_eq!(r.status(), StatusCode::BAD_REQUEST);
+    // Well-formed request → 200.
+    let r = pair_start(&app, &token, json!({ "ecdh_public_key": ECDH_KEY_A })).await;
+    assert_eq!(r.status(), StatusCode::OK);
 }
 
 // --- Test 14: wrong HTTP methods return 405 ---
@@ -647,10 +463,9 @@ async fn pair_endpoints_reject_wrong_method() {
     let token = register_user(&app, "Alice").await;
 
     let cases: Vec<(&str, &str)> = vec![
-        // /start, /poll, /claim, /approve, /cancel are POST-only — try GET.
+        // /start, /poll, /approve, /cancel are POST-only — try GET.
         ("GET", "/api/v1/auth/pair/start"),
         ("GET", "/api/v1/auth/pair/poll"),
-        ("GET", "/api/v1/auth/pair/claim"),
         ("GET", "/api/v1/auth/pair/approve"),
         ("GET", "/api/v1/auth/pair/cancel"),
         // /challenge is GET-only — try POST.
@@ -695,36 +510,7 @@ async fn pair_poll_unknown_token_returns_expired() {
         .unwrap_or(true));
 }
 
-// --- Test 16: /cancel works via joiner's poll token, not just displayer's ---
-//
-// The cancel handler has a dual-lookup (primary key, then JSON scan) so
-// either side can cancel. Coverage gap: only displayer-side cancel was
-// exercised by `pair_cancel_terminates_polls`.
-#[tokio::test]
-async fn pair_cancel_by_joiner_poll_token() {
-    let store = Arc::new(MemStore::default());
-    let app = test_app_with_store(store.clone(), test_config());
-    let token = register_user(&app, "Alice").await;
-
-    let start = body_json(pair_start(&app, &token, json!({ "role": "send" })).await).await;
-    let user_code = start["user_code"].as_str().unwrap().to_string();
-    let displayer_token = start["displayer_poll_token"].as_str().unwrap().to_string();
-
-    let claim = body_json(pair_claim(&app, &token, &user_code, ECDH_KEY_B).await).await;
-    let joiner_token = claim["joiner_poll_token"].as_str().unwrap().to_string();
-
-    // Joiner cancels using their own token.
-    let cancel = pair_cancel(&app, &token, &joiner_token).await;
-    assert_eq!(cancel.status(), StatusCode::OK);
-
-    // Both sides see 'cancelled'.
-    let d_poll = body_json(pair_poll(&app, &token, &displayer_token).await).await;
-    let j_poll = body_json(pair_poll(&app, &token, &joiner_token).await).await;
-    assert_eq!(d_poll["status"], "cancelled");
-    assert_eq!(j_poll["status"], "cancelled");
-}
-
-// --- Test 17: /cancel is idempotent after terminal states ---
+// --- Test: /cancel is idempotent after terminal states ---
 //
 // A second /cancel against an already-cancelled or already-approved slot
 // returns OK without corrupting state. Also covers the "unknown token"
@@ -736,7 +522,8 @@ async fn pair_cancel_idempotent_after_terminal() {
     let token = register_user(&app, "Alice").await;
 
     // Already-cancelled slot.
-    let s1 = body_json(pair_start(&app, &token, json!({ "role": "send" })).await).await;
+    let s1 =
+        body_json(pair_start(&app, &token, json!({ "ecdh_public_key": ECDH_KEY_A })).await).await;
     let dt1 = s1["displayer_poll_token"].as_str().unwrap().to_string();
     let r1a = pair_cancel(&app, &token, &dt1).await;
     let r1b = pair_cancel(&app, &token, &dt1).await;
@@ -744,15 +531,8 @@ async fn pair_cancel_idempotent_after_terminal() {
     assert_eq!(r1b.status(), StatusCode::OK);
 
     // Already-approved slot.
-    let s2 = body_json(
-        pair_start(
-            &app,
-            &token,
-            json!({ "role": "receive", "ecdh_public_key": ECDH_KEY_A }),
-        )
-        .await,
-    )
-    .await;
+    let s2 =
+        body_json(pair_start(&app, &token, json!({ "ecdh_public_key": ECDH_KEY_A })).await).await;
     let code2 = s2["user_code"].as_str().unwrap().to_string();
     let dt2 = s2["displayer_poll_token"].as_str().unwrap().to_string();
     let _ = pair_approve(&app, &token, &code2, amk_transfer_json(ECDH_KEY_B)).await;
@@ -790,17 +570,12 @@ async fn pair_endpoints_require_session_auth() {
         (
             "POST",
             "/api/v1/auth/pair/start",
-            Some(json!({ "role": "send" })),
+            Some(json!({ "ecdh_public_key": ECDH_KEY_A })),
         ),
         (
             "POST",
             "/api/v1/auth/pair/poll",
             Some(json!({ "poll_token": "nope" })),
-        ),
-        (
-            "POST",
-            "/api/v1/auth/pair/claim",
-            Some(json!({ "user_code": "X", "ecdh_public_key": ECDH_KEY_A })),
         ),
         ("GET", "/api/v1/auth/pair/challenge?user_code=X", None),
         (
@@ -827,4 +602,77 @@ async fn pair_endpoints_require_session_auth() {
             "expected 401 for {method} {path}"
         );
     }
+}
+
+// --- Test: two concurrent /approves from pending — exactly one wins ---
+//
+// Pure CAS race: both threads expect status='pending' and try to transition
+// to 'approved'. The CAS on status='pending' must collapse them to a single
+// winner. Loser sees 409.
+#[tokio::test]
+async fn pair_concurrent_direct_approves_from_pending() {
+    let store = Arc::new(MemStore::default());
+    let app = test_app_with_store(store.clone(), test_config());
+    let token = register_user(&app, "Alice").await;
+
+    let start =
+        body_json(pair_start(&app, &token, json!({ "ecdh_public_key": ECDH_KEY_A })).await).await;
+    let user_code = start["user_code"].as_str().unwrap().to_string();
+
+    let app1 = app.clone();
+    let app2 = app.clone();
+    let token1 = token.clone();
+    let token2 = token.clone();
+    let code1 = user_code.clone();
+    let code2 = user_code.clone();
+
+    let h1 = tokio::spawn(async move {
+        pair_approve(&app1, &token1, &code1, amk_transfer_json(ECDH_KEY_B)).await
+    });
+    let h2 = tokio::spawn(async move {
+        pair_approve(&app2, &token2, &code2, amk_transfer_json(ECDH_KEY_B)).await
+    });
+    let r1 = h1.await.unwrap();
+    let r2 = h2.await.unwrap();
+
+    let oks = (r1.status() == StatusCode::OK) as u8 + (r2.status() == StatusCode::OK) as u8;
+    let conflicts =
+        (r1.status() == StatusCode::CONFLICT) as u8 + (r2.status() == StatusCode::CONFLICT) as u8;
+    assert_eq!(
+        (oks, conflicts),
+        (1, 1),
+        "expected exactly one OK and one CONFLICT, got {:?} and {:?}",
+        r1.status(),
+        r2.status(),
+    );
+}
+
+// --- Test: pending /poll exposes no displayer pubkey or joiner metadata ---
+//
+// Defense-in-depth: assert a pending /poll response contains nothing more
+// than `status`. /start stores displayer_ecdh_public_key, but it must not
+// be echoed back through /poll. No joiner side polls exist (the joiner's
+// /approve is synchronous), so this protects against accidentally
+// exposing it via the displayer's path either.
+#[tokio::test]
+async fn pair_poll_pending_no_displayer_pubkey_leak() {
+    let store = Arc::new(MemStore::default());
+    let app = test_app_with_store(store.clone(), test_config());
+    let token = register_user(&app, "Alice").await;
+
+    let start =
+        body_json(pair_start(&app, &token, json!({ "ecdh_public_key": ECDH_KEY_A })).await).await;
+    let displayer_token = start["displayer_poll_token"].as_str().unwrap().to_string();
+
+    // Displayer polls a pending slot — only status should be present.
+    let poll = body_json(pair_poll(&app, &token, &displayer_token).await).await;
+    assert_eq!(poll["status"], "pending");
+    let obj = poll.as_object().expect("object");
+    assert!(
+        !obj.contains_key("peer_ecdh_public_key"),
+        "pending poll must not expose any pubkey"
+    );
+    assert!(!obj.contains_key("joiner_user_agent"));
+    assert!(!obj.contains_key("joiner_seen_at"));
+    assert!(!obj.contains_key("amk_transfer"));
 }
