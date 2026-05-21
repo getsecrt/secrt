@@ -395,7 +395,7 @@ function DashboardContent() {
                     <LockIcon class="size-3.5" />
                   </th>
                   <th
-                    class={`w-[119px] pr-3 pb-2 font-medium ${thSortable}`}
+                    class={`w-30 pr-3 pb-2 font-medium ${thSortable}`}
                     onClick={() => toggleSort('expires_at')}
                   >
                     Remaining
@@ -429,7 +429,7 @@ function DashboardContent() {
                       {formatSize(s.ciphertext_size)}
                     </td>
                     <td
-                      class={`hidden max-w-[12rem] truncate py-2 pr-3 text-xs md:table-cell ${
+                      class={`hidden max-w-48 truncate py-2 pr-3 text-xs md:table-cell ${
                         decryptedNotes[s.id] || s.enc_meta?.note
                           ? 'link-subtle cursor-pointer text-muted hover:text-accent'
                           : 'text-muted'
