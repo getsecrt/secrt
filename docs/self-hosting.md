@@ -1251,6 +1251,8 @@ sudo chmod 644 /etc/cron.d/ssh-login-watch
 
 If you've restricted SSH to a specific country at the firewall layer (e.g. via GeoIP ipset rules in UFW), this catches "wrong username from a permitted IP." For "logins from unfamiliar IPs within the permitted geography," fail2ban + ipban patterns are a separate (heavier) tool.
 
+> ⚠️ **If you implement that GeoIP restriction with a custom systemd unit that loads ipsets before your firewall service** (e.g. `Before=ufw.service` on a oneshot), the unit MUST also set `DefaultDependencies=no`. Otherwise systemd's implicit `After=basic.target` collides with the firewall's early-boot ordering and resolves the cycle by nondeterministically deleting a start job in the dependency graph — sometimes `ssh.socket`, which silently kills SSH on the next reboot with no error in `systemctl status ssh.socket` beyond `inactive (dead)`. Pattern after your firewall's own unit header (for UFW: `DefaultDependencies=no`, `Wants=network-pre.target`, `Before=network-pre.target ufw.service ssh.socket`, `Conflicts=shutdown.target`, `Before=shutdown.target`).
+
 Restart Netdata so the new health configs load:
 
 ```bash
