@@ -6,6 +6,7 @@ license.workspace = true
 repository.workspace = true
 rust-version = "1.82"
 description = "Axum backend and admin tooling for secrt"
+default-run = "secrt-server"
 
 [dependencies]
 secrt-core = { path = "../secrt-core", version = "0.18.1" }

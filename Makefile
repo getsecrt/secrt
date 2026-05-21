@@ -1,4 +1,4 @@
-.PHONY: dev server web \
+.PHONY: dev server admin web \
        test test-rust test-rust-fallback test-doc test-desktop test-app \
        test-cli test-server test-core test-web \
        lint lint-rust lint-web \
@@ -10,13 +10,16 @@
 
 dev: ## Start backend + frontend (Ctrl+C stops both)
 	@trap 'kill 0' INT TERM; \
-	cargo run --bin secrt-server & \
+	cargo run -p secrt-server --bin secrt-server & \
 	sleep 1; \
 	pnpm -C web dev & \
 	wait
 
 server: ## Start backend only
-	cargo run --bin secrt-server
+	cargo run -p secrt-server --bin secrt-server
+
+admin: ## Run secrt-admin CLI (for args, run `cargo run -p secrt-server --bin secrt-admin -- <args>`)
+	cargo run -p secrt-server --bin secrt-admin
 
 web: ## Start frontend only
 	pnpm -C web dev
