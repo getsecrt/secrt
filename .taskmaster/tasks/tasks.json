@@ -931,8 +931,8 @@
       {
         "id": 68,
         "title": "Browser-to-browser AMK transfer (pair-code + bidirectional QR)",
-        "description": "Full plan: .taskmaster/plans/task-68-amk-pair-code.md (May 2, 2026). Surface the existing XXXX-XXXX device-auth primitive as a web-to-web AMK transfer flow with a bidirectional rendezvous-QR. Replaces the killed listener/inbox/SSE design. Security upgrade over today payload-QR: rendezvous-QR carries only a slot ID + ephemeral pubkey, not the encrypted AMK blob.",
-        "status": "pending",
+        "description": "Full plan: .taskmaster/plans/task-68-amk-pair-code.md (May 2, 2026). Surface the existing XXXX-XXXX device-auth primitive as a web-to-web AMK transfer flow with a bidirectional rendezvous-QR. Replaces the killed listener/inbox/SSE design. Security upgrade over today payload-QR: rendezvous-QR carries only a slot ID + ephemeral pubkey, not the encrypted AMK blob. — Superseded by the simpler single-direction sender→receiver AMK pair flow shipped in 0.18.0. Bidirectional pair-code-or-QR rendezvous was deemed too confusing in practice; the typed 8-digit code primitive shipped as the no-camera fallback.",
+        "status": "cancelled",
         "priority": "high",
         "dependencies": [],
         "subtasks": [
