@@ -152,6 +152,53 @@ fn pair_help_runs() {
     assert!(err.contains("Receive:"));
 }
 
+#[test]
+fn pair_too_many_positionals_exits_2() {
+    // `secrt pair CODE stray` is a usage error — should exit 2 before any
+    // network or API-key work.
+    let api_key = make_local_api_key();
+    let (mut deps, _stdout, stderr) = TestDepsBuilder::new()
+        .env("SECRET_API_KEY", &api_key)
+        .build();
+    let code = cli::run(
+        &args(&["secrt", "pair", "K7MQ-QX2Z", "stray-extra-arg"]),
+        &mut deps,
+    );
+    assert_eq!(code, 2, "stderr: {}", stderr);
+    assert!(
+        stderr.to_string().contains("too many arguments"),
+        "should mention extra positional: {}",
+        stderr
+    );
+}
+
+#[test]
+fn pair_unlinked_api_key_reports_relink_not_network() {
+    // `get_amk_wrapper` returns a 400 with "not linked" when the API key
+    // has no associated user. Verify the CLI classifies that as an auth
+    // problem (re-link hint) rather than a network error.
+    let api_key = make_local_api_key();
+    let (mut deps, _stdout, stderr) = TestDepsBuilder::new()
+        .env("SECRET_API_KEY", &api_key)
+        .mock_get_amk_wrapper(Err(
+            "server error (400): api key is not linked to a user account".to_string(),
+        ))
+        .build();
+    let code = cli::run(&args(&["secrt", "pair"]), &mut deps);
+    assert_eq!(code, 1, "stderr: {}", stderr);
+    let err = stderr.to_string();
+    assert!(
+        err.contains("API key rejected") && err.contains("secrt auth login"),
+        "should classify unlinked-key 400 as auth problem, not network: {}",
+        err
+    );
+    assert!(
+        !err.contains("could not reach the server"),
+        "should not present unlinked-key as a network failure: {}",
+        err
+    );
+}
+
 // --- Receive mode happy path (closure-based mock) ----------------------------
 
 /// A pair-aware mock that wires a real ECDH/HKDF/AES-256-GCM exchange so
@@ -325,6 +372,71 @@ fn pair_receive_happy_path() {
     // transfer, ran the wrap+upload pipeline, and finished successfully.
     assert!(upserted.lock().unwrap().is_some(), "no AMK was upserted");
     let _ = stderr;
+}
+
+#[test]
+fn pair_receive_json_still_prints_code_on_stderr() {
+    // Regression guard: `--json` must NOT suppress the code/URL/QR in
+    // Receive mode. Without them the other device has nothing to enter,
+    // and the slot would just sit pending until timeout.
+    let api_key = make_local_api_key();
+    let displayer_pubkey_b64 = Arc::new(Mutex::new(None));
+    let upserted = Arc::new(Mutex::new(None));
+    let delivered = Arc::new(Mutex::new(false));
+
+    let amk = vec![0x42u8; 32];
+    let dp_clone = displayer_pubkey_b64.clone();
+    let up_clone = upserted.clone();
+    let del_clone = delivered.clone();
+    let amk_clone = amk.clone();
+
+    let make_api: secrt_cli::cli::MakeApiFn =
+        Box::new(move |_base: &str, _key: &str| -> Box<dyn SecretApi> {
+            Box::new(PairReceiveMock {
+                user_code: "K7MQ-QX2Z".into(),
+                poll_token: "test-poll-token".into(),
+                displayer_pubkey_b64: dp_clone.clone(),
+                amk_bytes: amk_clone.clone(),
+                delivered: del_clone.clone(),
+                upserted: up_clone.clone(),
+            })
+        });
+
+    let (mut deps, stdout, stderr) = TestDepsBuilder::new()
+        .env("SECRET_API_KEY", &api_key)
+        .make_api(make_api)
+        .build();
+
+    let code = cli::run(&args(&["secrt", "pair", "--json"]), &mut deps);
+    assert_eq!(code, 0, "stderr: {}", stderr);
+
+    let err = stderr.to_string();
+    let out = stdout.to_string();
+
+    // Stderr carries the pair URL and the user code (the point of the
+    // command — without them the other device can't enter anything).
+    assert!(
+        err.contains("/pair?code=K7MQ-QX2Z"),
+        "JSON mode should still print pair URL on stderr: {}",
+        err
+    );
+    assert!(
+        err.contains("K7MQ-QX2Z"),
+        "JSON mode should still print user code on stderr: {}",
+        err
+    );
+
+    // Stdout is the final JSON status line — nothing else.
+    assert!(
+        out.contains("\"status\":\"received\""),
+        "stdout should carry final JSON status: {}",
+        out
+    );
+    assert!(
+        !out.contains("K7MQ-QX2Z"),
+        "stdout must not leak progress/code into JSON output: {}",
+        out
+    );
 }
 
 // --- Send mode happy path ---------------------------------------------------
@@ -589,6 +701,57 @@ fn pair_send_accepts_full_url() {
         run_send_with_positional("https://secrt.ca", "https://secrt.ca/pair?code=K7MQ-QX2Z");
     assert_eq!(code, 0, "stderr: {err}");
     assert_eq!(captured.as_deref(), Some("K7MQ-QX2Z"));
+}
+
+#[test]
+fn pair_send_url_passes_derived_host_to_api_client() {
+    // Regression for the bug Codex flagged: URL-derived base URL was
+    // mutated only on a cloned `ParsedArgs`, so the API client kept
+    // talking to the original configured base. After the fix, `make_api`
+    // must receive the host the URL pointed at (when the leak guard
+    // allows it — here, a wildcard subdomain of the same logical
+    // instance).
+    let api_key = make_local_api_key();
+    let captured_base = Arc::new(Mutex::new(None));
+    let captured_base_clone = captured_base.clone();
+    let approved_with_code = Arc::new(Mutex::new(None));
+    let approved_blob = Arc::new(Mutex::new(None));
+    let code_clone = approved_with_code.clone();
+    let blob_clone = approved_blob.clone();
+    let displayer_pk = build_displayer_pubkey();
+
+    let make_api: secrt_cli::cli::MakeApiFn =
+        Box::new(move |base: &str, _k: &str| -> Box<dyn SecretApi> {
+            *captured_base_clone.lock().unwrap() = Some(base.to_string());
+            Box::new(PairSendMock {
+                displayer_pubkey_b64: displayer_pk.clone(),
+                approved_with_code: code_clone.clone(),
+                approved_blob: blob_clone.clone(),
+            })
+        });
+
+    let (mut deps, _stdout, stderr) = TestDepsBuilder::new()
+        .env("SECRET_API_KEY", &api_key)
+        // No SECRET_BASE_URL → source is Default → derive_base_url_from_url
+        // promotes the URL to base_url and the leak guard permits it since
+        // `my.secrt.ca` and `secrt.ca` are the same logical instance.
+        .make_api(make_api)
+        .build();
+    let code = cli::run(
+        &args(&["secrt", "pair", "https://my.secrt.ca/pair?code=K7MQ-QX2Z"]),
+        &mut deps,
+    );
+    assert_eq!(code, 0, "stderr: {}", stderr);
+    let base = captured_base.lock().unwrap().clone();
+    assert_eq!(
+        base.as_deref(),
+        Some("https://my.secrt.ca"),
+        "API client must be built from the URL-derived host, not the default base"
+    );
+    assert_eq!(
+        approved_with_code.lock().unwrap().as_deref(),
+        Some("K7MQ-QX2Z")
+    );
 }
 
 #[test]

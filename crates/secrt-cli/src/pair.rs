@@ -16,7 +16,6 @@
 //! API-key path via the existing `X-API-Key` header.
 
 use std::io::{BufRead, BufReader, Write};
-use std::thread;
 use std::time::{Duration, Instant};
 
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
@@ -57,9 +56,21 @@ pub fn run_pair(args: &[String], deps: &mut Deps) -> i32 {
     };
     resolve_globals(&mut pa, deps);
 
-    let positional = pa.args.first().cloned();
     let is_tty = (deps.is_tty)();
     let stderr_tty = (deps.is_stderr_tty)();
+
+    // Reject extra positionals before any network or auth work. `secrt
+    // pair CODE stray` is a usage error, not a silent ignore.
+    if pa.args.len() > 1 {
+        write_error(
+            &mut deps.stderr,
+            pa.json,
+            is_tty,
+            "too many arguments (expected at most one code or pair URL)",
+        );
+        return 2;
+    }
+    let positional = pa.args.first().cloned();
 
     crate::instance_trust::warn_if_unofficial(
         &pa.base_url,
@@ -68,11 +79,28 @@ pub fn run_pair(args: &[String], deps: &mut Deps) -> i32 {
         stderr_tty,
     );
 
+    // If the positional is a URL, derive the base URL onto `pa` and run
+    // the cross-instance leak guard BEFORE creating the API client.
+    // Otherwise the client (and `get_amk_wrapper`, `pair_challenge`,
+    // `pair_approve`) would still address the original configured base
+    // even when the URL pointed at an allowed sibling (e.g. wildcard
+    // subdomain of the same logical instance).
+    let positional_code = if let Some(arg) = positional.as_deref() {
+        match extract_code_with_url_handling(arg, &mut pa, deps) {
+            Ok(code) => Some(code),
+            Err(exit_code) => return exit_code,
+        }
+    } else {
+        None
+    };
+
     let client = (deps.make_api)(&pa.base_url, &pa.api_key);
     let state = amk_store::resolve_account_key_state(&pa, &*client);
 
-    match (&state, positional.as_deref()) {
-        (AccountKeyState::Present(amk), Some(arg)) => run_send_mode(&pa, deps, &*client, amk, arg),
+    match (&state, positional_code) {
+        (AccountKeyState::Present(amk), Some(code)) => {
+            run_send_mode(&pa, deps, &*client, amk, &code)
+        }
         (AccountKeyState::Present(amk), None) => {
             if !is_tty {
                 write_error(
@@ -83,13 +111,21 @@ pub fn run_pair(args: &[String], deps: &mut Deps) -> i32 {
                 );
                 return 2;
             }
-            match prompt_for_code(deps) {
-                Ok(code) => run_send_mode(&pa, deps, &*client, amk, &code),
+            let raw = match prompt_for_code(deps) {
+                Ok(r) => r,
                 Err(e) => {
                     write_error(&mut deps.stderr, pa.json, is_tty, &e);
-                    1
+                    return 1;
                 }
-            }
+            };
+            let code = match extract_code_with_url_handling(&raw, &mut pa, deps) {
+                Ok(c) => c,
+                Err(exit_code) => return exit_code,
+            };
+            // If the prompt URL changed the base, rebuild the client so
+            // subsequent pair_challenge / pair_approve hit the right host.
+            let send_client = (deps.make_api)(&pa.base_url, &pa.api_key);
+            run_send_mode(&pa, deps, &*send_client, amk, &code)
         }
         (AccountKeyState::Missing, Some(_)) => {
             write_error(
@@ -142,6 +178,49 @@ pub fn run_pair(args: &[String], deps: &mut Deps) -> i32 {
     }
 }
 
+/// Parse a raw user-supplied code or URL into a canonical `XXXX-XXXX`.
+/// If the input is URL-shaped, derive the base URL onto `pa` and run the
+/// cross-instance leak guard before extracting the code. Mutates `pa`
+/// directly so the rest of `run_pair` builds its API client from the
+/// final base URL.
+///
+/// Returns `Err(exit_code)` when the input is malformed (`2`) or the
+/// leak guard fires (`2`). The leak guard's exit code matches the
+/// existing `sync` / `burn` / `info` callers for consistency.
+fn extract_code_with_url_handling(
+    raw: &str,
+    pa: &mut ParsedArgs,
+    deps: &mut Deps,
+) -> Result<String, i32> {
+    let trimmed = raw.trim();
+    let is_tty = (deps.is_tty)();
+    let stderr_tty = (deps.is_stderr_tty)();
+
+    if let Some(url_input) = normalize_pair_url(trimmed) {
+        crate::cli::derive_base_url_from_url(&url_input, pa);
+        instance_trust::block_if_cross_instance(pa, "pair", &mut deps.stderr, stderr_tty)?;
+        parse_pair_url(&url_input).ok_or_else(|| {
+            write_error(
+                &mut deps.stderr,
+                pa.json,
+                is_tty,
+                "could not extract a pair code from the URL (expected `/pair?code=XXXX-XXXX`)",
+            );
+            2
+        })
+    } else {
+        canonicalize_code(trimmed).ok_or_else(|| {
+            write_error(
+                &mut deps.stderr,
+                pa.json,
+                is_tty,
+                "invalid pair code (expected 8 characters from the alphabet ABCDEFGHJKLMNPQRSTUVWXYZ23456789, optionally with a hyphen in the middle)",
+            );
+            2
+        })
+    }
+}
+
 // --- Send mode --------------------------------------------------------------
 
 fn run_send_mode(
@@ -149,56 +228,17 @@ fn run_send_mode(
     deps: &mut Deps,
     client: &(dyn SecretApi + '_),
     amk: &[u8],
-    code_or_url: &str,
+    canonical_code: &str,
 ) -> i32 {
     let is_tty = (deps.is_tty)();
     let stderr_tty = (deps.is_stderr_tty)();
     let c = color_func(stderr_tty);
 
-    // If a URL was pasted (with or without scheme), derive the base URL
-    // from it AND run the existing cross-instance leak guard (matches
-    // `secrt sync`). Bare codes skip both.
-    let mut pa_for_guard = clone_pa_for_guard(pa);
-    let trimmed = code_or_url.trim();
-    let parsed_code = if let Some(url_input) = normalize_pair_url(trimmed) {
-        crate::cli::derive_base_url_from_url(&url_input, &mut pa_for_guard);
-        if let Err(code) = instance_trust::block_if_cross_instance(
-            &pa_for_guard,
-            "pair",
-            &mut deps.stderr,
-            stderr_tty,
-        ) {
-            return code;
-        }
-        match parse_pair_url(&url_input) {
-            Some(code) => code,
-            None => {
-                write_error(
-                    &mut deps.stderr,
-                    pa.json,
-                    is_tty,
-                    "could not extract a pair code from the URL (expected `/pair?code=XXXX-XXXX`)",
-                );
-                return 2;
-            }
-        }
-    } else {
-        match canonicalize_code(trimmed) {
-            Some(code) => code,
-            None => {
-                write_error(
-                    &mut deps.stderr,
-                    pa.json,
-                    is_tty,
-                    "invalid pair code (expected 8 characters from the alphabet ABCDEFGHJKLMNPQRSTUVWXYZ23456789, optionally with a hyphen in the middle)",
-                );
-                return 2;
-            }
-        }
-    };
-
-    // Look up the slot — get the displayer's pubkey.
-    let displayer_pk_b64 = match client.pair_challenge(&parsed_code) {
+    // Look up the slot — get the displayer's pubkey. URL parsing and the
+    // cross-instance leak guard have already run upstream in `run_pair`
+    // via `extract_code_with_url_handling`, so the API client is already
+    // pointed at the right host by the time we get here.
+    let displayer_pk_b64 = match client.pair_challenge(canonical_code) {
         Ok(PairChallengeOutcome::Pending {
             displayer_ecdh_public_key,
         }) => displayer_ecdh_public_key,
@@ -236,7 +276,7 @@ fn run_send_mode(
     };
 
     let req = PairApproveRequest {
-        user_code: parsed_code,
+        user_code: canonical_code.to_string(),
         amk_transfer: transfer_blob,
     };
 
@@ -335,26 +375,26 @@ fn run_receive_mode(pa: &ParsedArgs, deps: &mut Deps, client: &(dyn SecretApi + 
         }
     };
 
-    // Render code + URL + QR. Silent mode still prints the code + URL +
-    // QR — they're the point of the command.
-    if !pa.json {
-        let pair_url = format!(
-            "{}/pair?code={}",
-            trim_slash(&pa.base_url),
-            start_resp.user_code
-        );
-        let _ = writeln!(
-            deps.stderr,
-            "On another signed-in device, visit {}",
-            c(URL_LIKE, &pair_url)
-        );
-        let _ = writeln!(deps.stderr, "and enter this code:");
-        let _ = writeln!(deps.stderr);
-        let _ = writeln!(deps.stderr, "  {}", c(HEADING, &start_resp.user_code));
-        if stderr_tty {
-            if let Ok(qr) = qrcode::QrCode::new(pair_url.as_bytes()) {
-                let _ = writeln!(deps.stderr, "\n{}", crate::qr::render_qr_compact(&qr));
-            }
+    // Render code + URL + QR — always on stderr, regardless of `--json`
+    // or `--silent`. They're the point of the command: without them the
+    // other device has nothing to type. `--json` puts only the final
+    // `{"status":"received"}` on stdout; everything else stays on stderr.
+    let pair_url = format!(
+        "{}/pair?code={}",
+        trim_slash(&pa.base_url),
+        start_resp.user_code
+    );
+    let _ = writeln!(
+        deps.stderr,
+        "On another signed-in device, visit {}",
+        c(URL_LIKE, &pair_url)
+    );
+    let _ = writeln!(deps.stderr, "and enter this code:");
+    let _ = writeln!(deps.stderr);
+    let _ = writeln!(deps.stderr, "  {}", c(HEADING, &start_resp.user_code));
+    if stderr_tty {
+        if let Ok(qr) = qrcode::QrCode::new(pair_url.as_bytes()) {
+            let _ = writeln!(deps.stderr, "\n{}", crate::qr::render_qr_compact(&qr));
         }
     }
 
@@ -379,12 +419,16 @@ fn run_receive_mode(pa: &ParsedArgs, deps: &mut Deps, client: &(dyn SecretApi + 
         }
     };
 
-    // Poll loop.
+    // Poll loop. Countdown and \r-overwrite progress only render to a
+    // TTY (so piped stderr stays clean) and respect `--silent`. `--json`
+    // does NOT suppress them: the spec puts progress on stderr in JSON
+    // mode and only the final status on stdout.
+    let show_progress = !pa.silent && stderr_tty;
     let started = Instant::now();
     let expiry = Duration::from_secs(PAIR_EXPIRY_SECS);
     loop {
         if started.elapsed() >= expiry {
-            if !pa.silent && !pa.json && stderr_tty {
+            if show_progress {
                 let _ = writeln!(deps.stderr); // newline after the \r line
             }
             write_error(
@@ -395,7 +439,7 @@ fn run_receive_mode(pa: &ParsedArgs, deps: &mut Deps, client: &(dyn SecretApi + 
             );
             return 1;
         }
-        if !pa.silent && !pa.json && stderr_tty {
+        if show_progress {
             let remaining = expiry.saturating_sub(started.elapsed()).as_secs();
             let mins = remaining / 60;
             let secs = remaining % 60;
@@ -407,12 +451,13 @@ fn run_receive_mode(pa: &ParsedArgs, deps: &mut Deps, client: &(dyn SecretApi + 
             let _ = deps.stderr.flush();
         }
 
-        thread::sleep(POLL_INTERVAL);
+        // Use the injected sleep so tests don't wait in real time.
+        (deps.sleep)(POLL_INTERVAL);
 
         let outcome = match client.pair_poll(&start_resp.displayer_poll_token) {
             Ok(o) => o,
             Err(e) => {
-                if !pa.silent && !pa.json && stderr_tty {
+                if show_progress {
                     let _ = writeln!(deps.stderr);
                 }
                 write_error(&mut deps.stderr, pa.json, is_tty, &e);
@@ -423,7 +468,7 @@ fn run_receive_mode(pa: &ParsedArgs, deps: &mut Deps, client: &(dyn SecretApi + 
         match outcome {
             PairPollOutcome::Pending => continue,
             PairPollOutcome::Cancelled => {
-                if !pa.silent && !pa.json && stderr_tty {
+                if show_progress {
                     let _ = writeln!(deps.stderr);
                 }
                 write_error(
@@ -435,7 +480,7 @@ fn run_receive_mode(pa: &ParsedArgs, deps: &mut Deps, client: &(dyn SecretApi + 
                 return 1;
             }
             PairPollOutcome::Expired => {
-                if !pa.silent && !pa.json && stderr_tty {
+                if show_progress {
                     let _ = writeln!(deps.stderr);
                 }
                 write_error(
@@ -447,7 +492,7 @@ fn run_receive_mode(pa: &ParsedArgs, deps: &mut Deps, client: &(dyn SecretApi + 
                 return 1;
             }
             PairPollOutcome::Approved { amk_transfer } => {
-                if !pa.silent && !pa.json && stderr_tty {
+                if show_progress {
                     let _ = writeln!(deps.stderr);
                 }
                 // Persist the AMK.
@@ -608,20 +653,6 @@ fn prompt_for_code(deps: &mut Deps) -> Result<String, String> {
         return Err("no input".to_string());
     }
     Ok(trimmed.to_string())
-}
-
-/// Clone the parts of `ParsedArgs` that `block_if_cross_instance` needs.
-/// We can't `derive(Clone)` on `ParsedArgs` because it has fields that
-/// don't implement `Clone`, so build a minimal stand-in.
-fn clone_pa_for_guard(pa: &ParsedArgs) -> ParsedArgs {
-    ParsedArgs {
-        base_url: pa.base_url.clone(),
-        base_url_source: pa.base_url_source,
-        configured_base_url: pa.configured_base_url.clone(),
-        api_key: pa.api_key.clone(),
-        trusted_servers: pa.trusted_servers.clone(),
-        ..ParsedArgs::default()
-    }
 }
 
 // --- Help -------------------------------------------------------------------

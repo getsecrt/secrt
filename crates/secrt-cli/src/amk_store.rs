@@ -77,11 +77,16 @@ pub fn resolve_account_key_state(
         Ok(Some(w)) => w,
         Ok(None) => return AccountKeyState::Missing,
         Err(e) => {
-            // Distinguish "auth rejected" from generic transport failure.
-            // The current `SecretApi` returns `String` for both, so we
-            // pattern-match the error text. Best-effort, not security-
-            // critical.
+            // Classify by substring on the error text. The current
+            // `SecretApi` returns `String` for every server error, so
+            // we have no typed status code here — best-effort matching.
+            // Order matters: check the specific "not linked" message
+            // (400) before the generic 401 path so an unlinked key
+            // surfaces a re-link hint rather than a wrong-key hint.
             let lc = e.to_lowercase();
+            if lc.contains("not linked") {
+                return AccountKeyState::InvalidApiKey(e);
+            }
             if lc.contains("unauthorized") || lc.contains("401") {
                 return AccountKeyState::InvalidApiKey(e);
             }
