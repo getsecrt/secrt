@@ -659,22 +659,26 @@ Other outcomes:
 - `400` if `user_code` is not found, challenge is not pending, or `amk_transfer` fields are invalid
 - `401` if session token is missing or invalid
 
-### Web-to-Web Pairing (browser-to-browser AMK transfer)
+### Account-key Pairing (cross-device AMK transfer)
 
-Web-to-web pairing transfers an Account Master Key (AMK) between two
-browsers signed in to the same account. Distinct from `device-auth` (CLI
-login) and `app-login` (desktop app login): both sides require a session,
-the slot is bound to a single `user_id`, and `/approve` does **not** mint
+Pairing transfers an Account Master Key (AMK) between two devices signed
+in to the same account. Distinct from `device-auth` (CLI login) and
+`app-login` (desktop app login): both sides must be authenticated, the
+slot is bound to a single `user_id`, and `/approve` does **not** mint
 an API key.
 
 See `spec/v1/server.md` § 6.4 for the full state machine, threat model,
 and privacy posture. A summary of the contract:
 
 - **One pairing direction.** The flow is asymmetric: the displayer is
-  always a fresh browser waiting to receive an AMK; the joiner is always
-  a browser that already has the AMK. The browser determines its role
-  locally from AMK presence and renders the appropriate page.
-- All endpoints require session auth on both displayer and joiner.
+  always a device waiting to receive an AMK; the joiner is always a
+  device that already has the AMK. The client determines its role
+  locally from AMK presence and renders the appropriate UI.
+- **Dual auth.** All endpoints accept either a session bearer token
+  (browser flow) or a linked API key (CLI / desktop flow) via
+  `X-API-Key` or `Authorization: Bearer ak2_<prefix>.<auth_token>`.
+  Either credential resolves to the same `user_id`; same-user checks
+  hold uniformly.
 - Slot rows live in `webauthn_challenges` with `purpose = "web-pair"` and
   10-minute expiry. Rows are deleted at expiry by the existing reaper.
 - One private bearer token per slot: `displayer_poll_token` returned at
@@ -688,13 +692,37 @@ and privacy posture. A summary of the contract:
   Joiner-side metadata (`User-Agent`, timestamp, geo) is not persisted
   or surfaced.
 
+#### Pair endpoint auth (applies to all five endpoints below)
+
+Each pair endpoint accepts **either**:
+
+- Session bearer: `Authorization: Bearer uss_<sid>.<secret>`, **or**
+- Linked API key: `X-API-Key: ak2_<prefix>.<auth_token>` **or**
+  `Authorization: Bearer ak2_<prefix>.<auth_token>`.
+
+Session is tried first so a session token is never misinterpreted as an
+API key. Either path resolves to the same `user_id` for the same-user
+checks below.
+
+Auth-related outcomes (apply to every endpoint):
+
+- `400 { "error": "api key is not linked to a user account" }` — the
+  API key exists and authenticates, but has no associated user (an
+  artifact of older API-key flows). Surface specifically so clients can
+  prompt the user to re-link.
+- `401` — credential missing entirely, invalid, or for an
+  authenticated-but-revoked API key. Indistinguishable from "wrong key"
+  on purpose; the response does not reveal whether a given prefix
+  exists or has been revoked.
+- `429` — IP rate limit (`web_pair_limiter`) tripped.
+
+Endpoint-specific outcomes (404, 409, 403) are listed per endpoint.
+
 #### Start pairing slot
 
 `POST /api/v1/auth/pair/start`
 
-Headers:
-
-- `Authorization: Bearer uss_<sid>.<secret>`
+Headers: per § "Pair endpoint auth" above.
 
 Request:
 
@@ -725,16 +753,13 @@ Other outcomes:
 
 - `400` if `ecdh_public_key` is missing, malformed, or the body contains
   unknown fields (including the retired `role` field).
-- `401` if session is missing or invalid.
-- `429` if IP rate limit (`web_pair_limiter`) trips.
+- Plus the common auth-related outcomes above.
 
 #### Poll pairing slot
 
 `POST /api/v1/auth/pair/poll`
 
-Headers:
-
-- `Authorization: Bearer uss_<sid>.<secret>`
+Headers: per § "Pair endpoint auth" above.
 
 Request:
 
@@ -771,17 +796,14 @@ Field semantics:
 
 Other outcomes:
 
-- `403` if `slot.user_id != session.user_id` (cross-user attempt).
-- `401` if session is missing or invalid.
-- `429` on rate limit.
+- `403` if `slot.user_id != auth.user_id` (cross-user attempt).
+- Plus the common auth-related outcomes above.
 
 #### Lookup pairing slot (joiner pre-flight)
 
 `GET /api/v1/auth/pair/challenge?user_code=K7MQ-3F2A`
 
-Headers:
-
-- `Authorization: Bearer uss_<sid>.<secret>`
+Headers: per § "Pair endpoint auth" above.
 
 Response (`200`, slot is `pending`):
 
@@ -804,15 +826,13 @@ Other outcomes:
   no longer joinable. Distinguishable terminal-state responses let the
   joiner UI render specific copy ("already used" / "cancelled").
 - `403` cross-user.
-- `401`, `429` as above.
+- Plus the common auth-related outcomes above.
 
 #### Approve pairing (sender attaches encrypted AMK)
 
 `POST /api/v1/auth/pair/approve`
 
-Headers:
-
-- `Authorization: Bearer uss_<sid>.<secret>`
+Headers: per § "Pair endpoint auth" above.
 
 Request:
 
@@ -835,9 +855,9 @@ Response (`200`):
 
 Behavior:
 
-1. Validates session auth.
+1. Validates auth via § "Pair endpoint auth" (session **or** linked API key).
 2. Looks up slot by `user_code`. Constant-time recheck.
-3. Verifies `slot.user_id == session.user_id`.
+3. Verifies `slot.user_id == auth.user_id`.
 4. Validates `amk_transfer` field shapes (65/12/48 bytes).
 5. Compare-and-set transition from `pending` to `approved`, attaching
    `amk_transfer`. Concurrent `/approve` calls against the same slot
@@ -852,15 +872,13 @@ Other outcomes:
 - `409` if the slot is not `pending` (already approved, cancelled, or
   expired) or lost a CAS race against a concurrent `/approve` or
   `/cancel`.
-- `401`, `429` as above.
+- Plus the common auth-related outcomes above.
 
 #### Cancel pairing slot
 
 `POST /api/v1/auth/pair/cancel`
 
-Headers:
-
-- `Authorization: Bearer uss_<sid>.<secret>`
+Headers: per § "Pair endpoint auth" above.
 
 Request:
 
@@ -886,7 +904,7 @@ approved, or unknown slot returns `200` without changing state.
 Other outcomes:
 
 - `403` cross-user (when the slot exists and belongs to a different user).
-- `401`, `429` as above.
+- Plus the common auth-related outcomes above.
 
 ### API key management (session required)
 

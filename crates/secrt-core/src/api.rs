@@ -173,6 +173,32 @@ pub trait SecretApi {
     ) -> Result<(), String> {
         Err("upsert_amk_wrapper not implemented".into())
     }
+
+    /// Start a pairing slot (displayer side). Defaulted so existing mocks
+    /// don't have to implement pair endpoints they don't exercise.
+    fn pair_start(&self, _req: PairStartRequest) -> Result<PairStartResponse, String> {
+        Err("pair_start not implemented".into())
+    }
+
+    /// Look up a pairing slot by user code (joiner pre-flight).
+    fn pair_challenge(&self, _user_code: &str) -> Result<PairChallengeOutcome, String> {
+        Err("pair_challenge not implemented".into())
+    }
+
+    /// Approve a pairing slot — joiner sends the encrypted account key.
+    fn pair_approve(&self, _req: PairApproveRequest) -> Result<(), String> {
+        Err("pair_approve not implemented".into())
+    }
+
+    /// Poll a pairing slot (displayer-only).
+    fn pair_poll(&self, _poll_token: &str) -> Result<PairPollOutcome, String> {
+        Err("pair_poll not implemented".into())
+    }
+
+    /// Cancel a pairing slot (displayer-only). Idempotent on the server.
+    fn pair_cancel(&self, _poll_token: &str) -> Result<(), String> {
+        Err("pair_cancel not implemented".into())
+    }
 }
 
 /// Response from GET /api/v1/amk/wrapper.
@@ -182,6 +208,74 @@ pub struct AmkWrapperResponse {
     pub wrapped_amk: String,
     pub nonce: String,
     pub version: i16,
+}
+
+// --- Pair endpoint types ---
+//
+// Wire shapes for `/api/v1/auth/pair/*`. Two endpoints (`challenge` and
+// `poll`) return typed *outcomes* rather than raw `Result<T, String>` so the
+// CLI can distinguish "not found" from "terminal" from "pending" without
+// parsing error strings.
+
+/// Request body for POST /api/v1/auth/pair/start.
+#[derive(Serialize)]
+pub struct PairStartRequest {
+    pub ecdh_public_key: String,
+}
+
+/// Response body for POST /api/v1/auth/pair/start.
+#[derive(Clone, Deserialize)]
+pub struct PairStartResponse {
+    pub user_code: String,
+    pub displayer_poll_token: String,
+    pub expires_at: String,
+}
+
+/// Encrypted account-key transfer blob. AES-256-GCM ciphertext of the AMK,
+/// derived from the receiver's ECDH public key and the sender's ephemeral
+/// keypair via HKDF-SHA256 (info = `"secrt-amk-transfer-v1"`, empty salt).
+/// The same AAD constant is used by both web and CLI.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct PairTransferBlob {
+    pub ct: String,
+    pub nonce: String,
+    pub ecdh_public_key: String,
+}
+
+/// Typed outcome for GET /api/v1/auth/pair/challenge. Distinguishes
+/// `404 not_found` (typo or expired) from `409 { state }` terminal-state
+/// (slot already approved/cancelled) from the happy path. Generic errors
+/// fall back to `Err(String)`.
+#[derive(Clone, Debug)]
+pub enum PairChallengeOutcome {
+    Pending {
+        displayer_ecdh_public_key: String,
+    },
+    /// Slot exists but is no longer joinable. `state` is forwarded
+    /// verbatim from the server (`"approved"` or `"cancelled"` today;
+    /// callers should tolerate unknown future values).
+    Terminal {
+        state: String,
+    },
+    NotFound,
+}
+
+/// Request body for POST /api/v1/auth/pair/approve.
+#[derive(Serialize)]
+pub struct PairApproveRequest {
+    pub user_code: String,
+    pub amk_transfer: PairTransferBlob,
+}
+
+/// Typed outcome for POST /api/v1/auth/pair/poll. The displayer polls;
+/// `Approved` carries the encrypted transfer blob and is consumed once
+/// (subsequent polls of the same token return `Expired`).
+#[derive(Clone, Debug)]
+pub enum PairPollOutcome {
+    Pending,
+    Approved { amk_transfer: PairTransferBlob },
+    Cancelled,
+    Expired,
 }
 
 #[cfg(test)]

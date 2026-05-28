@@ -3,7 +3,7 @@ pub const BASH_COMPLETION: &str = r#"_secrt() {
     COMPREPLY=()
     cur="${COMP_WORDS[COMP_CWORD]}"
     prev="${COMP_WORDS[COMP_CWORD-1]}"
-    commands="send get burn gen generate list info sync auth config version help completion"
+    commands="send get burn gen generate list info pair sync auth config version help completion"
 
     if [[ ${COMP_CWORD} -eq 1 ]]; then
         COMPREPLY=($(compgen -W "${commands}" -- "${cur}"))
@@ -24,6 +24,9 @@ pub const BASH_COMPLETION: &str = r#"_secrt() {
             COMPREPLY=($(compgen -W "send --length --no-symbols --no-numbers --no-caps --grouped --count --json --help" -- "${cur}"))
             ;;
         info)
+            COMPREPLY=($(compgen -W "--api-key --base-url --json --silent --help" -- "${cur}"))
+            ;;
+        pair)
             COMPREPLY=($(compgen -W "--api-key --base-url --json --silent --help" -- "${cur}"))
             ;;
         sync)
@@ -55,7 +58,8 @@ _secrt() {
         'gen:Generate a random password'
         'generate:Generate a random password'
         'info:Show metadata for a secret'
-        'sync:Import notes encryption key from a sync link'
+        'pair:Share your account key between devices'
+        'sync:[legacy] Import account key from a one-time link'
         'auth:Manage authentication'
         'config:Show config / init / path'
         'version:Show version'
@@ -132,6 +136,14 @@ _secrt() {
                         '--silent[Suppress output]' \
                         '--help[Show help]'
                     ;;
+                pair)
+                    _arguments \
+                        '--api-key[API key]:key:' \
+                        '--base-url[Server URL]:url:' \
+                        '--json[Output as JSON]' \
+                        '--silent[Suppress progress output]' \
+                        '--help[Show help]'
+                    ;;
                 sync)
                     _arguments \
                         '--api-key[API key]:key:' \
@@ -167,7 +179,8 @@ complete -c secrt -n '__fish_use_subcommand' -a burn -d 'Destroy a secret (requi
 complete -c secrt -n '__fish_use_subcommand' -a gen -d 'Generate a random password'
 complete -c secrt -n '__fish_use_subcommand' -a generate -d 'Generate a random password'
 complete -c secrt -n '__fish_use_subcommand' -a info -d 'Show metadata for a secret'
-complete -c secrt -n '__fish_use_subcommand' -a sync -d 'Import notes encryption key from a sync link'
+complete -c secrt -n '__fish_use_subcommand' -a pair -d 'Share your account key between devices'
+complete -c secrt -n '__fish_use_subcommand' -a sync -d '[legacy] Import account key from a one-time link'
 complete -c secrt -n '__fish_use_subcommand' -a auth -d 'Manage authentication'
 complete -c secrt -n '__fish_use_subcommand' -a config -d 'Show config / init / path'
 complete -c secrt -n '__fish_use_subcommand' -a version -d 'Show version'
@@ -217,6 +230,11 @@ complete -c secrt -n '__fish_seen_subcommand_from info' -l api-key -d 'API key'
 complete -c secrt -n '__fish_seen_subcommand_from info' -l base-url -d 'Server URL'
 complete -c secrt -n '__fish_seen_subcommand_from info' -l json -d 'Output as JSON'
 complete -c secrt -n '__fish_seen_subcommand_from info' -l silent -d 'Suppress output'
+
+complete -c secrt -n '__fish_seen_subcommand_from pair' -l api-key -d 'API key'
+complete -c secrt -n '__fish_seen_subcommand_from pair' -l base-url -d 'Server URL'
+complete -c secrt -n '__fish_seen_subcommand_from pair' -l json -d 'Output as JSON'
+complete -c secrt -n '__fish_seen_subcommand_from pair' -l silent -d 'Suppress progress output'
 
 complete -c secrt -n '__fish_seen_subcommand_from sync' -l api-key -d 'API key'
 complete -c secrt -n '__fish_seen_subcommand_from sync' -l base-url -d 'Server URL'

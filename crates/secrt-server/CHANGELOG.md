@@ -1,5 +1,29 @@
 # Changelog
 
+## Unreleased
+
+### Changed
+
+- **Pair endpoints now accept either session bearer or linked API-key
+  auth.** Previously `/api/v1/auth/pair/*` required a session token
+  (browser flow). They now also accept an `X-API-Key` (or
+  `Authorization: Bearer ak2_…`) for the same account, so the new
+  `secrt pair` CLI can participate in pairing. Same-user checks are
+  preserved on every endpoint, and the change is purely additive — no
+  `MIN_SUPPORTED_CLI_VERSION` bump.
+
+  - Unlinked API keys (key authenticates but has `user_id = None`) →
+    `400 { "error": "api key is not linked to a user account" }`,
+    matching the existing AMK-endpoint convention.
+  - Revoked or invalid API keys → `401`, indistinguishable from "wrong
+    key" so the response doesn't reveal whether a given key prefix
+    existed or has been revoked.
+
+  Spec: `spec/v1/api.md` §"Account-key Pairing", `spec/v1/server.md`
+  §6.4, `spec/v1/openapi.yaml`. Files: `crates/secrt-server/src/http/mod.rs`
+  (new `require_session_or_api_user` helper, swapped into the five pair
+  handlers), `crates/secrt-server/tests/web_pair.rs` (7 new tests).
+
 ## 0.18.1 — 2026-05-11
 
 ### Fixed

@@ -1,11 +1,14 @@
 //! Integration tests for the `/api/v1/auth/pair/*` endpoint family.
 //!
-//! These exercise the web-to-web AMK pairing flow end-to-end against an
-//! in-memory store, mirroring the `device_*` test patterns in
+//! These exercise the cross-device AMK pairing flow end-to-end against
+//! an in-memory store, mirroring the `device_*` test patterns in
 //! `crates/secrt-server/src/http/mod.rs` but with the constraints that
-//! distinguish web-pair from device-auth:
+//! distinguish pair from device-auth:
 //!
-//! - both displayer and joiner must be authenticated
+//! - both displayer and joiner must be authenticated — via either a
+//!   session bearer (browser flow) or a linked API key (CLI / desktop
+//!   flow). The shared `require_session_or_api_user` helper accepts
+//!   either credential.
 //! - the slot is bound to a single `user_id` and cross-user access is 403
 //! - approve does NOT mint an API key
 //! - `/approve` and `/cancel` use compare-and-set transitions
@@ -20,7 +23,8 @@ use axum::body::{to_bytes, Body};
 use axum::http::{Request, StatusCode};
 use chrono::{Duration, Utc};
 use helpers::webauthn::TestPasskey;
-use helpers::{test_app_with_store, test_config, with_remote, MemStore};
+use helpers::{create_api_key_for, test_app_with_store, test_config, with_remote, MemStore};
+use secrt_server::storage::UserId;
 use serde_json::{json, Value};
 use tower::ServiceExt;
 
@@ -546,9 +550,10 @@ async fn pair_cancel_idempotent_after_terminal() {
 
 // --- Test 18: unauthenticated requests are 401 across all endpoints ---
 //
-// Defense-in-depth: confirms session-auth is required at every endpoint.
-// `device-auth` deliberately allows anonymous /start (CLI flow); web-pair
-// must not.
+// Defense-in-depth: confirms authentication is required at every endpoint
+// (either a session bearer or a linked API key — see the API-key auth
+// coverage further down). `device-auth` deliberately allows anonymous
+// /start (CLI login flow); pair must not.
 #[tokio::test]
 async fn pair_endpoints_require_session_auth() {
     let store = Arc::new(MemStore::default());
@@ -675,4 +680,314 @@ async fn pair_poll_pending_no_displayer_pubkey_leak() {
     assert!(!obj.contains_key("joiner_user_agent"));
     assert!(!obj.contains_key("joiner_seen_at"));
     assert!(!obj.contains_key("amk_transfer"));
+}
+
+// --- API-key auth coverage --------------------------------------------------
+//
+// `/api/v1/auth/pair/*` originally required a session bearer (browser flow).
+// The CLI authenticates with `X-API-Key`, so the handlers now route through
+// `require_session_or_api_user`, which accepts either credential and resolves
+// to the same `UserId`. Same-user checks must still hold.
+
+fn user_id_by_name(store: &Arc<MemStore>, name: &str) -> UserId {
+    store
+        .users
+        .lock()
+        .expect("users mutex poisoned")
+        .values()
+        .find(|u| u.display_name == name)
+        .expect("user not in store")
+        .id
+}
+
+fn req_with_api_key(method: &str, uri: &str, api_key: &str, body: Option<Value>) -> Request<Body> {
+    let mut b = Request::builder()
+        .method(method)
+        .uri(uri)
+        .header("x-api-key", api_key);
+    if body.is_some() {
+        b = b.header("content-type", "application/json");
+    }
+    b.body(match body {
+        Some(v) => Body::from(v.to_string()),
+        None => Body::empty(),
+    })
+    .expect("request")
+}
+
+#[tokio::test]
+async fn pair_start_accepts_api_key_auth() {
+    let store = Arc::new(MemStore::default());
+    let app = test_app_with_store(store.clone(), test_config());
+    let _session = register_user(&app, "Alice").await;
+    let uid = user_id_by_name(&store, "Alice");
+    let (api_key, _) = create_api_key_for(&store, "pepper", Some(uid)).await;
+
+    let resp = fire(
+        &app,
+        req_with_api_key(
+            "POST",
+            "/api/v1/auth/pair/start",
+            &api_key,
+            Some(json!({ "ecdh_public_key": ECDH_KEY_A })),
+        ),
+    )
+    .await;
+    assert_eq!(resp.status(), StatusCode::OK);
+    let body = body_json(resp).await;
+    assert!(body["user_code"].is_string());
+    assert!(body["displayer_poll_token"].is_string());
+}
+
+#[tokio::test]
+async fn pair_full_flow_api_key_only() {
+    let store = Arc::new(MemStore::default());
+    let app = test_app_with_store(store.clone(), test_config());
+    // Single user, two API keys (representing two CLI installs on the same account).
+    let _session = register_user(&app, "Alice").await;
+    let uid = user_id_by_name(&store, "Alice");
+    let (displayer_key, _) = create_api_key_for(&store, "pepper", Some(uid)).await;
+    let (joiner_key, _) = create_api_key_for(&store, "pepper", Some(uid)).await;
+
+    let start = body_json(
+        fire(
+            &app,
+            req_with_api_key(
+                "POST",
+                "/api/v1/auth/pair/start",
+                &displayer_key,
+                Some(json!({ "ecdh_public_key": ECDH_KEY_A })),
+            ),
+        )
+        .await,
+    )
+    .await;
+    let user_code = start["user_code"].as_str().unwrap().to_string();
+    let poll_token = start["displayer_poll_token"].as_str().unwrap().to_string();
+
+    let chal = fire(
+        &app,
+        req_with_api_key(
+            "GET",
+            &format!(
+                "/api/v1/auth/pair/challenge?user_code={}",
+                urlencoding::encode(&user_code)
+            ),
+            &joiner_key,
+            None,
+        ),
+    )
+    .await;
+    assert_eq!(chal.status(), StatusCode::OK);
+
+    let appr = fire(
+        &app,
+        req_with_api_key(
+            "POST",
+            "/api/v1/auth/pair/approve",
+            &joiner_key,
+            Some(json!({
+                "user_code": user_code,
+                "amk_transfer": amk_transfer_json(ECDH_KEY_B),
+            })),
+        ),
+    )
+    .await;
+    assert_eq!(appr.status(), StatusCode::OK);
+
+    let poll = body_json(
+        fire(
+            &app,
+            req_with_api_key(
+                "POST",
+                "/api/v1/auth/pair/poll",
+                &displayer_key,
+                Some(json!({ "poll_token": poll_token })),
+            ),
+        )
+        .await,
+    )
+    .await;
+    assert_eq!(poll["status"], "approved");
+    assert!(poll["amk_transfer"].is_object());
+
+    // One-shot: a second poll returns expired (slot consumed).
+    let poll2 = body_json(
+        fire(
+            &app,
+            req_with_api_key(
+                "POST",
+                "/api/v1/auth/pair/poll",
+                &displayer_key,
+                Some(json!({ "poll_token": poll_token })),
+            ),
+        )
+        .await,
+    )
+    .await;
+    assert_eq!(poll2["status"], "expired");
+}
+
+#[tokio::test]
+async fn pair_api_key_cross_user_403() {
+    let store = Arc::new(MemStore::default());
+    let app = test_app_with_store(store.clone(), test_config());
+    let _alice_session = register_user(&app, "Alice").await;
+    let _bob_session = register_user(&app, "Bob").await;
+    let alice_uid = user_id_by_name(&store, "Alice");
+    let bob_uid = user_id_by_name(&store, "Bob");
+    let (alice_key, _) = create_api_key_for(&store, "pepper", Some(alice_uid)).await;
+    let (bob_key, _) = create_api_key_for(&store, "pepper", Some(bob_uid)).await;
+
+    // Pure API-key flow: Alice's key opens the slot, then Bob's key tries
+    // to touch it.
+    let start = body_json(
+        fire(
+            &app,
+            req_with_api_key(
+                "POST",
+                "/api/v1/auth/pair/start",
+                &alice_key,
+                Some(json!({ "ecdh_public_key": ECDH_KEY_A })),
+            ),
+        )
+        .await,
+    )
+    .await;
+    let user_code = start["user_code"].as_str().unwrap().to_string();
+    let poll_token = start["displayer_poll_token"].as_str().unwrap().to_string();
+
+    // Bob's API key vs Alice's slot — 403 on every endpoint that enforces
+    // same-user.
+    for (method, uri, body) in [
+        (
+            "GET",
+            format!(
+                "/api/v1/auth/pair/challenge?user_code={}",
+                urlencoding::encode(&user_code)
+            ),
+            None,
+        ),
+        (
+            "POST",
+            "/api/v1/auth/pair/approve".into(),
+            Some(json!({
+                "user_code": user_code,
+                "amk_transfer": amk_transfer_json(ECDH_KEY_B),
+            })),
+        ),
+        (
+            "POST",
+            "/api/v1/auth/pair/poll".into(),
+            Some(json!({ "poll_token": poll_token })),
+        ),
+        (
+            "POST",
+            "/api/v1/auth/pair/cancel".into(),
+            Some(json!({ "poll_token": poll_token })),
+        ),
+    ] {
+        let resp = fire(&app, req_with_api_key(method, &uri, &bob_key, body)).await;
+        assert_eq!(
+            resp.status(),
+            StatusCode::FORBIDDEN,
+            "{method} {uri} should be 403 under cross-user API key"
+        );
+    }
+}
+
+#[tokio::test]
+async fn pair_unlinked_api_key_rejected() {
+    let store = Arc::new(MemStore::default());
+    let app = test_app_with_store(store.clone(), test_config());
+    let _session = register_user(&app, "Alice").await;
+    // user_id: None — key exists but isn't linked to an account.
+    let (api_key, _) = create_api_key_for(&store, "pepper", None).await;
+
+    let resp = fire(
+        &app,
+        req_with_api_key(
+            "POST",
+            "/api/v1/auth/pair/start",
+            &api_key,
+            Some(json!({ "ecdh_public_key": ECDH_KEY_A })),
+        ),
+    )
+    .await;
+    // Matches `resolve_amk_auth`'s convention: bad_request, not 401.
+    assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+    let body = body_json(resp).await;
+    assert!(body["error"].as_str().unwrap_or("").contains("not linked"));
+}
+
+#[tokio::test]
+async fn pair_no_auth_rejected() {
+    let store = Arc::new(MemStore::default());
+    let app = test_app_with_store(store.clone(), test_config());
+
+    let req = Request::builder()
+        .method("POST")
+        .uri("/api/v1/auth/pair/start")
+        .header("content-type", "application/json")
+        .body(Body::from(
+            json!({ "ecdh_public_key": ECDH_KEY_A }).to_string(),
+        ))
+        .expect("request");
+    let resp = fire(&app, req).await;
+    assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
+}
+
+#[tokio::test]
+async fn pair_accepts_api_key_via_bearer_auth() {
+    // The helper accepts API keys via either `X-API-Key` or
+    // `Authorization: Bearer ak2_…`. This test pins the bearer-form path
+    // so OpenAPI's `bearerAuth` scheme isn't aspirational.
+    let store = Arc::new(MemStore::default());
+    let app = test_app_with_store(store.clone(), test_config());
+    let _session = register_user(&app, "Alice").await;
+    let uid = user_id_by_name(&store, "Alice");
+    let (api_key, _) = create_api_key_for(&store, "pepper", Some(uid)).await;
+
+    let req = Request::builder()
+        .method("POST")
+        .uri("/api/v1/auth/pair/start")
+        .header("authorization", format!("Bearer {api_key}"))
+        .header("content-type", "application/json")
+        .body(Body::from(
+            json!({ "ecdh_public_key": ECDH_KEY_A }).to_string(),
+        ))
+        .expect("request");
+    let resp = fire(&app, req).await;
+    assert_eq!(resp.status(), StatusCode::OK);
+}
+
+#[tokio::test]
+async fn pair_revoked_api_key_rejected_as_unauthorized() {
+    // A revoked key must collapse to plain 401 — same response shape as
+    // "wrong key" — so the server doesn't reveal whether a given prefix
+    // existed or has been revoked. Distinct from the unlinked-key case
+    // (key with `user_id: None`), which is a 400 with a specific
+    // "not linked" message because that's user-actionable.
+    let store = Arc::new(MemStore::default());
+    let app = test_app_with_store(store.clone(), test_config());
+    let _session = register_user(&app, "Alice").await;
+    let uid = user_id_by_name(&store, "Alice");
+    let (api_key, prefix) = create_api_key_for(&store, "pepper", Some(uid)).await;
+
+    // Revoke the key.
+    secrt_server::storage::ApiKeysStore::revoke_by_prefix(&*store, &prefix)
+        .await
+        .expect("revoke");
+
+    let resp = fire(
+        &app,
+        req_with_api_key(
+            "POST",
+            "/api/v1/auth/pair/start",
+            &api_key,
+            Some(json!({ "ecdh_public_key": ECDH_KEY_A })),
+        ),
+    )
+    .await;
+    assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
 }

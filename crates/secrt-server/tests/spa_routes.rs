@@ -29,6 +29,7 @@ async fn spa_routes_return_index_html() {
         "/app-login",
         "/pair",
         "/about",
+        "/sync",
         "/sync/test-sync-id",
     ];
 

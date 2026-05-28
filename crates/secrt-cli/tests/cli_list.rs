@@ -375,8 +375,8 @@ fn list_enc_meta_no_amk_shows_encrypted_placeholder() {
     assert!(out.contains("Note"), "should show Note header: {}", out);
     let err = stderr.to_string();
     assert!(
-        err.contains("Sync your notes key"),
-        "should show sync hint: {}",
+        err.contains("Pair this device") && err.contains("encrypted notes"),
+        "should show pair hint: {}",
         err
     );
 }
@@ -422,8 +422,8 @@ fn list_enc_meta_with_amk_decrypts_notes() {
     // No sync hint when notes are successfully decrypted
     let err = stderr.to_string();
     assert!(
-        !err.contains("Sync your notes key"),
-        "should not show sync hint when notes decrypted: {}",
+        !err.contains("Pair this device"),
+        "should not show pair hint when notes decrypted: {}",
         err
     );
 }

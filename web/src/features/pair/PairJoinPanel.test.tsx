@@ -58,6 +58,11 @@ describe('PairJoinPanel (Page B)', () => {
     mockPairChallenge.mockReset();
     mockPairApprove.mockReset();
     mockLoadAmk.mockReset();
+    // PairJoinPanel now embeds SyncNotesKeyButton, which calls loadAmk on
+    // mount to decide whether to render itself. Default to "no AMK" so
+    // tests that don't explicitly care about the legacy sync link don't
+    // have to set this up. Tests asserting on the form path override.
+    mockLoadAmk.mockResolvedValue(null);
     mockEncryptAmkForPeer.mockReset();
     scannerMountCount.n = 0;
   });

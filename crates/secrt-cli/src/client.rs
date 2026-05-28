@@ -551,7 +551,7 @@ impl SecretApi for ApiClient {
         let status = resp.status().as_u16();
         if status == 409 {
             return Err(
-                "AMK commit mismatch: another device committed a different notes key".to_string(),
+                "AMK commit mismatch: another device committed a different account key".to_string(),
             );
         }
         if status != 200 {
@@ -603,6 +603,228 @@ impl SecretApi for ApiClient {
 
         Ok(result)
     }
+
+    // --- Pair endpoints ---------------------------------------------------
+    //
+    // All five pair endpoints require an authenticated `X-API-Key`. The
+    // server's helper falls back from session bearer to API-key auth, but
+    // the CLI only ever talks API-key, so an empty `api_key` here is a
+    // fatal "not signed in" condition for pair operations.
+
+    fn pair_start(&self, req: PairStartRequest) -> Result<PairStartResponse, String> {
+        let wire_api_key = self.api_key_for_wire()?.ok_or_else(|| {
+            "not signed in (run `secrt auth login` to set up an API key)".to_string()
+        })?;
+        let endpoint = format!("{}/api/v1/auth/pair/start", self.url());
+        let body = serde_json::to_vec(&req).map_err(|e| format!("marshal request: {}", e))?;
+
+        let resp = self
+            .agent()
+            .post(&endpoint)
+            .header("Content-Type", "application/json")
+            .header("X-API-Key", &wire_api_key)
+            .send(&body[..])
+            .map_err(|e| self.handle_ureq_error(e))?;
+        Self::observe_response(&resp);
+
+        let status = resp.status().as_u16();
+        if status != 200 {
+            return Err(self.pair_endpoint_error(status, resp));
+        }
+
+        let body_str = resp
+            .into_body()
+            .read_to_string()
+            .map_err(|e| self.decode_error(e))?;
+        serde_json::from_str(&body_str).map_err(|e| self.decode_error(e))
+    }
+
+    fn pair_challenge(&self, user_code: &str) -> Result<PairChallengeOutcome, String> {
+        #[derive(Deserialize)]
+        struct ChallengeBody {
+            displayer_ecdh_public_key: String,
+        }
+        #[derive(Deserialize)]
+        struct TerminalBody {
+            state: String,
+        }
+
+        let wire_api_key = self.api_key_for_wire()?.ok_or_else(|| {
+            "not signed in (run `secrt auth login` to set up an API key)".to_string()
+        })?;
+        let endpoint = format!(
+            "{}/api/v1/auth/pair/challenge?user_code={}",
+            self.url(),
+            urlencoding_encode(user_code),
+        );
+
+        let resp = self
+            .agent()
+            .get(&endpoint)
+            .header("X-API-Key", &wire_api_key)
+            .call()
+            .map_err(|e| self.handle_ureq_error(e))?;
+        Self::observe_response(&resp);
+
+        let status = resp.status().as_u16();
+        match status {
+            200 => {
+                let body_str = resp
+                    .into_body()
+                    .read_to_string()
+                    .map_err(|e| self.decode_error(e))?;
+                let body: ChallengeBody =
+                    serde_json::from_str(&body_str).map_err(|e| self.decode_error(e))?;
+                Ok(PairChallengeOutcome::Pending {
+                    displayer_ecdh_public_key: body.displayer_ecdh_public_key,
+                })
+            }
+            404 => Ok(PairChallengeOutcome::NotFound),
+            409 => {
+                let body_str = resp
+                    .into_body()
+                    .read_to_string()
+                    .map_err(|e| self.decode_error(e))?;
+                let body: TerminalBody =
+                    serde_json::from_str(&body_str).map_err(|e| self.decode_error(e))?;
+                Ok(PairChallengeOutcome::Terminal { state: body.state })
+            }
+            _ => Err(self.pair_endpoint_error(status, resp)),
+        }
+    }
+
+    fn pair_approve(&self, req: PairApproveRequest) -> Result<(), String> {
+        let wire_api_key = self.api_key_for_wire()?.ok_or_else(|| {
+            "not signed in (run `secrt auth login` to set up an API key)".to_string()
+        })?;
+        let endpoint = format!("{}/api/v1/auth/pair/approve", self.url());
+        let body = serde_json::to_vec(&req).map_err(|e| format!("marshal request: {}", e))?;
+
+        let resp = self
+            .agent()
+            .post(&endpoint)
+            .header("Content-Type", "application/json")
+            .header("X-API-Key", &wire_api_key)
+            .send(&body[..])
+            .map_err(|e| self.handle_ureq_error(e))?;
+        Self::observe_response(&resp);
+
+        let status = resp.status().as_u16();
+        if status != 200 {
+            return Err(self.pair_endpoint_error(status, resp));
+        }
+        Ok(())
+    }
+
+    fn pair_poll(&self, poll_token: &str) -> Result<PairPollOutcome, String> {
+        #[derive(Deserialize)]
+        struct PollBody {
+            status: String,
+            amk_transfer: Option<PairTransferBlob>,
+        }
+
+        let wire_api_key = self.api_key_for_wire()?.ok_or_else(|| {
+            "not signed in (run `secrt auth login` to set up an API key)".to_string()
+        })?;
+        let endpoint = format!("{}/api/v1/auth/pair/poll", self.url());
+        let body = serde_json::json!({ "poll_token": poll_token });
+        let body_bytes =
+            serde_json::to_vec(&body).map_err(|e| format!("marshal request: {}", e))?;
+
+        let resp = self
+            .agent()
+            .post(&endpoint)
+            .header("Content-Type", "application/json")
+            .header("X-API-Key", &wire_api_key)
+            .send(&body_bytes[..])
+            .map_err(|e| self.handle_ureq_error(e))?;
+        Self::observe_response(&resp);
+
+        let status = resp.status().as_u16();
+        if status != 200 {
+            return Err(self.pair_endpoint_error(status, resp));
+        }
+        let body_str = resp
+            .into_body()
+            .read_to_string()
+            .map_err(|e| self.decode_error(e))?;
+        let body: PollBody = serde_json::from_str(&body_str).map_err(|e| self.decode_error(e))?;
+        // Unknown future status values fall through to Expired so callers
+        // surface "slot's gone" rather than panicking.
+        match body.status.as_str() {
+            "pending" => Ok(PairPollOutcome::Pending),
+            "approved" => {
+                let transfer = body.amk_transfer.ok_or_else(|| {
+                    "server returned status=approved but no amk_transfer".to_string()
+                })?;
+                Ok(PairPollOutcome::Approved {
+                    amk_transfer: transfer,
+                })
+            }
+            "cancelled" => Ok(PairPollOutcome::Cancelled),
+            _ => Ok(PairPollOutcome::Expired),
+        }
+    }
+
+    fn pair_cancel(&self, poll_token: &str) -> Result<(), String> {
+        let wire_api_key = self.api_key_for_wire()?.ok_or_else(|| {
+            "not signed in (run `secrt auth login` to set up an API key)".to_string()
+        })?;
+        let endpoint = format!("{}/api/v1/auth/pair/cancel", self.url());
+        let body = serde_json::json!({ "poll_token": poll_token });
+        let body_bytes =
+            serde_json::to_vec(&body).map_err(|e| format!("marshal request: {}", e))?;
+
+        let resp = self
+            .agent()
+            .post(&endpoint)
+            .header("Content-Type", "application/json")
+            .header("X-API-Key", &wire_api_key)
+            .send(&body_bytes[..])
+            .map_err(|e| self.handle_ureq_error(e))?;
+        Self::observe_response(&resp);
+
+        let status = resp.status().as_u16();
+        if status != 200 {
+            return Err(self.pair_endpoint_error(status, resp));
+        }
+        Ok(())
+    }
+}
+
+impl ApiClient {
+    /// Map a non-2xx response from a pair endpoint to a user-facing error
+    /// string. Special-cases 401 against a server that pre-dates
+    /// API-key-auth on pair endpoints, so users see "upgrade your server"
+    /// instead of the generic "unauthorized; check your API key".
+    fn pair_endpoint_error(&self, status: u16, resp: ureq::http::Response<ureq::Body>) -> String {
+        if status == 401 {
+            // 401 here could mean (a) bad API key, or (b) server too old to
+            // accept API-key auth on /pair/*. Surface both options.
+            let _ = self.read_api_error_from_response(resp);
+            return format!(
+                "server rejected API key on pair endpoint; either your key is invalid \
+                 (try `secrt auth login`) or the server at {} is too old to accept \
+                 `secrt pair` from a CLI (operator should upgrade)",
+                self.base_url
+            );
+        }
+        self.read_api_error_from_response(resp)
+    }
+}
+
+/// Minimal URL-encoder for the `user_code` query parameter. Only needs to
+/// cover the printable-ASCII-with-hyphen set the alphabet allows; explicit
+/// rather than pulling in a percent-encoding crate.
+fn urlencoding_encode(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    for b in s.bytes() {
+        match b {
+            b'-' | b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' => out.push(b as char),
+            _ => out.push_str(&format!("%{:02X}", b)),
+        }
+    }
+    out
 }
 
 #[cfg(test)]

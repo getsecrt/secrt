@@ -14,6 +14,7 @@ import { DevicePage } from './features/auth/DevicePage';
 import { AppLoginPage } from './features/auth/AppLoginPage';
 import { PairPage } from './features/pair/PairPage';
 import { SyncPage } from './features/sync/SyncPage';
+import { SyncLandingPage } from './features/sync/SyncLandingPage';
 import { AboutPage } from './features/about/AboutPage';
 import { ThemePage } from './features/test/ThemePage';
 
@@ -34,6 +35,7 @@ export function App() {
       send: 'secrt',
       claim: 'Claim Secret — secrt',
       sync: 'Sync Key — secrt',
+      'sync-landing': 'Sync Key — secrt',
       'how-it-works': 'How It Works — secrt',
       privacy: 'Privacy — secrt',
       login: 'Sign In — secrt',
@@ -63,6 +65,9 @@ export function App() {
       break;
     case 'sync':
       page = <SyncPage id={route.id} />;
+      break;
+    case 'sync-landing':
+      page = <SyncLandingPage />;
       break;
     case 'how-it-works':
       page = <HowItWorksPage />;

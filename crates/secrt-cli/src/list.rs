@@ -387,7 +387,7 @@ pub fn run_list(args: &[String], deps: &mut Deps) -> i32 {
             "{}",
             c(
                 WARN,
-                "Sync your notes key from another browser/device to view your notes (secrt sync)"
+                "Pair this device (`secrt pair`) to view your encrypted notes."
             )
         );
     }
