@@ -30,6 +30,7 @@ async fn spa_routes_return_index_html() {
         "/pair",
         "/about",
         "/sync",
+        "/sync/",
         "/sync/test-sync-id",
     ];
 

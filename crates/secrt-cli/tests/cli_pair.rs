@@ -474,28 +474,7 @@ impl SecretApi for PairSendMock {
     }
 
     fn get_amk_wrapper(&self) -> Result<Option<AmkWrapperResponse>, String> {
-        // Return a wrapper the CLI can unwrap. Use a real AMK and run the
-        // local-amk wrap pipeline so the CLI can unwrap deterministically.
-        let local_key = secrt_core::parse_local_api_key(&make_local_api_key()).unwrap();
-        let wrap_key = secrt_core::amk::derive_amk_wrap_key(&local_key.root_key).unwrap();
-        let user_id_bytes = uuid::Uuid::parse_str("11111111-1111-1111-1111-111111111111")
-            .unwrap()
-            .into_bytes();
-        let aad = secrt_core::amk::build_wrap_aad(&user_id_bytes, &local_key.prefix, 1);
-        let amk = [0xAAu8; 32];
-        let wrapped = secrt_core::amk::wrap_amk(&amk, &wrap_key, &aad, &|buf| {
-            for b in buf {
-                *b = 0xCC;
-            }
-            Ok(())
-        })
-        .unwrap();
-        Ok(Some(AmkWrapperResponse {
-            user_id: "11111111-1111-1111-1111-111111111111".into(),
-            wrapped_amk: URL_SAFE_NO_PAD.encode(&wrapped.ct),
-            nonce: URL_SAFE_NO_PAD.encode(&wrapped.nonce),
-            version: 1,
-        }))
+        Ok(Some(valid_amk_wrapper_response()))
     }
 
     fn pair_challenge(&self, _user_code: &str) -> Result<PairChallengeOutcome, String> {
@@ -618,28 +597,7 @@ fn pair_send_challenge_not_found_exits_1() {
             Ok(ok_info(Some("11111111-1111-1111-1111-111111111111")))
         }
         fn get_amk_wrapper(&self) -> Result<Option<AmkWrapperResponse>, String> {
-            // Reuse the same valid-wrapper construction as the send happy
-            // path so the CLI proceeds to challenge.
-            let local_key = secrt_core::parse_local_api_key(&make_local_api_key()).unwrap();
-            let wrap_key = secrt_core::amk::derive_amk_wrap_key(&local_key.root_key).unwrap();
-            let user_id_bytes = uuid::Uuid::parse_str("11111111-1111-1111-1111-111111111111")
-                .unwrap()
-                .into_bytes();
-            let aad = secrt_core::amk::build_wrap_aad(&user_id_bytes, &local_key.prefix, 1);
-            let amk = [0xAAu8; 32];
-            let wrapped = secrt_core::amk::wrap_amk(&amk, &wrap_key, &aad, &|buf| {
-                for b in buf {
-                    *b = 0xCC;
-                }
-                Ok(())
-            })
-            .unwrap();
-            Ok(Some(AmkWrapperResponse {
-                user_id: "11111111-1111-1111-1111-111111111111".into(),
-                wrapped_amk: URL_SAFE_NO_PAD.encode(&wrapped.ct),
-                nonce: URL_SAFE_NO_PAD.encode(&wrapped.nonce),
-                version: 1,
-            }))
+            Ok(Some(valid_amk_wrapper_response()))
         }
         fn pair_challenge(&self, _user_code: &str) -> Result<PairChallengeOutcome, String> {
             Ok(PairChallengeOutcome::NotFound)
@@ -695,12 +653,78 @@ fn run_send_with_positional(base_url: &str, positional: &str) -> (i32, String, O
     (code, stderr.to_string(), captured)
 }
 
+/// Table-driven URL accept/reject sweep. Each row exercises
+/// `run_send_with_positional`, which shares the same `PairSendMock` setup;
+/// the only thing that varies is `(base, positional, expected_exit,
+/// expected_captured)`. Tests that need extra setup or assertions
+/// (cross-instance leak guard, captured base URL) stay standalone below.
 #[test]
-fn pair_send_accepts_full_url() {
-    let (code, err, captured) =
-        run_send_with_positional("https://secrt.ca", "https://secrt.ca/pair?code=K7MQ-QX2Z");
-    assert_eq!(code, 0, "stderr: {err}");
-    assert_eq!(captured.as_deref(), Some("K7MQ-QX2Z"));
+fn pair_send_url_acceptance_table() {
+    // (label, base, positional, expected_exit, expected_captured)
+    let cases: &[(&str, &str, &str, i32, Option<&str>)] = &[
+        (
+            "accept: full URL with scheme",
+            "https://secrt.ca",
+            "https://secrt.ca/pair?code=K7MQ-QX2Z",
+            0,
+            Some("K7MQ-QX2Z"),
+        ),
+        (
+            "accept: scheme-less URL",
+            "https://secrt.ca",
+            "secrt.ca/pair?code=K7MQ-QX2Z",
+            0,
+            Some("K7MQ-QX2Z"),
+        ),
+        (
+            "accept: http localhost URL with lowercase code",
+            "http://localhost:8081",
+            "http://localhost:8081/pair?code=k7mqqx2z",
+            0,
+            Some("K7MQ-QX2Z"),
+        ),
+        (
+            "accept: URL with extra query params before/after code",
+            "https://secrt.ca",
+            "https://secrt.ca/pair?ref=mobile&code=K7MQ-QX2Z&utm_source=qr",
+            0,
+            Some("K7MQ-QX2Z"),
+        ),
+        (
+            "accept: self-hosted host when configured to match",
+            "https://secrt.is",
+            "https://secrt.is/pair?code=K7MQ-QX2Z",
+            0,
+            Some("K7MQ-QX2Z"),
+        ),
+        (
+            "reject: URL with wrong path (e.g. /sync)",
+            "https://secrt.ca",
+            "https://secrt.ca/sync?code=K7MQ-QX2Z",
+            2,
+            None,
+        ),
+        (
+            "reject: /pair URL missing the code query param",
+            "https://secrt.ca",
+            "https://secrt.ca/pair",
+            2,
+            None,
+        ),
+    ];
+
+    for (label, base, positional, expected_exit, expected_captured) in cases {
+        let (code, err, captured) = run_send_with_positional(base, positional);
+        assert_eq!(
+            code, *expected_exit,
+            "[{label}] expected exit {expected_exit}, got {code} (stderr: {err})"
+        );
+        assert_eq!(
+            captured.as_deref(),
+            *expected_captured,
+            "[{label}] captured code mismatch"
+        );
+    }
 }
 
 #[test]
@@ -755,42 +779,6 @@ fn pair_send_url_passes_derived_host_to_api_client() {
 }
 
 #[test]
-fn pair_send_accepts_schemeless_url() {
-    let (code, err, captured) =
-        run_send_with_positional("https://secrt.ca", "secrt.ca/pair?code=K7MQ-QX2Z");
-    assert_eq!(code, 0, "stderr: {err}");
-    assert_eq!(captured.as_deref(), Some("K7MQ-QX2Z"));
-}
-
-#[test]
-fn pair_send_accepts_http_localhost_url() {
-    let (code, err, captured) = run_send_with_positional(
-        "http://localhost:8081",
-        "http://localhost:8081/pair?code=k7mqqx2z",
-    );
-    assert_eq!(code, 0, "stderr: {err}");
-    assert_eq!(captured.as_deref(), Some("K7MQ-QX2Z"));
-}
-
-#[test]
-fn pair_send_accepts_url_with_extra_query_params() {
-    let (code, err, captured) = run_send_with_positional(
-        "https://secrt.ca",
-        "https://secrt.ca/pair?ref=mobile&code=K7MQ-QX2Z&utm_source=qr",
-    );
-    assert_eq!(code, 0, "stderr: {err}");
-    assert_eq!(captured.as_deref(), Some("K7MQ-QX2Z"));
-}
-
-#[test]
-fn pair_send_accepts_self_hosted_host_when_configured() {
-    let (code, err, captured) =
-        run_send_with_positional("https://secrt.is", "https://secrt.is/pair?code=K7MQ-QX2Z");
-    assert_eq!(code, 0, "stderr: {err}");
-    assert_eq!(captured.as_deref(), Some("K7MQ-QX2Z"));
-}
-
-#[test]
 fn pair_send_rejects_cross_instance_url() {
     // Leak guard fires when (a) no base is explicitly configured AND
     // (b) the URL would override it to a different host. With
@@ -839,22 +827,4 @@ fn pair_send_rejects_cross_instance_url() {
         approved_with_code.lock().unwrap().is_none(),
         "approve must not have been called when the leak guard blocked"
     );
-}
-
-#[test]
-fn pair_send_rejects_non_pair_url() {
-    // URL is well-formed but points at the wrong path — parser should
-    // reject before any network call.
-    let (code, _err, captured) =
-        run_send_with_positional("https://secrt.ca", "https://secrt.ca/sync?code=K7MQ-QX2Z");
-    assert_eq!(code, 2, "non-pair URL should exit 2");
-    assert!(captured.is_none());
-}
-
-#[test]
-fn pair_send_rejects_pair_url_with_no_code_param() {
-    let (code, _err, captured) =
-        run_send_with_positional("https://secrt.ca", "https://secrt.ca/pair");
-    assert_eq!(code, 2, "pair URL missing code should exit 2");
-    assert!(captured.is_none());
 }

@@ -267,7 +267,8 @@ fn run_send_mode(
     };
 
     // Generate our ephemeral keypair, derive the transfer key, encrypt the AMK.
-    let transfer_blob = match build_transfer_blob(amk, &displayer_pk_b64) {
+    let rng = SystemRandom::new();
+    let transfer_blob = match build_transfer_blob(amk, &displayer_pk_b64, &rng) {
         Ok(t) => t,
         Err(e) => {
             write_error(&mut deps.stderr, pa.json, is_tty, &e);
@@ -293,9 +294,16 @@ fn run_send_mode(
     0
 }
 
-fn build_transfer_blob(amk: &[u8], displayer_pk_b64: &str) -> Result<PairTransferBlob, String> {
-    let rng = SystemRandom::new();
-    let own_private = agreement::EphemeralPrivateKey::generate(&agreement::ECDH_P256, &rng)
+/// Build the encrypted account-key transfer blob the joiner posts at
+/// `/pair/approve`. Accepts an injected RNG so the ECDH ephemeral keypair
+/// and AES-GCM nonce can be controlled in tests, mirroring the receive
+/// path's existing wrap-RNG injection.
+fn build_transfer_blob(
+    amk: &[u8],
+    displayer_pk_b64: &str,
+    rng: &dyn ring::rand::SecureRandom,
+) -> Result<PairTransferBlob, String> {
+    let own_private = agreement::EphemeralPrivateKey::generate(&agreement::ECDH_P256, rng)
         .map_err(|_| "ECDH key generation failed".to_string())?;
     let own_public = own_private
         .compute_public_key()
@@ -315,13 +323,16 @@ fn build_transfer_blob(amk: &[u8], displayer_pk_b64: &str) -> Result<PairTransfe
 
     // Random 12-byte nonce.
     let mut nonce = [0u8; 12];
-    use ring::rand::SecureRandom;
     rng.fill(&mut nonce)
         .map_err(|_| "RNG failed to produce nonce".to_string())?;
 
-    let ct =
-        secrt_core::amk::aes256gcm_encrypt(&transfer_key, &nonce, b"secrt-amk-transfer-v1", amk)
-            .map_err(|e| format!("encrypt account key: {}", e))?;
+    let ct = secrt_core::amk::aes256gcm_encrypt(
+        &transfer_key,
+        &nonce,
+        secrt_core::amk::AMK_TRANSFER_AAD,
+        amk,
+    )
+    .map_err(|e| format!("encrypt account key: {}", e))?;
 
     Ok(PairTransferBlob {
         ct: URL_SAFE_NO_PAD.encode(&ct),

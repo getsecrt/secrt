@@ -391,19 +391,19 @@ fn handle_amk_transfer(
         }
     };
 
-    let amk_bytes =
-        match amk::aes256gcm_decrypt(&transfer_key, &nonce, b"secrt-amk-transfer-v1", &ct) {
-            Ok(v) => v,
-            Err(e) => {
-                let _ = writeln!(
-                    deps.stderr,
-                    "  {} account key transfer: decrypt AMK: {}",
-                    c(WARN, "warning:"),
-                    e
-                );
-                return;
-            }
-        };
+    let amk_bytes = match amk::aes256gcm_decrypt(&transfer_key, &nonce, amk::AMK_TRANSFER_AAD, &ct)
+    {
+        Ok(v) => v,
+        Err(e) => {
+            let _ = writeln!(
+                deps.stderr,
+                "  {} account key transfer: decrypt AMK: {}",
+                c(WARN, "warning:"),
+                e
+            );
+            return;
+        }
+    };
 
     if amk_bytes.len() != amk::AMK_LEN {
         let _ = writeln!(

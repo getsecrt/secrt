@@ -224,7 +224,7 @@ pub fn decrypt_and_persist_transfer(
         .decode(transfer_nonce_b64)
         .map_err(|e| format!("decode nonce: {}", e))?;
 
-    let amk_bytes = amk::aes256gcm_decrypt(&transfer_key, &nonce, b"secrt-amk-transfer-v1", &ct)
+    let amk_bytes = amk::aes256gcm_decrypt(&transfer_key, &nonce, amk::AMK_TRANSFER_AAD, &ct)
         .map_err(|e| format!("decrypt account key: {}", e))?;
 
     if amk_bytes.len() != amk::AMK_LEN {

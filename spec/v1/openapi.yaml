@@ -775,7 +775,16 @@ paths:
             X-Request-Id:
               $ref: "#/components/headers/X-Request-Id"
         "400":
-          $ref: "#/components/responses/BadRequest"
+          description: |
+            Either:
+            - `ecdh_public_key` is missing, malformed, or the request body
+              contains unknown fields (including the retired `role` field), or
+            - the presented API key is not linked to a user account
+              (re-link via `secrt auth login`).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
         "401":
           $ref: "#/components/responses/Unauthorized"
         "429":
@@ -814,6 +823,8 @@ paths:
           headers:
             X-Request-Id:
               $ref: "#/components/headers/X-Request-Id"
+        "400":
+          $ref: "#/components/responses/ApiKeyNotLinked"
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":
@@ -854,6 +865,8 @@ paths:
           headers:
             X-Request-Id:
               $ref: "#/components/headers/X-Request-Id"
+        "400":
+          $ref: "#/components/responses/ApiKeyNotLinked"
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":
@@ -916,7 +929,16 @@ paths:
             X-Request-Id:
               $ref: "#/components/headers/X-Request-Id"
         "400":
-          $ref: "#/components/responses/BadRequest"
+          description: |
+            Either:
+            - `amk_transfer` field shapes are invalid (`ct` not 48 bytes,
+              `nonce` not 12 bytes, `ecdh_public_key` not 65 bytes), or
+            - the presented API key is not linked to a user account
+              (re-link via `secrt auth login`).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":
@@ -967,6 +989,8 @@ paths:
           headers:
             X-Request-Id:
               $ref: "#/components/headers/X-Request-Id"
+        "400":
+          $ref: "#/components/responses/ApiKeyNotLinked"
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":
@@ -2602,6 +2626,23 @@ components:
             $ref: "#/components/schemas/ErrorResponse"
           example:
             error: "forbidden"
+      headers:
+        X-Request-Id:
+          $ref: "#/components/headers/X-Request-Id"
+
+    ApiKeyNotLinked:
+      description: |
+        The presented API key authenticated, but has no associated user
+        account (an artifact of older API-key flows that pre-date
+        account linking). Distinct from 401 so clients can prompt the
+        user to re-link rather than re-authenticate. Applies to every
+        pair endpoint when accessed via API-key auth.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+          example:
+            error: "api key is not linked to a user account"
       headers:
         X-Request-Id:
           $ref: "#/components/headers/X-Request-Id"
