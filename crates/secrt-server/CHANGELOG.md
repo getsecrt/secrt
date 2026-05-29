@@ -2,7 +2,53 @@
 
 ## Unreleased
 
+### Added
+
+- **Unknown URLs now render a styled 404 page instead of a blank screen.**
+
+  The server fallback used to return an empty 404 body for any path not
+  in the router — typo'd URLs landed users on a white page. An Axum
+  catch-all now serves the SPA shell with HTTP 404 so the client-side
+  router can render `NotFoundPage`: a pixelated "404" that holds for a
+  beat, then dissolves, alongside the attempted path and a link home.
+
+  - API and `.well-known/` paths keep returning the existing JSON 404
+    shape so clients see a consistent error format.
+  - `NotFoundPage` is lazy-loaded via dynamic `import()`, so its
+    canvas-animation code doesn't ship in the main bundle — it lands in
+    its own ~1 KB gzipped chunk that only loads when a 404 is rendered.
+  - Animation honors `prefers-reduced-motion` (renders the static pixel
+    grid and stops).
+
+  Files: `crates/secrt-server/src/http/mod.rs` (new
+  `handle_not_found_fallback`), `crates/secrt-server/tests/spa_routes.rs`
+  (covers both the HTML and JSON branches),
+  `web/src/features/error/NotFoundPage.tsx` (new),
+  `web/src/app.tsx` (lazy loader).
+
+- **Bare `/sync` no longer 404s — it shows a friendly "link incomplete" landing.**
+
+  A truncated or mis-copied sync link that drops the secret ID used to
+  fall through to the SPA 404. It now routes to a landing page that
+  redirects to login when signed out, then explains the link is
+  incomplete and offers a button to `/pair`.
+
+  Files: `web/src/features/sync/SyncLandingPage.tsx`, `web/src/router.ts`,
+  `web/src/app.tsx`.
+
 ### Changed
+
+- **"Get a one-time sync link" fallback resurfaced beneath the `/pair` join card.**
+
+  After 0.18.0 demoted the sync-link button, a device that already holds
+  the account key had no obvious way to generate a sync link from the
+  join screen. `SyncNotesKeyButton` now appears as a small fallback link
+  under `PairJoinPanel` for the both-browsers-can't-be-open case. Its
+  button label and modal copy also move from "Notes Key" to "Account Key"
+  to match the rest of the UI.
+
+  Files: `web/src/components/SyncNotesKeyButton.tsx`,
+  `web/src/features/pair/PairJoinPanel.tsx`.
 
 - **Pair endpoints now accept either session bearer or linked API-key
   auth.** Previously `/api/v1/auth/pair/*` required a session token
