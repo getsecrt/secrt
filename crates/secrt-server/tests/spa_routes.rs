@@ -121,6 +121,34 @@ async fn unknown_api_path_returns_json_404() {
     );
 }
 
+/// Unknown /.well-known/ paths must also return JSON (not the SPA shell)
+/// so well-known discovery clients (security.txt scrapers, etc.) get a
+/// machine-parseable response instead of an HTML page.
+#[tokio::test]
+async fn unknown_well_known_path_returns_json_404() {
+    let store = Arc::new(MemStore::default());
+    let app = test_app_with_store(store, test_config());
+
+    let req = Request::builder()
+        .method("GET")
+        .uri("/.well-known/this-endpoint-does-not-exist")
+        .body(Body::empty())
+        .expect("build request");
+
+    let resp = app.clone().oneshot(req).await.expect("send request");
+
+    assert_eq!(resp.status(), StatusCode::NOT_FOUND);
+    let content_type = resp
+        .headers()
+        .get("content-type")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("");
+    assert!(
+        content_type.contains("application/json"),
+        "unknown /.well-known/ path returned content-type '{content_type}' instead of application/json",
+    );
+}
+
 /// The /s/{id} route is special — it serves a custom OG-tagged HTML page, not
 /// the generic SPA index. Verify it returns 200 with HTML.
 #[tokio::test]
