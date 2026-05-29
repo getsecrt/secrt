@@ -101,27 +101,15 @@ function dissolve404(
   }
   ctx.fillText(text, w / 2, h / 2);
 
-  // Sample alpha on the device-pixel buffer, but step in CSS pixels.
+  // Sample alpha on the device-pixel buffer, step in CSS pixels.
   const img = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
-  const dots: {
-    x: number;
-    y: number;
-    d: number;
-    vx: number;
-    o: number;
-  }[] = [];
+  const points: { x: number; y: number; d: number }[] = [];
   for (let y = 0; y < h; y += gap) {
     for (let x = 0; x < w; x += gap) {
       const px = Math.floor(x * dpr);
       const py = Math.floor(y * dpr);
       if (img[(py * canvas.width + px) * 4 + 3] > 128) {
-        dots.push({
-          x,
-          y,
-          d: delay + Math.random() * stagger,
-          vx: (Math.random() - 0.5) * 8,
-          o: 0.5 + Math.random() * 0.5,
-        });
+        points.push({ x, y, d: delay + Math.random() * stagger });
       }
     }
   }
@@ -129,20 +117,10 @@ function dissolve404(
   const size = Math.max(1.5, gap * 0.5);
   ctx.fillStyle = getComputedStyle(canvas).color;
 
-  const paint = (
-    p: { x: number; y: number; vx: number; o: number },
-    life: number,
-  ) => {
-    ctx.globalAlpha = p.o * life;
-    const k = 1 - life;
-    ctx.fillRect(p.x + p.vx * k, p.y - 16 * k, size * life, size * life);
-  };
-
   // Reduced motion: render the static 404 and stop.
   if (matchMedia('(prefers-reduced-motion: reduce)').matches) {
     ctx.clearRect(0, 0, w, h);
-    for (const p of dots) paint(p, 1);
-    ctx.globalAlpha = 1;
+    for (const p of points) ctx.fillRect(p.x, p.y, size, size);
     return () => {};
   }
 
@@ -155,11 +133,12 @@ function dissolve404(
     const e = t - start;
     ctx.clearRect(0, 0, w, h);
     let alive = false;
-    for (const p of dots) {
+    for (const p of points) {
       const k = (e - p.d) / duration;
       if (k >= 1) continue;
       alive = true;
-      paint(p, k < 0 ? 1 : 1 - k);
+      ctx.globalAlpha = k < 0 ? 1 : 1 - k;
+      ctx.fillRect(p.x, p.y, size, size);
     }
     ctx.globalAlpha = 1;
     if (alive) rafId = requestAnimationFrame(frame);
