@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.19.0 — 2026-05-28
+
 ### Added
 
 - **`secrt pair` — share your account key between devices.** Mirrors the

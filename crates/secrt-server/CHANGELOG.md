@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.19.0 — 2026-05-28
+
 ### Added
 
 - **Unknown URLs now render a styled 404 page instead of a blank screen.**
