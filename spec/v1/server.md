@@ -353,30 +353,46 @@ App login enables desktop applications to obtain a session token via browser-bas
 
 ### 6.4. Web-to-Web Pairing Flow
 
-Web-to-web pairing transfers an Account Master Key (AMK) between two browsers
-that are signed in to the same account. It is a third use of the
+Pairing transfers an Account Master Key (AMK) between two devices that are
+signed in to the same account. It is a third use of the
 `webauthn_challenges` slot machinery (alongside `device-auth` and
 `app-login`), but with three structural differences:
 
 - **Both sides authenticated.** Unlike `device-auth` (anonymous CLI initiator)
   and `app-login` (anonymous desktop initiator), `/auth/pair/*` requires a
-  valid session on both the displaying device and the joining device.
+  valid identity on both the displaying device and the joining device, via
+  the shared `require_session_or_api_user` helper. It accepts either a
+  session bearer token (browser flow) or a linked API key (CLI / desktop
+  flow), trying session first so a session token is never misinterpreted as
+  an API key. Either credential resolves to the same `UserId`.
 - **Slot bound to a single user.** The slot's `user_id` is set at `/start`;
-  every subsequent endpoint cross-checks `slot.user_id == session.user_id`
+  every subsequent endpoint cross-checks `slot.user_id == auth.user_id`
   and returns `403` on mismatch. Cross-account pairing is impossible by
-  construction.
+  construction — and the check is uniform regardless of whether either
+  side is using session bearer or API-key auth.
 - **AMK transfer only.** `/auth/pair/approve` does not mint an API key and
   does not consume an `auth_token`. It only attaches encrypted AMK material
-  to the slot. This isolates web-pair from the API-key registration paths.
+  to the slot. This isolates pairing from the API-key registration paths.
 
-Storage reuse: web-pair challenges are stored in `webauthn_challenges` with
+Storage reuse: pair challenges are stored in `webauthn_challenges` with
 `purpose = "web-pair"` and 10-minute expiry. No schema migration is needed.
 
+Status mapping for the dual-auth helper:
+
+- Linked, valid credential (session **or** API key) → `Ok(user_id)`.
+- Authenticated API key with `user_id = None` (an artifact of older
+  API-key flows that pre-date account linking) → `400 { "error": "api
+  key is not linked to a user account" }`. Surfaced specifically so the
+  client can prompt the user to re-link.
+- Anything else — missing credential, malformed key, revoked key, expired
+  session, wrong pepper — → `401`. Collapsed deliberately: the response
+  does not reveal whether a given key prefix exists or has been revoked.
+
 **Single pairing direction.** The flow is asymmetric: the displayer is
-always a fresh browser waiting to receive an AMK; the joiner is always a
-browser that already has the AMK and acts as the sender. Each browser
-picks its page locally by checking `loadAmk(user_id)` — there is no
-role declaration on the wire.
+always a device waiting to receive an AMK; the joiner is always a device
+that already has the AMK and acts as the sender. Each client picks its
+role locally by checking for a local AMK — there is no role declaration
+on the wire.
 
 - The displayer supplies an ephemeral ECDH public key at `/start` and
   polls for `amk_transfer`.

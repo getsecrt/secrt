@@ -7,7 +7,7 @@ use std::sync::{Arc, Mutex};
 
 type CopyToClipboardFn = Box<dyn Fn(&str) -> Result<(), String>>;
 
-use secrt_cli::cli::Deps;
+use secrt_cli::cli::{Deps, MakeApiFn};
 use secrt_cli::client::{
     AmkWrapperResponse, ApiClient, ClaimResponse, CreateRequest, CreateResponse, EncMetaV1,
     InfoResponse, ListSecretsResponse, SecretApi, SecretMetadataItem,
@@ -180,6 +180,10 @@ pub struct TestDepsBuilder {
     read_pass_responses: Vec<String>,
     read_pass_error: Option<String>,
     mock_responses: Option<MockApiResponses>,
+    /// Optional override for `Deps::make_api`. Takes precedence over
+    /// `mock_responses` when set. Pair tests use this to wire in a
+    /// closure-based mock that can react to runtime ECDH pubkeys.
+    make_api_override: Option<MakeApiFn>,
     keychain_secrets: HashMap<String, String>,
     keychain_secret_lists: HashMap<String, Vec<String>>,
     copy_to_clipboard_fn: Option<CopyToClipboardFn>,
@@ -222,6 +226,7 @@ impl TestDepsBuilder {
             read_pass_responses: Vec::new(),
             read_pass_error: None,
             mock_responses: None,
+            make_api_override: None,
             keychain_secrets: HashMap::new(),
             keychain_secret_lists: HashMap::new(),
             copy_to_clipboard_fn: None,
@@ -277,6 +282,15 @@ impl TestDepsBuilder {
         self.mock_responses
             .get_or_insert_with(MockApiResponses::default)
             .create = Some(resp);
+        self
+    }
+
+    /// Replace the default `make_api` with a custom factory. Used by pair
+    /// tests to wire in closure-based mocks that need access to runtime
+    /// state (e.g. the displayer's ECDH public key) when constructing
+    /// responses.
+    pub fn make_api(mut self, f: MakeApiFn) -> Self {
+        self.make_api_override = Some(f);
         self
     }
 
@@ -420,7 +434,9 @@ impl TestDepsBuilder {
             },
             sleep: Box::new(|_: std::time::Duration| {}),
             now: Box::new(move || now_fixed.unwrap_or_else(std::time::SystemTime::now)),
-            make_api: if let Some(mock_responses) = self.mock_responses {
+            make_api: if let Some(f) = self.make_api_override {
+                f
+            } else if let Some(mock_responses) = self.mock_responses {
                 Box::new(move |_base_url: &str, _api_key: &str| {
                     Box::new(MockApi::new(mock_responses.clone())) as Box<dyn SecretApi>
                 })

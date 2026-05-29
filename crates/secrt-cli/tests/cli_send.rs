@@ -261,9 +261,14 @@ fn send_multi_line_tty_shows_prompt() {
     let code = cli::run(&args(&["secrt", "send", "-m"]), &mut deps);
     assert_eq!(code, 0, "stderr: {}", stderr);
     let err = stderr.to_string();
+    #[cfg(windows)]
+    let expected = "Ctrl+Z";
+    #[cfg(not(windows))]
+    let expected = "Ctrl+D";
     assert!(
-        err.contains("Ctrl+D"),
-        "multi-line TTY prompt should mention Ctrl+D: {}",
+        err.contains(expected),
+        "multi-line TTY prompt should mention {}: {}",
+        expected,
         err
     );
 }
@@ -870,7 +875,7 @@ fn send_note_no_amk_fails() {
     );
     let err = stderr.to_string();
     assert!(
-        err.contains("no notes key found"),
+        err.contains("no account key found"),
         "should report missing AMK: {}",
         err
     );

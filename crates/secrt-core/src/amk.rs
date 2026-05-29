@@ -29,6 +29,13 @@ pub const HKDF_INFO_AMK_TRANSFER: &str = "secrt-amk-transfer-v1";
 pub const HKDF_INFO_SAS: &str = "secrt-amk-sas-v1";
 pub const AMK_COMMIT_DOMAIN_TAG: &[u8] = b"secrt-amk-commit-v1";
 
+/// AEAD AAD for account-key transfer (pair / device-login / sync flows).
+/// Distinct cryptographic role from `HKDF_INFO_AMK_TRANSFER` (HKDF info),
+/// even though the byte values are deliberately equal so the value
+/// carries the same domain-separation label in both contexts. Bound
+/// to a named constant so sender and receiver can never drift.
+pub const AMK_TRANSFER_AAD: &[u8] = b"secrt-amk-transfer-v1";
+
 // ── Types ────────────────────────────────────────────────────────────
 
 #[derive(Debug, Clone)]

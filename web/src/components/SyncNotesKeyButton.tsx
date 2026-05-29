@@ -42,7 +42,7 @@ export function SyncNotesKeyButton() {
     try {
       // 1. Load AMK from IndexedDB
       const amk = await loadAmk(auth.userId);
-      if (!amk) throw new Error('Notes key not found.');
+      if (!amk) throw new Error('Account key not found.');
 
       // 2. Seal the AMK as a secret (no passphrase, binary payload)
       const { envelope, urlKey, claimHash } = await seal(amk, {
@@ -72,7 +72,9 @@ export function SyncNotesKeyButton() {
       setState({
         step: 'error',
         message:
-          err instanceof Error ? err.message : 'Failed to create sync link.',
+          err instanceof Error
+            ? err.message
+            : 'Failed to create account key sync link.',
       });
     }
   }, [auth.sessionToken, auth.userId]);
@@ -94,7 +96,7 @@ export function SyncNotesKeyButton() {
         onClick={handleSync}
         disabled={state.step === 'creating'}
       >
-        Sync Notes Key to Another Device
+        Get a one-time sync link
       </button>
 
       <Modal open={modalOpen} onClose={handleClose} class="max-w-md">
@@ -115,8 +117,8 @@ export function SyncNotesKeyButton() {
           <ShareResult
             shareUrl={state.shareUrl}
             expiresAt={state.expiresAt}
-            title="Notes Key Link"
-            subtitle="Open link in the browser you want to sync."
+            title="Account Key Sync Link"
+            subtitle="Open this link in the device that needs the account key."
             bare
             showQr={false}
           />

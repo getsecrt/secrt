@@ -326,7 +326,7 @@ fn handle_amk_transfer(
         Err(e) => {
             let _ = writeln!(
                 deps.stderr,
-                "  {} notes key transfer: decode browser public key: {}",
+                "  {} account key transfer: decode browser public key: {}",
                 c(WARN, "warning:"),
                 e
             );
@@ -344,7 +344,7 @@ fn handle_amk_transfer(
             Err(_) => {
                 let _ = writeln!(
                     deps.stderr,
-                    "  {} notes key transfer: ECDH agreement failed",
+                    "  {} account key transfer: ECDH agreement failed",
                     c(WARN, "warning:")
                 );
                 return;
@@ -357,7 +357,7 @@ fn handle_amk_transfer(
         Err(e) => {
             let _ = writeln!(
                 deps.stderr,
-                "  {} notes key transfer: derive key: {}",
+                "  {} account key transfer: derive key: {}",
                 c(WARN, "warning:"),
                 e
             );
@@ -371,7 +371,7 @@ fn handle_amk_transfer(
         Err(e) => {
             let _ = writeln!(
                 deps.stderr,
-                "  {} notes key transfer: decode ciphertext: {}",
+                "  {} account key transfer: decode ciphertext: {}",
                 c(WARN, "warning:"),
                 e
             );
@@ -383,7 +383,7 @@ fn handle_amk_transfer(
         Err(e) => {
             let _ = writeln!(
                 deps.stderr,
-                "  {} notes key transfer: decode nonce: {}",
+                "  {} account key transfer: decode nonce: {}",
                 c(WARN, "warning:"),
                 e
             );
@@ -391,24 +391,24 @@ fn handle_amk_transfer(
         }
     };
 
-    let amk_bytes =
-        match amk::aes256gcm_decrypt(&transfer_key, &nonce, b"secrt-amk-transfer-v1", &ct) {
-            Ok(v) => v,
-            Err(e) => {
-                let _ = writeln!(
-                    deps.stderr,
-                    "  {} notes key transfer: decrypt AMK: {}",
-                    c(WARN, "warning:"),
-                    e
-                );
-                return;
-            }
-        };
+    let amk_bytes = match amk::aes256gcm_decrypt(&transfer_key, &nonce, amk::AMK_TRANSFER_AAD, &ct)
+    {
+        Ok(v) => v,
+        Err(e) => {
+            let _ = writeln!(
+                deps.stderr,
+                "  {} account key transfer: decrypt AMK: {}",
+                c(WARN, "warning:"),
+                e
+            );
+            return;
+        }
+    };
 
     if amk_bytes.len() != amk::AMK_LEN {
         let _ = writeln!(
             deps.stderr,
-            "  {} notes key transfer: invalid AMK length ({})",
+            "  {} account key transfer: invalid AMK length ({})",
             c(WARN, "warning:"),
             amk_bytes.len()
         );
@@ -421,7 +421,7 @@ fn handle_amk_transfer(
         Err(e) => {
             let _ = writeln!(
                 deps.stderr,
-                "  {} notes key transfer: derive wrap key: {}",
+                "  {} account key transfer: derive wrap key: {}",
                 c(WARN, "warning:"),
                 e
             );
@@ -441,7 +441,7 @@ fn handle_amk_transfer(
             None => {
                 let _ = writeln!(
                     deps.stderr,
-                    "  {} notes key transfer: API key is not linked to a user account",
+                    "  {} account key transfer: API key is not linked to a user account",
                     c(WARN, "warning:")
                 );
                 return;
@@ -450,7 +450,7 @@ fn handle_amk_transfer(
         Err(e) => {
             let _ = writeln!(
                 deps.stderr,
-                "  {} notes key transfer: could not get user ID: {}",
+                "  {} account key transfer: could not get user ID: {}",
                 c(WARN, "warning:"),
                 e
             );
@@ -463,7 +463,7 @@ fn handle_amk_transfer(
         Err(e) => {
             let _ = writeln!(
                 deps.stderr,
-                "  {} notes key transfer: server returned invalid user_id UUID: {}",
+                "  {} account key transfer: server returned invalid user_id UUID: {}",
                 c(WARN, "warning:"),
                 e
             );
@@ -481,7 +481,7 @@ fn handle_amk_transfer(
         Err(e) => {
             let _ = writeln!(
                 deps.stderr,
-                "  {} notes key transfer: wrap AMK: {}",
+                "  {} account key transfer: wrap AMK: {}",
                 c(WARN, "warning:"),
                 e
             );
@@ -502,20 +502,20 @@ fn handle_amk_transfer(
         Ok(()) => {
             let _ = writeln!(
                 deps.stderr,
-                "{} Notes key synced from browser",
+                "{} Account key synced from browser",
                 c(SUCCESS, "\u{2713}")
             );
         }
         Err(e) => {
             let _ = writeln!(
                 deps.stderr,
-                "  {} notes key transfer: upload wrapper: {}",
+                "  {} account key transfer: upload wrapper: {}",
                 c(WARN, "warning:"),
                 e
             );
             let _ = writeln!(
                 deps.stderr,
-                "  {} You can sync the notes key later via web settings",
+                "  {} You can receive the account key later via `secrt pair`",
                 c(DIM, "hint:")
             );
         }
@@ -671,14 +671,14 @@ fn run_auth_status(args: &[String], deps: &mut Deps) -> i32 {
         }
     };
 
-    // Check AMK (notes key) status
+    // Check account key (AMK) status
     if server_reachable {
         match api.get_amk_wrapper() {
             Ok(Some(_)) => {
                 let _ = writeln!(
                     deps.stderr,
                     "  {}: {}",
-                    c(OPT, "Notes key"),
+                    c(OPT, "Account key"),
                     c(SUCCESS, "synced")
                 );
             }
@@ -686,14 +686,14 @@ fn run_auth_status(args: &[String], deps: &mut Deps) -> i32 {
                 let _ = writeln!(
                     deps.stderr,
                     "  {}: {}",
-                    c(OPT, "Notes key"),
+                    c(OPT, "Account key"),
                     c(WARN, "not synced")
                 );
                 let _ = writeln!(
                     deps.stderr,
-                    "  {} sync from web settings or use {}",
+                    "  {} run {} to receive your account key from another device",
                     c(DIM, "hint:"),
-                    c(CMD, "secrt sync <url>")
+                    c(CMD, "secrt pair")
                 );
             }
             Err(_) => {

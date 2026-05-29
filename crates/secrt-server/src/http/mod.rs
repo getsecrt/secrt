@@ -894,6 +894,8 @@ pub fn build_router(state: Arc<AppState>) -> Router {
         .route("/app-login", get(handle_index))
         .route("/pair", get(handle_index))
         .route("/about", get(handle_index))
+        .route("/sync", get(handle_index))
+        .route("/sync/", get(handle_index))
         .route("/sync/{id}", get(handle_index))
         .route("/robots.txt", get(handle_robots_txt))
         .route("/.well-known/security.txt", get(handle_security_txt));
@@ -2040,6 +2042,33 @@ async fn require_valid_session(
     }
 
     Ok(sess)
+}
+
+/// Resolve `UserId` from either a session bearer token or an `X-API-Key` /
+/// `Authorization: Bearer` API-key header. Session is tried first so a session
+/// token isn't misinterpreted as an API key. Used by endpoints (pair) where
+/// the caller's identity is all that's needed — no session metadata, no
+/// key_prefix. Unlinked API keys (a registered key with no associated user)
+/// surface as `bad_request`, matching `resolve_amk_auth`'s convention; auth
+/// failures surface as `unauthorized`.
+async fn require_session_or_api_user(
+    state: &Arc<AppState>,
+    headers: &HeaderMap,
+) -> Result<UserId, Response> {
+    if let Ok((user_id, _, _)) = require_session_user(state, headers).await {
+        return Ok(user_id);
+    }
+
+    if let Some(raw) = api_key_from_headers(headers) {
+        if let Ok(api_key) = state.auth.authenticate(&raw).await {
+            let Some(user_id) = api_key.user_id else {
+                return Err(bad_request("api key is not linked to a user account"));
+            };
+            return Ok(user_id);
+        }
+    }
+
+    Err(unauthorized())
 }
 
 async fn issue_session_token(
@@ -3978,7 +4007,7 @@ pub async fn handle_pair_start_entry(State(state): State<Arc<AppState>>, req: Re
     }
 
     let headers = req.headers().clone();
-    let (user_id, _, _) = match require_session_user(&state, &headers).await {
+    let user_id = match require_session_or_api_user(&state, &headers).await {
         Ok(v) => v,
         Err(resp) => return resp,
     };
@@ -3988,12 +4017,11 @@ pub async fn handle_pair_start_entry(State(state): State<Arc<AppState>>, req: Re
         Err(resp) => return resp,
     };
 
-    // Displayer unconditionally supplies an ECDH pubkey. Role is inferred
-    // server-side at the first joiner action (/claim → Send, /approve from
-    // pending → Receive). If the joiner turns out to be the receiver, this
-    // pubkey is used by the displayer-as-sender's /approve path; if the
-    // joiner is the sender, this pubkey is what they encrypt to via
-    // /challenge → /approve.
+    // The displayer (waiting to receive an account key) registers its
+    // ephemeral ECDH public key here. The joiner reads it via /challenge
+    // and uses it to encrypt the AMK via /approve. There is only one
+    // joiner role — sender. The receive direction is expressed entirely
+    // by *not* navigating to a code on a keyed device.
     if let Err(msg) = validate_ecdh_public_key(&payload.ecdh_public_key) {
         return bad_request(msg);
     }
@@ -4061,7 +4089,7 @@ pub async fn handle_pair_poll_entry(State(state): State<Arc<AppState>>, req: Req
     }
 
     let headers = req.headers().clone();
-    let (session_user_id, _, _) = match require_session_user(&state, &headers).await {
+    let auth_user_id = match require_session_or_api_user(&state, &headers).await {
         Ok(v) => v,
         Err(resp) => return resp,
     };
@@ -4100,7 +4128,7 @@ pub async fn handle_pair_poll_entry(State(state): State<Arc<AppState>>, req: Req
     };
 
     // Same-user check: cross-account access is 403.
-    if record.user_id != Some(session_user_id) {
+    if record.user_id != Some(auth_user_id) {
         return error_response(StatusCode::FORBIDDEN, "forbidden");
     }
 
@@ -4127,7 +4155,7 @@ pub async fn handle_pair_challenge_entry(
     }
 
     let headers = req.headers().clone();
-    let (session_user_id, _, _) = match require_session_user(&state, &headers).await {
+    let auth_user_id = match require_session_or_api_user(&state, &headers).await {
         Ok(v) => v,
         Err(resp) => return resp,
     };
@@ -4148,7 +4176,7 @@ pub async fn handle_pair_challenge_entry(
         }
     };
 
-    if record.user_id != Some(session_user_id) {
+    if record.user_id != Some(auth_user_id) {
         return error_response(StatusCode::FORBIDDEN, "forbidden");
     }
 
@@ -4198,7 +4226,7 @@ pub async fn handle_pair_approve_entry(
     }
 
     let headers = req.headers().clone();
-    let (session_user_id, _, _) = match require_session_user(&state, &headers).await {
+    let auth_user_id = match require_session_or_api_user(&state, &headers).await {
         Ok(v) => v,
         Err(resp) => return resp,
     };
@@ -4228,7 +4256,7 @@ pub async fn handle_pair_approve_entry(
         }
     };
 
-    if record.user_id != Some(session_user_id) {
+    if record.user_id != Some(auth_user_id) {
         return error_response(StatusCode::FORBIDDEN, "forbidden");
     }
 
@@ -4304,7 +4332,7 @@ pub async fn handle_pair_cancel_entry(
     }
 
     let headers = req.headers().clone();
-    let (session_user_id, _, _) = match require_session_user(&state, &headers).await {
+    let auth_user_id = match require_session_or_api_user(&state, &headers).await {
         Ok(v) => v,
         Err(resp) => return resp,
     };
@@ -4335,7 +4363,7 @@ pub async fn handle_pair_cancel_entry(
         }
     };
 
-    if record.user_id != Some(session_user_id) {
+    if record.user_id != Some(auth_user_id) {
         return error_response(StatusCode::FORBIDDEN, "forbidden");
     }
 

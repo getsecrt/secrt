@@ -28,6 +28,38 @@ fn sync_missing_url_exits_2() {
         "should report missing URL, got: {}",
         err
     );
+    // Hint points the user at the right place to generate a link.
+    assert!(
+        err.contains("/pair") && err.contains("Get a one-time sync link"),
+        "should point at the web /pair page and the legacy link button, got: {}",
+        err
+    );
+    // Default base URL when nothing is configured.
+    assert!(
+        err.contains("https://secrt.ca/pair"),
+        "should use the default base URL when none is configured, got: {}",
+        err
+    );
+}
+
+#[test]
+fn sync_missing_url_hint_uses_configured_base() {
+    let (mut deps, _stdout, stderr) = TestDepsBuilder::new()
+        .env("SECRET_BASE_URL", "https://secrt.is")
+        .build();
+    let code = cli::run(&args(&["secrt", "sync"]), &mut deps);
+    assert_eq!(code, 2);
+    let err = stderr.to_string();
+    assert!(
+        err.contains("https://secrt.is/pair"),
+        "hint should respect SECRET_BASE_URL, got: {}",
+        err
+    );
+    assert!(
+        !err.contains("https://secrt.ca/pair"),
+        "hint should not mention the default when a custom base is set, got: {}",
+        err
+    );
 }
 
 #[test]
@@ -175,7 +207,7 @@ fn sync_success_claims_and_imports_amk() {
     let err = stderr.to_string();
     assert_eq!(code, 0, "sync should succeed; stderr: {}", err);
     assert!(
-        err.contains("Notes key synced successfully"),
+        err.contains("Account key synced successfully"),
         "should show success message: {}",
         err
     );

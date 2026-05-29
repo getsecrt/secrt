@@ -1,61 +1,9 @@
 use std::io::Write;
 
-use base64::engine::general_purpose::URL_SAFE_NO_PAD;
-use base64::Engine;
-use ring::rand::SecureRandom;
-
+use crate::amk_store;
 use crate::cli::{derive_base_url_from_url, parse_flags, resolve_globals, CliError, Deps};
 use crate::color::{color_func, SUCCESS};
 use crate::passphrase::write_error;
-
-/// Import a raw 32-byte AMK: wrap it with the caller's API key and
-/// upload to the server. Caller MUST have already verified the
-/// `info()` precondition (`authenticated == true && user_id.is_some()`)
-/// — see `handle_sync_url` below. This function trusts that contract.
-pub(crate) fn import_amk(
-    amk_bytes: &[u8],
-    api_key: &str,
-    user_id: &str,
-    client: &dyn secrt_core::api::SecretApi,
-) -> Result<(), String> {
-    use secrt_core::amk;
-
-    if amk_bytes.len() != amk::AMK_LEN {
-        return Err(format!(
-            "invalid AMK length: expected {}, got {}",
-            amk::AMK_LEN,
-            amk_bytes.len()
-        ));
-    }
-
-    let local_key = secrt_core::parse_local_api_key(api_key)
-        .map_err(|e| format!("cannot parse API key: {}", e))?;
-
-    let wrap_key = amk::derive_amk_wrap_key(&local_key.root_key)
-        .map_err(|e| format!("derive wrap key: {}", e))?;
-
-    let user_id_bytes = uuid::Uuid::parse_str(user_id)
-        .map_err(|e| format!("server returned invalid user_id UUID: {}", e))?
-        .into_bytes();
-
-    let aad = amk::build_wrap_aad(&user_id_bytes, &local_key.prefix, 1);
-    let wrapped = amk::wrap_amk(amk_bytes, &wrap_key, &aad, &|buf| {
-        ring::rand::SystemRandom::new()
-            .fill(buf)
-            .map_err(|_| secrt_core::types::EnvelopeError::RngError("rng failed".into()))
-    })
-    .map_err(|e| format!("wrap AMK: {}", e))?;
-
-    let commit = amk::compute_amk_commit(amk_bytes);
-
-    client.upsert_amk_wrapper(
-        &local_key.prefix,
-        &URL_SAFE_NO_PAD.encode(&wrapped.ct),
-        &URL_SAFE_NO_PAD.encode(&wrapped.nonce),
-        &URL_SAFE_NO_PAD.encode(commit),
-        1,
-    )
-}
 
 /// Shared logic for handling a sync URL: claim the secret, decrypt, import AMK.
 /// Used by both `secrt get <sync-url>` and `secrt sync <url>`.
@@ -173,13 +121,21 @@ pub(crate) fn handle_sync_url(
         }
     };
 
-    // Import the AMK
-    match import_amk(&opened.content, api_key, &user_id, &*client) {
+    // Import the AMK. Sync historically used `SystemRandom` directly; route
+    // through `amk_store::import_amk` with the same RNG so all three import
+    // paths (sync / login / pair) share one wrapping path.
+    let rand_bytes = |buf: &mut [u8]| -> Result<(), secrt_core::types::EnvelopeError> {
+        use ring::rand::SecureRandom;
+        ring::rand::SystemRandom::new()
+            .fill(buf)
+            .map_err(|_| secrt_core::types::EnvelopeError::RngError("rng failed".into()))
+    };
+    match amk_store::import_amk(&opened.content, api_key, &user_id, &*client, &rand_bytes) {
         Ok(()) => {
             if !silent {
                 let _ = writeln!(
                     deps.stderr,
-                    "{} Notes key synced successfully",
+                    "{} Account key synced successfully",
                     c(SUCCESS, "\u{2713}")
                 );
             }
@@ -190,7 +146,7 @@ pub(crate) fn handle_sync_url(
                 &mut deps.stderr,
                 json,
                 is_tty,
-                &format!("import notes key: {}", e),
+                &format!("import account key: {}", e),
             );
             1
         }
@@ -213,11 +169,15 @@ pub fn run_sync(args: &[String], deps: &mut Deps) -> i32 {
     resolve_globals(&mut pa, deps);
 
     if pa.args.is_empty() {
+        let base = pa.base_url.trim_end_matches('/');
         write_error(
             &mut deps.stderr,
             pa.json,
             (deps.is_tty)(),
-            "sync URL is required",
+            &format!(
+                "sync URL is required\n       Visit {base}/pair on a device with your \
+                 account key and click \"Get a one-time sync link\"."
+            ),
         );
         return 2;
     }
@@ -283,9 +243,34 @@ pub fn print_sync_help(deps: &mut Deps) {
     let w = &mut deps.stderr;
     let _ = writeln!(
         w,
-        "{}\n  Import your notes encryption key from a sync link.\n",
+        "{}\n  [LEGACY] Import account key from a one-time link.\n",
         c(HEADING, "SYNC")
     );
+    let _ = writeln!(
+        w,
+        "{}\n  {} is kept for headless or scripted setups where no human is",
+        c(HEADING, "LEGACY"),
+        c(CMD, "secrt sync"),
+    );
+    let _ = writeln!(
+        w,
+        "  at the terminal to approve a pair code. For everyday device"
+    );
+    let _ = writeln!(
+        w,
+        "  setup, use {} instead — it doesn't require generating",
+        c(CMD, "secrt pair")
+    );
+    let _ = writeln!(w, "  or sharing a link.\n");
+    let _ = writeln!(
+        w,
+        "  To get a sync link, visit https://secrt.ca/pair (or your"
+    );
+    let _ = writeln!(
+        w,
+        "  configured instance) on a device with your account key and"
+    );
+    let _ = writeln!(w, "  click \"Get a one-time sync link\".\n");
     let _ = writeln!(
         w,
         "{}\n  {} {} {}\n",

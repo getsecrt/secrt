@@ -1024,6 +1024,17 @@ pub fn test_state_and_app(store: Arc<MemStore>, cfg: Config) -> (Arc<AppState>, 
 }
 
 pub async fn create_api_key(store: &Arc<MemStore>, pepper: &str) -> (String, String) {
+    create_api_key_for(store, pepper, None).await
+}
+
+/// Like `create_api_key`, but optionally links the new key to a user. Used by
+/// pair tests where API-key auth must resolve to a `UserId` to exercise the
+/// `require_session_or_api_user` fallback path.
+pub async fn create_api_key_for(
+    store: &Arc<MemStore>,
+    pepper: &str,
+    user_id: Option<UserId>,
+) -> (String, String) {
     let prefix = generate_api_key_prefix().expect("generate api key prefix");
     let root = [42u8; 32];
     let auth = derive_auth_token(&root).expect("derive auth token");
@@ -1035,7 +1046,7 @@ pub async fn create_api_key(store: &Arc<MemStore>, pepper: &str) -> (String, Str
             prefix: prefix.clone(),
             auth_hash,
             scopes: String::new(),
-            user_id: None,
+            user_id,
             created_at: Utc::now(),
             revoked_at: None,
         })

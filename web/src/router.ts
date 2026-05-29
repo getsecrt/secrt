@@ -4,6 +4,7 @@ export type Route =
   | { page: 'send' }
   | { page: 'claim'; id: string }
   | { page: 'sync'; id: string }
+  | { page: 'sync-landing' }
   | { page: 'how-it-works' }
   | { page: 'privacy' }
   | { page: 'login' }
@@ -30,6 +31,12 @@ export function matchRoute(path: string): Route {
   const syncMatch = path.match(/^\/sync\/([a-zA-Z0-9_-]+)\/?$/);
   if (syncMatch) {
     return { page: 'sync', id: syncMatch[1] };
+  }
+
+  // Bare /sync (no ID) — likely a truncated link. Show a friendly landing
+  // page instead of 404, and redirect-to-login when unauthenticated.
+  if (path === '/sync' || path === '/sync/') {
+    return { page: 'sync-landing' };
   }
 
   if (path === '/how-it-works') {

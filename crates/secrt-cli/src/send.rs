@@ -4,7 +4,9 @@ use std::io::{Read, Write};
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use base64::Engine;
 
-use crate::cli::{parse_flags, print_send_help, resolve_globals, CliError, Deps, ParsedArgs};
+use crate::cli::{
+    parse_flags, print_send_help, resolve_globals, CliError, Deps, ParsedArgs, EOF_HINT,
+};
 use crate::client::CreateRequest;
 use crate::color::{color_func, DIM, LABEL, SUCCESS, URL, WARN};
 use crate::envelope::{self, format_share_link, CompressionPolicy, PayloadMeta, SealParams};
@@ -360,52 +362,10 @@ fn format_expires(iso: &str) -> String {
     format!("Expires in {} ({utc_display})", humanize_seconds(remaining))
 }
 
-/// Resolve the AMK from the server by fetching the wrapper and unwrapping with the local root key.
-pub(crate) fn resolve_amk(
-    pa: &ParsedArgs,
-    client: &(dyn crate::client::SecretApi + '_),
-) -> Result<Vec<u8>, String> {
-    use secrt_core::amk::{build_wrap_aad, derive_amk_wrap_key, unwrap_amk, WrappedAmk};
-
-    // Parse the local API key to get root_key and prefix
-    let local_key = secrt_core::parse_local_api_key(&pa.api_key)
-        .map_err(|e| format!("cannot parse API key for AMK: {}", e))?;
-
-    // Fetch the wrapper from the server (includes user_id for AAD reconstruction)
-    let wrapper_resp = client.get_amk_wrapper()?.ok_or_else(|| {
-        "no notes key found; create one via web settings or `secrt auth login`".to_string()
-    })?;
-
-    // Derive the wrap key from root_key
-    let wrap_key =
-        derive_amk_wrap_key(&local_key.root_key).map_err(|e| format!("derive wrap key: {}", e))?;
-
-    // Decode the wrapper fields
-    let ct = URL_SAFE_NO_PAD
-        .decode(&wrapper_resp.wrapped_amk)
-        .map_err(|e| format!("decode wrapped_amk: {}", e))?;
-    let nonce = URL_SAFE_NO_PAD
-        .decode(&wrapper_resp.nonce)
-        .map_err(|e| format!("decode nonce: {}", e))?;
-
-    // Build AAD using user_id from the wrapper response (parsed to raw 16 bytes)
-    let user_id_bytes = uuid::Uuid::parse_str(&wrapper_resp.user_id)
-        .map_err(|e| format!("server returned invalid user_id UUID: {}", e))?
-        .into_bytes();
-    let aad = build_wrap_aad(
-        &user_id_bytes,
-        &local_key.prefix,
-        wrapper_resp.version as u16,
-    );
-
-    let wrapped = WrappedAmk {
-        ct,
-        nonce,
-        version: wrapper_resp.version as u16,
-    };
-
-    unwrap_amk(&wrapped, &wrap_key, &aad).map_err(|e| format!("unwrap AMK: {}", e))
-}
+// `resolve_amk` lives in `crate::amk_store` now. Re-exported below for
+// backwards compatibility with internal callers (send/list/info) that
+// already use `crate::send::resolve_amk` or `crate::amk_store::resolve_amk`.
+pub use crate::amk_store::resolve_amk;
 
 /// Encrypt and upload a note for an already-created secret.
 /// Called only after AMK has been pre-validated, so `amk` is always valid.
@@ -539,11 +499,8 @@ fn read_plaintext(pa: &ParsedArgs, deps: &mut Deps) -> Result<Vec<u8>, String> {
     if (deps.is_tty)() && pa.multi_line {
         let c = color_func(true);
         if !pa.silent {
-            let _ = writeln!(
-                deps.stderr,
-                "{}",
-                c(DIM, "Enter secret (Ctrl+D on empty line to finish):")
-            );
+            let prompt = format!("Enter secret ({} on empty line to finish):", EOF_HINT);
+            let _ = writeln!(deps.stderr, "{}", c(DIM, prompt.as_str()));
         }
     }
 

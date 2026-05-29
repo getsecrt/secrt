@@ -94,7 +94,7 @@ Reads the secret interactively on a TTY, or from **stdin** when piped. Use `--te
 | `--ttl <ttl>`               | Time-to-live (e.g. `30s`, `5m`, `2h`, `1d`, `1w`) |
 | `--text <value>`            | Secret text inline (visible in shell history)     |
 | `-f`, `--file <path>`       | Read secret from a file                           |
-| `-m`, `--multi-line`        | Multi-line input (read until Ctrl+D)              |
+| `-m`, `--multi-line`        | Multi-line input (read until Ctrl+D; Ctrl+Z on Windows) |
 | `--trim`                    | Trim leading/trailing whitespace from input       |
 | `-s`, `--show`              | Show input as you type (default: hidden)          |
 | `--hidden`                  | Hide input (default; overrides `--show`)          |
@@ -114,7 +114,7 @@ secrt send
 # Interactive with visible input
 secrt send --show
 
-# Multi-line input (Ctrl+D to finish)
+# Multi-line input (Ctrl+D to finish; Ctrl+Z on Windows)
 secrt send -m
 
 # Pipe in a secret
@@ -252,6 +252,24 @@ secrt send gen -L 32 -S --ttl 5m
 ```
 
 The generated password is printed to stderr (on TTY) or included as `"password"` in `--json` output, so you can see what was shared.
+
+### `pair` — Share your account key between devices
+
+`secrt pair` exchanges your **account key** with another device signed in to the same account, so paired devices can read and write your encrypted notes. Two modes, picked automatically:
+
+- **Send** — this device already has the account key. Pass (or paste) the 8-character code shown on the other device:
+  ```sh
+  secrt pair K7MQ-QX2Z
+  secrt pair https://secrt.ca/pair?code=K7MQ-QX2Z
+  ```
+- **Receive** — this device does not have the account key yet. `secrt pair` shows a code and a QR (encoding the full pair URL); enter the code on another signed-in device:
+  ```sh
+  secrt pair
+  ```
+
+The account key never traverses the server in plaintext — it's end-to-end encrypted via P-256 ECDH + HKDF-SHA256 + AES-256-GCM, the same wire as the web pair flow. Both devices must be signed in as the same account (`secrt auth login`).
+
+> **Legacy: `secrt sync`** — the link-based `secrt sync <url>` import still works for headless / scripted setups where there's no human at the terminal, but it's marked `[legacy]` in `secrt --help` and is no longer surfaced in the web UI. For everyday device setup, use `secrt pair`.
 
 ## Global options
 

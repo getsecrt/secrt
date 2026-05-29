@@ -741,6 +741,265 @@ paths:
         "500":
           $ref: "#/components/responses/InternalError"
 
+  /api/v1/auth/pair/start:
+    post:
+      operationId: pairStart
+      summary: Start a pairing slot
+      description: |
+        The displayer (a device without the account key) registers an
+        ephemeral P-256 ECDH public key and receives a user code and a
+        private poll token. The joiner enters the user code on another
+        signed-in device and uses `/pair/approve` to send the encrypted
+        account key back. Slot expires in 10 minutes. Accepts either
+        session bearer or linked API-key auth; same-user checks hold on
+        every subsequent pair endpoint.
+      tags: [auth]
+      security:
+        - sessionBearer: []
+        - apiKey: []
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PairStartRequest"
+      responses:
+        "200":
+          description: Pairing slot created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PairStartResponse"
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/X-Request-Id"
+        "400":
+          description: |
+            Either:
+            - `ecdh_public_key` is missing, malformed, or the request body
+              contains unknown fields (including the retired `role` field), or
+            - the presented API key is not linked to a user account
+              (re-link via `secrt auth login`).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /api/v1/auth/pair/poll:
+    post:
+      operationId: pairPoll
+      summary: Poll a pairing slot (displayer-only)
+      description: |
+        Only the displayer polls — it presents the private poll token
+        returned by `/pair/start`. The slot is consumed atomically on the
+        first `approved` delivery: subsequent polls of the same token
+        return `status="expired"`. Unknown / expired / reaped tokens also
+        return `status="expired"` without leaking the distinction.
+      tags: [auth]
+      security:
+        - sessionBearer: []
+        - apiKey: []
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PairPollRequest"
+      responses:
+        "200":
+          description: Poll result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PairPollResponse"
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/X-Request-Id"
+        "400":
+          $ref: "#/components/responses/ApiKeyNotLinked"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /api/v1/auth/pair/challenge:
+    get:
+      operationId: pairChallenge
+      summary: Look up a pairing slot by user code (joiner pre-flight)
+      description: |
+        The joiner reads the displayer's ECDH public key in order to
+        derive the AMK transfer key. 404 distinguishes typos / expired
+        slots from 409 terminal-state collisions, which let the joiner UI
+        render specific copy (e.g. "already used" or "cancelled").
+      tags: [auth]
+      security:
+        - sessionBearer: []
+        - apiKey: []
+        - bearerAuth: []
+      parameters:
+        - name: user_code
+          in: query
+          required: true
+          schema:
+            type: string
+          description: User code in the format `XXXX-XXXX`.
+      responses:
+        "200":
+          description: Slot is pending; returns the displayer's ECDH public key.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PairChallengeResponse"
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/X-Request-Id"
+        "400":
+          $ref: "#/components/responses/ApiKeyNotLinked"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          description: |
+            Slot does not exist or has expired.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                    enum: [not_found]
+        "409":
+          description: |
+            Slot exists but is no longer joinable (already approved or
+            cancelled). Body includes the terminal state.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PairChallengeTerminal"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /api/v1/auth/pair/approve:
+    post:
+      operationId: pairApprove
+      summary: Approve a pairing slot (joiner sends encrypted account key)
+      description: |
+        The joiner derives a shared secret from its own ECDH keypair and
+        the displayer's public key (looked up via `/pair/challenge`),
+        encrypts the account key with AES-256-GCM (AAD
+        `"secrt-amk-transfer-v1"`), and attaches the ciphertext here. CAS
+        from `pending` to `approved` so concurrent approves collapse to
+        one winner. Does **not** mint an API key or consume any
+        auth_token.
+      tags: [auth]
+      security:
+        - sessionBearer: []
+        - apiKey: []
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PairApproveRequest"
+      responses:
+        "200":
+          description: Slot transitioned to approved
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BurnResponse"
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/X-Request-Id"
+        "400":
+          description: |
+            Either:
+            - `amk_transfer` field shapes are invalid (`ct` not 48 bytes,
+              `nonce` not 12 bytes, `ecdh_public_key` not 65 bytes), or
+            - the presented API key is not linked to a user account
+              (re-link via `secrt auth login`).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          description: |
+            Slot is not in an approvable state (already approved,
+            cancelled, or lost a CAS race).
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /api/v1/auth/pair/cancel:
+    post:
+      operationId: pairCancel
+      summary: Cancel a pairing slot (displayer-only)
+      description: |
+        Idempotent: cancelling an already-cancelled, already-approved,
+        or unknown slot returns 200 without changing state. Takes the
+        private poll token (not the user code) so a shoulder-surfed code
+        can't race a cancel.
+      tags: [auth]
+      security:
+        - sessionBearer: []
+        - apiKey: []
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PairCancelRequest"
+      responses:
+        "200":
+          description: Cancellation acknowledged (idempotent)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BurnResponse"
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/X-Request-Id"
+        "400":
+          $ref: "#/components/responses/ApiKeyNotLinked"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
   /api/v1/amk/wrapper:
     put:
       operationId: upsertAmkWrapper
@@ -2086,6 +2345,88 @@ components:
         amk_transfer:
           $ref: "#/components/schemas/AmkTransfer"
 
+    PairStartRequest:
+      type: object
+      required: [ecdh_public_key]
+      additionalProperties: false
+      properties:
+        ecdh_public_key:
+          type: string
+          description: |
+            base64url-encoded uncompressed P-256 public key (65 bytes
+            decoded) for the displayer-as-receiver. The joiner derives
+            the transfer key from this and its own ephemeral key.
+
+    PairStartResponse:
+      type: object
+      required: [user_code, displayer_poll_token, expires_at]
+      properties:
+        user_code:
+          type: string
+          description: Human-readable rendezvous code (format `XXXX-XXXX`).
+        displayer_poll_token:
+          type: string
+          description: |
+            Private bearer token for `/pair/poll` and `/pair/cancel`.
+            Must not be embedded in QR codes or URLs.
+        expires_at:
+          type: string
+          format: date-time
+
+    PairPollRequest:
+      type: object
+      required: [poll_token]
+      additionalProperties: false
+      properties:
+        poll_token:
+          type: string
+
+    PairPollResponse:
+      type: object
+      required: [status]
+      properties:
+        status:
+          type: string
+          enum: [pending, approved, cancelled, expired]
+        amk_transfer:
+          $ref: "#/components/schemas/AmkTransfer"
+
+    PairChallengeResponse:
+      type: object
+      required: [displayer_ecdh_public_key]
+      properties:
+        displayer_ecdh_public_key:
+          type: string
+
+    PairChallengeTerminal:
+      type: object
+      required: [state]
+      properties:
+        state:
+          type: string
+          enum: [approved, cancelled]
+          description: |
+            Current terminal status of the slot. Distinguishable so the
+            joiner UI can render specific copy.
+
+    PairApproveRequest:
+      type: object
+      required: [user_code, amk_transfer]
+      additionalProperties: false
+      properties:
+        user_code:
+          type: string
+        amk_transfer:
+          $ref: "#/components/schemas/AmkTransfer"
+
+    PairCancelRequest:
+      type: object
+      required: [poll_token]
+      additionalProperties: false
+      properties:
+        poll_token:
+          type: string
+
     RegisterApiKeyRequest:
       type: object
       required: [auth_token]
@@ -2270,6 +2611,38 @@ components:
             $ref: "#/components/schemas/ErrorResponse"
           example:
             error: "not found"
+      headers:
+        X-Request-Id:
+          $ref: "#/components/headers/X-Request-Id"
+
+    Forbidden:
+      description: |
+        Caller is authenticated but is not authorized for this resource
+        (e.g. cross-account pair attempt: the slot's `user_id` does not
+        match the caller's).
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+          example:
+            error: "forbidden"
+      headers:
+        X-Request-Id:
+          $ref: "#/components/headers/X-Request-Id"
+
+    ApiKeyNotLinked:
+      description: |
+        The presented API key authenticated, but has no associated user
+        account (an artifact of older API-key flows that pre-date
+        account linking). Distinct from 401 so clients can prompt the
+        user to re-link rather than re-authenticate. Applies to every
+        pair endpoint when accessed via API-key auth.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+          example:
+            error: "api key is not linked to a user account"
       headers:
         X-Request-Id:
           $ref: "#/components/headers/X-Request-Id"

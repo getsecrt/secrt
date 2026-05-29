@@ -1,5 +1,6 @@
 pub use secrt_core as envelope;
 
+pub mod amk_store;
 pub mod auth;
 pub mod burn;
 pub mod cli;
@@ -15,6 +16,7 @@ pub mod instance_trust;
 pub mod keychain;
 pub mod list;
 pub mod mime;
+pub mod pair;
 pub mod passphrase;
 pub mod qr;
 pub mod send;

@@ -2,6 +2,42 @@
 
 ## Unreleased
 
+### Added
+
+- **`secrt pair` — share your account key between devices.** Mirrors the
+  web pair UI. Auto-detects whether this device already has the account
+  key: if it does (Send mode), prompts you to enter — or accepts as an
+  argument — the 8-character code shown on the other device; if it
+  doesn't (Receive mode), shows a code + QR for the other device to
+  enter, then waits for delivery.
+
+  - End-to-end encrypted via P-256 ECDH + HKDF-SHA256 + AES-256-GCM,
+    identical wire to the web flow. The server temporarily stores only
+    public rendezvous data and encrypted transfer material; it never
+    sees plaintext account key bytes.
+  - Accepts `XXXX-XXXX`, `XXXXXXXX`, or full `/pair?code=…` URLs.
+    Lowercase fine; whitespace stripped; full URLs guarded against
+    cross-instance credential leaks (same check as `secrt sync`).
+  - Positional argument: `secrt pair <code-or-url>` for scripted
+    sender mode.
+
+  Files: `crates/secrt-cli/src/pair.rs`, `crates/secrt-cli/src/amk_store.rs`.
+  Spec: `spec/v1/cli.md` §pair, `spec/v1/api.md` §pair, `spec/v1/openapi.yaml`.
+
+### Changed
+
+- **User-facing vocabulary: "notes key" → "account key."** The 32-byte
+  key that decrypts your encrypted notes is now called the **account
+  key** in CLI help, hints, errors, and docs, matching the web UI.
+  Internal code identifiers (`amk`, `AMK_LEN`, etc.) are unchanged.
+
+### Deprecated
+
+- **`secrt sync` is marked `[legacy]` in `secrt --help`** and shows a
+  legacy banner in `secrt sync --help`. It continues to work and remains
+  supported for headless / scripted setups; the recommended path for
+  everyday device setup is `secrt pair`.
+
 ## 0.17.7 — 2026-05-09
 
 ### Security

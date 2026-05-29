@@ -26,6 +26,7 @@ import { Modal } from '../../components/Modal';
 import { encryptAmkForPeer } from './pair-crypto';
 import { parsePairUrl } from '../../lib/url';
 import { QrScannerView } from './QrScanner';
+import { SyncNotesKeyButton } from '../../components/SyncNotesKeyButton';
 
 interface Props {
   prefilledCode: string | null;
@@ -290,6 +291,10 @@ export function PairJoinPanel({ prefilledCode }: Props) {
           Both browsers must be signed in as the same account.
         </p>
       </div>
+
+      <p class="mt-3 text-center text-xs text-muted">
+        <SyncNotesKeyButton />
+      </p>
 
       <Modal
         open={scannerOpen}

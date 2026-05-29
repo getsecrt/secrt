@@ -15,6 +15,13 @@ use crate::update_check;
 const DEFAULT_BASE_URL: &str = "https://secrt.ca";
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 
+/// EOF gesture shown to users for multi-line stdin input.
+/// Windows consoles signal EOF with Ctrl+Z; Unix TTYs use Ctrl+D.
+#[cfg(windows)]
+pub const EOF_HINT: &str = "Ctrl+Z";
+#[cfg(not(windows))]
+pub const EOF_HINT: &str = "Ctrl+D";
+
 pub type GetenvFn = Box<dyn Fn(&str) -> Option<String>>;
 pub type RandBytesFn = Box<dyn Fn(&mut [u8]) -> Result<(), crate::envelope::EnvelopeError>>;
 pub type ReadPassFn = Box<dyn Fn(&str, &mut dyn Write) -> io::Result<String>>;
@@ -204,6 +211,7 @@ fn dispatch(args: &[String], deps: &mut Deps) -> i32 {
         "gen" | "generate" => run_gen(remaining, deps),
         "list" => run_list(remaining, deps),
         "info" => crate::info::run_info(remaining, deps),
+        "pair" => crate::pair::run_pair(remaining, deps),
         "sync" => crate::sync::run_sync(remaining, deps),
         "auth" => crate::auth::run_auth(remaining, deps),
         "update" => run_update(remaining, deps),
@@ -341,6 +349,7 @@ fn run_help(args: &[String], deps: &mut Deps) -> i32 {
         "gen" | "generate" => print_gen_help(deps),
         "list" => print_list_help(deps),
         "info" => crate::info::print_info_help(deps),
+        "pair" => crate::pair::print_pair_help(deps),
         "sync" => crate::sync::print_sync_help(deps),
         "config" => print_config_help(deps),
         "auth" => print_auth_help(deps),
@@ -1329,7 +1338,8 @@ pub fn print_help(deps: &mut Deps) {
             ("burn", "Destroy a secret (requires API key)"),
             ("list", "List your active secrets (requires API key)"),
             ("info", "Show metadata for a secret (requires API key)"),
-            ("sync", "Import notes encryption key from a sync link"),
+            ("pair", "Share your account key between devices"),
+            ("sync", "[legacy] Import account key from a one-time link"),
             ("gen", "Generate a random password"),
             ("auth", "Login, setup, or manage authentication"),
             ("config", "Show or initialize configuration"),
@@ -1399,6 +1409,7 @@ pub fn print_send_help(deps: &mut Deps) {
         c(ARG, "[options]")
     );
     let _ = writeln!(w, "{}", c(HEADING, "OPTIONS"));
+    let multi_line_desc = format!("Multi-line input (read until {})", EOF_HINT);
     write_option_rows(
         w,
         &c,
@@ -1410,11 +1421,7 @@ pub fn print_send_help(deps: &mut Deps) {
                 "Secret text (visible in shell history)",
             ),
             ("-f, --file", "<path>", "Read secret from a file"),
-            (
-                "-m, --multi-line",
-                "",
-                "Multi-line input (read until Ctrl+D)",
-            ),
+            ("-m, --multi-line", "", multi_line_desc.as_str()),
             ("--trim", "", "Trim leading/trailing whitespace"),
             ("-s, --show", "", "Show input as you type"),
             ("--hidden", "", "Hide input (default, overrides --show)"),
@@ -2249,32 +2256,42 @@ mod tests {
         (
             "--base-url",
             true,
-            &["main", "send", "get", "burn", "list", "info", "sync"],
+            &[
+                "main", "send", "get", "burn", "list", "info", "pair", "sync",
+            ],
         ),
         (
             "--api-key",
             true,
-            &["main", "send", "burn", "list", "info", "sync"],
+            &["main", "send", "burn", "list", "info", "pair", "sync"],
         ),
         (
             "--json",
             false,
-            &["main", "send", "get", "burn", "list", "info", "sync"],
+            &[
+                "main", "send", "get", "burn", "list", "info", "pair", "sync",
+            ],
         ),
         (
             "--silent",
             false,
-            &["main", "send", "get", "burn", "list", "info", "sync"],
+            &[
+                "main", "send", "get", "burn", "list", "info", "pair", "sync",
+            ],
         ),
         (
             "-h",
             false,
-            &["main", "send", "get", "burn", "list", "info", "sync"],
+            &[
+                "main", "send", "get", "burn", "list", "info", "pair", "sync",
+            ],
         ),
         (
             "--help",
             false,
-            &["main", "send", "get", "burn", "list", "info", "sync"],
+            &[
+                "main", "send", "get", "burn", "list", "info", "pair", "sync",
+            ],
         ),
         // Send flags
         ("--ttl", true, &["send"]),
@@ -2394,6 +2411,7 @@ mod tests {
             ("burn", capture_help(print_burn_help)),
             ("list", capture_help(print_list_help)),
             ("info", capture_help(crate::info::print_info_help)),
+            ("pair", capture_help(crate::pair::print_pair_help)),
             ("sync", capture_help(crate::sync::print_sync_help)),
             ("gen", capture_help(print_gen_help)),
             ("auth", capture_help(print_auth_help)),
