@@ -17,6 +17,7 @@ import { SyncPage } from './features/sync/SyncPage';
 import { SyncLandingPage } from './features/sync/SyncLandingPage';
 import { AboutPage } from './features/about/AboutPage';
 import { ThemePage } from './features/test/ThemePage';
+import type { ComponentType } from 'preact';
 
 export function App() {
   const route = useRoute();
@@ -100,12 +101,7 @@ export function App() {
       page = <AboutPage />;
       break;
     case 'not-found':
-      page = (
-        <div class="card text-center">
-          <h2 class="label">Not found</h2>
-          <p class="text-muted">This page doesn't exist.</p>
-        </div>
-      );
+      page = <LazyNotFound />;
       break;
   }
 
@@ -115,5 +111,28 @@ export function App() {
         {page}
       </Layout>
     </AuthProvider>
+  );
+}
+
+// NotFoundPage is lazy-loaded so its canvas-animation code doesn't ship in
+// the main bundle. The static fallback below renders synchronously while the
+// chunk loads, and stays as a safety net if the chunk fails to load.
+function LazyNotFound() {
+  const [Comp, setComp] = useState<ComponentType | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    import('./features/error/NotFoundPage').then((m) => {
+      if (!cancelled) setComp(() => m.NotFoundPage);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+  if (Comp) return <Comp />;
+  return (
+    <div class="card text-center">
+      <h2 class="label">Not found</h2>
+      <p class="text-muted">This page doesn't exist.</p>
+    </div>
   );
 }

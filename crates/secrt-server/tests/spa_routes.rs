@@ -66,6 +66,61 @@ async fn spa_routes_return_index_html() {
     }
 }
 
+/// Unknown paths must serve the SPA shell with HTTP 404 so the client-side
+/// router can render the styled NotFoundPage. Without this, browsers see a
+/// blank page on any typo'd URL.
+#[tokio::test]
+async fn unknown_path_serves_spa_with_404() {
+    let store = Arc::new(MemStore::default());
+    let app = test_app_with_store(store, test_config());
+
+    let req = Request::builder()
+        .method("GET")
+        .uri("/this-route-does-not-exist")
+        .body(Body::empty())
+        .expect("build request");
+
+    let resp = app.clone().oneshot(req).await.expect("send request");
+
+    assert_eq!(resp.status(), StatusCode::NOT_FOUND);
+    let content_type = resp
+        .headers()
+        .get("content-type")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("");
+    assert!(
+        content_type.contains("text/html"),
+        "unknown path returned content-type '{content_type}' instead of text/html",
+    );
+}
+
+/// Unknown /api/ paths must still return JSON (not the SPA shell) so API
+/// clients get a consistent error shape.
+#[tokio::test]
+async fn unknown_api_path_returns_json_404() {
+    let store = Arc::new(MemStore::default());
+    let app = test_app_with_store(store, test_config());
+
+    let req = Request::builder()
+        .method("GET")
+        .uri("/api/v1/this-endpoint-does-not-exist")
+        .body(Body::empty())
+        .expect("build request");
+
+    let resp = app.clone().oneshot(req).await.expect("send request");
+
+    assert_eq!(resp.status(), StatusCode::NOT_FOUND);
+    let content_type = resp
+        .headers()
+        .get("content-type")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("");
+    assert!(
+        content_type.contains("application/json"),
+        "unknown /api/ path returned content-type '{content_type}' instead of application/json",
+    );
+}
+
 /// The /s/{id} route is special — it serves a custom OG-tagged HTML page, not
 /// the generic SPA index. Verify it returns 200 with HTML.
 #[tokio::test]

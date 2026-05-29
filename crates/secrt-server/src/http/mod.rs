@@ -992,6 +992,7 @@ pub fn build_router(state: Arc<AppState>) -> Router {
         .route("/api/v1/amk/commit", any(handle_amk_commit_entry))
         .route("/api/v1/amk/exists", any(handle_amk_exists_entry))
         .route("/api/v1/secrets/{id}/meta", any(handle_secret_meta_entry))
+        .fallback(handle_not_found_fallback)
         .layer(CatchPanicLayer::custom(handle_panic))
         .route_layer(middleware::from_fn_with_state(
             state.clone(),
@@ -999,6 +1000,31 @@ pub fn build_router(state: Arc<AppState>) -> Router {
         ))
         .layer(cors_layer())
         .with_state(state)
+}
+
+/// Catch-all for unknown paths.
+///
+/// - API and well-known paths get a JSON 404 (consistent with explicit handlers).
+/// - Everything else gets the SPA shell with HTTP 404 so the client-side router
+///   can render the styled NotFoundPage. Without this, unknown paths return a
+///   bare empty 404 body — a blank page in the browser.
+pub async fn handle_not_found_fallback(
+    State(state): State<Arc<AppState>>,
+    uri: axum::http::Uri,
+) -> Response {
+    let path = uri.path();
+    if path.starts_with("/api/") || path.starts_with("/.well-known/") {
+        return not_found();
+    }
+
+    let base = &state.cfg.public_base_url;
+    let html = crate::assets::spa_index_html_with_base(base)
+        .unwrap_or_else(|| include_str!("../../templates/index.html").to_string());
+
+    let mut resp = (StatusCode::NOT_FOUND, Html(html)).into_response();
+    insert_header(resp.headers_mut(), "cache-control", "no-store");
+    insert_header(resp.headers_mut(), "x-robots-tag", "noindex");
+    resp
 }
 
 fn handle_panic(_: Box<dyn std::any::Any + Send + 'static>) -> Response {
