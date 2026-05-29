@@ -62,10 +62,10 @@ function dissolve404(
   canvas: HTMLCanvasElement,
   {
     text = '404',
-    gap = 5,
+    gap = 3,
     duration = 1800,
-    stagger = 1500,
-    delay = 3000,
+    stagger = 9000,
+    delay = 500,
   }: {
     text?: string;
     gap?: number;
@@ -102,10 +102,12 @@ function dissolve404(
   ctx.fillText(text, w / 2, h / 2);
 
   // Sample alpha on the device-pixel buffer, step in CSS pixels.
+  // Clamp the step to >=1 so a misconfigured gap can't infinite-loop.
   const img = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
+  const step = Math.max(1, Math.floor(gap));
   const points: { x: number; y: number; d: number }[] = [];
-  for (let y = 0; y < h; y += gap) {
-    for (let x = 0; x < w; x += gap) {
+  for (let y = 0; y < h; y += step) {
+    for (let x = 0; x < w; x += step) {
       const px = Math.floor(x * dpr);
       const py = Math.floor(y * dpr);
       if (img[(py * canvas.width + px) * 4 + 3] > 128) {
@@ -114,13 +116,18 @@ function dissolve404(
     }
   }
 
-  const size = Math.max(1.5, gap * 0.5);
+  // 1 CSS px gap between pixels — gives a "zoomed-in LCD" look.
+  const size = Math.max(1, gap - 1);
   ctx.fillStyle = getComputedStyle(canvas).color;
 
-  // Reduced motion: render the static 404 and stop.
+  // Replace the white sampling glyph with the discrete pixel grid
+  // synchronously, so the browser never composites the white text
+  // (otherwise visible as a brief flash on dark cards before RAF fires).
+  ctx.clearRect(0, 0, w, h);
+  for (const p of points) ctx.fillRect(p.x, p.y, size, size);
+
+  // Reduced motion: leave the static 404 in place and stop.
   if (matchMedia('(prefers-reduced-motion: reduce)').matches) {
-    ctx.clearRect(0, 0, w, h);
-    for (const p of points) ctx.fillRect(p.x, p.y, size, size);
     return () => {};
   }
 
