@@ -121,9 +121,15 @@ function LazyNotFound() {
   const [Comp, setComp] = useState<ComponentType | null>(null);
   useEffect(() => {
     let cancelled = false;
-    import('./features/error/NotFoundPage').then((m) => {
-      if (!cancelled) setComp(() => m.NotFoundPage);
-    });
+    import('./features/error/NotFoundPage')
+      .then((m) => {
+        if (!cancelled) setComp(() => m.NotFoundPage);
+      })
+      .catch((err) => {
+        // Stale deploy, offline, etc. — leave the synchronous fallback
+        // card visible rather than triggering an unhandled rejection.
+        console.warn('NotFoundPage chunk failed to load:', err);
+      });
     return () => {
       cancelled = true;
     };

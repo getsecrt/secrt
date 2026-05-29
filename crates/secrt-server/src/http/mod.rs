@@ -1013,7 +1013,13 @@ pub async fn handle_not_found_fallback(
     uri: axum::http::Uri,
 ) -> Response {
     let path = uri.path();
-    if path.starts_with("/api/") || path.starts_with("/.well-known/") {
+    // Cover both exact ("/api", "/.well-known") and prefixed ("/api/...")
+    // forms so the bare boundary paths don't accidentally serve HTML.
+    if path == "/api"
+        || path.starts_with("/api/")
+        || path == "/.well-known"
+        || path.starts_with("/.well-known/")
+    {
         return not_found();
     }
 
