@@ -21,6 +21,17 @@
 
   Files: `crates/secrt-cli/src/instance_trust.rs`, `crates/secrt-cli/src/auth.rs`.
 
+- **A claimed/expired/unknown secret now reads as "Secret unavailable," not "server error (404)."**
+
+  The server returns an indistinguishable 404 for expired, already-opened,
+  unknown, and bad-link cases — a deliberate zero-knowledge property, so the
+  CLI can't tell which. Instead of leaking the raw status, `secrt get` now
+  explains the union calmly: *Secret unavailable. It may have already been
+  opened, expired, or the link is incomplete.* Other claim failures (5xx,
+  network, rate limit) keep their explanatory prefix.
+
+  Spec: `spec/v1/api.md` §Claim. Files: `crates/secrt-cli/src/get.rs`.
+
 ## 0.19.0 — 2026-05-28
 
 ### Added

@@ -106,12 +106,19 @@ pub fn run_get(args: &[String], deps: &mut Deps) -> i32 {
     let resp = match client.claim(&id, &claim_token) {
         Ok(r) => r,
         Err(e) => {
-            write_error(
-                &mut deps.stderr,
-                pa.json,
-                (deps.is_tty)(),
-                &format!("get failed: {}", e),
-            );
+            // The server returns an indistinguishable 404 for expired /
+            // already-claimed / unknown / bad-token (a deliberate
+            // zero-knowledge property — see spec/v1/api.md §Claim). Since we
+            // can't tell which, give the recipient a calm explanation of the
+            // union rather than a raw "server error (404): not found".
+            let msg = if e.contains("(404)") {
+                "Secret unavailable. It may have already been opened, expired, \
+                 or the link is incomplete."
+                    .to_string()
+            } else {
+                format!("get failed: {}", e)
+            };
+            write_error(&mut deps.stderr, pa.json, (deps.is_tty)(), &msg);
             return 1;
         }
     };

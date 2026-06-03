@@ -303,18 +303,42 @@ fn get_decryption_error() {
 }
 
 #[test]
-fn get_api_error() {
+fn get_404_explains_one_time_semantics() {
+    // A 404 on claim is the indistinguishable expired/claimed/unknown case.
+    // The recipient should get a calm explanation, not a raw "server error".
     let url = make_share_url("https://secrt.ca", "test123");
     let (mut deps, _stdout, stderr) = TestDepsBuilder::new()
         .mock_claim(Err("server error (404): secret not found".into()))
         .build();
     let code = cli::run(&args(&["secrt", "get", &url]), &mut deps);
     assert_eq!(code, 1);
+    let err = stderr.to_string();
+    assert!(err.contains("Secret unavailable"), "stderr: {err}");
     assert!(
-        stderr.to_string().contains("get failed"),
-        "stderr: {}",
-        stderr
+        err.contains("already been opened") && err.contains("link is incomplete"),
+        "should explain the union of causes: {err}"
     );
+    assert!(
+        !err.contains("server error") && !err.contains("404"),
+        "should not leak the raw status: {err}"
+    );
+}
+
+#[test]
+fn get_non_404_error_keeps_prefix() {
+    // Other claim failures (network, 5xx, rate limit) are real errors and
+    // keep the explanatory "get failed:" prefix.
+    let url = make_share_url("https://secrt.ca", "test123");
+    let (mut deps, _stdout, stderr) = TestDepsBuilder::new()
+        .mock_claim(Err(
+            "server error (503): server is temporarily unavailable".into()
+        ))
+        .build();
+    let code = cli::run(&args(&["secrt", "get", &url]), &mut deps);
+    assert_eq!(code, 1);
+    let err = stderr.to_string();
+    assert!(err.contains("get failed"), "stderr: {err}");
+    assert!(err.contains("503"), "should surface the real error: {err}");
 }
 
 #[test]
