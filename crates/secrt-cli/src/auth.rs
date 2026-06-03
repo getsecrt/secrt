@@ -632,12 +632,10 @@ fn run_auth_status(args: &[String], deps: &mut Deps) -> i32 {
     }
 
     let masked = crate::config::mask_secret(&api_key, true);
-    let _ = writeln!(
+    let _ = write!(
         deps.stderr,
-        "  {}: {} {}",
-        c(OPT, "Key"),
-        masked,
-        c(DIM, &format!("(from: {})", source))
+        "{}",
+        fmt_key_line(&masked, source, OPT, (deps.is_tty)())
     );
 
     // Check server connectivity
@@ -650,22 +648,18 @@ fn run_auth_status(args: &[String], deps: &mut Deps) -> i32 {
             } else {
                 "connected, key not recognized"
             };
-            let _ = writeln!(
+            let _ = write!(
                 deps.stderr,
-                "  {}: {} {}",
-                c(OPT, "Server"),
-                c(DIM, &base_url),
-                c(SUCCESS, &format!("({})", status))
+                "{}",
+                fmt_server_line(&base_url, status, OPT, SUCCESS, (deps.is_tty)())
             );
             true
         }
         Err(_) => {
-            let _ = writeln!(
+            let _ = write!(
                 deps.stderr,
-                "  {}: {} {}",
-                c(OPT, "Server"),
-                c(DIM, &base_url),
-                c(DIM, "(unreachable)")
+                "{}",
+                fmt_server_line(&base_url, "unreachable", OPT, DIM, (deps.is_tty)())
             );
             false
         }
@@ -768,6 +762,86 @@ fn resolve_existing_key(deps: &Deps) -> (String, &'static str) {
     } else {
         (String::new(), "")
     }
+}
+
+/// One indented `Key:` line for the auth identity block, matching the
+/// format `secrt auth status` prints. Includes a trailing newline so it can
+/// be concatenated directly into a multi-line message.
+pub fn fmt_key_line(masked_key: &str, source: &str, label_color: &str, is_tty: bool) -> String {
+    let c = color_func(is_tty);
+    format!(
+        "  {}: {} {}\n",
+        c(label_color, "Key"),
+        masked_key,
+        c(DIM, &format!("(from: {})", source))
+    )
+}
+
+/// One indented `Server:` line for the auth identity block. `state` is the
+/// parenthetical status label (e.g. "connected, authenticated", "key not
+/// recognized"). `label_color` tints the `Server` label (yellow in the
+/// `auth status` view, dim inside an error block so the failure stays
+/// prominent); `state_color` tints the parenthetical. Includes a trailing
+/// newline.
+pub fn fmt_server_line(
+    base_url: &str,
+    state: &str,
+    label_color: &str,
+    state_color: &str,
+    is_tty: bool,
+) -> String {
+    let c = color_func(is_tty);
+    // The host value is left plain (white) to match the masked key value in
+    // `fmt_key_line` — only the label and the parenthetical state are tinted.
+    format!(
+        "  {}: {} {}\n",
+        c(label_color, "Server"),
+        base_url,
+        c(state_color, &format!("({})", state))
+    )
+}
+
+/// Mask the effective API key and determine which source it came from,
+/// using the same precedence `resolve_globals` applies (flag > env >
+/// keychain > config). Returns `("", "")` when no key is configured.
+///
+/// The source is inferred by comparing `pa.api_key` against each candidate
+/// source rather than threaded through resolution — anything that matches
+/// none of env/keychain/config must have come from `--api-key`.
+pub fn masked_key_and_source(pa: &ParsedArgs, deps: &Deps) -> (String, &'static str) {
+    let key = pa.api_key.trim();
+    if key.is_empty() {
+        return (String::new(), "");
+    }
+    let masked = crate::config::mask_secret(key, true);
+    let config = crate::config::load_config_with(&*deps.getenv, &mut std::io::sink());
+    let source = if (deps.getenv)("SECRET_API_KEY").as_deref() == Some(key) {
+        "env"
+    } else if config.use_keychain.unwrap_or(false)
+        && (deps.get_keychain_secret)("api_key").as_deref() == Some(key)
+    {
+        "keychain"
+    } else if config.api_key.as_deref() == Some(key) {
+        "config"
+    } else {
+        "flag"
+    };
+    (masked, source)
+}
+
+/// Build the user-facing message for an auth failure. Resolves the local
+/// identity (masked key + source) and delegates to the pure formatter
+/// [`crate::instance_trust::decorate_auth_error`]. For non-401 errors the
+/// formatter returns the input unchanged.
+pub fn explain_auth_error(
+    err: &str,
+    pa: &ParsedArgs,
+    deps: &Deps,
+    json: bool,
+    is_stderr_tty: bool,
+) -> String {
+    let (masked, source) = masked_key_and_source(pa, deps);
+    crate::instance_trust::decorate_auth_error(err, pa, &masked, source, json, is_stderr_tty)
 }
 
 /// Check if the user is already authenticated and prompt for confirmation.

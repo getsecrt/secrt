@@ -2,6 +2,25 @@
 
 ## Unreleased
 
+### Changed
+
+- **A 401 on an authenticated command now explains *which* server rejected your key and how to fix it.**
+
+  Instead of `server error (401): unauthorized`, the CLI now prints the
+  same identity block as `secrt auth status` — the masked key with its
+  source, and the server with a `key not recognized` marker — followed by
+  a likely cause and a `secrt auth login` recommendation. The most common
+  trigger is a key that belongs to a different instance than the one
+  you're pointed at.
+
+  - When an explicit `--base-url` points somewhere other than your
+    configured instance, the message names both hosts directly.
+  - The `secrt send --note` pre-check now routes its 401 through the same
+    message rather than a bare `--note: server error (401)`.
+  - `--json` output stays a single terse line.
+
+  Files: `crates/secrt-cli/src/instance_trust.rs`, `crates/secrt-cli/src/auth.rs`.
+
 ## 0.19.0 — 2026-05-28
 
 ### Added

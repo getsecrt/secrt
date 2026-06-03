@@ -526,14 +526,17 @@ fn send_unauthorized_error_shows_api_key_hint() {
     let code = cli::run(&args(&["secrt", "send"]), &mut deps);
     assert_eq!(code, 1);
     let err = stderr.to_string();
+    // Unauthenticated send (no key configured): a 401 reports that the host
+    // requires auth and points at sign-in, rather than claiming a key was
+    // rejected.
     assert!(
-        err.contains("unauthorized"),
-        "stderr should contain auth error: {}",
+        err.contains("requires authentication (401)"),
+        "stderr should report the auth requirement: {}",
         err
     );
     assert!(
-        err.contains("API key"),
-        "stderr should hint about API key: {}",
+        err.contains("secrt auth login"),
+        "stderr should recommend signing in: {}",
         err
     );
 }
@@ -878,6 +881,48 @@ fn send_note_no_amk_fails() {
         err.contains("no account key found"),
         "should report missing AMK: {}",
         err
+    );
+}
+
+#[test]
+fn send_note_401_shows_auth_identity_block() {
+    // The user's scenario: a configured key rejected by the host it's
+    // pointed at. The --note pre-validation 401 must surface the full
+    // auth-failure block (key + source, server + "key not recognized",
+    // hypothesis, login hint) instead of a bare "--note: server error".
+    let root_key = [0x33u8; 32];
+    let api_key = format!("sk2_abcdef.{}", URL_SAFE_NO_PAD.encode(root_key));
+
+    let (mut deps, stdout, stderr) = TestDepsBuilder::new()
+        .stdin(b"my secret")
+        .env("SECRET_API_KEY", &api_key)
+        .mock_get_amk_wrapper(Err("server error (401): unauthorized".into()))
+        .build();
+    let code = cli::run(&args(&["secrt", "send", "--note", "a note"]), &mut deps);
+    assert_eq!(code, 1, "should fail: {}", stderr);
+    assert!(
+        stdout.to_string().is_empty(),
+        "must not waste a secret: {}",
+        stdout
+    );
+    let err = stderr.to_string();
+    assert!(
+        err.contains("rejected your API key (401)"),
+        "headline: {err}"
+    );
+    assert!(err.contains("(from: env)"), "key source line: {err}");
+    assert!(
+        err.contains("Server: https://secrt.ca (key not recognized)"),
+        "server line: {err}"
+    );
+    assert!(
+        err.contains("may belong to a different instance, or it was revoked"),
+        "hypothesis: {err}"
+    );
+    assert!(err.contains("secrt auth login"), "login hint: {err}");
+    assert!(
+        !err.contains("--note: server error"),
+        "should not fall back to the bare --note prefix: {err}"
     );
 }
 

@@ -151,7 +151,16 @@ pub fn run_send(args: &[String], deps: &mut Deps) -> i32 {
         match resolve_amk(&pa, &*client) {
             Ok(amk) => Some(amk),
             Err(e) => {
-                write_error(&mut deps.stderr, pa.json, is_tty, &format!("--note: {}", e));
+                // A 401 here means the configured key was rejected by this
+                // host — surface the full auth-failure block instead of a
+                // bare "--note: server error (401)". Other failures keep the
+                // command-scoped prefix.
+                let msg = if e.contains("(401)") {
+                    crate::auth::explain_auth_error(&e, &pa, deps, pa.json, stderr_tty)
+                } else {
+                    format!("--note: {}", e)
+                };
+                write_error(&mut deps.stderr, pa.json, is_tty, &msg);
                 return 1;
             }
         }
@@ -209,7 +218,7 @@ pub fn run_send(args: &[String], deps: &mut Deps) -> i32 {
             if is_tty && !pa.silent {
                 let _ = writeln!(deps.stderr);
             }
-            let decorated = crate::instance_trust::decorate_auth_error(&e, &pa, stderr_tty);
+            let decorated = crate::auth::explain_auth_error(&e, &pa, deps, pa.json, stderr_tty);
             write_error(&mut deps.stderr, pa.json, is_tty, &decorated);
             return 1;
         }
