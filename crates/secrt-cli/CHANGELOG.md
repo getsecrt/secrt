@@ -21,6 +21,14 @@
 
 ### Changed
 
+- **`secrt config` output is column-aligned and tidier.**
+
+  Effective settings and server limits now line their values up in a column
+  (capped so one long key like `decryption_passphrases` doesn't push everything
+  right — it overflows on its own row instead). `decryption_passphrases` reports
+  a count instead of a row of unreadable masked blobs: `2 entries (config
+  file)`. File: `crates/secrt-cli/src/cli.rs`.
+
 - **Client-side failures no longer masquerade as "server error."**
 
   A 4xx is a problem with the request, not the server, so the CLI now frames

@@ -432,7 +432,7 @@ fn config_shows_default_ttl_server_default() {
 }
 
 #[test]
-fn config_shows_decryption_passphrases_masked() {
+fn config_shows_decryption_passphrases_count() {
     let cfg_dir = setup_config("decryption_passphrases = [\"secret1\", \"secret2\"]\n");
     let (mut deps, _stdout, stderr) = TestDepsBuilder::new()
         .env("XDG_CONFIG_HOME", cfg_dir.path().to_str().unwrap())
@@ -445,26 +445,16 @@ fn config_shows_decryption_passphrases_masked() {
         "config should show field: {}",
         err
     );
+    // Reports the count and source, not a list of unreadable masked blobs.
     assert!(
-        err.contains("2 entries"),
-        "config should show entry count: {}",
+        err.contains("2 entries (config file)"),
+        "config should show entry count and source: {}",
         err
     );
-    // Should NOT reveal actual values
+    // Must never reveal the actual values.
     assert!(
-        !err.contains("secret1"),
+        !err.contains("secret1") && !err.contains("secret2"),
         "config should NOT reveal values: {}",
-        err
-    );
-    assert!(
-        !err.contains("secret2"),
-        "config should NOT reveal values: {}",
-        err
-    );
-    // Should contain bullet chars (masked)
-    assert!(
-        err.contains("\u{2022}"),
-        "config should show masked values: {}",
         err
     );
 }
@@ -1099,8 +1089,8 @@ fn config_show_decryption_passphrases_from_keychain_only() {
     assert_eq!(code, 0);
     let err = stderr.to_string();
     assert!(
-        err.contains("1 entries") && err.contains("keychain"),
-        "should show keychain source: {}",
+        err.contains("1 entry (keychain)"),
+        "should show singular count and keychain source: {}",
         err
     );
 }
