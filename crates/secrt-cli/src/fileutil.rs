@@ -178,15 +178,24 @@ pub fn preflight_writable(path: &str) -> Result<(), String> {
         return Err(format!("no such directory: {}", dir.display()));
     }
 
-    let probe = dir.join(format!(".secrt-write-probe-{}", std::process::id()));
+    // Probe with a per-run unique name (pid + timestamp) and require a *fresh*
+    // create — a leftover probe from a crashed run must not count as proof the
+    // directory is writable, or `get --output …` could consume a one-time
+    // secret and then fail on the real write.
+    let stamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_nanos())
+        .unwrap_or(0);
+    let probe = dir.join(format!(
+        ".secrt-write-probe-{}-{}",
+        std::process::id(),
+        stamp
+    ));
     match OpenOptions::new().write(true).create_new(true).open(&probe) {
         Ok(_) => {
             let _ = fs::remove_file(&probe);
             Ok(())
         }
-        // The probe already existing means the directory accepts new files,
-        // which is exactly what we're testing for.
-        Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => Ok(()),
         Err(e) => Err(e.to_string()),
     }
 }

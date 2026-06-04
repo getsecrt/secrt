@@ -281,6 +281,11 @@ pub fn run_send(args: &[String], deps: &mut Deps) -> i32 {
             "expires_at": resp.expires_at,
             "copied": copied,
         });
+        // Machine consumers get the exact byte count for file sends (the human
+        // path shows a rounded human_size; this is the precise value).
+        if !pa.file.is_empty() {
+            out["size"] = serde_json::json!(plaintext_len);
+        }
         if let Some(ref pw) = generated_password {
             out["password"] = serde_json::Value::String(pw.clone());
         }

@@ -104,54 +104,104 @@ fn send_file_flag() {
 }
 
 #[test]
-fn send_file_too_large_fails_fast() {
-    // A file whose envelope exceeds the instance limit must be rejected
-    // *before* upload. No mock_create is registered — if send tried to upload,
-    // the mock client would panic. The tiny limit (50 bytes) is below the
-    // envelope's fixed overhead, so it fails regardless of compression.
-    let dir = tempfile::tempdir().expect("tempdir");
-    let path = dir.path().join("report.pdf");
-    std::fs::write(&path, vec![0xABu8; 4096]).unwrap();
+fn send_file_size_limit_cases() {
+    // Two paths share the file-send harness: an over-limit file is rejected
+    // before upload (no mock_create registered — the mock client panics if a
+    // doomed upload is attempted), and an under-limit file uploads and reports
+    // its size. The tiny 50-byte limit sits below the envelope's fixed
+    // overhead, so the reject case fails regardless of compression.
+    struct Case {
+        name: &'static str,
+        filename: &'static str,
+        file_bytes: usize,
+        public_limit: i64,
+        register_create: bool,
+        expected_code: i32,
+        contains: &'static [&'static str],
+    }
+    let cases = [
+        Case {
+            name: "over limit → rejected before upload",
+            filename: "report.pdf",
+            file_bytes: 4096,
+            public_limit: 50,
+            register_create: false,
+            expected_code: 1,
+            contains: &["report.pdf", "too large", "secrt auth login"],
+        },
+        Case {
+            name: "under limit → uploads and shows size",
+            filename: "notes.txt",
+            file_bytes: 2000,
+            public_limit: 262_144,
+            register_create: true,
+            expected_code: 0,
+            contains: &["notes.txt", "2 KB"],
+        },
+    ];
+    for case in cases {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join(case.filename);
+        std::fs::write(&path, vec![0xABu8; case.file_bytes]).unwrap();
 
-    let (mut deps, stdout, stderr) = TestDepsBuilder::new()
-        .mock_info(Ok(info_with_limits(50, 1_048_576)))
-        .build();
-    let code = cli::run(
-        &args(&["secrt", "send", "--file", path.to_str().unwrap()]),
-        &mut deps,
-    );
-    assert_eq!(code, 1, "stderr: {stderr}");
-    assert!(stdout.to_string().is_empty(), "must not upload: {stdout}");
-    let err = stderr.to_string();
-    assert!(err.contains("report.pdf"), "names the file: {err}");
-    assert!(err.contains("too large"), "explains the cause: {err}");
-    assert!(
-        err.contains("secrt auth login"),
-        "suggests signing in for the higher tier: {err}"
-    );
+        let mut builder = TestDepsBuilder::new()
+            .tty(true)
+            .mock_info(Ok(info_with_limits(case.public_limit, 1_048_576)));
+        if case.register_create {
+            builder = builder.mock_create(Ok(mock_send_response()));
+        }
+        let (mut deps, stdout, stderr) = builder.build();
+
+        let code = cli::run(
+            &args(&["secrt", "send", "--file", path.to_str().unwrap()]),
+            &mut deps,
+        );
+        assert_eq!(
+            code, case.expected_code,
+            "[{}] stderr: {}",
+            case.name, stderr
+        );
+        let err = stderr.to_string();
+        for want in case.contains {
+            assert!(
+                err.contains(want),
+                "[{}] missing {want:?}: {err}",
+                case.name
+            );
+        }
+        if case.expected_code == 1 {
+            assert!(
+                stdout.to_string().is_empty(),
+                "[{}] must not upload: {}",
+                case.name,
+                stdout
+            );
+        }
+    }
 }
 
 #[test]
-fn send_file_within_limit_shows_size() {
-    // Under the limit: send proceeds and the confirmation names the file and
-    // its human-readable size.
+fn send_file_json_includes_exact_size() {
+    // `--json` carries the exact byte count for file sends (the human path
+    // shows a rounded size; machines get the precise value).
     let dir = tempfile::tempdir().expect("tempdir");
-    let path = dir.path().join("notes.txt");
-    std::fs::write(&path, vec![b'x'; 2000]).unwrap();
+    let path = dir.path().join("data.bin");
+    std::fs::write(&path, vec![0xABu8; 1234]).unwrap();
 
-    let (mut deps, _stdout, stderr) = TestDepsBuilder::new()
-        .tty(true)
+    let (mut deps, stdout, stderr) = TestDepsBuilder::new()
         .mock_info(Ok(info_with_limits(262_144, 1_048_576)))
         .mock_create(Ok(mock_send_response()))
         .build();
     let code = cli::run(
-        &args(&["secrt", "send", "--file", path.to_str().unwrap()]),
+        &args(&["secrt", "send", "--file", path.to_str().unwrap(), "--json"]),
         &mut deps,
     );
     assert_eq!(code, 0, "stderr: {stderr}");
-    let err = stderr.to_string();
-    assert!(err.contains("notes.txt"), "names the file: {err}");
-    assert!(err.contains("2 KB"), "shows human-readable size: {err}");
+    let json: serde_json::Value = serde_json::from_str(stdout.to_string().trim()).expect("json");
+    assert_eq!(
+        json["size"], 1234,
+        "json should carry exact byte count: {stdout}"
+    );
 }
 
 #[test]

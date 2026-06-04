@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+### Security
+
+- **Recovered secret files are written owner-only (`0600`) on Unix.**
+
+  `secrt get` saves decrypted plaintext — including via the new rescue path,
+  which can land in shared `~/Downloads` or `$TMPDIR` — with `0600` instead of
+  whatever the process umask allowed, so a recovered secret isn't left
+  group/world-readable. File: `crates/secrt-cli/src/get.rs`.
+
 ### Added
 
 - **`secrt send --file` rejects an oversized file before uploading.**

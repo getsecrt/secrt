@@ -534,11 +534,33 @@ fn write_file_output(
     pa: &crate::cli::ParsedArgs,
     deps: &mut Deps,
 ) -> i32 {
-    if let Err(e) = fs::write(path, plaintext) {
+    if let Err(e) = write_secret_file(std::path::Path::new(path), plaintext) {
         return rescue_save(filename, path, &e.to_string(), plaintext, mime, pa, deps);
     }
-    report_saved(path, plaintext.len(), mime, pa, deps);
+    report_saved(path, plaintext.len(), mime, pa, deps, false);
     0
+}
+
+/// Write decrypted plaintext to disk. On Unix the file is created `0600`
+/// (owner-only) so a recovered secret isn't left group/world-readable — this
+/// matters most for the rescue path, which can land in shared Downloads/temp
+/// directories.
+fn write_secret_file(path: &std::path::Path, bytes: &[u8]) -> std::io::Result<()> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        let mut f = std::fs::OpenOptions::new()
+            .write(true)
+            .create(true)
+            .truncate(true)
+            .mode(0o600)
+            .open(path)?;
+        std::io::Write::write_all(&mut f, bytes)
+    }
+    #[cfg(not(unix))]
+    {
+        std::fs::write(path, bytes)
+    }
 }
 
 /// Print the "Saved to <path> (<detail>)" confirmation on stderr.
@@ -548,8 +570,11 @@ fn report_saved(
     mime: Option<&str>,
     pa: &crate::cli::ParsedArgs,
     deps: &mut Deps,
+    force: bool,
 ) {
-    if pa.silent {
+    // A rescue forces the line through even under --silent: the secret landed
+    // somewhere other than asked, and it's the only remaining copy.
+    if pa.silent && !force {
         return;
     }
     let c = color_func((deps.is_tty)());
@@ -614,7 +639,10 @@ fn rescue_save(
     pa: &crate::cli::ParsedArgs,
     deps: &mut Deps,
 ) -> i32 {
-    if !pa.silent {
+    // A post-claim rescue is an exceptional, data-integrity event — always
+    // announce it, even under --silent, so the user knows where the only copy
+    // went and why it's not where they asked.
+    {
         let c = color_func((deps.is_stderr_tty)());
         // Name the *directory* that failed, not the collision-resolved file
         // name — "couldn't save rm to /bin" is clearer than "…to rm (1)".
@@ -642,13 +670,14 @@ fn rescue_save(
             Ok(p) => p,
             Err(_) => continue,
         };
-        if fs::write(&candidate, plaintext).is_ok() {
+        if write_secret_file(&candidate, plaintext).is_ok() {
             report_saved(
                 &candidate.to_string_lossy(),
                 plaintext.len(),
                 mime,
                 pa,
                 deps,
+                true,
             );
             return 0;
         }

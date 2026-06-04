@@ -303,46 +303,56 @@ fn get_decryption_error() {
 }
 
 #[test]
-fn get_404_explains_one_time_semantics() {
-    // A 404 on claim is the indistinguishable expired/claimed/unknown case.
-    // The recipient should get a calm explanation, not a raw "server error".
-    let url = make_share_url("https://secrt.ca", "test123");
-    let (mut deps, _stdout, stderr) = TestDepsBuilder::new()
-        .mock_claim(Err("server error (404): secret not found".into()))
-        .build();
-    let code = cli::run(&args(&["secrt", "get", &url]), &mut deps);
-    assert_eq!(code, 1);
-    let err = stderr.to_string();
-    assert!(err.contains("Secret unavailable"), "stderr: {err}");
-    assert!(
-        err.contains("already been opened") && err.contains("link is incomplete"),
-        "should explain the union of causes: {err}"
-    );
-    assert!(
-        !err.contains("server error") && !err.contains("404"),
-        "should not leak the raw status: {err}"
-    );
-}
-
-#[test]
-fn get_non_404_error_surfaces_raw() {
-    // Non-404 claim failures (5xx, network) are surfaced as-is — no friendly
-    // "Secret unavailable" rewrite (that's only for the 404 union) and no
-    // longer wrapped in a redundant "get failed:" prefix.
-    let url = make_share_url("https://secrt.ca", "test123");
-    let (mut deps, _stdout, stderr) = TestDepsBuilder::new()
-        .mock_claim(Err(
-            "server error (503): server is temporarily unavailable".into()
-        ))
-        .build();
-    let code = cli::run(&args(&["secrt", "get", &url]), &mut deps);
-    assert_eq!(code, 1);
-    let err = stderr.to_string();
-    assert!(err.contains("503"), "should surface the real error: {err}");
-    assert!(
-        !err.contains("Secret unavailable") && !err.contains("get failed"),
-        "non-404 should not be rewritten or prefixed: {err}"
-    );
+fn get_claim_error_messages() {
+    // A 404 is the indistinguishable expired/claimed/unknown union and gets a
+    // calm rewrite; any other status is surfaced raw (no rewrite, no prefix).
+    struct Case {
+        name: &'static str,
+        claim_err: &'static str,
+        contains: &'static [&'static str],
+        absent: &'static [&'static str],
+    }
+    let cases = [
+        Case {
+            name: "404 → one-time-semantics explanation",
+            claim_err: "server error (404): secret not found",
+            contains: &[
+                "Secret unavailable",
+                "already been opened",
+                "link is incomplete",
+            ],
+            absent: &["server error", "404"],
+        },
+        Case {
+            name: "non-404 surfaced raw",
+            claim_err: "server error (503): server is temporarily unavailable",
+            contains: &["503"],
+            absent: &["Secret unavailable", "get failed"],
+        },
+    ];
+    for case in cases {
+        let url = make_share_url("https://secrt.ca", "test123");
+        let (mut deps, _stdout, stderr) = TestDepsBuilder::new()
+            .mock_claim(Err(case.claim_err.into()))
+            .build();
+        let code = cli::run(&args(&["secrt", "get", &url]), &mut deps);
+        assert_eq!(code, 1, "[{}] stderr: {}", case.name, stderr);
+        let err = stderr.to_string();
+        for want in case.contains {
+            assert!(
+                err.contains(want),
+                "[{}] missing {want:?}: {err}",
+                case.name
+            );
+        }
+        for unwanted in case.absent {
+            assert!(
+                !err.contains(unwanted),
+                "[{}] should not contain {unwanted:?}: {err}",
+                case.name
+            );
+        }
+    }
 }
 
 #[test]
@@ -987,6 +997,12 @@ fn get_output_unwritable_fails_without_claiming() {
 #[test]
 fn get_auto_save_failure_rescues_to_downloads() {
     use std::os::unix::fs::PermissionsExt;
+    // Root ignores `0o555`, so the read-only-dir failure can't be simulated —
+    // skip rather than report a false negative under privileged CI.
+    if unsafe { libc::geteuid() } == 0 {
+        eprintln!("skipping get_auto_save_failure_rescues_to_downloads: running as root");
+        return;
+    }
     let _guard = CWD_LOCK.lock().unwrap();
     let plaintext = b"\x89PNG\r\n\x1a\nfake png data";
     let (share_link, seal_result) = seal_test_file(plaintext, "photo.png", "image/png");
@@ -1046,6 +1062,9 @@ fn get_auto_save_failure_rescues_to_downloads() {
         "must not invent a collision suffix in the fallback dir: {err}"
     );
     assert_eq!(fs::read(&rescued).unwrap(), plaintext);
+    // A recovered secret must be owner-only — it can land in shared Downloads.
+    let mode = fs::metadata(&rescued).unwrap().permissions().mode() & 0o777;
+    assert_eq!(mode, 0o600, "rescued secret must be 0600, got {mode:o}");
 }
 
 #[test]

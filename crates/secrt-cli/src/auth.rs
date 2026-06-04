@@ -791,12 +791,16 @@ pub fn fmt_server_line(
     is_tty: bool,
 ) -> String {
     let c = color_func(is_tty);
+    // Strip any URL `#fragment` before display — a base URL shouldn't carry
+    // one, but the fragment is where share links keep secret key material, so
+    // never risk echoing it (see the "never log fragments" non-negotiable).
+    let safe_base_url = base_url.split('#').next().unwrap_or(base_url);
     // The host value is left plain (white) to match the masked key value in
     // `fmt_key_line` — only the label and the parenthetical state are tinted.
     format!(
         "  {}: {} {}\n",
         c(label_color, "Server"),
-        base_url,
+        safe_base_url,
         c(state_color, &format!("({})", state))
     )
 }
