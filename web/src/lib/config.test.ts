@@ -123,8 +123,12 @@ describe('classifyOrigin', () => {
   });
 
   it('trusted_custom silences unknown host (case-insensitive)', () => {
-    expect(classifyOrigin('https://evil.tld', ['evil.tld']).kind).toBe('trustedCustom');
-    expect(classifyOrigin('https://EVIL.TLD', ['evil.tld']).kind).toBe('trustedCustom');
+    expect(classifyOrigin('https://evil.tld', ['evil.tld']).kind).toBe(
+      'trustedCustom',
+    );
+    expect(classifyOrigin('https://EVIL.TLD', ['evil.tld']).kind).toBe(
+      'trustedCustom',
+    );
   });
 
   it.each(['', 'not a url', 'ftp://secrt.ca'])(

@@ -47,12 +47,12 @@ export function SyncLandingPage() {
         icon={<TriangleExclamationIcon class="text-warning size-10" />}
       />
       <p class="text-muted">
-        This URL is missing the secret ID and decryption key — your link
-        may have been truncated when it was copied.
+        This URL is missing the secret ID and decryption key — your link may
+        have been truncated when it was copied.
       </p>
       <p class="text-muted">
-        If you have access to another signed-in device, you can pair it
-        directly instead — no link required.
+        If you have access to another signed-in device, you can pair it directly
+        instead — no link required.
       </p>
       <button
         type="button"

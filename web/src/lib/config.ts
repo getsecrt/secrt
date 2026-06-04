@@ -101,7 +101,8 @@ export function normalizeOrigin(baseUrl: string): string | null {
   const scheme = u.protocol.slice(0, -1).toLowerCase();
   const host = u.hostname.toLowerCase();
   // Re-bracket IPv6 hosts (URL.hostname strips them on some engines).
-  const hostFmt = host.includes(':') && !host.startsWith('[') ? `[${host}]` : host;
+  const hostFmt =
+    host.includes(':') && !host.startsWith('[') ? `[${host}]` : host;
   return u.port ? `${scheme}://${hostFmt}:${u.port}` : `${scheme}://${hostFmt}`;
 }
 
