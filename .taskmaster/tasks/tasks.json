@@ -198,9 +198,7 @@
         "description": "Register the app to handle secrt.ca URLs and/or a secrt:// custom protocol so clicking a share link opens the desktop app instead of the browser. Tauri 2 has a deep-link plugin. macOS Universal Links require an apple-app-site-association file on the server. Windows uses URI protocol handlers. Linux uses .desktop file handlers. Consider also registering for secrt:// as a fallback protocol.\n\nTracking: GitHub issue https://github.com/getsecrt/secrt/issues/30.",
         "status": "pending",
         "priority": "medium",
-        "dependencies": [
-          23
-        ],
+        "dependencies": [],
         "subtasks": [
           {
             "id": 1,
@@ -821,9 +819,7 @@
         "description": "Closes the supply-chain trust gap acknowledged in spec/v1/cli.md Trust Root and Supply-Chain Notes. Currently, secrt update verifies SHA-256 against a checksum file fetched from the same release - this protects against transport tampering but not against compromise of the GitHub release publishing pipeline. Sigstore/cosign keyless signing closes this: the release-cli.yml workflow signs each artifact and the checksum file with an ephemeral certificate tied to the GitHub Actions OIDC identity of the workflow. Signatures and cert chains are pushed to the public Rekor transparency log. The CLI verifies the signature against the Sigstore trust root plus a workflow identity (the secrt repo's release-cli.yml at a specific tag) before installing.\n\nWhy keyless: no long-lived signing key to manage, rotate, or accidentally expose. The trust root is GitHub Actions OIDC plus the public Rekor log.\n\nScope:\n1. Add cosign signing steps to .github/workflows/release-cli.yml. Sign each raw binary, each archive, and the secrt-checksums-sha256.txt file. Push signatures to the corresponding GitHub Release.\n2. Add Rust verifier to the secrt CLI's update flow. Use sigstore-rs or shell out to a bundled cosign binary. Verify signature before SHA-256 (transparency log assurance is stronger).\n3. Document the verification workflow in the README so users can manually verify a downloaded artifact.\n4. Decide policy: refuse install on signature failure (recommended) vs warn-and-continue (weaker but more recoverable). Refuse is the right call for a security-sensitive tool.\n\nReferences:\n- https://docs.sigstore.dev/cosign/keyless/\n- https://github.com/sigstore/sigstore-rs\n- https://docs.github.com/en/actions/deployment/security-hardening-your-deployments/about-security-hardening-with-openid-connect\n\nLand this PR before secrt has many users.",
         "status": "pending",
         "priority": "medium",
-        "dependencies": [
-          46
-        ],
+        "dependencies": [],
         "subtasks": [
           {
             "id": 1,
@@ -929,52 +925,6 @@
         "subtasks": []
       },
       {
-        "id": 68,
-        "title": "Browser-to-browser AMK transfer (pair-code + bidirectional QR)",
-        "description": "Full plan: .taskmaster/plans/task-68-amk-pair-code.md (May 2, 2026). Surface the existing XXXX-XXXX device-auth primitive as a web-to-web AMK transfer flow with a bidirectional rendezvous-QR. Replaces the killed listener/inbox/SSE design. Security upgrade over today payload-QR: rendezvous-QR carries only a slot ID + ephemeral pubkey, not the encrypted AMK blob. — Superseded by the simpler single-direction sender→receiver AMK pair flow shipped in 0.18.0. Bidirectional pair-code-or-QR rendezvous was deemed too confusing in practice; the typed 8-digit code primitive shipped as the no-camera fallback.",
-        "status": "cancelled",
-        "priority": "high",
-        "dependencies": [],
-        "subtasks": [
-          {
-            "id": 1,
-            "title": "Backend tweaks: role field on pairing slot + tests",
-            "status": "pending",
-            "description": "Confirm device-auth endpoints accept web-to-web case; add role (send/receive) to slot record; verify rate limits; explicit tests for both directions."
-          },
-          {
-            "id": 2,
-            "title": "Rendezvous URL scheme + QR render/scan helpers",
-            "status": "pending",
-            "description": "Define secrt://pair/{slot_id}?role=...&pk=... scheme. TS encode/decode helpers. QR render via existing lib. QR scan via jsQR (or qr-scanner wrapper). Skip native BarcodeDetector — Safari fallback dominates."
-          },
-          {
-            "id": 3,
-            "title": "PairDisplayPage (displaying-device UI)",
-            "status": "pending",
-            "description": "Role-aware: on receive, generate ECDH keypair and publish pubkey; on send, wait for joiner pubkey. Render QR + typed code as paired siblings. Poll for completion. Handle error states (expired, max attempts, decrypt failure)."
-          },
-          {
-            "id": 4,
-            "title": "PairJoinPage (joining-device UI)",
-            "status": "pending",
-            "description": "Two inputs: Scan QR (camera modal) + typed XXXX-XXXX. Both resolve to slot ID. Branch on slot role. Reuse DevicePage approval UX pattern. Display receivers UA/IP/time for sender confirmation."
-          },
-          {
-            "id": 5,
-            "title": "UX consolidation: demote sync link, retire payload-QR",
-            "status": "pending",
-            "description": "Sync link stays for async transfer, demoted to More options disclosure. Retire SyncNotesKeyButtons payload-QR rendering — sweep tests, docs, onboarding copy in the same commit."
-          },
-          {
-            "id": 6,
-            "title": "Spec updates + docs",
-            "status": "pending",
-            "description": "Add web-to-web AMK transfer section to spec/v1/server.md (URL scheme, role-aware slot semantics, security upgrade rationale). Update spec/v1/api.md if new fields land. Update web README."
-          }
-        ]
-      },
-      {
         "id": 71,
         "title": "Public docs: 'which passkey should I use with secrt?' explainer",
         "description": "User-facing docs page (NOT the internal architecture doc) that turns the cohort matrix into actionable recommendations: 'I'm an Apple user → use iCloud Keychain'; 'I have a YubiKey → great on Mac/Windows/Linux Chromium, also add an iCloud Keychain passkey for iPhone'; 'I use Bitwarden as my main vault → expect to use sync-links since their authenticator drops PRF.' Honesty about limitations without scaring people away. Lives at `docs/passkey-recommendations.md` or similar; linked from registration flow.",
@@ -982,6 +932,62 @@
         "priority": "low",
         "dependencies": [],
         "subtasks": []
+      },
+      {
+        "id": 72,
+        "title": "Richer 401 auth-failure message with shared status renderer",
+        "description": "On a 401, show the secrt auth status identity block (Key + Server with key-not-recognized state) inline, plus a hypothesis line and a secrt auth login recommendation. Share the line renderer between auth status and the error path. Route the --note/resolve_amk 401 through the same decorator (was bypassing it).",
+        "status": "done",
+        "priority": "medium",
+        "dependencies": [],
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "Shared renderers in auth.rs",
+            "description": "fmt_key_line, fmt_server_line, masked_key_and_source, explain_auth_error; refactor run_auth_status to use them",
+            "status": "done"
+          },
+          {
+            "id": 2,
+            "title": "Rewrite decorate_auth_error",
+            "description": "Rich 401 message + json terse path + cross-instance hypothesis",
+            "status": "done"
+          },
+          {
+            "id": 3,
+            "title": "Wire call sites",
+            "description": "send (create + --note), burn, info, list",
+            "status": "done"
+          },
+          {
+            "id": 4,
+            "title": "Tests",
+            "description": "update + add unit tests",
+            "status": "done"
+          }
+        ]
+      },
+      {
+        "id": 73,
+        "title": "i18n readiness: separate machine signals from display strings",
+        "description": "Make the codebase localizable without committing to full i18n now. The expensive-to-retrofit piece is that control flow is detected by substring-matching human-readable display strings (e.g. e.contains(\"(401)\"), e.contains(\"404\") in get.rs/burn.rs/info.rs/instance_trust.rs). Localizing breaks this. First concrete step: move to typed error kinds/status codes carried out of the client layer (SecretApi currently returns String for all errors), and keep display formatting at the edge (write_error). This also lets us drop the brittle .contains() checks. Lowest ROI on the CLI (technical/English audience); highest on the web frontend (broad reach, mature i18n tooling) — start there if localization becomes a real goal. Other cost drivers if/when pursued: externalizing hundreds of inline strings (esp. cli.rs help text), plural-rules engine (current if n==1 logic is English-only), named-placeholder interpolation for word-order, locale-aware number formatting, and re-baselining string-asserting tests against keys or a pinned locale. Fluent (fluent-rs) is the mature tool but framework-sized vs the repo minimal-dep ethos.",
+        "status": "pending",
+        "priority": "low",
+        "dependencies": [],
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "Typed client errors",
+            "description": "Replace SecretApi String errors with a typed error enum carrying HTTP status / error kind; update callers to match on the kind instead of substring-checking the message.",
+            "status": "pending"
+          },
+          {
+            "id": 2,
+            "title": "Audit string-encoded control flow",
+            "description": "Find every .contains() on a display string used for branching and route it through the typed signal.",
+            "status": "pending"
+          }
+        ]
       }
     ]
   }

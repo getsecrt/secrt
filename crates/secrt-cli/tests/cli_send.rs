@@ -7,7 +7,43 @@ use base64::Engine;
 
 use helpers::{args, TestDepsBuilder};
 use secrt_cli::cli;
-use secrt_cli::client::{AmkWrapperResponse, CreateResponse};
+use secrt_cli::client::{
+    AmkWrapperResponse, CreateResponse, InfoLimits, InfoRate, InfoResponse, InfoTTL, InfoTier,
+};
+
+/// Build an `InfoResponse` with the given per-secret envelope limits (bytes;
+/// `0` = unlimited) for exercising the pre-upload file-size check.
+fn info_with_limits(public_env: i64, authed_env: i64) -> InfoResponse {
+    let tier = |max_envelope_bytes: i64| InfoTier {
+        max_envelope_bytes,
+        max_secrets: 0,
+        max_total_bytes: 0,
+        rate: InfoRate {
+            requests_per_second: 1.0,
+            burst: 10,
+        },
+    };
+    InfoResponse {
+        authenticated: false,
+        user_id: None,
+        ttl: InfoTTL {
+            default_seconds: 86400,
+            max_seconds: 31536000,
+        },
+        limits: InfoLimits {
+            public: tier(public_env),
+            authed: tier(authed_env),
+        },
+        claim_rate: InfoRate {
+            requests_per_second: 1.0,
+            burst: 10,
+        },
+        latest_cli_version: None,
+        latest_cli_version_checked_at: None,
+        min_supported_cli_version: None,
+        server_version: None,
+    }
+}
 
 /// Use a non-routable address to ensure API calls fail
 const DEAD_URL: &str = "http://127.0.0.1:19191";
@@ -65,6 +101,57 @@ fn send_file_flag() {
         &mut deps,
     );
     assert_eq!(code, 1, "stderr: {}", stderr);
+}
+
+#[test]
+fn send_file_too_large_fails_fast() {
+    // A file whose envelope exceeds the instance limit must be rejected
+    // *before* upload. No mock_create is registered — if send tried to upload,
+    // the mock client would panic. The tiny limit (50 bytes) is below the
+    // envelope's fixed overhead, so it fails regardless of compression.
+    let dir = tempfile::tempdir().expect("tempdir");
+    let path = dir.path().join("report.pdf");
+    std::fs::write(&path, vec![0xABu8; 4096]).unwrap();
+
+    let (mut deps, stdout, stderr) = TestDepsBuilder::new()
+        .mock_info(Ok(info_with_limits(50, 1_048_576)))
+        .build();
+    let code = cli::run(
+        &args(&["secrt", "send", "--file", path.to_str().unwrap()]),
+        &mut deps,
+    );
+    assert_eq!(code, 1, "stderr: {stderr}");
+    assert!(stdout.to_string().is_empty(), "must not upload: {stdout}");
+    let err = stderr.to_string();
+    assert!(err.contains("report.pdf"), "names the file: {err}");
+    assert!(err.contains("too large"), "explains the cause: {err}");
+    assert!(
+        err.contains("secrt auth login"),
+        "suggests signing in for the higher tier: {err}"
+    );
+}
+
+#[test]
+fn send_file_within_limit_shows_size() {
+    // Under the limit: send proceeds and the confirmation names the file and
+    // its human-readable size.
+    let dir = tempfile::tempdir().expect("tempdir");
+    let path = dir.path().join("notes.txt");
+    std::fs::write(&path, vec![b'x'; 2000]).unwrap();
+
+    let (mut deps, _stdout, stderr) = TestDepsBuilder::new()
+        .tty(true)
+        .mock_info(Ok(info_with_limits(262_144, 1_048_576)))
+        .mock_create(Ok(mock_send_response()))
+        .build();
+    let code = cli::run(
+        &args(&["secrt", "send", "--file", path.to_str().unwrap()]),
+        &mut deps,
+    );
+    assert_eq!(code, 0, "stderr: {stderr}");
+    let err = stderr.to_string();
+    assert!(err.contains("notes.txt"), "names the file: {err}");
+    assert!(err.contains("2 KB"), "shows human-readable size: {err}");
 }
 
 #[test]

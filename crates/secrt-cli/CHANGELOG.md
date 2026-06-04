@@ -2,6 +2,23 @@
 
 ## Unreleased
 
+### Added
+
+- **`secrt send --file` rejects an oversized file before uploading.**
+
+  Instead of encrypting, uploading, and *then* getting rejected, the CLI now
+  checks the file against the instance's per-secret limit up front (one `/info`
+  call) and fails fast in the user's terms: *report.pdf (4 MB) is too large for
+  secrt.ca — it accepts files up to about 48 KB. Sign in with `secrt auth
+  login` to send up to about 1.5 MB.* The budget is derived from the file's
+  actual encryption expansion, so it never contradicts itself near the
+  boundary. Best-effort: if `/info` is unreachable, the upload proceeds and the
+  server still enforces. File: `crates/secrt-cli/src/send.rs`.
+
+- **`secrt send --file` reports the file name and size on success** — e.g.
+  `✓ Encrypted and uploaded report.pdf (119 KB).` (Only for file sends; text
+  and generated secrets stay generic.)
+
 ### Changed
 
 - **Client-side failures no longer masquerade as "server error."**
