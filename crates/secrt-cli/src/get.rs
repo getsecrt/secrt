@@ -546,8 +546,8 @@ fn report_saved(
     }
     let c = color_func((deps.is_tty)());
     let detail = match mime {
-        Some(m) => format!("{}, {} bytes", m, size),
-        None => format!("{} bytes", size),
+        Some(m) => format!("{}, {}", m, crate::fileutil::human_size(size)),
+        None => crate::fileutil::human_size(size),
     };
     let _ = writeln!(
         deps.stderr,

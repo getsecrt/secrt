@@ -107,6 +107,27 @@ pub fn resolve_output_path(filename: &str) -> Result<PathBuf, String> {
     ))
 }
 
+/// Format a byte count the way a browser or Finder shows a download: base-1000
+/// `KB`/`MB`/`GB`, integer `KB`, one decimal for `MB` and up. For human-facing
+/// display of *arbitrary* sizes (a saved/sent file). Round policy *limits*
+/// (powers of two) use `cli::format_bytes` instead, which renders them exactly
+/// in base-2; `--json` carries exact byte counts for machines.
+pub(crate) fn human_size(bytes: usize) -> String {
+    const KB: f64 = 1_000.0;
+    const MB: f64 = 1_000_000.0;
+    const GB: f64 = 1_000_000_000.0;
+    let b = bytes as f64;
+    if bytes < 1_000 {
+        format!("{} byte{}", bytes, if bytes == 1 { "" } else { "s" })
+    } else if b < MB {
+        format!("{} KB", (b / KB).round() as u64)
+    } else if b < GB {
+        format!("{:.1} MB", b / MB)
+    } else {
+        format!("{:.1} GB", b / GB)
+    }
+}
+
 /// Confirm we can write to `path` *before* claiming a one-time secret, so a
 /// secret is never consumed when we already know we can't deliver it.
 ///
@@ -174,6 +195,31 @@ pub fn extract_file_hint(metadata: &PayloadMeta) -> Option<FileHint> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // --- human_size ---
+
+    #[test]
+    fn human_size_table() {
+        let cases = [
+            (0usize, "0 bytes"),
+            (1, "1 byte"),
+            (999, "999 bytes"),
+            (1_000, "1 KB"),
+            (1_499, "1 KB"),
+            (1_500, "2 KB"),
+            (119_184, "119 KB"),
+            (999_499, "999 KB"),
+            (1_000_000, "1.0 MB"),
+            (1_200_000, "1.2 MB"),
+            (1_550_000, "1.6 MB"),
+            (999_900_000, "999.9 MB"),
+            (1_000_000_000, "1.0 GB"),
+            (2_500_000_000, "2.5 GB"),
+        ];
+        for (bytes, want) in cases {
+            assert_eq!(human_size(bytes), want, "bytes={bytes}");
+        }
+    }
 
     // --- preflight_writable ---
 

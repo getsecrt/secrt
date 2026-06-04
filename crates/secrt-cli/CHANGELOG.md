@@ -21,6 +21,12 @@
 
   Files: `crates/secrt-cli/src/instance_trust.rs`, `crates/secrt-cli/src/auth.rs`.
 
+- **`secrt get` reports a saved file's size in human-readable units.**
+
+  The save confirmation now shows `119 KB` / `1.2 MB` (base-1000, like a
+  browser) instead of a raw byte count. `--json` still carries exact bytes
+  for machines. Files: `crates/secrt-cli/src/fileutil.rs`.
+
 - **A claimed/expired/unknown secret now reads as "Secret unavailable," not "server error (404)."**
 
   The server returns an indistinguishable 404 for expired, already-opened,
