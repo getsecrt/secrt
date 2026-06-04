@@ -7,7 +7,43 @@ use base64::Engine;
 
 use helpers::{args, TestDepsBuilder};
 use secrt_cli::cli;
-use secrt_cli::client::{AmkWrapperResponse, CreateResponse};
+use secrt_cli::client::{
+    AmkWrapperResponse, CreateResponse, InfoLimits, InfoRate, InfoResponse, InfoTTL, InfoTier,
+};
+
+/// Build an `InfoResponse` with the given per-secret envelope limits (bytes;
+/// `0` = unlimited) for exercising the pre-upload file-size check.
+fn info_with_limits(public_env: i64, authed_env: i64) -> InfoResponse {
+    let tier = |max_envelope_bytes: i64| InfoTier {
+        max_envelope_bytes,
+        max_secrets: 0,
+        max_total_bytes: 0,
+        rate: InfoRate {
+            requests_per_second: 1.0,
+            burst: 10,
+        },
+    };
+    InfoResponse {
+        authenticated: false,
+        user_id: None,
+        ttl: InfoTTL {
+            default_seconds: 86400,
+            max_seconds: 31536000,
+        },
+        limits: InfoLimits {
+            public: tier(public_env),
+            authed: tier(authed_env),
+        },
+        claim_rate: InfoRate {
+            requests_per_second: 1.0,
+            burst: 10,
+        },
+        latest_cli_version: None,
+        latest_cli_version_checked_at: None,
+        min_supported_cli_version: None,
+        server_version: None,
+    }
+}
 
 /// Use a non-routable address to ensure API calls fail
 const DEAD_URL: &str = "http://127.0.0.1:19191";
@@ -65,6 +101,107 @@ fn send_file_flag() {
         &mut deps,
     );
     assert_eq!(code, 1, "stderr: {}", stderr);
+}
+
+#[test]
+fn send_file_size_limit_cases() {
+    // Two paths share the file-send harness: an over-limit file is rejected
+    // before upload (no mock_create registered — the mock client panics if a
+    // doomed upload is attempted), and an under-limit file uploads and reports
+    // its size. The tiny 50-byte limit sits below the envelope's fixed
+    // overhead, so the reject case fails regardless of compression.
+    struct Case {
+        name: &'static str,
+        filename: &'static str,
+        file_bytes: usize,
+        public_limit: i64,
+        register_create: bool,
+        expected_code: i32,
+        contains: &'static [&'static str],
+    }
+    let cases = [
+        Case {
+            name: "over limit → rejected before upload",
+            filename: "report.pdf",
+            file_bytes: 4096,
+            public_limit: 50,
+            register_create: false,
+            expected_code: 1,
+            contains: &["report.pdf", "too large", "secrt auth login"],
+        },
+        Case {
+            name: "under limit → uploads and shows size",
+            filename: "notes.txt",
+            file_bytes: 2000,
+            public_limit: 262_144,
+            register_create: true,
+            expected_code: 0,
+            contains: &["notes.txt", "2 KB"],
+        },
+    ];
+    for case in cases {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join(case.filename);
+        std::fs::write(&path, vec![0xABu8; case.file_bytes]).unwrap();
+
+        let mut builder = TestDepsBuilder::new()
+            .tty(true)
+            .mock_info(Ok(info_with_limits(case.public_limit, 1_048_576)));
+        if case.register_create {
+            builder = builder.mock_create(Ok(mock_send_response()));
+        }
+        let (mut deps, stdout, stderr) = builder.build();
+
+        let code = cli::run(
+            &args(&["secrt", "send", "--file", path.to_str().unwrap()]),
+            &mut deps,
+        );
+        assert_eq!(
+            code, case.expected_code,
+            "[{}] stderr: {}",
+            case.name, stderr
+        );
+        let err = stderr.to_string();
+        for want in case.contains {
+            assert!(
+                err.contains(want),
+                "[{}] missing {want:?}: {err}",
+                case.name
+            );
+        }
+        if case.expected_code == 1 {
+            assert!(
+                stdout.to_string().is_empty(),
+                "[{}] must not upload: {}",
+                case.name,
+                stdout
+            );
+        }
+    }
+}
+
+#[test]
+fn send_file_json_includes_exact_size() {
+    // `--json` carries the exact byte count for file sends (the human path
+    // shows a rounded size; machines get the precise value).
+    let dir = tempfile::tempdir().expect("tempdir");
+    let path = dir.path().join("data.bin");
+    std::fs::write(&path, vec![0xABu8; 1234]).unwrap();
+
+    let (mut deps, stdout, stderr) = TestDepsBuilder::new()
+        .mock_info(Ok(info_with_limits(262_144, 1_048_576)))
+        .mock_create(Ok(mock_send_response()))
+        .build();
+    let code = cli::run(
+        &args(&["secrt", "send", "--file", path.to_str().unwrap(), "--json"]),
+        &mut deps,
+    );
+    assert_eq!(code, 0, "stderr: {stderr}");
+    let json: serde_json::Value = serde_json::from_str(stdout.to_string().trim()).expect("json");
+    assert_eq!(
+        json["size"], 1234,
+        "json should carry exact byte count: {stdout}"
+    );
 }
 
 #[test]
@@ -526,14 +663,17 @@ fn send_unauthorized_error_shows_api_key_hint() {
     let code = cli::run(&args(&["secrt", "send"]), &mut deps);
     assert_eq!(code, 1);
     let err = stderr.to_string();
+    // Unauthenticated send (no key configured): a 401 reports that the host
+    // requires auth and points at sign-in, rather than claiming a key was
+    // rejected.
     assert!(
-        err.contains("unauthorized"),
-        "stderr should contain auth error: {}",
+        err.contains("requires authentication (401)"),
+        "stderr should report the auth requirement: {}",
         err
     );
     assert!(
-        err.contains("API key"),
-        "stderr should hint about API key: {}",
+        err.contains("secrt auth login"),
+        "stderr should recommend signing in: {}",
         err
     );
 }
@@ -878,6 +1018,48 @@ fn send_note_no_amk_fails() {
         err.contains("no account key found"),
         "should report missing AMK: {}",
         err
+    );
+}
+
+#[test]
+fn send_note_401_shows_auth_identity_block() {
+    // The user's scenario: a configured key rejected by the host it's
+    // pointed at. The --note pre-validation 401 must surface the full
+    // auth-failure block (key + source, server + "key not recognized",
+    // hypothesis, login hint) instead of a bare "--note: server error".
+    let root_key = [0x33u8; 32];
+    let api_key = format!("sk2_abcdef.{}", URL_SAFE_NO_PAD.encode(root_key));
+
+    let (mut deps, stdout, stderr) = TestDepsBuilder::new()
+        .stdin(b"my secret")
+        .env("SECRET_API_KEY", &api_key)
+        .mock_get_amk_wrapper(Err("server error (401): unauthorized".into()))
+        .build();
+    let code = cli::run(&args(&["secrt", "send", "--note", "a note"]), &mut deps);
+    assert_eq!(code, 1, "should fail: {}", stderr);
+    assert!(
+        stdout.to_string().is_empty(),
+        "must not waste a secret: {}",
+        stdout
+    );
+    let err = stderr.to_string();
+    assert!(
+        err.contains("rejected your API key (401)"),
+        "headline: {err}"
+    );
+    assert!(err.contains("(from: env)"), "key source line: {err}");
+    assert!(
+        err.contains("Server: https://secrt.ca (key not recognized)"),
+        "server line: {err}"
+    );
+    assert!(
+        err.contains("may belong to a different instance, or it was revoked"),
+        "hypothesis: {err}"
+    );
+    assert!(err.contains("secrt auth login"), "login hint: {err}");
+    assert!(
+        !err.contains("--note: server error"),
+        "should not fall back to the bare --note prefix: {err}"
     );
 }
 

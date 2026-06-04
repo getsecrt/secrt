@@ -143,8 +143,8 @@ fn info_server_error_exits_1() {
     assert_eq!(code, 1);
     let err = stderr.to_string();
     assert!(
-        err.contains("info failed"),
-        "should show error, got: {}",
+        err.contains("500") || err.contains("internal error"),
+        "should surface the server error, got: {}",
         err
     );
 }

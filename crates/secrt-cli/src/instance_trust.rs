@@ -19,7 +19,7 @@ use std::io::Write;
 use secrt_core::{classify_origin, host_of, TrustDecision};
 
 use crate::cli::{BaseUrlSource, ParsedArgs};
-use crate::color::{color_func, CMD, ERROR, OPT, URL, WARN};
+use crate::color::{color_func, CMD, DIM, ERROR, OPT, URL, WARN};
 
 /// Emit a loud warning to `stderr` when `base_url` classifies as
 /// `Untrusted`. No-op for `Official`, `TrustedCustom`, and `DevLocal`.
@@ -109,41 +109,93 @@ pub fn block_if_cross_instance(
     Err(2)
 }
 
-/// Decorate a server error string with a host-mismatch hint when a
-/// 401 likely means "your auto-loaded API key is for a different
-/// host," not "your key is invalid." The hint fires when the user
-/// passed an explicit `--base-url` (`Flag` source) AND that host
-/// differs from the one their key was registered against.
+/// Rewrite a 401 server error into an actionable auth-failure message: a
+/// headline naming the host that rejected the key, the same identity block
+/// `secrt auth status` prints (key + source, server + "key not recognized"),
+/// a hypothesis line, and a `secrt auth login` recommendation.
 ///
-/// Returns `err` unchanged when the error isn't a 401, when no flag
-/// was passed, or when the flagged host equals the configured one.
-pub fn decorate_auth_error(err: &str, pa: &ParsedArgs, is_stderr_tty: bool) -> String {
+/// `masked_key`/`key_source` come from [`crate::auth::masked_key_and_source`]
+/// (empty when no key is configured). In `json` mode a single terse line is
+/// returned so machine consumers stay parseable. Non-401 errors pass through
+/// unchanged.
+pub fn decorate_auth_error(
+    err: &str,
+    pa: &ParsedArgs,
+    masked_key: &str,
+    key_source: &str,
+    json: bool,
+    is_stderr_tty: bool,
+) -> String {
     if !err.contains("(401)") {
         return err.to_string();
     }
-    if pa.base_url_source != BaseUrlSource::Flag {
-        return err.to_string();
+    let host = host_of(&pa.base_url).unwrap_or_else(|| pa.base_url.clone());
+    let has_key = !masked_key.is_empty();
+
+    // Machine consumers get one terse, parseable line — no block, no color.
+    if json {
+        return if has_key {
+            format!(
+                "{host} rejected your API key (401); it may be for a different secrt \
+                 instance or was revoked — run `secrt auth login`"
+            )
+        } else {
+            format!("{host} requires authentication (401) — run `secrt auth login`")
+        };
     }
-    if same_logical_instance(&pa.base_url, &pa.configured_base_url) {
-        return err.to_string();
-    }
-    let flagged = match host_of(&pa.base_url) {
-        Some(h) => h,
-        None => return err.to_string(),
-    };
-    let configured = match host_of(&pa.configured_base_url) {
-        Some(h) => h,
-        None => return err.to_string(),
-    };
+
     let c = color_func(is_stderr_tty);
-    format!(
-        "{err}\n  Your API key is for {}, not {}. To switch, run:\n  {} {} {}",
-        c(URL, &configured),
-        c(URL, &flagged),
-        c(CMD, "secrt auth login"),
-        c(OPT, "--base-url"),
-        c(URL, &pa.base_url),
-    )
+
+    // No key configured: a 401 means the request needed auth it didn't have,
+    // not that a key was rejected. Keep it short and point at sign-in.
+    if !has_key {
+        return format!(
+            "{host} requires authentication (401)\n  Run {} to sign in.",
+            c(CMD, "secrt auth login")
+        );
+    }
+
+    // Headline is plain — the red `error:` prefix (added by `write_error`)
+    // and the red hypothesis line below carry the "this failed" weight, so
+    // the rest of the block stays quiet (dim) to avoid burying it in color.
+    let mut out = format!("{host} rejected your API key (401)\n");
+    out.push_str(&crate::auth::fmt_key_line(
+        masked_key,
+        key_source,
+        DIM,
+        is_stderr_tty,
+    ));
+    out.push_str(&crate::auth::fmt_server_line(
+        &pa.base_url,
+        "key not recognized",
+        DIM,
+        DIM,
+        is_stderr_tty,
+    ));
+
+    // Hypothesis — the actionable takeaway, in red so it stands out from the
+    // dim context. When an explicit `--base-url` points at a different host
+    // than the user's configured home instance, we can name both sides;
+    // otherwise fall back to the generic wrong-instance/revoked guess.
+    let cross_instance = pa.base_url_source == BaseUrlSource::Flag
+        && !same_logical_instance(&pa.base_url, &pa.configured_base_url);
+    let hypothesis = match (
+        cross_instance,
+        host_of(&pa.base_url),
+        host_of(&pa.configured_base_url),
+    ) {
+        (true, Some(flagged), Some(configured)) => {
+            format!("Your key is configured for {configured}, not {flagged}.")
+        }
+        _ => "Your key may belong to a different instance, or it was revoked.".to_string(),
+    };
+    out.push_str(&format!("  {}\n", c(ERROR, &hypothesis)));
+
+    out.push_str(&format!(
+        "  Run {} to re-authenticate.",
+        c(CMD, "secrt auth login")
+    ));
+    out
 }
 
 /// Two URLs refer to the same logical secrt instance when:
@@ -348,42 +400,99 @@ mod tests {
     fn decorate_auth_error_passes_through_non_401() {
         let pa = pa_with("https://secrt.is", "https://secrt.ca", BaseUrlSource::Flag);
         let err = "server error (404): not found";
-        assert_eq!(decorate_auth_error(err, &pa, false), err);
+        assert_eq!(
+            decorate_auth_error(err, &pa, "sk2_abcd••••••••", "config", false, false),
+            err
+        );
     }
 
     #[test]
-    fn decorate_auth_error_no_op_when_source_not_flag() {
-        // Default source — user didn't pass --base-url, so a 401 means
-        // their key is genuinely invalid. No host-mismatch hint.
+    fn decorate_auth_error_generic_401_shows_identity_and_recommendation() {
+        // Default source — user didn't pass --base-url. Still rewrite the
+        // 401 into the identity block + generic hypothesis + login hint.
         let pa = pa_with(
             "https://secrt.ca",
             "https://secrt.ca",
             BaseUrlSource::Default,
         );
         let err = "server error (401): unauthorized";
-        assert_eq!(decorate_auth_error(err, &pa, false), err);
-    }
-
-    #[test]
-    fn decorate_auth_error_no_op_when_flag_matches_configured() {
-        let pa = pa_with("https://secrt.ca", "https://secrt.ca", BaseUrlSource::Flag);
-        let err = "server error (401): unauthorized";
-        assert_eq!(decorate_auth_error(err, &pa, false), err);
-    }
-
-    #[test]
-    fn decorate_auth_error_appends_hint_for_flag_cross_instance() {
-        let pa = pa_with("https://secrt.is", "https://secrt.ca", BaseUrlSource::Flag);
-        let err = "server error (401): unauthorized";
-        let out = decorate_auth_error(err, &pa, false);
-        assert!(out.starts_with(err), "should preserve original: {out:?}");
+        let out = decorate_auth_error(err, &pa, "sk2_abcd••••••••", "keychain", false, false);
         assert!(
-            out.contains("Your API key is for secrt.ca, not secrt.is"),
-            "missing host names: {out:?}"
+            out.starts_with("secrt.ca rejected your API key (401)"),
+            "headline: {out:?}"
         );
         assert!(
-            out.contains("secrt auth login --base-url https://secrt.is"),
-            "missing register command: {out:?}"
+            out.contains("Key: sk2_abcd•••••••• (from: keychain)"),
+            "key line: {out:?}"
+        );
+        assert!(
+            out.contains("Server: https://secrt.ca (key not recognized)"),
+            "server line: {out:?}"
+        );
+        assert!(
+            out.contains("may belong to a different instance, or it was revoked"),
+            "hypothesis: {out:?}"
+        );
+        assert!(
+            out.contains("Run secrt auth login to re-authenticate"),
+            "login hint: {out:?}"
+        );
+    }
+
+    #[test]
+    fn decorate_auth_error_flag_match_uses_generic_hypothesis() {
+        // Flag points at the same host as configured — not cross-instance,
+        // so the generic (revoked-or-wrong-instance) hypothesis applies.
+        let pa = pa_with("https://secrt.ca", "https://secrt.ca", BaseUrlSource::Flag);
+        let err = "server error (401): unauthorized";
+        let out = decorate_auth_error(err, &pa, "sk2_abcd••••••••", "config", false, false);
+        assert!(
+            out.contains("may belong to a different instance, or it was revoked"),
+            "generic hypothesis: {out:?}"
+        );
+        assert!(
+            !out.contains("Your key is configured for"),
+            "should not claim a specific cross-instance mismatch: {out:?}"
+        );
+    }
+
+    #[test]
+    fn decorate_auth_error_cross_instance_names_both_hosts() {
+        let pa = pa_with("https://secrt.is", "https://secrt.ca", BaseUrlSource::Flag);
+        let err = "server error (401): unauthorized";
+        let out = decorate_auth_error(err, &pa, "sk2_abcd••••••••", "config", false, false);
+        assert!(
+            out.starts_with("secrt.is rejected your API key (401)"),
+            "headline names the host that rejected the key: {out:?}"
+        );
+        assert!(
+            out.contains("Your key is configured for secrt.ca, not secrt.is"),
+            "cross-instance hypothesis: {out:?}"
+        );
+        assert!(
+            out.contains("Run secrt auth login to re-authenticate"),
+            "login hint: {out:?}"
+        );
+    }
+
+    #[test]
+    fn decorate_auth_error_json_is_terse_single_line() {
+        let pa = pa_with("https://secrt.is", "https://secrt.ca", BaseUrlSource::Flag);
+        let err = "server error (401): unauthorized";
+        let out = decorate_auth_error(err, &pa, "sk2_abcd••••••••", "config", true, false);
+        assert!(
+            !out.contains('\n'),
+            "json message must be one line: {out:?}"
+        );
+        assert!(
+            out.contains("secrt.is rejected your API key (401)"),
+            "headline: {out:?}"
+        );
+        assert!(out.contains("secrt auth login"), "login hint: {out:?}");
+        // No color escapes and no multi-line identity block in json mode.
+        assert!(
+            !out.contains('\x1b'),
+            "json message must be uncolored: {out:?}"
         );
     }
 
@@ -391,22 +500,27 @@ mod tests {
     fn decorate_auth_error_uses_semantic_colors_when_stderr_is_tty() {
         let pa = pa_with("https://secrt.is", "https://secrt.ca", BaseUrlSource::Flag);
         let err = "server error (401): unauthorized";
-        let out = decorate_auth_error(err, &pa, true);
+        let out = decorate_auth_error(err, &pa, "sk2_abcd••••••••", "config", false, true);
+        // The hypothesis line is red so the takeaway stands out from the
+        // dim context block.
         assert!(
-            out.contains("\x1b[1;36msecrt.ca\x1b[0m"),
-            "configured host bold cyan: {out:?}"
+            out.contains("\x1b[31mYour key is configured for secrt.ca, not secrt.is.\x1b[0m"),
+            "hypothesis should be red: {out:?}"
         );
-        assert!(
-            out.contains("\x1b[1;36msecrt.is\x1b[0m"),
-            "flagged host bold cyan: {out:?}"
-        );
+        // The recommended command keeps its cyan accent.
         assert!(
             out.contains("\x1b[36msecrt auth login\x1b[0m"),
             "command in cyan: {out:?}"
         );
+        // Identity labels are dimmed, not yellow, to keep the block quiet.
         assert!(
-            out.contains("\x1b[33m--base-url\x1b[0m"),
-            "option in yellow: {out:?}"
+            out.contains("\x1b[2mKey\x1b[0m") && out.contains("\x1b[2mServer\x1b[0m"),
+            "identity labels should be dim: {out:?}"
+        );
+        // The headline host is no longer bold-cyan — red carries emphasis.
+        assert!(
+            !out.contains("\x1b[1;36msecrt.is\x1b[0m"),
+            "headline host should be plain, not bold cyan: {out:?}"
         );
     }
 }

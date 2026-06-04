@@ -2,6 +2,112 @@
 
 ## Unreleased
 
+### Security
+
+- **Recovered secret files are written owner-only (`0600`) on Unix.**
+
+  `secrt get` saves decrypted plaintext — including via the new rescue path,
+  which can land in shared `~/Downloads` or `$TMPDIR` — with `0600` instead of
+  whatever the process umask allowed, so a recovered secret isn't left
+  group/world-readable. File: `crates/secrt-cli/src/get.rs`.
+
+### Added
+
+- **`secrt send --file` rejects an oversized file before uploading.**
+
+  Instead of encrypting, uploading, and *then* getting rejected, the CLI now
+  checks the file against the instance's per-secret limit up front (one `/info`
+  call) and fails fast in the user's terms — for example: *“report.pdf is too
+  large for this instance — it accepts files up to ⟨limit⟩. Sign in with `secrt
+  auth login` to send up to ⟨higher limit⟩.”* The actual ceilings are
+  instance-configured and differ for signed-in users, so the message reads them
+  live from `/info`; the stated budget is derived from the file's real
+  encryption expansion and rounded down, so it's a size the file is guaranteed
+  to fit under — no hedging. Best-effort: if `/info` is unreachable, the upload
+  proceeds and the server still enforces. File: `crates/secrt-cli/src/send.rs`.
+
+- **`secrt send --file` reports the file name and size on success** — e.g.
+  `✓ Encrypted and uploaded report.pdf (119 KB).` (Only for file sends; text
+  and generated secrets stay generic.)
+
+### Changed
+
+- **`secrt config` output is column-aligned and tidier.**
+
+  Effective settings and server limits now line their values up in a column
+  (capped so one long key like `decryption_passphrases` doesn't push everything
+  right — it overflows on its own row instead). `decryption_passphrases` reports
+  a count instead of a row of unreadable masked blobs: `2 entries (config
+  file)`. File: `crates/secrt-cli/src/cli.rs`.
+
+- **Client-side failures no longer masquerade as "server error."**
+
+  A 4xx is a problem with the request, not the server, so the CLI now frames
+  it that way: `unauthorized (401)`, `forbidden (403)`, `not found (404)`,
+  `rate limit exceeded (429)…`. "server error" is reserved for 5xx, where it's
+  accurate. Redundant `burn failed:` / `list failed:` / `get failed:` prefixes
+  were dropped — the messages now stand on their own. Files: `client.rs`,
+  `burn.rs`, `info.rs`, `list.rs`, `sync.rs`, `get.rs`.
+
+- **A wrong or truncated link gives an actionable hint, not "decryption failed."**
+
+  When a share link decrypts with no passphrase involved, the cause is almost
+  always a `#…` fragment truncated in chat/email — so the message now says so:
+  *the secret key in the link (after #) is wrong or incomplete.* File: `get.rs`.
+
+- **A 401 on an authenticated command now explains *which* server rejected your key and how to fix it.**
+
+  Instead of `server error (401): unauthorized`, the CLI now prints the
+  same identity block as `secrt auth status` — the masked key with its
+  source, and the server with a `key not recognized` marker — followed by
+  a likely cause and a `secrt auth login` recommendation. The most common
+  trigger is a key that belongs to a different instance than the one
+  you're pointed at.
+
+  - When an explicit `--base-url` points somewhere other than your
+    configured instance, the message names both hosts directly.
+  - The `secrt send --note` pre-check now routes its 401 through the same
+    message rather than a bare `--note: server error (401)`.
+  - `--json` output stays a single terse line.
+
+  Files: `crates/secrt-cli/src/instance_trust.rs`, `crates/secrt-cli/src/auth.rs`.
+
+- **`secrt get` reports a saved file's size in human-readable units.**
+
+  The save confirmation now shows `119 KB` / `1.2 MB` (base-1000, like a
+  browser) instead of a raw byte count. `--json` still carries exact bytes
+  for machines. Files: `crates/secrt-cli/src/fileutil.rs`.
+
+- **A claimed/expired/unknown secret now reads as "Secret unavailable," not "server error (404)."**
+
+  The server returns an indistinguishable 404 for expired, already-opened,
+  unknown, and bad-link cases — a deliberate zero-knowledge property, so the
+  CLI can't tell which. Instead of leaking the raw status, `secrt get` now
+  explains the union calmly: *Secret unavailable. It may have already been
+  opened, expired, or the link is incomplete.* Other claim failures (5xx,
+  network, rate limit) keep their explanatory prefix.
+
+  Spec: `spec/v1/api.md` §Claim. Files: `crates/secrt-cli/src/get.rs`.
+
+### Fixed
+
+- **A failed save no longer loses an already-retrieved secret.**
+
+  A one-time secret is deleted server-side the instant it's claimed, so the
+  decrypted bytes in memory are the only copy. Previously, if writing them to
+  disk failed (read-only dir, full disk, bad path), `secrt get` printed an
+  error and exited — the secret was gone for good.
+
+  - **`--output <path>` is now pre-flighted before claiming.** If the target
+    isn't writable, `get` fails *without* consuming the secret, so you can fix
+    the path and retry: *can't write to … — the secret was not retrieved.*
+  - **Auto-save failures fall back like a browser.** When saving to the
+    current directory fails, `get` retries the OS Downloads folder, then your
+    home directory, then the temp dir, and reports where it landed — rather
+    than dropping the only copy.
+
+  Files: `crates/secrt-cli/src/get.rs`, `crates/secrt-cli/src/fileutil.rs`.
+
 ## 0.19.0 — 2026-05-28
 
 ### Added

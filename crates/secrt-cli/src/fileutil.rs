@@ -107,6 +107,99 @@ pub fn resolve_output_path(filename: &str) -> Result<PathBuf, String> {
     ))
 }
 
+/// Format a byte count the way a browser or Finder shows a download: base-1000
+/// `KB`/`MB`/`GB`, integer `KB`, one decimal for `MB` and up. For human-facing
+/// display of *arbitrary* sizes (a saved/sent file). Round policy *limits*
+/// (powers of two) use `cli::format_bytes` instead, which renders them exactly
+/// in base-2; `--json` carries exact byte counts for machines.
+pub(crate) fn human_size(bytes: usize) -> String {
+    const KB: f64 = 1_000.0;
+    const MB: f64 = 1_000_000.0;
+    const GB: f64 = 1_000_000_000.0;
+    let b = bytes as f64;
+    if bytes < 1_000 {
+        format!("{} byte{}", bytes, if bytes == 1 { "" } else { "s" })
+    } else if b < MB {
+        format!("{} KB", (b / KB).round() as u64)
+    } else if b < GB {
+        format!("{:.1} MB", b / MB)
+    } else {
+        format!("{:.1} GB", b / GB)
+    }
+}
+
+/// Like [`human_size`] but rounds *down*, for stating a ceiling a value is
+/// guaranteed to fit under (e.g. an upload budget). Rounding to nearest would
+/// overstate the ceiling and promise a size that's actually rejected.
+pub(crate) fn human_size_floor(bytes: usize) -> String {
+    const KB: f64 = 1_000.0;
+    const MB: f64 = 1_000_000.0;
+    const GB: f64 = 1_000_000_000.0;
+    let b = bytes as f64;
+    if bytes < 1_000 {
+        format!("{} byte{}", bytes, if bytes == 1 { "" } else { "s" })
+    } else if b < MB {
+        format!("{} KB", (b / KB).floor() as u64)
+    } else if b < GB {
+        format!("{:.1} MB", (b / MB * 10.0).floor() / 10.0)
+    } else {
+        format!("{:.1} GB", (b / GB * 10.0).floor() / 10.0)
+    }
+}
+
+/// Confirm we can write to `path` *before* claiming a one-time secret, so a
+/// secret is never consumed when we already know we can't deliver it.
+///
+/// For an existing target, opens it for writing (no truncation) to test
+/// overwrite permission. For a new target, creates and removes a throwaway
+/// probe file in the parent directory so the real target is left untouched.
+/// Returns a human-readable reason on failure.
+pub fn preflight_writable(path: &str) -> Result<(), String> {
+    use std::fs::{self, OpenOptions};
+
+    let target = Path::new(path);
+
+    if target.exists() {
+        if target.is_dir() {
+            return Err(format!("{} is a directory", target.display()));
+        }
+        return OpenOptions::new()
+            .write(true)
+            .open(target)
+            .map(|_| ())
+            .map_err(|e| e.to_string());
+    }
+
+    let dir = match target.parent() {
+        Some(p) if !p.as_os_str().is_empty() => p,
+        _ => Path::new("."),
+    };
+    if !dir.exists() {
+        return Err(format!("no such directory: {}", dir.display()));
+    }
+
+    // Probe with a per-run unique name (pid + timestamp) and require a *fresh*
+    // create — a leftover probe from a crashed run must not count as proof the
+    // directory is writable, or `get --output …` could consume a one-time
+    // secret and then fail on the real write.
+    let stamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_nanos())
+        .unwrap_or(0);
+    let probe = dir.join(format!(
+        ".secrt-write-probe-{}-{}",
+        std::process::id(),
+        stamp
+    ));
+    match OpenOptions::new().write(true).create_new(true).open(&probe) {
+        Ok(_) => {
+            let _ = fs::remove_file(&probe);
+            Ok(())
+        }
+        Err(e) => Err(e.to_string()),
+    }
+}
+
 /// Extract a `FileHint` from decrypted payload metadata.
 ///
 /// Returns `Some(FileHint)` only when `metadata.type == "file"` and the
@@ -130,6 +223,82 @@ pub fn extract_file_hint(metadata: &PayloadMeta) -> Option<FileHint> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // --- human_size ---
+
+    #[test]
+    fn human_size_table() {
+        let cases = [
+            (0usize, "0 bytes"),
+            (1, "1 byte"),
+            (999, "999 bytes"),
+            (1_000, "1 KB"),
+            (1_499, "1 KB"),
+            (1_500, "2 KB"),
+            (119_184, "119 KB"),
+            (999_499, "999 KB"),
+            (1_000_000, "1.0 MB"),
+            (1_200_000, "1.2 MB"),
+            (1_550_000, "1.6 MB"),
+            (999_900_000, "999.9 MB"),
+            (1_000_000_000, "1.0 GB"),
+            (2_500_000_000, "2.5 GB"),
+        ];
+        for (bytes, want) in cases {
+            assert_eq!(human_size(bytes), want, "bytes={bytes}");
+        }
+    }
+
+    #[test]
+    fn human_size_floor_rounds_down() {
+        let cases = [
+            (1_574_000usize, "1.5 MB"), // would round up to 1.6 with human_size
+            (1_600_000, "1.6 MB"),
+            (1_999_999, "1.9 MB"),
+            (999_999, "999 KB"),
+            (1_000_000, "1.0 MB"),
+            (1_500, "1 KB"),
+            (2_500_000_000, "2.5 GB"),
+        ];
+        for (bytes, want) in cases {
+            assert_eq!(human_size_floor(bytes), want, "bytes={bytes}");
+        }
+    }
+
+    // --- preflight_writable ---
+
+    #[test]
+    fn preflight_ok_for_new_file_leaves_no_probe() {
+        let dir = tempfile::tempdir().unwrap();
+        let target = dir.path().join("out.txt");
+        assert!(preflight_writable(target.to_str().unwrap()).is_ok());
+        assert!(!target.exists(), "preflight must not create the target");
+        // No probe file should be left behind in the directory.
+        let leftovers: Vec<_> = std::fs::read_dir(dir.path()).unwrap().collect();
+        assert!(leftovers.is_empty(), "probe file leaked: {leftovers:?}");
+    }
+
+    #[test]
+    fn preflight_err_for_missing_directory() {
+        let err = preflight_writable("/nonexistent-secrt-dir-xyz/out.txt").unwrap_err();
+        assert!(err.contains("no such directory"), "got: {err}");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn preflight_err_for_readonly_dir() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = tempfile::tempdir().unwrap();
+        let set = |mode: u32| {
+            let mut p = std::fs::metadata(dir.path()).unwrap().permissions();
+            p.set_mode(mode);
+            std::fs::set_permissions(dir.path(), p).unwrap();
+        };
+        set(0o555); // r-x: can enter, cannot create
+        let res = preflight_writable(dir.path().join("out.txt").to_str().unwrap());
+        set(0o755); // restore so tempdir cleanup works
+        assert!(res.is_err(), "read-only dir should fail preflight");
+    }
 
     // --- build_file_metadata ---
 

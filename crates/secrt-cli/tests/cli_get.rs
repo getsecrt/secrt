@@ -303,18 +303,56 @@ fn get_decryption_error() {
 }
 
 #[test]
-fn get_api_error() {
-    let url = make_share_url("https://secrt.ca", "test123");
-    let (mut deps, _stdout, stderr) = TestDepsBuilder::new()
-        .mock_claim(Err("server error (404): secret not found".into()))
-        .build();
-    let code = cli::run(&args(&["secrt", "get", &url]), &mut deps);
-    assert_eq!(code, 1);
-    assert!(
-        stderr.to_string().contains("get failed"),
-        "stderr: {}",
-        stderr
-    );
+fn get_claim_error_messages() {
+    // A 404 is the indistinguishable expired/claimed/unknown union and gets a
+    // calm rewrite; any other status is surfaced raw (no rewrite, no prefix).
+    struct Case {
+        name: &'static str,
+        claim_err: &'static str,
+        contains: &'static [&'static str],
+        absent: &'static [&'static str],
+    }
+    let cases = [
+        Case {
+            name: "404 → one-time-semantics explanation",
+            claim_err: "server error (404): secret not found",
+            contains: &[
+                "Secret unavailable",
+                "already been opened",
+                "link is incomplete",
+            ],
+            absent: &["server error", "404"],
+        },
+        Case {
+            name: "non-404 surfaced raw",
+            claim_err: "server error (503): server is temporarily unavailable",
+            contains: &["503"],
+            absent: &["Secret unavailable", "get failed"],
+        },
+    ];
+    for case in cases {
+        let url = make_share_url("https://secrt.ca", "test123");
+        let (mut deps, _stdout, stderr) = TestDepsBuilder::new()
+            .mock_claim(Err(case.claim_err.into()))
+            .build();
+        let code = cli::run(&args(&["secrt", "get", &url]), &mut deps);
+        assert_eq!(code, 1, "[{}] stderr: {}", case.name, stderr);
+        let err = stderr.to_string();
+        for want in case.contains {
+            assert!(
+                err.contains(want),
+                "[{}] missing {want:?}: {err}",
+                case.name
+            );
+        }
+        for unwanted in case.absent {
+            assert!(
+                !err.contains(unwanted),
+                "[{}] should not contain {unwanted:?}: {err}",
+                case.name
+            );
+        }
+    }
 }
 
 #[test]
@@ -926,6 +964,107 @@ fn get_file_auto_save_on_tty() {
     // Verify file was written
     let saved = fs::read(dir.path().join("photo.png")).expect("file should exist");
     assert_eq!(saved, plaintext);
+}
+
+#[test]
+fn get_output_unwritable_fails_without_claiming() {
+    // --output into a nonexistent directory must fail BEFORE claiming, so the
+    // one-time secret isn't consumed. No mock_claim is registered: if get
+    // reached the claim, the mock client would panic.
+    let url = make_share_url("https://secrt.ca", "test123");
+    let (mut deps, stdout, stderr) = TestDepsBuilder::new().build();
+    let code = cli::run(
+        &args(&[
+            "secrt",
+            "get",
+            &url,
+            "--output",
+            "/nonexistent-secrt-dir-xyz/out.txt",
+        ]),
+        &mut deps,
+    );
+    assert_eq!(code, 1);
+    assert!(stdout.to_string().is_empty(), "no output: {stdout}");
+    let err = stderr.to_string();
+    assert!(err.contains("can't write to"), "stderr: {err}");
+    assert!(
+        err.contains("not retrieved"),
+        "must signal the secret was preserved: {err}"
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn get_auto_save_failure_rescues_to_downloads() {
+    use std::os::unix::fs::PermissionsExt;
+    // Root ignores `0o555`, so the read-only-dir failure can't be simulated —
+    // skip rather than report a false negative under privileged CI.
+    if unsafe { libc::geteuid() } == 0 {
+        eprintln!("skipping get_auto_save_failure_rescues_to_downloads: running as root");
+        return;
+    }
+    let _guard = CWD_LOCK.lock().unwrap();
+    let plaintext = b"\x89PNG\r\n\x1a\nfake png data";
+    let (share_link, seal_result) = seal_test_file(plaintext, "photo.png", "image/png");
+    let mock_resp = ClaimResponse {
+        envelope: seal_result.envelope,
+        expires_at: "2099-12-31T23:59:59Z".into(),
+    };
+
+    // Read-only cwd → the primary auto-save write fails. Seed it with a
+    // colliding `photo.png` first, so the cwd resolution earns a " (1)"
+    // suffix — which must NOT carry into the fallback directory.
+    let ro = tempfile::Builder::new()
+        .prefix("secrt_ro_")
+        .tempdir()
+        .expect("tempdir");
+    fs::write(ro.path().join("photo.png"), b"pre-existing").unwrap();
+    let set_mode = |mode: u32| {
+        let mut p = std::fs::metadata(ro.path()).unwrap().permissions();
+        p.set_mode(mode);
+        std::fs::set_permissions(ro.path(), p).unwrap();
+    };
+    let _cwd = CwdGuard::enter(ro.path());
+    set_mode(0o555);
+
+    // A writable stand-in for the Downloads folder.
+    let dl = tempfile::Builder::new()
+        .prefix("secrt_dl_")
+        .tempdir()
+        .expect("tempdir");
+
+    let (mut deps, _stdout, stderr) = TestDepsBuilder::new()
+        .tty(true)
+        .stdout_tty(true)
+        .env("XDG_DOWNLOAD_DIR", dl.path().to_str().unwrap())
+        .mock_claim(Ok(mock_resp))
+        .build();
+    let code = cli::run(&args(&["secrt", "get", &share_link]), &mut deps);
+
+    set_mode(0o755); // restore for cleanup
+
+    assert_eq!(code, 0, "stderr: {stderr}");
+    let err = stderr.to_string();
+    assert!(
+        err.contains("couldn't save photo.png to"),
+        "warning should name the clean file and the failed directory: {err}"
+    );
+    assert!(err.contains("Saved to"), "should report the rescue: {err}");
+    // The rescued file keeps its clean name — no collision suffix carried
+    // over from the (different) source directory.
+    let rescued = dl.path().join("photo.png");
+    assert!(
+        rescued.exists(),
+        "secret should be rescued to Downloads with its clean name: {err}"
+    );
+    assert!(
+        !dl.path().join("photo (1).png").exists(),
+        "must not invent a collision suffix in the fallback dir: {err}"
+    );
+    assert_eq!(fs::read(&rescued).unwrap(), plaintext);
+    // A recovered secret must be owner-only — it can land in shared Downloads.
+    let mode = fs::metadata(&rescued).unwrap().permissions().mode() & 0o777;
+    assert_eq!(mode, 0o600, "rescued secret must be 0600, got {mode:o}");
 }
 
 #[test]

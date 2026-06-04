@@ -237,13 +237,8 @@ pub fn run_list(args: &[String], deps: &mut Deps) -> i32 {
     let resp = match client.list(limit, offset) {
         Ok(r) => r,
         Err(e) => {
-            let decorated = crate::instance_trust::decorate_auth_error(&e, &pa, stderr_tty);
-            write_error(
-                &mut deps.stderr,
-                pa.json,
-                (deps.is_tty)(),
-                &format!("list failed: {}", decorated),
-            );
+            let decorated = crate::auth::explain_auth_error(&e, &pa, deps, pa.json, stderr_tty);
+            write_error(&mut deps.stderr, pa.json, (deps.is_tty)(), &decorated);
             return 1;
         }
     };

@@ -110,6 +110,10 @@ pub fn run_send(args: &[String], deps: &mut Deps) -> i32 {
         PayloadMeta::binary()
     };
 
+    // Capture the plaintext size before `seal` consumes it — used for the
+    // file-size display and the pre-upload limit check below.
+    let plaintext_len = plaintext.len();
+
     // Seal envelope
     let result = envelope::seal(SealParams {
         content: plaintext,
@@ -136,6 +140,15 @@ pub fn run_send(args: &[String], deps: &mut Deps) -> i32 {
     let is_tty = (deps.is_tty)();
     let client = (deps.make_api)(&pa.base_url, &pa.api_key);
 
+    // For file sends, reject an over-limit payload *before* uploading, so the
+    // user isn't made to wait on an upload the server will refuse. Best-effort:
+    // skipped silently if `/info` is unavailable (the server still enforces).
+    if !pa.file.is_empty()
+        && enforce_envelope_limit(&result.envelope, plaintext_len, &pa, &*client, is_tty, deps)
+    {
+        return 1;
+    }
+
     // Pre-validate --note prerequisites before creating the secret so we
     // don't waste a one-time secret when the note can't be attached.
     let resolved_amk: Option<Vec<u8>> = if !pa.note.is_empty() {
@@ -151,7 +164,16 @@ pub fn run_send(args: &[String], deps: &mut Deps) -> i32 {
         match resolve_amk(&pa, &*client) {
             Ok(amk) => Some(amk),
             Err(e) => {
-                write_error(&mut deps.stderr, pa.json, is_tty, &format!("--note: {}", e));
+                // A 401 here means the configured key was rejected by this
+                // host — surface the full auth-failure block instead of a
+                // bare "--note: server error (401)". Other failures keep the
+                // command-scoped prefix.
+                let msg = if e.contains("(401)") {
+                    crate::auth::explain_auth_error(&e, &pa, deps, pa.json, stderr_tty)
+                } else {
+                    format!("--note: {}", e)
+                };
+                write_error(&mut deps.stderr, pa.json, is_tty, &msg);
                 return 1;
             }
         }
@@ -190,10 +212,25 @@ pub fn run_send(args: &[String], deps: &mut Deps) -> i32 {
             if is_tty && !pa.silent {
                 let c = color_func(true);
                 let expires_fmt = format_expires(&r.expires_at);
-                let msg = if has_passphrase {
-                    "Encrypted and uploaded with passphrase."
+                // For file sends, name the file and its size; text/stdin/gen
+                // secrets stay generic (a byte count there is just noise).
+                let what = if !pa.file.is_empty() {
+                    let name = std::path::Path::new(&pa.file)
+                        .file_name()
+                        .and_then(|s| s.to_str())
+                        .unwrap_or("file");
+                    format!(
+                        "Encrypted and uploaded {} ({})",
+                        name,
+                        crate::fileutil::human_size(plaintext_len)
+                    )
                 } else {
-                    "Encrypted and uploaded."
+                    "Encrypted and uploaded".to_string()
+                };
+                let msg = if has_passphrase {
+                    format!("{what} with passphrase.")
+                } else {
+                    format!("{what}.")
                 };
                 let _ = write!(
                     deps.stderr,
@@ -209,7 +246,7 @@ pub fn run_send(args: &[String], deps: &mut Deps) -> i32 {
             if is_tty && !pa.silent {
                 let _ = writeln!(deps.stderr);
             }
-            let decorated = crate::instance_trust::decorate_auth_error(&e, &pa, stderr_tty);
+            let decorated = crate::auth::explain_auth_error(&e, &pa, deps, pa.json, stderr_tty);
             write_error(&mut deps.stderr, pa.json, is_tty, &decorated);
             return 1;
         }
@@ -244,6 +281,11 @@ pub fn run_send(args: &[String], deps: &mut Deps) -> i32 {
             "expires_at": resp.expires_at,
             "copied": copied,
         });
+        // Machine consumers get the exact byte count for file sends (the human
+        // path shows a rounded human_size; this is the precise value).
+        if !pa.file.is_empty() {
+            out["size"] = serde_json::json!(plaintext_len);
+        }
         if let Some(ref pw) = generated_password {
             out["password"] = serde_json::Value::String(pw.clone());
         }
@@ -273,6 +315,82 @@ pub fn run_send(args: &[String], deps: &mut Deps) -> i32 {
     } else {
         0
     }
+}
+
+/// For a file send, reject the payload before upload when the sealed envelope
+/// exceeds this instance's per-secret size limit. Returns `true` if rejected
+/// (an error was written; the caller should exit 1). Best-effort: returns
+/// `false` (proceed) when `/info` is unavailable or the tier limit is unset
+/// (`0` = unlimited), letting the server make the final call.
+///
+/// The server limit is on the encrypted *envelope*, but users think in *file*
+/// size, so the message translates the limit into an approximate file budget
+/// using this file's actual encryption expansion — keeping the numbers
+/// comparable and never self-contradictory near the boundary.
+fn enforce_envelope_limit(
+    envelope: &serde_json::Value,
+    file_bytes: usize,
+    pa: &ParsedArgs,
+    client: &(dyn crate::client::SecretApi + '_),
+    is_tty: bool,
+    deps: &mut Deps,
+) -> bool {
+    let info = match client.info() {
+        Ok(i) => i,
+        Err(_) => return false,
+    };
+    let envelope_len = serde_json::to_string(envelope)
+        .map(|s| s.len())
+        .unwrap_or(0) as i64;
+    let authed = !pa.api_key.trim().is_empty();
+    let limit = if authed {
+        info.limits.authed.max_envelope_bytes
+    } else {
+        info.limits.public.max_envelope_bytes
+    };
+    if limit <= 0 || envelope_len <= limit {
+        return false;
+    }
+
+    let expansion = if file_bytes > 0 {
+        (envelope_len as f64) / (file_bytes as f64)
+    } else {
+        1.0
+    };
+    let budget = |lim: i64| -> usize {
+        if expansion > 0.0 {
+            ((lim as f64) / expansion) as usize
+        } else {
+            lim.max(0) as usize
+        }
+    };
+
+    let host = secrt_core::host_of(&pa.base_url).unwrap_or_else(|| pa.base_url.clone());
+    let name = std::path::Path::new(&pa.file)
+        .file_name()
+        .and_then(|s| s.to_str())
+        .unwrap_or("this file");
+
+    // Budgets are rounded down (`human_size_floor`) so the stated ceiling is one
+    // the file is guaranteed to fit under — no "about" hedge needed.
+    let mut msg = format!(
+        "{name} ({}) is too large for {host} — it accepts files up to {}.",
+        crate::fileutil::human_size(file_bytes),
+        crate::fileutil::human_size_floor(budget(limit)),
+    );
+    if !authed {
+        let authed_limit = info.limits.authed.max_envelope_bytes;
+        if authed_limit == 0 {
+            msg.push_str(" Sign in with `secrt auth login` to send files of any size.");
+        } else if authed_limit > limit {
+            msg.push_str(&format!(
+                " Sign in with `secrt auth login` to send up to {}.",
+                crate::fileutil::human_size_floor(budget(authed_limit)),
+            ));
+        }
+    }
+    write_error(&mut deps.stderr, pa.json, is_tty, &msg);
+    true
 }
 
 /// Parse a subset of ISO 8601 UTC timestamps ("2026-02-09T00:00:00Z") to unix epoch seconds.

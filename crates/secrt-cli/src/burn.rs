@@ -120,34 +120,19 @@ pub fn run_burn(args: &[String], deps: &mut Deps) -> i32 {
             match resolve_prefix(client.as_ref(), &secret_id) {
                 Ok(full_id) => {
                     if let Err(e2) = client.burn(&full_id) {
-                        write_error(
-                            &mut deps.stderr,
-                            pa.json,
-                            (deps.is_tty)(),
-                            &format!("burn failed: {}", e2),
-                        );
+                        write_error(&mut deps.stderr, pa.json, (deps.is_tty)(), &e2);
                         return 1;
                     }
                 }
                 Err(resolve_err) => {
-                    write_error(
-                        &mut deps.stderr,
-                        pa.json,
-                        (deps.is_tty)(),
-                        &format!("burn failed: {}", resolve_err),
-                    );
+                    write_error(&mut deps.stderr, pa.json, (deps.is_tty)(), &resolve_err);
                     return 1;
                 }
             }
         }
         Err(e) => {
-            let decorated = crate::instance_trust::decorate_auth_error(&e, &pa, stderr_tty);
-            write_error(
-                &mut deps.stderr,
-                pa.json,
-                (deps.is_tty)(),
-                &format!("burn failed: {}", decorated),
-            );
+            let decorated = crate::auth::explain_auth_error(&e, &pa, deps, pa.json, stderr_tty);
+            write_error(&mut deps.stderr, pa.json, (deps.is_tty)(), &decorated);
             return 1;
         }
     }

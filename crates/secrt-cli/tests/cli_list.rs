@@ -179,8 +179,8 @@ fn list_api_error() {
     let code = cli::run(&args(&["secrt", "list", "--api-key", "sk_bad"]), &mut deps);
     assert_eq!(code, 1);
     assert!(
-        stderr.to_string().contains("list failed"),
-        "stderr: {}",
+        stderr.to_string().contains("rejected your API key"),
+        "should surface the auth-failure message: {}",
         stderr
     );
 }

@@ -1,12 +1,13 @@
 use std::fs;
 use std::io::Write;
+use std::path::PathBuf;
 
 use crate::cli::{
     derive_base_url_from_url, parse_flags, print_get_help, resolve_globals, CliError, Deps,
 };
 use crate::color::{color_func, DIM, LABEL, SUCCESS, WARN};
 use crate::envelope::{self, EnvelopeError, OpenParams, PayloadMeta};
-use crate::fileutil::{extract_file_hint, resolve_output_path};
+use crate::fileutil::{extract_file_hint, preflight_writable, resolve_output_path};
 use crate::passphrase::{resolve_passphrase, write_error};
 
 pub fn run_get(args: &[String], deps: &mut Deps) -> i32 {
@@ -100,18 +101,45 @@ pub fn run_get(args: &[String], deps: &mut Deps) -> i32 {
         }
     };
 
+    // Pre-flight: when the caller pinned an explicit output file, confirm we
+    // can write it *before* claiming. A one-time secret must not be consumed
+    // if we already know we can't deliver it. (`--output -` is stdout; `--json`
+    // ignores `--output`.)
+    if !pa.json && !pa.output.is_empty() && pa.output != "-" {
+        if let Err(e) = preflight_writable(&pa.output) {
+            write_error(
+                &mut deps.stderr,
+                pa.json,
+                (deps.is_tty)(),
+                &format!(
+                    "can't write to {}: {} — the secret was not retrieved; \
+                     fix the path and try again",
+                    pa.output, e
+                ),
+            );
+            return 1;
+        }
+    }
+
     // Claim from server
     let client = (deps.make_api)(&base_url, &pa.api_key);
 
     let resp = match client.claim(&id, &claim_token) {
         Ok(r) => r,
         Err(e) => {
-            write_error(
-                &mut deps.stderr,
-                pa.json,
-                (deps.is_tty)(),
-                &format!("get failed: {}", e),
-            );
+            // The server returns an indistinguishable 404 for expired /
+            // already-claimed / unknown / bad-token (a deliberate
+            // zero-knowledge property — see spec/v1/api.md §Claim). Since we
+            // can't tell which, give the recipient a calm explanation of the
+            // union rather than a raw "server error (404): not found".
+            let msg = if e.contains("(404)") {
+                "Secret unavailable. It may have already been opened, expired, \
+                 or the link is incomplete."
+                    .to_string()
+            } else {
+                e
+            };
+            write_error(&mut deps.stderr, pa.json, (deps.is_tty)(), &msg);
             return 1;
         }
     };
@@ -255,9 +283,17 @@ pub fn run_get(args: &[String], deps: &mut Deps) -> i32 {
 
         // --- Phase C: Fallback to interactive prompt or error ---
         if !needs_pass && tried == 0 {
-            // No passphrase needed and decryption failed with empty passphrase — this is
-            // a genuine decryption error (wrong URL key), not a passphrase issue
-            write_error(&mut deps.stderr, pa.json, is_tty, "decryption failed");
+            // No passphrase needed and decryption failed with empty passphrase —
+            // a genuine decryption error (wrong URL key). The overwhelmingly
+            // common cause is a link whose `#…` fragment got truncated in
+            // chat/email, so point the recipient at that.
+            write_error(
+                &mut deps.stderr,
+                pa.json,
+                is_tty,
+                "decryption failed — the secret key in the link (after #) is wrong or \
+                 incomplete. Check that you copied the entire link.",
+            );
             return 1;
         }
 
@@ -424,7 +460,8 @@ fn output_plaintext(
 
     // 3. --output <path> → write to explicit path
     if !pa.output.is_empty() {
-        return write_file_output(&pa.output, plaintext, None, pa, deps);
+        let filename = clean_filename(&pa.output);
+        return write_file_output(&pa.output, &filename, plaintext, None, pa, deps);
     }
 
     // 4. File hint + stdout is TTY → auto-save
@@ -433,11 +470,25 @@ fn output_plaintext(
             let path = match resolve_output_path(&fh.filename) {
                 Ok(p) => p,
                 Err(e) => {
-                    let _ = writeln!(deps.stderr, "error: {}", e);
-                    return 1;
+                    return rescue_save(
+                        &fh.filename,
+                        &fh.filename,
+                        &e,
+                        plaintext,
+                        Some(&fh.mime),
+                        pa,
+                        deps,
+                    )
                 }
             };
-            return write_file_output(&path.to_string_lossy(), plaintext, Some(&fh.mime), pa, deps);
+            return write_file_output(
+                &path.to_string_lossy(),
+                &fh.filename,
+                plaintext,
+                Some(&fh.mime),
+                pa,
+                deps,
+            );
         }
     }
 
@@ -464,44 +515,211 @@ fn output_plaintext(
             let filename = "secret.bin";
             let path = match resolve_output_path(filename) {
                 Ok(p) => p,
-                Err(e) => {
-                    let _ = writeln!(deps.stderr, "error: {}", e);
-                    return 1;
-                }
+                Err(e) => return rescue_save(filename, filename, &e, plaintext, None, pa, deps),
             };
-            return write_file_output(&path.to_string_lossy(), plaintext, None, pa, deps);
+            return write_file_output(&path.to_string_lossy(), filename, plaintext, None, pa, deps);
         }
     }
     0
 }
 
-/// Write plaintext to a file and show a success message on stderr.
+/// Write plaintext to a file and show a success message on stderr. On write
+/// failure the secret is *already claimed* (consumed server-side), so we never
+/// just error — we hand off to [`rescue_save`] to land it somewhere else.
 fn write_file_output(
     path: &str,
+    filename: &str,
     plaintext: &[u8],
     mime: Option<&str>,
     pa: &crate::cli::ParsedArgs,
     deps: &mut Deps,
 ) -> i32 {
-    if let Err(e) = fs::write(path, plaintext) {
-        let _ = writeln!(deps.stderr, "error: write file: {}", e);
-        return 1;
+    if let Err(e) = write_secret_file(std::path::Path::new(path), plaintext) {
+        return rescue_save(filename, path, &e.to_string(), plaintext, mime, pa, deps);
+    }
+    report_saved(path, plaintext.len(), mime, pa, deps, false);
+    0
+}
+
+/// Write decrypted plaintext to disk. On Unix the file is created `0600`
+/// (owner-only) so a recovered secret isn't left group/world-readable — this
+/// matters most for the rescue path, which can land in shared Downloads/temp
+/// directories.
+fn write_secret_file(path: &std::path::Path, bytes: &[u8]) -> std::io::Result<()> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        let mut f = std::fs::OpenOptions::new()
+            .write(true)
+            .create(true)
+            .truncate(true)
+            .mode(0o600)
+            .open(path)?;
+        std::io::Write::write_all(&mut f, bytes)
+    }
+    #[cfg(not(unix))]
+    {
+        std::fs::write(path, bytes)
+    }
+}
+
+/// Print the "Saved to <path> (<detail>)" confirmation on stderr.
+fn report_saved(
+    path: &str,
+    size: usize,
+    mime: Option<&str>,
+    pa: &crate::cli::ParsedArgs,
+    deps: &mut Deps,
+    force: bool,
+) {
+    // A rescue forces the line through even under --silent: the secret landed
+    // somewhere other than asked, and it's the only remaining copy.
+    if pa.silent && !force {
+        return;
+    }
+    let c = color_func((deps.is_tty)());
+    let detail = match mime {
+        Some(m) => format!("{}, {}", m, crate::fileutil::human_size(size)),
+        None => crate::fileutil::human_size(size),
+    };
+    let _ = writeln!(
+        deps.stderr,
+        "{} Saved to {} ({})",
+        c(SUCCESS, "\u{2713}"),
+        path,
+        c(DIM, &detail),
+    );
+}
+
+/// Ordered fallback directories for a post-claim rescue, mirroring how a
+/// browser handles a download: the OS Downloads folder, then the home
+/// directory, then the temp dir. An explicit `XDG_DOWNLOAD_DIR`/`HOME` env
+/// wins over the platform default (and keeps this testable). `dirs::*` returns
+/// `None` on, e.g., a bare server with no Downloads configured — we simply skip
+/// that rung rather than fabricate a folder.
+fn fallback_dirs(deps: &Deps) -> Vec<PathBuf> {
+    let mut dirs_list = Vec::new();
+
+    match (deps.getenv)("XDG_DOWNLOAD_DIR").filter(|s| !s.is_empty()) {
+        Some(d) => dirs_list.push(PathBuf::from(d)),
+        None => {
+            if let Some(d) = dirs::download_dir() {
+                dirs_list.push(d);
+            }
+        }
     }
 
-    if !pa.silent {
-        let c = color_func((deps.is_tty)());
-        let size = plaintext.len();
-        let detail = match mime {
-            Some(m) => format!("{}, {} bytes", m, size),
-            None => format!("{} bytes", size),
-        };
+    match (deps.getenv)("HOME")
+        .or_else(|| (deps.getenv)("USERPROFILE"))
+        .filter(|s| !s.is_empty())
+    {
+        Some(h) => dirs_list.push(PathBuf::from(h)),
+        None => {
+            if let Some(h) = dirs::home_dir() {
+                dirs_list.push(h);
+            }
+        }
+    }
+
+    dirs_list.push(std::env::temp_dir());
+    dirs_list
+}
+
+/// Last-resort delivery when a file write fails *after* the secret has been
+/// claimed (and so deleted server-side). The in-memory plaintext is the only
+/// copy, so never return without trying to land it somewhere: walk the
+/// fallback chain (Downloads → home → temp), writing to the first that accepts
+/// it and reporting where it went. Errors only if every location fails.
+fn rescue_save(
+    filename: &str,
+    attempted: &str,
+    reason: &str,
+    plaintext: &[u8],
+    mime: Option<&str>,
+    pa: &crate::cli::ParsedArgs,
+    deps: &mut Deps,
+) -> i32 {
+    // A post-claim rescue is an exceptional, data-integrity event — always
+    // announce it, even under --silent, so the user knows where the only copy
+    // went and why it's not where they asked.
+    {
+        let c = color_func((deps.is_stderr_tty)());
+        // Name the *directory* that failed, not the collision-resolved file
+        // name — "couldn't save rm to /bin" is clearer than "…to rm (1)".
         let _ = writeln!(
             deps.stderr,
-            "{} Saved to {} ({})",
-            c(SUCCESS, "\u{2713}"),
-            path,
-            c(DIM, &detail),
+            "{} couldn't save {} to {}: {}",
+            c(WARN, "!"),
+            filename,
+            failed_location(attempted),
+            reason,
+        );
+        let _ = writeln!(
+            deps.stderr,
+            "  this secret has already been retrieved and can't be fetched again.",
         );
     }
-    0
+
+    for dir in fallback_dirs(deps) {
+        if fs::create_dir_all(&dir).is_err() {
+            continue;
+        }
+        // Re-resolve collisions from the *clean* filename in each fallback dir,
+        // so a suffix earned in one directory doesn't leak into another.
+        let candidate = match resolve_output_path(&dir.join(filename).to_string_lossy()) {
+            Ok(p) => p,
+            Err(_) => continue,
+        };
+        if write_secret_file(&candidate, plaintext).is_ok() {
+            report_saved(
+                &candidate.to_string_lossy(),
+                plaintext.len(),
+                mime,
+                pa,
+                deps,
+                true,
+            );
+            return 0;
+        }
+    }
+
+    write_error(
+        &mut deps.stderr,
+        pa.json,
+        (deps.is_tty)(),
+        &format!(
+            "couldn't save {} to {} or any fallback location ({}); \
+             it has already been retrieved and cannot be recovered",
+            filename,
+            failed_location(attempted),
+            reason
+        ),
+    );
+    1
+}
+
+/// The basename to reuse when rescuing a write to another directory. Falls
+/// back to `secret.bin` for odd inputs (trailing slash, empty).
+fn clean_filename(path: &str) -> String {
+    std::path::Path::new(path)
+        .file_name()
+        .and_then(|s| s.to_str())
+        .filter(|s| !s.is_empty())
+        .unwrap_or("secret.bin")
+        .to_string()
+}
+
+/// Describe the directory a failed write was aimed at, for the rescue warning.
+/// A bare relative name (e.g. `rm` or `rm (1)`) has no parent, so report the
+/// current working directory instead of an empty string.
+fn failed_location(attempted: &str) -> String {
+    match std::path::Path::new(attempted)
+        .parent()
+        .filter(|d| !d.as_os_str().is_empty())
+    {
+        Some(d) => d.display().to_string(),
+        None => std::env::current_dir()
+            .map(|d| d.display().to_string())
+            .unwrap_or_else(|_| ".".to_string()),
+    }
 }

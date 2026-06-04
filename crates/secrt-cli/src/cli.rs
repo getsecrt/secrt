@@ -920,8 +920,8 @@ fn run_config_show(deps: &mut Deps) -> i32 {
 
     let use_kc = config.use_keychain.unwrap_or(false);
 
-    let _ = writeln!(deps.stderr);
-    let _ = writeln!(deps.stderr, "{}", c(HEADING, "EFFECTIVE SETTINGS"));
+    // Resolve every effective setting's (value, source) up front so the whole
+    // block can be column-aligned in a single pass via `write_setting_rows`.
 
     // use_keychain: config/default
     let (use_kc_val, use_kc_src) = if let Some(v) = config.use_keychain {
@@ -929,13 +929,6 @@ fn run_config_show(deps: &mut Deps) -> i32 {
     } else {
         ("false".into(), "default")
     };
-    let _ = writeln!(
-        deps.stderr,
-        "  {}: {} {}",
-        c(OPT, "use_keychain"),
-        use_kc_val,
-        c(DIM, &format!("({})", use_kc_src)),
-    );
 
     // base_url: flag/env/config/default
     let (base_url_val, base_url_src) = if let Some(env) = (deps.getenv)("SECRET_BASE_URL") {
@@ -945,13 +938,6 @@ fn run_config_show(deps: &mut Deps) -> i32 {
     } else {
         (DEFAULT_BASE_URL.into(), "default")
     };
-    let _ = writeln!(
-        deps.stderr,
-        "  {}: {} {}",
-        c(OPT, "base_url"),
-        base_url_val,
-        c(DIM, &format!("({})", base_url_src)),
-    );
 
     // api_key: env/keychain/config/none
     let (api_key_display, api_key_src) = if let Some(env) = (deps.getenv)("SECRET_API_KEY") {
@@ -969,22 +955,6 @@ fn run_config_show(deps: &mut Deps) -> i32 {
     } else {
         ("(not set)".into(), "")
     };
-    if api_key_src.is_empty() {
-        let _ = writeln!(
-            deps.stderr,
-            "  {}: {}",
-            c(OPT, "api_key"),
-            c(DIM, &api_key_display),
-        );
-    } else {
-        let _ = writeln!(
-            deps.stderr,
-            "  {}: {} {}",
-            c(OPT, "api_key"),
-            api_key_display,
-            c(DIM, &format!("({})", api_key_src)),
-        );
-    }
 
     // passphrase: keychain/config/none
     let (pass_display, pass_src) = if use_kc {
@@ -1000,65 +970,32 @@ fn run_config_show(deps: &mut Deps) -> i32 {
     } else {
         ("(not set)".into(), "")
     };
-    if pass_src.is_empty() {
-        let _ = writeln!(
-            deps.stderr,
-            "  {}: {}",
-            c(OPT, "passphrase"),
-            c(DIM, &pass_display),
-        );
-    } else {
-        let _ = writeln!(
-            deps.stderr,
-            "  {}: {} {}",
-            c(OPT, "passphrase"),
-            pass_display,
-            c(DIM, &format!("({})", pass_src)),
-        );
-    }
 
-    // Fetch server info (best-effort, non-fatal)
+    // Fetch server info (best-effort, non-fatal) — needed for default_ttl here
+    // and the SERVER LIMITS section below.
     let api_key_for_info = if let Some(env) = (deps.getenv)("SECRET_API_KEY") {
         env
     } else if use_kc {
-        if let Some(val) = (deps.get_keychain_secret)("api_key") {
-            val
-        } else {
-            config.api_key.clone().unwrap_or_default()
-        }
-    } else if let Some(ref key) = config.api_key {
-        key.clone()
+        (deps.get_keychain_secret)("api_key")
+            .or_else(|| config.api_key.clone())
+            .unwrap_or_default()
     } else {
-        String::new()
+        config.api_key.clone().unwrap_or_default()
     };
     let api = (deps.make_api)(&base_url_val, &api_key_for_info);
     let server_info = api.info().ok();
 
-    // default_ttl: config/server default
-    if let Some(ref ttl) = config.default_ttl {
-        let _ = writeln!(
-            deps.stderr,
-            "  {}: {} {}",
-            c(OPT, "default_ttl"),
-            ttl,
-            c(DIM, "(config file)"),
-        );
+    // default_ttl: config/server default/unknown
+    let (ttl_val, ttl_src): (String, Option<String>) = if let Some(ref ttl) = config.default_ttl {
+        (ttl.clone(), Some("config file".into()))
     } else if let Some(ref info) = server_info {
-        let _ = writeln!(
-            deps.stderr,
-            "  {}: {} {}",
-            c(OPT, "default_ttl"),
+        (
             format_ttl_seconds(info.ttl.default_seconds),
-            c(DIM, "(server default)"),
-        );
+            Some("server default".into()),
+        )
     } else {
-        let _ = writeln!(
-            deps.stderr,
-            "  {}: {}",
-            c(OPT, "default_ttl"),
-            c(DIM, "server default"),
-        );
-    }
+        (c(DIM, "server default"), None)
+    };
 
     // show_input: config/default
     let (show_val, show_src) = if let Some(show) = config.show_input {
@@ -1066,13 +1003,6 @@ fn run_config_show(deps: &mut Deps) -> i32 {
     } else {
         ("false".into(), "default")
     };
-    let _ = writeln!(
-        deps.stderr,
-        "  {}: {} {}",
-        c(OPT, "show_input"),
-        show_val,
-        c(DIM, &format!("({})", show_src)),
-    );
 
     // update_check: env / config / default
     let (uc_val, uc_src) = if let Some(env) = (deps.getenv)("SECRET_NO_UPDATE_CHECK") {
@@ -1088,13 +1018,6 @@ fn run_config_show(deps: &mut Deps) -> i32 {
     } else {
         ("true".into(), "default")
     };
-    let _ = writeln!(
-        deps.stderr,
-        "  {}: {} {}",
-        c(OPT, "update_check"),
-        uc_val,
-        c(DIM, &format!("({})", uc_src)),
-    );
 
     // decryption_passphrases: keychain/config/both/none
     let kc_list = if use_kc {
@@ -1105,36 +1028,57 @@ fn run_config_show(deps: &mut Deps) -> i32 {
     let cfg_list = &config.decryption_passphrases;
     let has_kc = !kc_list.is_empty();
     let has_cfg = !cfg_list.is_empty();
-    if !has_kc && !has_cfg {
-        let _ = writeln!(
-            deps.stderr,
-            "  {}: {}",
-            c(OPT, "decryption_passphrases"),
-            c(DIM, "(not set)"),
-        );
+    let (dp_val, dp_src): (String, Option<String>) = if !has_kc && !has_cfg {
+        (c(DIM, "(not set)"), None)
     } else {
-        // Merge for display: keychain first, then config (deduped)
+        // The passphrases are masked and unreadable, so listing them is noise —
+        // report the deduped count (keychain first, then config) and the source.
         let mut merged = kc_list.clone();
         for p in cfg_list {
             if !merged.contains(p) {
                 merged.push(p.clone());
             }
         }
-        let masked = crate::config::mask_secret_list(&merged);
         let src = match (has_kc, has_cfg) {
             (true, true) => "keychain + config file",
             (true, false) => "keychain",
             (false, true) => "config file",
             (false, false) => unreachable!(),
         };
-        let _ = writeln!(
-            deps.stderr,
-            "  {}: {} {}",
-            c(OPT, "decryption_passphrases"),
-            masked,
-            c(DIM, &format!("({} entries, {})", merged.len(), src)),
-        );
-    }
+        let n = merged.len();
+        (
+            format!("{} entr{}", n, if n == 1 { "y" } else { "ies" }),
+            Some(src.to_string()),
+        )
+    };
+
+    // A value-specific dim is baked in for "(not set)" rows (no separate
+    // source); everything else passes a plain value + a parenthesized source.
+    let opt_src = |s: &str| (!s.is_empty()).then(|| s.to_string());
+    let api_key_value = if api_key_src.is_empty() {
+        c(DIM, &api_key_display)
+    } else {
+        api_key_display
+    };
+    let pass_value = if pass_src.is_empty() {
+        c(DIM, &pass_display)
+    } else {
+        pass_display
+    };
+
+    let _ = writeln!(deps.stderr);
+    let _ = writeln!(deps.stderr, "{}", c(HEADING, "EFFECTIVE SETTINGS"));
+    let settings: Vec<(&str, String, Option<String>)> = vec![
+        ("use_keychain", use_kc_val, Some(use_kc_src.into())),
+        ("base_url", base_url_val.clone(), Some(base_url_src.into())),
+        ("api_key", api_key_value, opt_src(api_key_src)),
+        ("passphrase", pass_value, opt_src(pass_src)),
+        ("default_ttl", ttl_val, ttl_src),
+        ("show_input", show_val, Some(show_src.into())),
+        ("update_check", uc_val, Some(uc_src.into())),
+        ("decryption_passphrases", dp_val, dp_src),
+    ];
+    write_setting_rows(&mut deps.stderr, &c, &settings);
 
     // SERVER LIMITS section
     let _ = writeln!(deps.stderr);
@@ -1144,27 +1088,6 @@ fn run_config_show(deps: &mut Deps) -> i32 {
             "{} {}",
             c(HEADING, "SERVER LIMITS"),
             c(DIM, &format!("(from {})", base_url_val)),
-        );
-
-        let _ = writeln!(
-            deps.stderr,
-            "  {}: {} {}",
-            c(OPT, "default_ttl"),
-            format_ttl_seconds(info.ttl.default_seconds),
-            c(DIM, &format!("({}s)", info.ttl.default_seconds)),
-        );
-        let _ = writeln!(
-            deps.stderr,
-            "  {}: {} {}",
-            c(OPT, "max_ttl"),
-            format_ttl_seconds(info.ttl.max_seconds),
-            c(DIM, &format!("({}s)", info.ttl.max_seconds)),
-        );
-        let _ = writeln!(
-            deps.stderr,
-            "  {}: {}",
-            c(OPT, "authenticated"),
-            if info.authenticated { "yes" } else { "no" },
         );
 
         let has_key = !api_key_for_info.is_empty();
@@ -1178,52 +1101,67 @@ fn run_config_show(deps: &mut Deps) -> i32 {
         } else {
             ("public", "authed")
         };
+        // Both tiers as one value: "<primary> (label) / <secondary> (label)".
+        let two_tier = |p: String, s: String| {
+            format!(
+                "{} {} / {} {}",
+                p,
+                c(DIM, &format!("({primary_label})")),
+                s,
+                c(DIM, &format!("({secondary_label})")),
+            )
+        };
+        let rate =
+            |r: &crate::client::InfoRate| format!("{}/s burst {}", r.requests_per_second, r.burst);
 
-        let _ = writeln!(
-            deps.stderr,
-            "  {}: {} {} / {} {}",
-            c(OPT, "max_envelope"),
-            format_bytes(primary.max_envelope_bytes),
-            c(DIM, &format!("({})", primary_label)),
-            format_bytes(secondary.max_envelope_bytes),
-            c(DIM, &format!("({})", secondary_label)),
-        );
-        let _ = writeln!(
-            deps.stderr,
-            "  {}: {} {} / {} {}",
-            c(OPT, "max_secrets"),
-            format_limit(primary.max_secrets),
-            c(DIM, &format!("({})", primary_label)),
-            format_limit(secondary.max_secrets),
-            c(DIM, &format!("({})", secondary_label)),
-        );
-        let _ = writeln!(
-            deps.stderr,
-            "  {}: {} {} / {} {}",
-            c(OPT, "max_total"),
-            format_bytes(primary.max_total_bytes),
-            c(DIM, &format!("({})", primary_label)),
-            format_bytes(secondary.max_total_bytes),
-            c(DIM, &format!("({})", secondary_label)),
-        );
-        let _ = writeln!(
-            deps.stderr,
-            "  {}: {}/s burst {} {} / {}/s burst {} {}",
-            c(OPT, "create_rate"),
-            primary.rate.requests_per_second,
-            primary.rate.burst,
-            c(DIM, &format!("({})", primary_label)),
-            secondary.rate.requests_per_second,
-            secondary.rate.burst,
-            c(DIM, &format!("({})", secondary_label)),
-        );
-        let _ = writeln!(
-            deps.stderr,
-            "  {}: {}/s burst {}",
-            c(OPT, "claim_rate"),
-            info.claim_rate.requests_per_second,
-            info.claim_rate.burst,
-        );
+        let limits: Vec<(&str, String, Option<String>)> = vec![
+            (
+                "default_ttl",
+                format_ttl_seconds(info.ttl.default_seconds),
+                Some(format!("{}s", info.ttl.default_seconds)),
+            ),
+            (
+                "max_ttl",
+                format_ttl_seconds(info.ttl.max_seconds),
+                Some(format!("{}s", info.ttl.max_seconds)),
+            ),
+            (
+                "authenticated",
+                (if info.authenticated { "yes" } else { "no" }).into(),
+                None,
+            ),
+            (
+                "max_envelope",
+                two_tier(
+                    format_bytes(primary.max_envelope_bytes),
+                    format_bytes(secondary.max_envelope_bytes),
+                ),
+                None,
+            ),
+            (
+                "max_secrets",
+                two_tier(
+                    format_limit(primary.max_secrets),
+                    format_limit(secondary.max_secrets),
+                ),
+                None,
+            ),
+            (
+                "max_total",
+                two_tier(
+                    format_bytes(primary.max_total_bytes),
+                    format_bytes(secondary.max_total_bytes),
+                ),
+                None,
+            ),
+            (
+                "create_rate",
+                two_tier(rate(&primary.rate), rate(&secondary.rate)),
+                None,
+            ),
+            ("claim_rate", rate(&info.claim_rate), None),
+        ];
+        write_setting_rows(&mut deps.stderr, &c, &limits);
     } else {
         let _ = writeln!(
             deps.stderr,
@@ -1259,6 +1197,44 @@ pub(crate) fn write_option_rows(w: &mut dyn Write, c: &ColorFn, rows: &[(&str, &
             let _ = writeln!(w, "  {}{:pad$}{}", c(OPT, flags), "", desc);
         } else {
             let _ = writeln!(w, "  {} {}{:pad$}{}", c(OPT, flags), c(ARG, arg), "", desc);
+        }
+    }
+}
+
+/// Write column-aligned `key: value (source)` rows for `secrt config`. Values
+/// align to the longest key that fits within `CAP`; a longer key (e.g.
+/// `decryption_passphrases`) overflows on its own row rather than dragging
+/// every value to the right. `source`, when `Some`, is dimmed and parenthesized;
+/// rows with a value-baked-in dim (e.g. "(not set)") pass `None`. Width is
+/// measured on the plain key — ANSI escapes don't affect column count.
+fn write_setting_rows(w: &mut dyn Write, c: &ColorFn, rows: &[(&str, String, Option<String>)]) {
+    const CAP: usize = 18;
+    let col = rows
+        .iter()
+        .map(|(k, ..)| k.len())
+        .filter(|&l| l <= CAP)
+        .max()
+        .unwrap_or(0);
+    for (key, value, source) in rows {
+        let pad = if key.len() <= col {
+            col - key.len() + 1
+        } else {
+            1
+        };
+        match source {
+            Some(src) => {
+                let _ = writeln!(
+                    w,
+                    "  {}:{:pad$}{} {}",
+                    c(OPT, key),
+                    "",
+                    value,
+                    c(DIM, &format!("({src})")),
+                );
+            }
+            None => {
+                let _ = writeln!(w, "  {}:{:pad$}{}", c(OPT, key), "", value);
+            }
         }
     }
 }
