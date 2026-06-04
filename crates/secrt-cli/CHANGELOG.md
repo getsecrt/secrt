@@ -32,6 +32,25 @@
 
   Spec: `spec/v1/api.md` §Claim. Files: `crates/secrt-cli/src/get.rs`.
 
+### Fixed
+
+- **A failed save no longer loses an already-retrieved secret.**
+
+  A one-time secret is deleted server-side the instant it's claimed, so the
+  decrypted bytes in memory are the only copy. Previously, if writing them to
+  disk failed (read-only dir, full disk, bad path), `secrt get` printed an
+  error and exited — the secret was gone for good.
+
+  - **`--output <path>` is now pre-flighted before claiming.** If the target
+    isn't writable, `get` fails *without* consuming the secret, so you can fix
+    the path and retry: *can't write to … — the secret was not retrieved.*
+  - **Auto-save failures fall back like a browser.** When saving to the
+    current directory fails, `get` retries the OS Downloads folder, then your
+    home directory, then the temp dir, and reports where it landed — rather
+    than dropping the only copy.
+
+  Files: `crates/secrt-cli/src/get.rs`, `crates/secrt-cli/src/fileutil.rs`.
+
 ## 0.19.0 — 2026-05-28
 
 ### Added

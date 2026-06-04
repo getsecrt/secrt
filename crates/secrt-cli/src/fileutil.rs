@@ -107,6 +107,50 @@ pub fn resolve_output_path(filename: &str) -> Result<PathBuf, String> {
     ))
 }
 
+/// Confirm we can write to `path` *before* claiming a one-time secret, so a
+/// secret is never consumed when we already know we can't deliver it.
+///
+/// For an existing target, opens it for writing (no truncation) to test
+/// overwrite permission. For a new target, creates and removes a throwaway
+/// probe file in the parent directory so the real target is left untouched.
+/// Returns a human-readable reason on failure.
+pub fn preflight_writable(path: &str) -> Result<(), String> {
+    use std::fs::{self, OpenOptions};
+
+    let target = Path::new(path);
+
+    if target.exists() {
+        if target.is_dir() {
+            return Err(format!("{} is a directory", target.display()));
+        }
+        return OpenOptions::new()
+            .write(true)
+            .open(target)
+            .map(|_| ())
+            .map_err(|e| e.to_string());
+    }
+
+    let dir = match target.parent() {
+        Some(p) if !p.as_os_str().is_empty() => p,
+        _ => Path::new("."),
+    };
+    if !dir.exists() {
+        return Err(format!("no such directory: {}", dir.display()));
+    }
+
+    let probe = dir.join(format!(".secrt-write-probe-{}", std::process::id()));
+    match OpenOptions::new().write(true).create_new(true).open(&probe) {
+        Ok(_) => {
+            let _ = fs::remove_file(&probe);
+            Ok(())
+        }
+        // The probe already existing means the directory accepts new files,
+        // which is exactly what we're testing for.
+        Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => Ok(()),
+        Err(e) => Err(e.to_string()),
+    }
+}
+
 /// Extract a `FileHint` from decrypted payload metadata.
 ///
 /// Returns `Some(FileHint)` only when `metadata.type == "file"` and the
@@ -130,6 +174,41 @@ pub fn extract_file_hint(metadata: &PayloadMeta) -> Option<FileHint> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // --- preflight_writable ---
+
+    #[test]
+    fn preflight_ok_for_new_file_leaves_no_probe() {
+        let dir = tempfile::tempdir().unwrap();
+        let target = dir.path().join("out.txt");
+        assert!(preflight_writable(target.to_str().unwrap()).is_ok());
+        assert!(!target.exists(), "preflight must not create the target");
+        // No probe file should be left behind in the directory.
+        let leftovers: Vec<_> = std::fs::read_dir(dir.path()).unwrap().collect();
+        assert!(leftovers.is_empty(), "probe file leaked: {leftovers:?}");
+    }
+
+    #[test]
+    fn preflight_err_for_missing_directory() {
+        let err = preflight_writable("/nonexistent-secrt-dir-xyz/out.txt").unwrap_err();
+        assert!(err.contains("no such directory"), "got: {err}");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn preflight_err_for_readonly_dir() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = tempfile::tempdir().unwrap();
+        let set = |mode: u32| {
+            let mut p = std::fs::metadata(dir.path()).unwrap().permissions();
+            p.set_mode(mode);
+            std::fs::set_permissions(dir.path(), p).unwrap();
+        };
+        set(0o555); // r-x: can enter, cannot create
+        let res = preflight_writable(dir.path().join("out.txt").to_str().unwrap());
+        set(0o755); // restore so tempdir cleanup works
+        assert!(res.is_err(), "read-only dir should fail preflight");
+    }
 
     // --- build_file_metadata ---
 

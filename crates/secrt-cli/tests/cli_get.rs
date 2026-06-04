@@ -953,6 +953,98 @@ fn get_file_auto_save_on_tty() {
 }
 
 #[test]
+fn get_output_unwritable_fails_without_claiming() {
+    // --output into a nonexistent directory must fail BEFORE claiming, so the
+    // one-time secret isn't consumed. No mock_claim is registered: if get
+    // reached the claim, the mock client would panic.
+    let url = make_share_url("https://secrt.ca", "test123");
+    let (mut deps, stdout, stderr) = TestDepsBuilder::new().build();
+    let code = cli::run(
+        &args(&[
+            "secrt",
+            "get",
+            &url,
+            "--output",
+            "/nonexistent-secrt-dir-xyz/out.txt",
+        ]),
+        &mut deps,
+    );
+    assert_eq!(code, 1);
+    assert!(stdout.to_string().is_empty(), "no output: {stdout}");
+    let err = stderr.to_string();
+    assert!(err.contains("can't write to"), "stderr: {err}");
+    assert!(
+        err.contains("not retrieved"),
+        "must signal the secret was preserved: {err}"
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn get_auto_save_failure_rescues_to_downloads() {
+    use std::os::unix::fs::PermissionsExt;
+    let _guard = CWD_LOCK.lock().unwrap();
+    let plaintext = b"\x89PNG\r\n\x1a\nfake png data";
+    let (share_link, seal_result) = seal_test_file(plaintext, "photo.png", "image/png");
+    let mock_resp = ClaimResponse {
+        envelope: seal_result.envelope,
+        expires_at: "2099-12-31T23:59:59Z".into(),
+    };
+
+    // Read-only cwd → the primary auto-save write fails. Seed it with a
+    // colliding `photo.png` first, so the cwd resolution earns a " (1)"
+    // suffix — which must NOT carry into the fallback directory.
+    let ro = tempfile::Builder::new()
+        .prefix("secrt_ro_")
+        .tempdir()
+        .expect("tempdir");
+    fs::write(ro.path().join("photo.png"), b"pre-existing").unwrap();
+    let set_mode = |mode: u32| {
+        let mut p = std::fs::metadata(ro.path()).unwrap().permissions();
+        p.set_mode(mode);
+        std::fs::set_permissions(ro.path(), p).unwrap();
+    };
+    let _cwd = CwdGuard::enter(ro.path());
+    set_mode(0o555);
+
+    // A writable stand-in for the Downloads folder.
+    let dl = tempfile::Builder::new()
+        .prefix("secrt_dl_")
+        .tempdir()
+        .expect("tempdir");
+
+    let (mut deps, _stdout, stderr) = TestDepsBuilder::new()
+        .tty(true)
+        .stdout_tty(true)
+        .env("XDG_DOWNLOAD_DIR", dl.path().to_str().unwrap())
+        .mock_claim(Ok(mock_resp))
+        .build();
+    let code = cli::run(&args(&["secrt", "get", &share_link]), &mut deps);
+
+    set_mode(0o755); // restore for cleanup
+
+    assert_eq!(code, 0, "stderr: {stderr}");
+    let err = stderr.to_string();
+    assert!(
+        err.contains("couldn't save photo.png to"),
+        "warning should name the clean file and the failed directory: {err}"
+    );
+    assert!(err.contains("Saved to"), "should report the rescue: {err}");
+    // The rescued file keeps its clean name — no collision suffix carried
+    // over from the (different) source directory.
+    let rescued = dl.path().join("photo.png");
+    assert!(
+        rescued.exists(),
+        "secret should be rescued to Downloads with its clean name: {err}"
+    );
+    assert!(
+        !dl.path().join("photo (1).png").exists(),
+        "must not invent a collision suffix in the fallback dir: {err}"
+    );
+    assert_eq!(fs::read(&rescued).unwrap(), plaintext);
+}
+
+#[test]
 fn get_file_output_flag() {
     let plaintext = b"explicit output path";
     let (share_link, seal_result) =
