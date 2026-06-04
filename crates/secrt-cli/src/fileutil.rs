@@ -128,6 +128,25 @@ pub(crate) fn human_size(bytes: usize) -> String {
     }
 }
 
+/// Like [`human_size`] but rounds *down*, for stating a ceiling a value is
+/// guaranteed to fit under (e.g. an upload budget). Rounding to nearest would
+/// overstate the ceiling and promise a size that's actually rejected.
+pub(crate) fn human_size_floor(bytes: usize) -> String {
+    const KB: f64 = 1_000.0;
+    const MB: f64 = 1_000_000.0;
+    const GB: f64 = 1_000_000_000.0;
+    let b = bytes as f64;
+    if bytes < 1_000 {
+        format!("{} byte{}", bytes, if bytes == 1 { "" } else { "s" })
+    } else if b < MB {
+        format!("{} KB", (b / KB).floor() as u64)
+    } else if b < GB {
+        format!("{:.1} MB", (b / MB * 10.0).floor() / 10.0)
+    } else {
+        format!("{:.1} GB", (b / GB * 10.0).floor() / 10.0)
+    }
+}
+
 /// Confirm we can write to `path` *before* claiming a one-time secret, so a
 /// secret is never consumed when we already know we can't deliver it.
 ///
@@ -218,6 +237,22 @@ mod tests {
         ];
         for (bytes, want) in cases {
             assert_eq!(human_size(bytes), want, "bytes={bytes}");
+        }
+    }
+
+    #[test]
+    fn human_size_floor_rounds_down() {
+        let cases = [
+            (1_574_000usize, "1.5 MB"), // would round up to 1.6 with human_size
+            (1_600_000, "1.6 MB"),
+            (1_999_999, "1.9 MB"),
+            (999_999, "999 KB"),
+            (1_000_000, "1.0 MB"),
+            (1_500, "1 KB"),
+            (2_500_000_000, "2.5 GB"),
+        ];
+        for (bytes, want) in cases {
+            assert_eq!(human_size_floor(bytes), want, "bytes={bytes}");
         }
     }
 

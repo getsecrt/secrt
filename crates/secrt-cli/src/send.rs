@@ -366,10 +366,12 @@ fn enforce_envelope_limit(
         .and_then(|s| s.to_str())
         .unwrap_or("this file");
 
+    // Budgets are rounded down (`human_size_floor`) so the stated ceiling is one
+    // the file is guaranteed to fit under — no "about" hedge needed.
     let mut msg = format!(
-        "{name} ({}) is too large for {host} — it accepts files up to about {}.",
+        "{name} ({}) is too large for {host} — it accepts files up to {}.",
         crate::fileutil::human_size(file_bytes),
-        crate::fileutil::human_size(budget(limit)),
+        crate::fileutil::human_size_floor(budget(limit)),
     );
     if !authed {
         let authed_limit = info.limits.authed.max_envelope_bytes;
@@ -377,8 +379,8 @@ fn enforce_envelope_limit(
             msg.push_str(" Sign in with `secrt auth login` to send files of any size.");
         } else if authed_limit > limit {
             msg.push_str(&format!(
-                " Sign in with `secrt auth login` to send up to about {}.",
-                crate::fileutil::human_size(budget(authed_limit)),
+                " Sign in with `secrt auth login` to send up to {}.",
+                crate::fileutil::human_size_floor(budget(authed_limit)),
             ));
         }
     }
