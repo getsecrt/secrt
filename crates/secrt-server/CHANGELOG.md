@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+## 0.19.1 — 2026-06-04
+
+Maintenance release — refreshes dependencies and keeps the server in version
+lockstep with the CLI's error-messaging release (`cli/v0.19.1`). No functional,
+API, or wire-format changes; `MIN_SUPPORTED_CLI_VERSION` is unchanged.
+
+### Changed
+
+- **Refreshed in-range dependencies** (cargo). Picks up patch/minor updates to
+  transitive crates baked into the server binary (`hyper`, `chrono`, `log`,
+  `zerocopy`, …). No behavior change.
+
 ## 0.19.0 — 2026-05-28
 
 ### Added

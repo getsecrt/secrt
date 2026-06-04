@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+## 0.19.1 — 2026-06-04
+
+A focused pass over CLI error messaging and failure handling: clearer auth
+and "secret is gone" messages, a fix so a failed save can't lose an
+already-retrieved secret, friendlier 4xx framing, human-readable sizes, an
+oversized-file fast-fail, and a tidier `secrt config`.
+
 ### Security
 
 - **Recovered secret files are written owner-only (`0600`) on Unix.**
@@ -85,7 +92,7 @@
   CLI can't tell which. Instead of leaking the raw status, `secrt get` now
   explains the union calmly: *Secret unavailable. It may have already been
   opened, expired, or the link is incomplete.* Other claim failures (5xx,
-  network, rate limit) keep their explanatory prefix.
+  network) are surfaced as-is.
 
   Spec: `spec/v1/api.md` §Claim. Files: `crates/secrt-cli/src/get.rs`.
 
