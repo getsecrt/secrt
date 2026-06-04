@@ -177,8 +177,8 @@ fn burn_api_error() {
     );
     assert_eq!(code, 1);
     assert!(
-        stderr.to_string().contains("burn failed"),
-        "stderr: {}",
+        stderr.to_string().contains("forbidden"),
+        "should surface the error: {}",
         stderr
     );
 }
@@ -293,8 +293,8 @@ fn burn_prefix_resolves_via_list() {
     assert_eq!(code, 1);
     let err = stderr.to_string();
     assert!(
-        err.contains("burn failed"),
-        "should show burn failed: {}",
+        err.contains("not found"),
+        "should surface the underlying error: {}",
         err
     );
 }

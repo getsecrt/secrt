@@ -179,28 +179,37 @@ impl ApiClient {
 
 /// Friendly fallback error message for HTTP status codes when the server
 /// provides no JSON error body.
+///
+/// "server error" is reserved for 5xx — the cases that are genuinely the
+/// server's fault. 4xx are client-side conditions (bad key, gone secret,
+/// too many requests), so they're framed as the condition itself. Every
+/// message keeps the `(status)` suffix so callers that detect codes by
+/// substring (`(401)`, `404`) keep working.
 fn format_status_error(status: u16) -> String {
-    let desc = match status {
-        401 => "unauthorized; check your API key",
-        403 => "forbidden",
-        404 => "not found",
-        429 => "rate limit exceeded; please try again in a few seconds",
-        500 | 502 | 503 => "server is temporarily unavailable; please try again later",
-        _ => "",
-    };
-    if desc.is_empty() {
-        format!("server error ({})", status)
-    } else {
-        format!("server error ({}): {}", status, desc)
+    match status {
+        401 => "unauthorized (401); check your API key".to_string(),
+        403 => "forbidden (403)".to_string(),
+        404 => "not found (404)".to_string(),
+        429 => "rate limit exceeded (429); please try again in a few seconds".to_string(),
+        500 | 502 | 503 => {
+            format!("the server is temporarily unavailable ({status}); please try again later")
+        }
+        s if s >= 500 => format!("server error ({s})"),
+        s => format!("request failed ({s})"),
     }
 }
 
-/// Format an API error from a JSON body and status code.
-/// Returns `None` if the body doesn't contain a valid error message.
+/// Format an API error from a JSON body and status code. A server-provided
+/// message is surfaced verbatim with the status appended; only 5xx keeps the
+/// "server error" framing (4xx are client-side conditions).
 fn format_api_error(status: u16, body: &str) -> String {
     if let Ok(err_resp) = serde_json::from_str::<ApiErrorResponse>(body) {
         if !err_resp.error.is_empty() {
-            return format!("server error ({}): {}", status, err_resp.error);
+            return if status >= 500 {
+                format!("server error ({}): {}", status, err_resp.error)
+            } else {
+                format!("{} ({})", err_resp.error, status)
+            };
         }
     }
     format_status_error(status)
@@ -912,78 +921,83 @@ mod tests {
         let msg = format_status_error(429);
         assert_eq!(
             msg,
-            "server error (429): rate limit exceeded; please try again in a few seconds"
+            "rate limit exceeded (429); please try again in a few seconds"
         );
     }
 
     #[test]
     fn status_401_unauthorized() {
+        // 4xx is a client-side condition — not framed as a "server error" —
+        // but keeps the "(401)" marker the auth-error decorator detects.
         let msg = format_status_error(401);
-        assert_eq!(msg, "server error (401): unauthorized; check your API key");
+        assert_eq!(msg, "unauthorized (401); check your API key");
+        assert!(msg.contains("(401)"));
     }
 
     #[test]
     fn status_403_forbidden() {
-        let msg = format_status_error(403);
-        assert_eq!(msg, "server error (403): forbidden");
+        assert_eq!(format_status_error(403), "forbidden (403)");
     }
 
     #[test]
     fn status_404_not_found() {
         let msg = format_status_error(404);
-        assert_eq!(msg, "server error (404): not found");
+        assert_eq!(msg, "not found (404)");
+        assert!(msg.contains("404"));
     }
 
     #[test]
     fn status_500_unavailable() {
-        let msg = format_status_error(500);
         assert_eq!(
-            msg,
-            "server error (500): server is temporarily unavailable; please try again later"
+            format_status_error(500),
+            "the server is temporarily unavailable (500); please try again later"
         );
     }
 
     #[test]
     fn status_502_unavailable() {
-        let msg = format_status_error(502);
         assert_eq!(
-            msg,
-            "server error (502): server is temporarily unavailable; please try again later"
+            format_status_error(502),
+            "the server is temporarily unavailable (502); please try again later"
         );
     }
 
     #[test]
     fn status_503_unavailable() {
-        let msg = format_status_error(503);
         assert_eq!(
-            msg,
-            "server error (503): server is temporarily unavailable; please try again later"
+            format_status_error(503),
+            "the server is temporarily unavailable (503); please try again later"
         );
     }
 
     #[test]
-    fn status_unknown_code() {
-        let msg = format_status_error(418);
-        assert_eq!(msg, "server error (418)");
+    fn status_unknown_5xx_is_server_error() {
+        assert_eq!(format_status_error(599), "server error (599)");
+    }
+
+    #[test]
+    fn status_unknown_4xx_is_request_failed() {
+        // "server error" is reserved for 5xx; an odd 4xx is a request failure.
+        assert_eq!(format_status_error(418), "request failed (418)");
     }
 
     // --- format_api_error: JSON body parsing + fallback ---
 
     #[test]
-    fn api_error_json_body() {
+    fn api_error_json_body_4xx_drops_server_error_framing() {
         let body = r#"{"error":"rate limit exceeded; please try again in a few seconds"}"#;
         let msg = format_api_error(429, body);
         assert_eq!(
             msg,
-            "server error (429): rate limit exceeded; please try again in a few seconds"
+            "rate limit exceeded; please try again in a few seconds (429)"
         );
     }
 
     #[test]
-    fn api_error_custom_message() {
+    fn api_error_custom_message_4xx() {
         let body = r#"{"error":"quota exceeded for your plan"}"#;
         let msg = format_api_error(429, body);
-        assert_eq!(msg, "server error (429): quota exceeded for your plan");
+        assert_eq!(msg, "quota exceeded for your plan (429)");
     }
 
     #[test]
@@ -992,7 +1006,7 @@ mod tests {
         let msg = format_api_error(429, body);
         assert_eq!(
             msg,
-            "server error (429): rate limit exceeded; please try again in a few seconds"
+            "rate limit exceeded (429); please try again in a few seconds"
         );
     }
 
@@ -1001,7 +1015,7 @@ mod tests {
         let msg = format_api_error(429, "not json");
         assert_eq!(
             msg,
-            "server error (429): rate limit exceeded; please try again in a few seconds"
+            "rate limit exceeded (429); please try again in a few seconds"
         );
     }
 
@@ -1010,18 +1024,17 @@ mod tests {
         let msg = format_api_error(429, "");
         assert_eq!(
             msg,
-            "server error (429): rate limit exceeded; please try again in a few seconds"
+            "rate limit exceeded (429); please try again in a few seconds"
         );
     }
 
     #[test]
     fn api_error_unknown_status_no_json() {
-        let msg = format_api_error(418, "");
-        assert_eq!(msg, "server error (418)");
+        assert_eq!(format_api_error(418, ""), "request failed (418)");
     }
 
     #[test]
-    fn api_error_server_message_overrides_fallback() {
+    fn api_error_5xx_keeps_server_error_framing() {
         let body = r#"{"error":"custom server message"}"#;
         let msg = format_api_error(500, body);
         assert_eq!(msg, "server error (500): custom server message");

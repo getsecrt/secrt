@@ -137,7 +137,7 @@ pub fn run_get(args: &[String], deps: &mut Deps) -> i32 {
                  or the link is incomplete."
                     .to_string()
             } else {
-                format!("get failed: {}", e)
+                e
             };
             write_error(&mut deps.stderr, pa.json, (deps.is_tty)(), &msg);
             return 1;
@@ -283,9 +283,17 @@ pub fn run_get(args: &[String], deps: &mut Deps) -> i32 {
 
         // --- Phase C: Fallback to interactive prompt or error ---
         if !needs_pass && tried == 0 {
-            // No passphrase needed and decryption failed with empty passphrase — this is
-            // a genuine decryption error (wrong URL key), not a passphrase issue
-            write_error(&mut deps.stderr, pa.json, is_tty, "decryption failed");
+            // No passphrase needed and decryption failed with empty passphrase —
+            // a genuine decryption error (wrong URL key). The overwhelmingly
+            // common cause is a link whose `#…` fragment got truncated in
+            // chat/email, so point the recipient at that.
+            write_error(
+                &mut deps.stderr,
+                pa.json,
+                is_tty,
+                "decryption failed — the secret key in the link (after #) is wrong or \
+                 incomplete. Check that you copied the entire link.",
+            );
             return 1;
         }
 

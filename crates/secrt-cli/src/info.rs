@@ -197,33 +197,18 @@ pub fn run_info(args: &[String], deps: &mut Deps) -> i32 {
             Ok(full_id) => match client.get_secret_metadata(&full_id) {
                 Ok(m) => m,
                 Err(e2) => {
-                    write_error(
-                        &mut deps.stderr,
-                        pa.json,
-                        (deps.is_tty)(),
-                        &format!("info failed: {}", e2),
-                    );
+                    write_error(&mut deps.stderr, pa.json, (deps.is_tty)(), &e2);
                     return 1;
                 }
             },
             Err(resolve_err) => {
-                write_error(
-                    &mut deps.stderr,
-                    pa.json,
-                    (deps.is_tty)(),
-                    &format!("info failed: {}", resolve_err),
-                );
+                write_error(&mut deps.stderr, pa.json, (deps.is_tty)(), &resolve_err);
                 return 1;
             }
         },
         Err(e) => {
             let decorated = crate::auth::explain_auth_error(&e, &pa, deps, pa.json, stderr_tty);
-            write_error(
-                &mut deps.stderr,
-                pa.json,
-                (deps.is_tty)(),
-                &format!("info failed: {}", decorated),
-            );
+            write_error(&mut deps.stderr, pa.json, (deps.is_tty)(), &decorated);
             return 1;
         }
     };

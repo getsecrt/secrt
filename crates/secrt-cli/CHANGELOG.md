@@ -4,6 +4,21 @@
 
 ### Changed
 
+- **Client-side failures no longer masquerade as "server error."**
+
+  A 4xx is a problem with the request, not the server, so the CLI now frames
+  it that way: `unauthorized (401)`, `forbidden (403)`, `not found (404)`,
+  `rate limit exceeded (429)…`. "server error" is reserved for 5xx, where it's
+  accurate. Redundant `burn failed:` / `list failed:` / `get failed:` prefixes
+  were dropped — the messages now stand on their own. Files: `client.rs`,
+  `burn.rs`, `info.rs`, `list.rs`, `sync.rs`, `get.rs`.
+
+- **A wrong or truncated link gives an actionable hint, not "decryption failed."**
+
+  When a share link decrypts with no passphrase involved, the cause is almost
+  always a `#…` fragment truncated in chat/email — so the message now says so:
+  *the secret key in the link (after #) is wrong or incomplete.* File: `get.rs`.
+
 - **A 401 on an authenticated command now explains *which* server rejected your key and how to fix it.**
 
   Instead of `server error (401): unauthorized`, the CLI now prints the

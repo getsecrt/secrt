@@ -325,9 +325,10 @@ fn get_404_explains_one_time_semantics() {
 }
 
 #[test]
-fn get_non_404_error_keeps_prefix() {
-    // Other claim failures (network, 5xx, rate limit) are real errors and
-    // keep the explanatory "get failed:" prefix.
+fn get_non_404_error_surfaces_raw() {
+    // Non-404 claim failures (5xx, network) are surfaced as-is — no friendly
+    // "Secret unavailable" rewrite (that's only for the 404 union) and no
+    // longer wrapped in a redundant "get failed:" prefix.
     let url = make_share_url("https://secrt.ca", "test123");
     let (mut deps, _stdout, stderr) = TestDepsBuilder::new()
         .mock_claim(Err(
@@ -337,8 +338,11 @@ fn get_non_404_error_keeps_prefix() {
     let code = cli::run(&args(&["secrt", "get", &url]), &mut deps);
     assert_eq!(code, 1);
     let err = stderr.to_string();
-    assert!(err.contains("get failed"), "stderr: {err}");
     assert!(err.contains("503"), "should surface the real error: {err}");
+    assert!(
+        !err.contains("Secret unavailable") && !err.contains("get failed"),
+        "non-404 should not be rewritten or prefixed: {err}"
+    );
 }
 
 #[test]

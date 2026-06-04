@@ -228,8 +228,8 @@ fn sync_claim_error_exits_1() {
     assert_eq!(code, 1);
     let err = stderr.to_string();
     assert!(
-        err.contains("sync failed"),
-        "should show sync error: {}",
+        err.contains("not found"),
+        "should surface the sync error: {}",
         err
     );
 }

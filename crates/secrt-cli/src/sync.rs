@@ -48,12 +48,7 @@ pub(crate) fn handle_sync_url(
     let resp = match client.claim(id, &claim_token) {
         Ok(r) => r,
         Err(e) => {
-            write_error(
-                &mut deps.stderr,
-                json,
-                is_tty,
-                &format!("sync failed: {}", e),
-            );
+            write_error(&mut deps.stderr, json, is_tty, &e);
             return 1;
         }
     };
