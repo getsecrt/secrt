@@ -17,13 +17,14 @@
 
   Instead of encrypting, uploading, and *then* getting rejected, the CLI now
   checks the file against the instance's per-secret limit up front (one `/info`
-  call) and fails fast in the user's terms: *report.pdf (4 MB) is too large for
-  secrt.ca — it accepts files up to 48 KB. Sign in with `secrt auth login` to
-  send up to 1.5 MB.* The stated budget is derived from the file's actual
-  encryption expansion and rounded down, so it's a ceiling the file is
-  guaranteed to fit under — no hedging. Best-effort: if `/info` is unreachable,
-  the upload proceeds and the server still enforces. File:
-  `crates/secrt-cli/src/send.rs`.
+  call) and fails fast in the user's terms — for example: *“report.pdf is too
+  large for this instance — it accepts files up to ⟨limit⟩. Sign in with `secrt
+  auth login` to send up to ⟨higher limit⟩.”* The actual ceilings are
+  instance-configured and differ for signed-in users, so the message reads them
+  live from `/info`; the stated budget is derived from the file's real
+  encryption expansion and rounded down, so it's a size the file is guaranteed
+  to fit under — no hedging. Best-effort: if `/info` is unreachable, the upload
+  proceeds and the server still enforces. File: `crates/secrt-cli/src/send.rs`.
 
 - **`secrt send --file` reports the file name and size on success** — e.g.
   `✓ Encrypted and uploaded report.pdf (119 KB).` (Only for file sends; text
